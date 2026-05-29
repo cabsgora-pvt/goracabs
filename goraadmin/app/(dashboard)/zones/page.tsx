@@ -25,7 +25,9 @@ export default function ZonesPage() {
   const [zones, setZones] = useState<Zone[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [savingPeak, setSavingPeak] = useState(false)
   const [selectedZone, setSelectedZone] = useState<Zone | null>(null)
+  const [peakSettings, setPeakSettings] = useState({ peakZoneRadius: 0, peakZoneDuration: 0, peakZoneRideCount: 0, distancePricePercentage: 0, maximumDistance: 0, maximumOutstationDistance: 0 })
   const [editingZone, setEditingZone] = useState<Zone | null>(null)
   const [drawnPath, setDrawnPath] = useState<LatLng[] | null>(null)
   const [drawMode, setDrawMode] = useState(false)
@@ -143,6 +145,23 @@ export default function ZonesPage() {
 
   const cancelDraw = () => { setDrawMode(false); setDrawnPath(null); setShowForm(false) }
 
+  const savePeakSettings = async () => {
+    if (!selectedZone) return
+    setSavingPeak(true)
+    const res = await fetch(`/api/zones/${selectedZone._id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(peakSettings),
+    })
+    setSavingPeak(false)
+    if (res.ok) {
+      setToast({ msg: 'Peak zone settings saved!', type: 'success' })
+      fetchZones()
+    } else {
+      setToast({ msg: 'Failed to save peak settings', type: 'error' })
+    }
+  }
+
   return (
     <div className="flex flex-col h-screen overflow-hidden">
       <Header title="Zone Management" />
@@ -183,7 +202,7 @@ export default function ZonesPage() {
             ) : zones.map((z, i) => (
               <div
                 key={z._id}
-                onClick={() => { setSelectedZone(z); setInfoPos({ lat: z.centerLat || MAP_CENTER.lat, lng: z.centerLng || MAP_CENTER.lng }) }}
+                onClick={() => { setSelectedZone(z); setInfoPos({ lat: z.centerLat || MAP_CENTER.lat, lng: z.centerLng || MAP_CENTER.lng }); setPeakSettings({ peakZoneRadius: (z as any).peakZoneRadius ?? 0, peakZoneDuration: (z as any).peakZoneDuration ?? 0, peakZoneRideCount: (z as any).peakZoneRideCount ?? 0, distancePricePercentage: (z as any).distancePricePercentage ?? 0, maximumDistance: (z as any).maximumDistance ?? 0, maximumOutstationDistance: (z as any).maximumOutstationDistance ?? 0 }) }}
                 className={`p-4 cursor-pointer hover:bg-gray-50 transition-colors ${selectedZone?._id === z._id ? 'bg-blue-50 border-l-4 border-blue-600' : ''}`}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -255,14 +274,14 @@ export default function ZonesPage() {
                       zIndex: selectedZone?._id === z._id ? 10 : 1,
                     }}
                     onLoad={p => { if (editingZone?._id === z._id) editPolygonRef.current = p }}
-                    onClick={() => { setSelectedZone(z); setInfoPos({ lat: z.centerLat || MAP_CENTER.lat, lng: z.centerLng || MAP_CENTER.lng }) }}
+                    onClick={() => { setSelectedZone(z); setInfoPos({ lat: z.centerLat || MAP_CENTER.lat, lng: z.centerLng || MAP_CENTER.lng }); setPeakSettings({ peakZoneRadius: (z as any).peakZoneRadius ?? 0, peakZoneDuration: (z as any).peakZoneDuration ?? 0, peakZoneRideCount: (z as any).peakZoneRideCount ?? 0, distancePricePercentage: (z as any).distancePricePercentage ?? 0, maximumDistance: (z as any).maximumDistance ?? 0, maximumOutstationDistance: (z as any).maximumOutstationDistance ?? 0 }) }}
                   />
                 ) : (
                   <Marker
                     key={z._id}
                     position={{ lat: z.centerLat, lng: z.centerLng }}
                     title={z.name}
-                    onClick={() => { setSelectedZone(z); setInfoPos({ lat: z.centerLat || MAP_CENTER.lat, lng: z.centerLng || MAP_CENTER.lng }) }}
+                    onClick={() => { setSelectedZone(z); setInfoPos({ lat: z.centerLat || MAP_CENTER.lat, lng: z.centerLng || MAP_CENTER.lng }); setPeakSettings({ peakZoneRadius: (z as any).peakZoneRadius ?? 0, peakZoneDuration: (z as any).peakZoneDuration ?? 0, peakZoneRideCount: (z as any).peakZoneRideCount ?? 0, distancePricePercentage: (z as any).distancePricePercentage ?? 0, maximumDistance: (z as any).maximumDistance ?? 0, maximumOutstationDistance: (z as any).maximumOutstationDistance ?? 0 }) }}
                   />
                 ))}
 
@@ -291,8 +310,8 @@ export default function ZonesPage() {
 
           {/* Zone detail panel (shown when zone selected) */}
           {selectedZone && !editingZone && (
-            <div className="bg-white border-t border-gray-100 p-4">
-              <div className="flex items-center justify-between">
+            <div className="bg-white border-t border-gray-100 overflow-y-auto max-h-80">
+              <div className="p-4 flex items-center justify-between border-b border-gray-50">
                 <div>
                   <h3 className="font-bold text-gray-900 text-lg">{selectedZone.name}</h3>
                   <p className="text-sm text-gray-500">{selectedZone.city} · {selectedZone.type} · {selectedZone.polygonPath?.length || 0} boundary points</p>
@@ -313,6 +332,54 @@ export default function ZonesPage() {
                   <button type="button" onClick={() => deleteZone(selectedZone._id)}
                     className="p-2 hover:bg-red-50 rounded-lg text-red-500" title="Delete zone">
                     <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              {/* Peak Zone Settings */}
+              <div className="p-4">
+                <h4 className="text-sm font-semibold text-gray-700 mb-3">Peak Zone Settings</h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                  <div>
+                    <label htmlFor="peak-radius" className="block text-xs font-medium text-gray-600 mb-1">Peak Zone Radius (m)</label>
+                    <input id="peak-radius" type="number" title="Peak zone radius in metres" value={peakSettings.peakZoneRadius}
+                      onChange={e => setPeakSettings({ ...peakSettings, peakZoneRadius: +e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label htmlFor="peak-duration" className="block text-xs font-medium text-gray-600 mb-1">Peak Zone Duration (min)</label>
+                    <input id="peak-duration" type="number" title="Peak zone duration in minutes" value={peakSettings.peakZoneDuration}
+                      onChange={e => setPeakSettings({ ...peakSettings, peakZoneDuration: +e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label htmlFor="peak-ride-count" className="block text-xs font-medium text-gray-600 mb-1">Peak Zone Ride Count</label>
+                    <input id="peak-ride-count" type="number" title="Number of rides to trigger peak surge" value={peakSettings.peakZoneRideCount}
+                      onChange={e => setPeakSettings({ ...peakSettings, peakZoneRideCount: +e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label htmlFor="peak-surge-pct" className="block text-xs font-medium text-gray-600 mb-1">Distance Price % (surge)</label>
+                    <input id="peak-surge-pct" type="number" title="Surge percentage applied to distance price" value={peakSettings.distancePricePercentage}
+                      onChange={e => setPeakSettings({ ...peakSettings, distancePricePercentage: +e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label htmlFor="peak-max-dist" className="block text-xs font-medium text-gray-600 mb-1">Max Ride Distance (km)</label>
+                    <input id="peak-max-dist" type="number" title="Maximum ride distance in km (0 = unlimited)" value={peakSettings.maximumDistance}
+                      onChange={e => setPeakSettings({ ...peakSettings, maximumDistance: +e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  <div>
+                    <label htmlFor="peak-max-outstation" className="block text-xs font-medium text-gray-600 mb-1">Max Outstation Distance (km)</label>
+                    <input id="peak-max-outstation" type="number" title="Maximum outstation distance in km (0 = unlimited)" value={peakSettings.maximumOutstationDistance}
+                      onChange={e => setPeakSettings({ ...peakSettings, maximumOutstationDistance: +e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <button type="button" onClick={savePeakSettings} disabled={savingPeak}
+                    className="px-5 py-2 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary-dark disabled:opacity-60">
+                    {savingPeak ? 'Saving...' : 'Save Peak Settings'}
                   </button>
                 </div>
               </div>

@@ -7,7 +7,7 @@ import {
   MessageSquare, Bell, Image, Gift, ChevronDown, ChevronRight,
   LogOut, Truck, FileText, Shield, HelpCircle, AlertCircle,
   CheckCircle, XCircle, Clock, DollarSign, Wallet, TrendingUp,
-  Menu, X, User, Package
+  Menu, X, User, Package, Zap, UserCheck
 } from 'lucide-react'
 
 interface NavItem {
@@ -42,12 +42,14 @@ const navItems: NavItem[] = [
       { label: 'Rental', href: '/services/rental', icon: Clock },
       { label: 'Outstation', href: '/services/outstation', icon: Map },
       { label: 'Delivery', href: '/services/delivery', icon: Package },
+      { label: 'Hire a Driver', href: '/services/hire-driver', icon: UserCheck },
     ]
   },
   {
     label: 'Zones', icon: Map,
     children: [
       { label: 'Manage Zones', href: '/zones', icon: Map },
+      { label: 'Surge Pricing', href: '/zones/surge', icon: Zap },
     ]
   },
   {

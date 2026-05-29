@@ -14,10 +14,18 @@ const FIELDS = [
   { label: 'Driver Commission (%)', key: 'driverCommissionPercent' },
 ]
 
+const OUTSTATION_FIELDS = [
+  { label: 'Outstation Base Fare (₹)', key: 'outstationBaseFare' },
+  { label: 'Outstation Base Distance (km)', key: 'outstationBaseDistance' },
+  { label: 'Outstation Price Per KM (₹)', key: 'outstationPricePerDistance' },
+  { label: 'Outstation Price Per Min (₹)', key: 'outstationPricePerTime' },
+]
+
 export default function OutstationServicePage() {
   const [config, setConfig] = useState<any>({
     baseFare: 500, perKm: 12, perMin: 0, minFare: 500,
     nightSurchargePercent: 0, cancellationFee: 100, driverCommissionPercent: 85,
+    outstationBaseFare: 0, outstationBaseDistance: 0, outstationPricePerTime: 0, outstationPricePerDistance: 0,
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -56,19 +64,36 @@ export default function OutstationServicePage() {
       <div className="p-6 space-y-6">
         <PageHeader title="Outstation Service Pricing" subtitle="Configure fares for outstation trips" />
         <form onSubmit={handleSave}>
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {FIELDS.map(f => (
-                <div key={f.key}>
-                  <label htmlFor={`outstation-${f.key}`} className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
-                  <input id={`outstation-${f.key}`} type="number" step="0.5"
-                    value={config[f.key] ?? 0}
-                    onChange={e => setConfig({ ...config, [f.key]: +e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-              ))}
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-6">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 mb-4 pb-2 border-b border-gray-100">City / General Pricing</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {FIELDS.map(f => (
+                  <div key={f.key}>
+                    <label htmlFor={`outstation-${f.key}`} className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
+                    <input id={`outstation-${f.key}`} type="number" step="0.5"
+                      value={config[f.key] ?? 0}
+                      onChange={e => setConfig({ ...config, [f.key]: +e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="mt-6 flex justify-end">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 mb-4 pb-2 border-b border-gray-100">Outstation Specific Pricing</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                {OUTSTATION_FIELDS.map(f => (
+                  <div key={f.key}>
+                    <label htmlFor={`outstation-${f.key}`} className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
+                    <input id={`outstation-${f.key}`} type="number" step="0.5"
+                      value={config[f.key] ?? 0}
+                      onChange={e => setConfig({ ...config, [f.key]: +e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end">
               <button type="submit" disabled={saving}
                 className="px-8 py-2.5 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary-dark disabled:opacity-60">
                 {saving ? 'Saving...' : 'Save Pricing'}

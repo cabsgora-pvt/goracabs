@@ -12,12 +12,15 @@ const FIELDS = [
   { label: 'Night Surcharge (%)', key: 'nightSurchargePercent' },
   { label: 'Cancellation Fee (₹)', key: 'cancellationFee' },
   { label: 'Driver Commission (%)', key: 'driverCommissionPercent' },
+  { label: 'Base Distance (km)', key: 'baseDistance', hint: 'Free km included in base fare' },
+  { label: 'Waiting Charge (₹/min)', key: 'waitingCharge' },
 ]
 
 export default function TaxiServicePage() {
   const [config, setConfig] = useState<any>({
     baseFare: 50, perKm: 15, perMin: 2, minFare: 70,
     nightSurchargePercent: 15, cancellationFee: 30, driverCommissionPercent: 80,
+    baseDistance: 2, waitingCharge: 1, priceType: 'both',
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -67,8 +70,20 @@ export default function TaxiServicePage() {
                     value={config[f.key] ?? 0}
                     onChange={e => setConfig({ ...config, [f.key]: +e.target.value })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  {(f as any).hint && <p className="text-xs text-gray-400 mt-1">{(f as any).hint}</p>}
                 </div>
               ))}
+              <div>
+                <label htmlFor="taxi-priceType" className="block text-sm font-medium text-gray-700 mb-1">Price Type</label>
+                <select id="taxi-priceType"
+                  value={config.priceType ?? 'both'}
+                  onChange={e => setConfig({ ...config, priceType: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="both">Both</option>
+                  <option value="ride_now">Ride Now Only</option>
+                  <option value="ride_later">Ride Later Only</option>
+                </select>
+              </div>
             </div>
             <div className="mt-6 flex justify-end">
               <button type="submit" disabled={saving}

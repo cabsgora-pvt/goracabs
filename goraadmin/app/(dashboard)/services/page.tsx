@@ -3,20 +3,21 @@ import { useState, useEffect } from 'react'
 import { Header } from '@/components/header'
 import { PageHeader } from '@/components/ui/page-header'
 import { Toast } from '@/components/ui/toast'
-import { Car, Clock, Map, Package, Truck, ArrowRight } from 'lucide-react'
+import { Car, Clock, Map, Package, Truck, UserCheck, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 
 const servicesList = [
-  { id: 'taxi', label: 'Taxi', icon: Car, description: 'Point-to-point city rides', href: '/services/taxi', color: 'bg-blue-50 text-blue-600' },
-  { id: 'rental', label: 'Rental', icon: Clock, description: 'Hourly car rental packages', href: '/services/rental', color: 'bg-green-50 text-green-600' },
-  { id: 'outstation', label: 'Outstation', icon: Map, description: 'One-way and round trips', href: '/services/outstation', color: 'bg-purple-50 text-purple-600' },
-  { id: 'delivery', label: 'Delivery', icon: Package, description: 'Package and goods delivery', href: '/services/delivery', color: 'bg-orange-50 text-orange-600' },
-  { id: 'goods', label: 'Goods Delivery', icon: Truck, description: 'Large goods transportation', href: '/services/delivery', color: 'bg-yellow-50 text-yellow-600' },
+  { id: 'taxi',        label: 'Taxi',          icon: Car,       description: 'Point-to-point city rides',      href: '/services/taxi',        color: 'bg-blue-50 text-blue-600' },
+  { id: 'rental',      label: 'Rental',        icon: Clock,     description: 'Hourly car rental packages',     href: '/services/rental',      color: 'bg-green-50 text-green-600' },
+  { id: 'outstation',  label: 'Outstation',    icon: Map,       description: 'One-way and round trips',        href: '/services/outstation',  color: 'bg-purple-50 text-purple-600' },
+  { id: 'delivery',    label: 'Delivery',      icon: Package,   description: 'Package and goods delivery',     href: '/services/delivery',    color: 'bg-orange-50 text-orange-600' },
+  { id: 'goods',       label: 'Goods',         icon: Truck,     description: 'Large goods transportation',     href: '/services/delivery',    color: 'bg-yellow-50 text-yellow-600' },
+  { id: 'hire_driver', label: 'Hire a Driver', icon: UserCheck, description: 'Book a driver for your own car', href: '/services/hire-driver', color: 'bg-pink-50 text-pink-600' },
 ]
 
 export default function ServicesPage() {
   const [toggles, setToggles] = useState<Record<string, boolean>>({
-    taxi: true, rental: true, outstation: true, delivery: true, goods: false,
+    taxi: true, rental: true, outstation: true, delivery: true, goods: false, hire_driver: true,
   })
   const [toast, setToast] = useState<{ msg: string } | null>(null)
 
@@ -24,7 +25,7 @@ export default function ServicesPage() {
     fetch('/api/services')
       .then(r => r.json())
       .then(d => {
-        const map: Record<string, boolean> = { taxi: true, rental: true, outstation: true, delivery: true, goods: false }
+        const map: Record<string, boolean> = { taxi: true, rental: true, outstation: true, delivery: true, goods: false, hire_driver: true }
         ;(d.services || []).forEach((s: any) => { map[s.service] = s.isActive })
         setToggles(map)
       })

@@ -17,5 +17,11 @@ const ZoneSchema = new Schema({
   centerLat: { type: Number, default: 23.0225 },
   centerLng: { type: Number, default: 72.5714 },
   pricing: [PricingSchema],
+  peakZoneRadius: { type: Number, default: 0 },
+  peakZoneDuration: { type: Number, default: 0 },
+  peakZoneRideCount: { type: Number, default: 0 },
+  distancePricePercentage: { type: Number, default: 0 },
+  maximumDistance: { type: Number, default: 0 },
+  maximumOutstationDistance: { type: Number, default: 0 },
 }, { timestamps: true })
 export default mongoose.models.Zone || mongoose.model('Zone', ZoneSchema)
