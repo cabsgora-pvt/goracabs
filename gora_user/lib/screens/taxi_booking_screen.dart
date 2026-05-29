@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
@@ -40,9 +39,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   bool _showFullTripMap = false;
   bool _showArrivingButtons = false;
   bool _showMapPicker = false;
-  LatLng _selectedMapLocation = LatLng(28.6139, 77.2090);
-  LatLng _myLocation = LatLng(28.6139, 77.2090);
-  final MapController _mapController = MapController();
+  LatLng _selectedMapLocation = const LatLng(28.6139, 77.2090);
+  LatLng _myLocation = const LatLng(28.6139, 77.2090);
+  GoogleMapController? _mapController;
   List<TextEditingController> _stopControllers = [];
   
   final List<int> _tipAmounts = [10, 20, 50, 100];
@@ -73,7 +72,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         _myLocation = LatLng(pos.latitude, pos.longitude);
         _selectedMapLocation = _myLocation;
       });
-      try { _mapController.move(_myLocation, 15); } catch (_) {}
+      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_myLocation, 15));
     }
     _loadRealFares();
   }
@@ -157,6 +156,82 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     } catch (_) {/* keep default prices */}
   }
 
+  // Build Google Maps marker set
+  Set<Marker> _buildMapMarkers() {
+    final markers = <Marker>{};
+
+    // Pickup (your location)
+    if (!_showFullTripMap) {
+      markers.add(Marker(
+        markerId: const MarkerId('pickup'),
+        position: _myLocation,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+        infoWindow: const InfoWindow(title: 'Pickup'),
+      ));
+    }
+
+    // Drop (full trip view)
+    if (_showFullTripMap) {
+      markers.add(Marker(
+        markerId: const MarkerId('drop'),
+        position: const LatLng(28.6200, 77.2300),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+        infoWindow: const InfoWindow(title: 'Drop'),
+      ));
+    }
+
+    // Nearby available vehicles for selected type
+    if (!_isTaxiComing && _selectedVehicle != null) {
+      List<LatLng> spots = [];
+      if (_selectedVehicle == 'Bike') spots = _bikeLocations;
+      else if (_selectedVehicle == 'Auto') spots = _autoLocations;
+      else if (_selectedVehicle == 'Cab Economy') spots = _economyLocations;
+      else if (_selectedVehicle == 'SUV') spots = _suvLocations;
+      else if (_selectedVehicle == 'Premium') spots = _premiumLocations;
+      for (var i = 0; i < spots.length; i++) {
+        markers.add(Marker(
+          markerId: MarkerId('veh_$i'),
+          position: spots[i],
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          anchor: const Offset(0.5, 0.5),
+        ));
+      }
+    }
+
+    // Driver coming marker
+    if (_isTaxiComing && _comingTaxiLocation != null && !_showFullTripMap) {
+      markers.add(Marker(
+        markerId: const MarkerId('coming'),
+        position: _comingTaxiLocation!,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
+        infoWindow: const InfoWindow(title: 'Driver'),
+      ));
+    }
+
+    return markers;
+  }
+
+  Set<Polyline> _buildMapPolylines() {
+    final lines = <Polyline>{};
+    if (_isTaxiComing && !_showFullTripMap) {
+      lines.add(Polyline(
+        polylineId: const PolylineId('toPickup'),
+        points: [const LatLng(28.6220, 77.2150), _myLocation],
+        color: const Color(0xFF2196F3),
+        width: 4,
+      ));
+    }
+    if (_showFullTripMap) {
+      lines.add(Polyline(
+        polylineId: const PolylineId('trip'),
+        points: [_myLocation, const LatLng(28.6200, 77.2300)],
+        color: const Color(0xFF4CAF50),
+        width: 4,
+      ));
+    }
+    return lines;
+  }
+
   @override
   Widget build(BuildContext context) {
     // Show full screen location selection first
@@ -171,284 +246,18 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
           Expanded(
             child: Stack(
               children: [
-                FlutterMap(
-                  mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: _myLocation,
-                    initialZoom: 15.0,
-                    interactionOptions: const InteractionOptions(
-                      flags: InteractiveFlag.all,
-                    ),
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.goracabs.customer',
-                    ),
-                    if (_isTaxiComing)
-                      PolylineLayer(
-                        polylines: [
-                          if (!_showFullTripMap)
-                            Polyline(
-                              points: [
-                                LatLng(28.6220, 77.2150), // Mock driver location
-                                LatLng(28.6139, 77.2090), // Pickup location
-                              ],
-                              color: const Color(0xFF2196F3),
-                              strokeWidth: 4,
-                            ),
-                          if (_showFullTripMap)
-                            Polyline(
-                              points: [
-                                LatLng(28.6139, 77.2090), // Pickup location
-                                LatLng(28.6200, 77.2300), // Mock drop location
-                              ],
-                              color: const Color(0xFF4CAF50),
-                              strokeWidth: 4,
-                            ),
-                        ],
-                      ),
-                    MarkerLayer(
-                      markers: [
-                        if (!_showFullTripMap)
-                          Marker(
-                            point: _myLocation,
-                            width: 40,
-                            height: 40,
-                            child: const Icon(Icons.location_on, color: Color(0xFFFF5252), size: 40),
-                          ),
-                        if (_showFullTripMap)
-                          Marker(
-                            point: LatLng(28.6200, 77.2300), // Mock drop location
-                            width: 45,
-                            height: 45,
-                            child: const Icon(Icons.location_on, color: Colors.green, size: 45),
-                          ),
-                        // Show bike markers when bike is selected
-                        if (_selectedVehicle == 'Bike' && !_isTaxiComing)
-                          ..._bikeLocations.asMap().entries.map((entry) {
-                            final index = entry.key;
-                            final location = entry.value;
-                            // Different rotation angles for each bike
-                            final rotationAngle = (index * 60.0) * (3.14159 / 180); // Convert degrees to radians
-                            
-                            return Marker(
-                              point: location,
-                              width: 50,
-                              height: 50,
-                              child: Transform.rotate(
-                                angle: rotationAngle,
-                                child: Image.asset(
-                                  'assets/images/topview/bike-top.png',
-                                  width: 50,
-                                  height: 50,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    print('Error loading bike image: $error');
-                                    return Container(
-                                      width: 50,
-                                      height: 50,
-                                      decoration: BoxDecoration(
-                                        color: Color(0xFFFF9800),
-                                        borderRadius: BorderRadius.circular(25),
-                                      ),
-                                      child: const Icon(
-                                        Icons.two_wheeler,
-                                        color: Colors.white,
-                                        size: 24,
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        // Show auto markers when auto is selected
-                        if (_selectedVehicle == 'Auto' && !_isTaxiComing)
-                          ..._autoLocations.asMap().entries.map((entry) {
-                            final index = entry.key;
-                            final location = entry.value;
-                            final rotationAngle = (index * 72.0) * (3.14159 / 180);
-                            
-                            return Marker(
-                              point: location,
-                              width: 50,
-                              height: 50,
-                              child: Transform.rotate(
-                                angle: rotationAngle,
-                                child: Image.asset(
-                                  'assets/images/topview/auto-top.png',
-                                  width: 50,
-                                  height: 50,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Container(
-                                      width: 50,
-                                      height: 50,
-                                      decoration: BoxDecoration(
-                                        color: Color(0xFF2196F3),
-                                        borderRadius: BorderRadius.circular(25),
-                                      ),
-                                      child: const Icon(
-                                        Icons.electric_rickshaw,
-                                        color: Colors.white,
-                                        size: 24,
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        // Show economy car markers when Cab Economy is selected
-                        if (_selectedVehicle == 'Cab Economy' && !_isTaxiComing)
-                          ..._economyLocations.asMap().entries.map((entry) {
-                            final index = entry.key;
-                            final location = entry.value;
-                            final rotationAngle = (index * 90.0) * (3.14159 / 180);
-                            
-                            return Marker(
-                              point: location,
-                              width: 50,
-                              height: 50,
-                              child: Transform.rotate(
-                                angle: rotationAngle,
-                                child: Image.asset(
-                                  'assets/images/topview/economy-top.png',
-                                  width: 50,
-                                  height: 50,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Container(
-                                      width: 50,
-                                      height: 50,
-                                      decoration: BoxDecoration(
-                                        color: Color(0xFF2196F3),
-                                        borderRadius: BorderRadius.circular(25),
-                                      ),
-                                      child: const Icon(
-                                        Icons.directions_car,
-                                        color: Colors.white,
-                                        size: 24,
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        // Show SUV markers when SUV is selected
-                        if (_selectedVehicle == 'SUV' && !_isTaxiComing)
-                          ..._suvLocations.asMap().entries.map((entry) {
-                            final index = entry.key;
-                            final location = entry.value;
-                            final rotationAngle = (index * 180.0) * (3.14159 / 180);
-                            
-                            return Marker(
-                              point: location,
-                              width: 50,
-                              height: 50,
-                              child: Transform.rotate(
-                                angle: rotationAngle,
-                                child: Image.asset(
-                                  'assets/images/topview/suv-top.png',
-                                  width: 50,
-                                  height: 50,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Container(
-                                      width: 50,
-                                      height: 50,
-                                      decoration: BoxDecoration(
-                                        color: Color(0xFF2196F3),
-                                        borderRadius: BorderRadius.circular(25),
-                                      ),
-                                      child: const Icon(
-                                        Icons.airport_shuttle,
-                                        color: Colors.white,
-                                        size: 24,
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        // Show premium car markers when Premium is selected
-                        if (_selectedVehicle == 'Premium' && !_isTaxiComing)
-                          ..._premiumLocations.asMap().entries.map((entry) {
-                            final index = entry.key;
-                            final location = entry.value;
-                            final rotationAngle = (index * 45.0) * (3.14159 / 180);
-                            
-                            return Marker(
-                              point: location,
-                              width: 50,
-                              height: 50,
-                              child: Transform.rotate(
-                                angle: rotationAngle,
-                                child: Image.asset(
-                                  'assets/images/topview/primium-top.png',
-                                  width: 50,
-                                  height: 50,
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Container(
-                                      width: 50,
-                                      height: 50,
-                                      decoration: BoxDecoration(
-                                        color: Color(0xFF2196F3),
-                                        borderRadius: BorderRadius.circular(25),
-                                      ),
-                                      child: const Icon(
-                                        Icons.directions_car,
-                                        color: Colors.white,
-                                        size: 24,
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                            );
-                          }).toList(),
-                        
-                        // Show coming taxi marker when tracking is active
-                        if (_isTaxiComing && _comingTaxiLocation != null && !_showFullTripMap)
-                          Marker(
-                            point: _comingTaxiLocation!,
-                            width: 60,
-                            height: 60,
-                            child: Image.asset(
-                              _selectedVehicle == 'Bike' 
-                                  ? 'assets/images/topview/bike-top.png'
-                                  : _selectedVehicle == 'Auto'
-                                      ? 'assets/images/topview/auto-top.png'
-                                      : _selectedVehicle == 'SUV'
-                                          ? 'assets/images/topview/suv-top.png'
-                                          : _selectedVehicle == 'Premium'
-                                              ? 'assets/images/topview/primium-top.png'
-                                              : 'assets/images/topview/economy-top.png',
-                              width: 60,
-                              height: 60,
-                              fit: BoxFit.contain,
-                              errorBuilder: (context, error, stackTrace) => Container(
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF2196F3),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.white, width: 2),
-                                  boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                                ),
-                                child: Icon(
-                                  _vehicles.firstWhere((v) => v['name'] == _selectedVehicle)['icon'] as IconData,
-                                  color: Colors.white,
-                                  size: 30,
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
+                GoogleMap(
+                  initialCameraPosition: CameraPosition(target: _myLocation, zoom: 15),
+                  onMapCreated: (c) {
+                    _mapController = c;
+                    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_myLocation, 15));
+                  },
+                  myLocationEnabled: true,
+                  myLocationButtonEnabled: false,
+                  zoomControlsEnabled: false,
+                  mapToolbarEnabled: false,
+                  markers: _buildMapMarkers(),
+                  polylines: _buildMapPolylines(),
                 ),
                 if (_showFullTripMap)
                   Positioned(
@@ -799,25 +608,19 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _selectedMapLocation,
-              initialZoom: 15.0,
-              onPositionChanged: (position, hasGesture) {
-                if (hasGesture && position.center != null) {
-                  setState(() {
-                    _selectedMapLocation = position.center!;
-                  });
-                }
-              },
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.goracabs.customer',
-              ),
-            ],
+          GoogleMap(
+            initialCameraPosition: CameraPosition(target: _selectedMapLocation, zoom: 15),
+            onMapCreated: (c) => _mapController = c,
+            myLocationEnabled: true,
+            myLocationButtonEnabled: false,
+            zoomControlsEnabled: false,
+            mapToolbarEnabled: false,
+            onCameraMove: (pos) {
+              _selectedMapLocation = pos.target;
+            },
+            onCameraIdle: () {
+              setState(() {});
+            },
           ),
           // Center pin
           Center(
@@ -997,9 +800,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
               backgroundColor: Colors.white,
               onPressed: () {
                 setState(() {
-                  _selectedMapLocation = LatLng(28.6139, 77.2090);
+                  _selectedMapLocation = _myLocation;
                 });
-                _mapController.move(_selectedMapLocation, 15.0);
+                _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_myLocation, 15.0));
               },
               child: const Icon(Icons.my_location, color: Color(0xFF2196F3)),
             ),
