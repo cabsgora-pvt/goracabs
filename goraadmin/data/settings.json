@@ -1,0 +1,43 @@
+{
+  "general": {
+    "appName": "Gora Cabs",
+    "currency": "INR",
+    "currencySymbol": "₹",
+    "country": "India",
+    "timezone": "Asia/Kolkata",
+    "logo": "",
+    "supportEmail": "support@goracabs.com",
+    "supportPhone": "+91 98765 43210"
+  },
+  "payment": {
+    "razorpay": { "enabled": true, "keyId": "", "keySecret": "" },
+    "stripe": { "enabled": false, "publishableKey": "", "secretKey": "" },
+    "cashEnabled": true,
+    "walletEnabled": true,
+    "commissionPercent": 20
+  },
+  "maps": {
+    "provider": "google",
+    "googleMapsApiKey": "AIzaSyBUVrSVVulUrs5MZBwW0yLBFByA9Q_HwC4",
+    "javascriptApiKey": "AIzaSyDfWeamxWt0af0BaONmSMHBUAtekh-GoFc",
+    "mapboxToken": ""
+  },
+  "sms": {
+    "provider": "twilio",
+    "twilio": { "accountSid": "", "authToken": "", "fromNumber": "" },
+    "msg91": { "authKey": "", "senderId": "" }
+  },
+  "mail": {
+    "driver": "smtp",
+    "host": "smtp.gmail.com",
+    "port": 587,
+    "username": "",
+    "password": "",
+    "fromName": "Gora Cabs",
+    "fromEmail": "noreply@goracabs.com"
+  },
+  "firebase": {
+    "serverKey": "",
+    "projectId": ""
+  }
+}
