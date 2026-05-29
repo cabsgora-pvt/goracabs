@@ -1,8 +1,10 @@
 // All smaller pages in one file
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../mock/mock_data.dart';
+import '../../../providers/driver_provider.dart';
 
 // ── QR Code Page ─────────────────────────────────────
 class QrCodePage extends StatelessWidget {
@@ -420,42 +422,57 @@ class SubscriptionPage extends StatelessWidget {
 class VehicleInfoPage extends StatelessWidget {
   static const route = '/vehicle-info';
   const VehicleInfoPage({super.key});
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: blueAppBar('Vehicle Info'),
-    body: SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(children: [
-        Container(
-          width: double.infinity, padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]), borderRadius: BorderRadius.circular(20)),
-          child: Column(children: [
-            const Icon(Icons.directions_car, color: Colors.white, size: 48),
-            const SizedBox(height: 8),
-            const Text('Maruti Swift Dzire', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
-            const Text('GJ01 AB 1234', style: TextStyle(color: Colors.white70, fontSize: 16, letterSpacing: 2)),
-          ]),
-        ),
-        const SizedBox(height: 16),
-        _infoCard([
-          ['Make', 'Maruti Suzuki'], ['Model', 'Swift Dzire'], ['Year', '2022'],
-          ['Color', 'White'], ['Fuel', 'CNG + Petrol'], ['Category', 'Sedan'],
-        ]),
-        const SizedBox(height: 16),
-        PrimaryButton(label: 'Update Vehicle Info', onTap: () {}),
-      ]),
-    ),
-  );
 
-  Widget _infoCard(List<List<String>> rows) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)]),
-    child: Column(children: rows.map((r) => Column(children: [
-      if (rows.indexOf(r) > 0) const Divider(color: AppColors.divider, height: 20),
-      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text(r[0], style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
-        Text(r[1], style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 13)),
-      ]),
-    ])).toList()),
+  @override
+  Widget build(BuildContext context) {
+    final dp = context.watch<DriverProvider>();
+    return Scaffold(
+      appBar: blueAppBar('Vehicle Info'),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(children: [
+          Container(
+            width: double.infinity, padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(children: [
+              const Icon(Icons.directions_car, color: Colors.white, size: 48),
+              const SizedBox(height: 8),
+              Text(
+                dp.vehicleModel.isNotEmpty ? dp.vehicleModel : 'Vehicle',
+                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
+              ),
+              Text(
+                dp.vehicleNumber.isNotEmpty ? dp.vehicleNumber : '—',
+                style: const TextStyle(color: Colors.white70, fontSize: 16, letterSpacing: 2),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16),
+              boxShadow: [BoxShadow(color: Colors.black.withAlpha(10), blurRadius: 8)]),
+            child: Column(children: [
+              _row('Vehicle Model', dp.vehicleModel.isNotEmpty ? dp.vehicleModel : '—'),
+              const Divider(color: AppColors.divider, height: 20),
+              _row('Registration No.', dp.vehicleNumber.isNotEmpty ? dp.vehicleNumber : '—'),
+              const Divider(color: AppColors.divider, height: 20),
+              _row('Vehicle Type', dp.vehicleType.isNotEmpty ? dp.vehicleType : '—'),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _row(String label, String value) => Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      Text(label, style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
+      Text(value, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 13)),
+    ],
   );
 }

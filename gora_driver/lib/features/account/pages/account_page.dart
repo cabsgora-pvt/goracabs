@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
-import '../../../mock/mock_data.dart';
+import '../../../providers/driver_provider.dart';
 import '../../earnings/pages/earnings_page.dart';
 import '../../history/pages/history_page.dart';
 import '../../wallet/pages/wallet_page.dart';
@@ -12,7 +13,10 @@ class AccountPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final d = mockDriver;
+    final dp = context.watch<DriverProvider>();
+    final picUrl = dp.profilePicUrl;
+    final displayName = dp.name.isNotEmpty ? dp.name : 'Driver';
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: CustomScrollView(
@@ -29,13 +33,19 @@ class AccountPage extends StatelessWidget {
                 ),
                 child: SafeArea(
                   child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    CircleAvatar(radius: 40, backgroundColor: Colors.white24,
-                      child: Text(d.name[0], style: const TextStyle(fontSize: 34, color: Colors.white, fontWeight: FontWeight.w800))),
+                    CircleAvatar(
+                      radius: 40,
+                      backgroundColor: Colors.white24,
+                      backgroundImage: picUrl.isNotEmpty ? NetworkImage(picUrl) : null,
+                      child: picUrl.isEmpty
+                          ? Text(displayName[0].toUpperCase(), style: const TextStyle(fontSize: 34, color: Colors.white, fontWeight: FontWeight.w800))
+                          : null,
+                    ),
                     const SizedBox(height: 10),
-                    Text(d.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.white)),
+                    Text(displayName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.white)),
                     Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                       const Icon(Icons.star, color: AppColors.orange, size: 16),
-                      Text(' ${d.rating}  •  ${d.totalRides} rides', style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 13)),
+                      Text(' ${dp.rating}  •  ${dp.totalRides} rides', style: const TextStyle(color: Colors.white70, fontSize: 13)),
                     ]),
                   ]),
                 ),
@@ -51,9 +61,9 @@ class AccountPage extends StatelessWidget {
                 Row(children: [
                   Expanded(child: _QuickStat(label: 'Balance', value: '₹ 2,450', icon: Icons.account_balance_wallet, color: AppColors.green)),
                   const SizedBox(width: 12),
-                  Expanded(child: _QuickStat(label: 'Rating', value: d.rating, icon: Icons.star, color: AppColors.orange)),
+                  Expanded(child: _QuickStat(label: 'Rating', value: dp.rating, icon: Icons.star, color: AppColors.orange)),
                   const SizedBox(width: 12),
-                  Expanded(child: _QuickStat(label: 'Rides', value: d.totalRides, icon: Icons.directions_car, color: AppColors.primary)),
+                  Expanded(child: _QuickStat(label: 'Rides', value: dp.totalRides, icon: Icons.directions_car, color: AppColors.primary)),
                 ]),
                 const SizedBox(height: 20),
 

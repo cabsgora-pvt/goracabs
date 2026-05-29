@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../providers/driver_provider.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../earnings/pages/earnings_page.dart';
 import '../../account/pages/account_page.dart';
@@ -16,6 +18,14 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int _tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<DriverProvider>().loadProfile();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,19 +58,28 @@ class _HomeTab extends StatelessWidget {
     return BlocBuilder<HomeBloc, HomeState>(
       builder: (context, state) {
         final isOnline = homeBloc.isOnline;
-        final driver = homeBloc.driver;
         final summary = homeBloc.summary;
+        final dp = context.watch<DriverProvider>();
+        final picUrl = dp.profilePicUrl;
 
         return Scaffold(
           appBar: AppBar(
             backgroundColor: AppColors.primary,
             elevation: 0,
             title: Row(children: [
-              CircleAvatar(backgroundColor: Colors.white24, radius: 18, child: const Icon(Icons.person, color: Colors.white, size: 20)),
+              CircleAvatar(
+                backgroundColor: Colors.white24,
+                radius: 18,
+                backgroundImage: picUrl.isNotEmpty ? NetworkImage(picUrl) : null,
+                child: picUrl.isEmpty
+                    ? Text(dp.name.isNotEmpty ? dp.name[0].toUpperCase() : 'D',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                    : null,
+              ),
               const SizedBox(width: 10),
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(driver?.name ?? 'Driver', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
-                Text(driver?.vehicleNumber ?? '', style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.8))),
+                Text(dp.name.isNotEmpty ? dp.name : 'Driver', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
+                Text(dp.vehicleNumber, style: const TextStyle(fontSize: 11, color: Colors.white70)),
               ]),
             ]),
             actions: [

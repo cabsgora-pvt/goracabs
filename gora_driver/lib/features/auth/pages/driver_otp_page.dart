@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
+import '../../../providers/driver_provider.dart';
 import '../../../services/driver_api_service.dart';
 import '../../home/pages/home_page.dart';
 import '../../registration/kyc_pending_page.dart';
@@ -71,6 +73,11 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
       // Save token
       final token = result['token'] as String?;
       if (token != null) await DriverApiService.saveToken(token);
+
+      // Load profile into provider
+      if (result['driver'] != null) {
+        context.read<DriverProvider>().setData(result['driver'] as Map<String, dynamic>);
+      }
 
       if (result['isApproved'] == true || result['isApproved'] == 'true') {
         Navigator.pushNamedAndRemoveUntil(context, HomePage.route, (_) => false);
