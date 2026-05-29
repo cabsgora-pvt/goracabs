@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../theme/app_theme.dart';
@@ -43,8 +44,25 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   LatLng _myLocation = const LatLng(28.6139, 77.2090);
   GoogleMapController? _mapController;
   List<TextEditingController> _stopControllers = [];
-  
+
+  // ── Live ride state (wired to backend) ──────────────────────
+  String? _rideId;
+  String? _rideOtp;
+  String _driverName = 'Driver';
+  String _driverPhone = '';
+  Timer? _pollTimer;
+
   final List<int> _tipAmounts = [10, 20, 50, 100];
+
+  // Vehicles to display, filtered by the service mode (bike/auto/cab)
+  List<Map<String, dynamic>> get _displayVehicles {
+    final pre = widget.preselectedVehicle;
+    if (pre == null) return _vehicles;
+    if (pre == 'Bike') return _vehicles.where((v) => v['name'] == 'Bike').toList();
+    if (pre == 'Auto') return _vehicles.where((v) => v['name'] == 'Auto').toList();
+    // Cab ride → all car types
+    return _vehicles.where((v) => v['name'] == 'Cab Economy' || v['name'] == 'SUV' || v['name'] == 'Premium').toList();
+  }
 
   @override
   void initState() {
@@ -79,6 +97,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _pickupController.dispose();
     _dropController.dispose();
     for (var controller in _stopControllers) {
@@ -154,6 +173,48 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         });
       }
     } catch (_) {/* keep default prices */}
+  }
+
+  // Book the ride against the backend (keeps UI; only sends real data)
+  Future<void> _bookRide() async {
+    final selectedVehicleData = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
+    final basePrice = int.tryParse((selectedVehicleData['price'] as String).replaceAll('₹', '')) ?? 0;
+    final tip = _selectedTip ?? 0;
+    try {
+      final res = await ApiService.bookRide({
+        'pickupAddress': _pickupController.text,
+        'dropAddress': _dropController.text,
+        'pickupLat': _myLocation.latitude,
+        'pickupLng': _myLocation.longitude,
+        'dropLat': _selectedMapLocation.latitude,
+        'dropLng': _selectedMapLocation.longitude,
+        'service': 'taxi',
+        'vehicleType': _selectedVehicle,
+        'fare': basePrice,
+        'tip': tip,
+        'paymentMode': 'cash',
+      });
+      if (res['ride'] != null) {
+        _rideId = res['ride']['id']?.toString();
+        _rideOtp = res['ride']['otp']?.toString();
+      }
+    } catch (_) {/* keep flow; polling will simply not find a ride */}
+  }
+
+  // Poll ride status; invokes [onStatus] with the latest status string
+  void _startStatusPolling(void Function(String status, Map<String, dynamic> ride) onStatus) {
+    _pollTimer?.cancel();
+    if (_rideId == null) return;
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      if (!mounted) { timer.cancel(); return; }
+      try {
+        final ride = await ApiService.getRide(_rideId!);
+        final status = (ride['status'] ?? 'pending').toString();
+        if (ride['driverName'] != null) _driverName = ride['driverName'].toString();
+        if (ride['driverPhone'] != null) _driverPhone = ride['driverPhone'].toString();
+        onStatus(status, ride);
+      } catch (_) {}
+    });
   }
 
   // Build Google Maps marker set
@@ -366,7 +427,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                                   ],
                                   const SizedBox(height: 16),
                                   if (!_showPickupConfirmation) ...[
-                                    ..._vehicles.map((v) => _buildVehicleCard(v)),
+                                    ..._displayVehicles.map((v) => _buildVehicleCard(v)),
                                     const SizedBox(height: 80),
                                   ],
                                 ],
@@ -1109,8 +1170,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                       Expanded(
                         flex: 2,
                         child: ElevatedButton(
-                          onPressed: () {
+                          onPressed: () async {
                             Navigator.of(context).pop();
+                            await _bookRide();
                             _showFinalWaitingDialog();
                           },
                           style: ElevatedButton.styleFrom(
@@ -1146,11 +1208,15 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
       enableDrag: false,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
-        // Auto-close after 3 seconds and show driver details
-        Future.delayed(const Duration(seconds: 3), () {
-          if (Navigator.canPop(context)) {
-            Navigator.of(context).pop();
-            _showDriverArrivingDialog();
+        // Poll backend: while pending keep searching; when accepted show driver
+        _startStatusPolling((status, ride) {
+          if (status == 'accepted' || status == 'arrived' || status == 'ongoing') {
+            if (Navigator.canPop(context)) {
+              Navigator.of(context).pop();
+              _showDriverArrivingDialog();
+            }
+          } else if (status == 'cancelled') {
+            _pollTimer?.cancel();
           }
         });
 
@@ -1295,18 +1361,27 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
       backgroundColor: Colors.transparent,
       barrierColor: Colors.transparent, // Don't dim the map
       builder: (BuildContext context) {
-        // Auto-close after 5 seconds and show full map
-        Future.delayed(const Duration(seconds: 5), () {
-          if (Navigator.canPop(context)) {
-            Navigator.of(context).pop();
+        // Poll backend: when ride starts switch to full trip map; when completed show summary
+        _startStatusPolling((status, ride) {
+          if (status == 'ongoing') {
+            if (!_showFullTripMap && mounted) {
+              setState(() {
+                _showFullTripMap = true;
+                _showArrivingButtons = false;
+              });
+            }
+          } else if (status == 'completed') {
+            if (Navigator.canPop(context)) {
+              Navigator.of(context).pop();
+            }
+            _pollTimer?.cancel();
             setState(() {
-              _showFullTripMap = true;
+              _showFullTripMap = false;
               _showArrivingButtons = false;
             });
-            // Start simulation for ride ending after another 5 seconds
-            Future.delayed(const Duration(seconds: 5), () {
-              _showRideCompletedDialog();
-            });
+            _showRideCompletedDialog();
+          } else if (status == 'cancelled') {
+            _pollTimer?.cancel();
           }
         });
 
@@ -1350,9 +1425,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.grey[300]!),
                     ),
-                    child: const Text(
-                      '4829',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2, color: Colors.black),
+                    child: Text(
+                      _rideOtp ?? '----',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2, color: Colors.black),
                     ),
                   ),
                 ],
@@ -1413,24 +1488,24 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                     ),
                     const SizedBox(width: 12),
                     // Driver Details
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Rajesh Kumar',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
+                            _driverName,
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
                           ),
-                          SizedBox(height: 4),
-                          Row(
+                          const SizedBox(height: 4),
+                          const Row(
                             children: [
                               Icon(Icons.star, color: Colors.amber, size: 16),
                               SizedBox(width: 4),
                               Text('4.9 (1.2k+ rides)', style: TextStyle(fontSize: 13, color: Colors.grey)),
                             ],
                           ),
-                          SizedBox(height: 4),
-                          Text(
+                          const SizedBox(height: 4),
+                          const Text(
                             'White Swift Dzire • DL 01 AB 1234',
                             style: TextStyle(fontSize: 11, color: Colors.grey),
                           ),
@@ -1462,7 +1537,13 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: () {},
+                      onPressed: () {
+                        if (_driverPhone.isNotEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Driver: $_driverName • $_driverPhone')),
+                          );
+                        }
+                      },
                       icon: const Icon(Icons.call, color: Colors.green),
                       label: const Text('Call', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
                       style: ElevatedButton.styleFrom(
@@ -1583,7 +1664,14 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: selectedReason == null ? null : () {
+                      onPressed: selectedReason == null ? null : () async {
+                        _pollTimer?.cancel();
+                        if (_rideId != null) {
+                          try {
+                            await ApiService.cancelRide(_rideId!, selectedReason!);
+                          } catch (_) {}
+                        }
+                        if (!context.mounted) return;
                         Navigator.pushAndRemoveUntil(
                           context,
                           MaterialPageRoute(builder: (context) => const HomeScreen()),
@@ -1655,9 +1743,10 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                       context,
                       MaterialPageRoute(
                         builder: (context) => RatingScreen(
-                          driverName: 'Rajesh Kumar',
+                          driverName: _driverName,
                           vehicleName: _selectedVehicle!,
                           selectedTip: _selectedTip,
+                          rideId: _rideId,
                         ),
                       ),
                     );

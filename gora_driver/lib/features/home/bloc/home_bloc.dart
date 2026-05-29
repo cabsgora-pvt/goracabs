@@ -2,6 +2,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../../mock/mock_data.dart';
 import '../../../models/models.dart';
+import '../../../services/driver_api_service.dart';
+import '../../../services/location_service.dart';
 
 abstract class HomeEvent extends Equatable {
   @override List<Object?> get props => [];
@@ -51,6 +53,13 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
   Future<void> _onToggle(ToggleOnlineEvent e, Emitter emit) async {
     isOnline = e.isOnline;
+    // Report online/offline + current location to backend
+    try {
+      final pos = await LocationService.getCurrentLocation();
+      final lat = pos?.latitude ?? 23.0225;
+      final lng = pos?.longitude ?? 72.5714;
+      await DriverApiService.setOnline(e.isOnline, lat, lng);
+    } catch (_) {/* keep UI responsive even if network fails */}
     emit(OnlineStatusChanged(e.isOnline));
   }
 }

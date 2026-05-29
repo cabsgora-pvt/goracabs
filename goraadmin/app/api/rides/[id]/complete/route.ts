@@ -17,21 +17,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!ride) return withCors({ error: 'Ride not found' }, 404)
     if (ride.status === 'completed') return withCors({ error: 'Already completed' }, 400)
 
-    // Get commission % for this zone + vehicle + service
-    let commissionPercent = 20
-    const zone: any = await Zone.findById(ride.zoneId).lean()
-    if (zone?.pricing) {
-      const p = zone.pricing.find((x: any) => x.vehicleTypeName === ride.vehicleType && x.service === ride.service)
-      if (p?.commissionPercent != null) commissionPercent = p.commissionPercent
+    // Get commission % for this zone + vehicle + service (prefer value stored at booking)
+    let commissionPercent = ride.commissionPercent != null ? ride.commissionPercent : 20
+    if (ride.commissionPercent == null) {
+      const zone: any = await Zone.findById(ride.zoneId).lean()
+      if (zone?.pricing) {
+        const p = zone.pricing.find((x: any) => x.vehicleTypeName === ride.vehicleType && x.service === ride.service)
+        if (p?.commissionPercent != null) commissionPercent = p.commissionPercent
+      }
     }
 
-    const fare = ride.fare || 0
+    // Use totalFare (fare + tip) as the base if present
+    const fare = ride.totalFare != null ? ride.totalFare : (ride.fare || 0)
     const commission = Math.round((fare * commissionPercent) / 100)  // admin profit
     const driverEarning = fare - commission
 
     ride.status = 'completed'
     ride.completedAt = new Date()
     ride.paymentStatus = 'paid'
+    ride.commissionPercent = commissionPercent
+    ride.commissionAmount = commission
+    ride.driverEarning = driverEarning
     await ride.save()
 
     const driver: any = await Driver.findById(ride.driverId)

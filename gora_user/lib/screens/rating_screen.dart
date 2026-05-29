@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
+import '../services/api_service.dart';
 import 'home_screen.dart';
 
 class RatingScreen extends StatefulWidget {
   final String driverName;
   final String vehicleName;
   final int? selectedTip;
+  final String? rideId;
 
   const RatingScreen({
     super.key,
     required this.driverName,
     required this.vehicleName,
     this.selectedTip,
+    this.rideId,
   });
 
   @override
@@ -94,7 +97,17 @@ class _RatingScreenState extends State<RatingScreen> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: selectedRating == 0 ? null : () {
+                  onPressed: selectedRating == 0 ? null : () async {
+                    if (widget.rideId != null) {
+                      try {
+                        await ApiService.rateRide(
+                          widget.rideId!,
+                          selectedRating,
+                          _feedbackController.text,
+                        );
+                      } catch (_) {}
+                    }
+                    if (!context.mounted) return;
                     Navigator.pushAndRemoveUntil(
                       context,
                       MaterialPageRoute(builder: (context) => const HomeScreen()),

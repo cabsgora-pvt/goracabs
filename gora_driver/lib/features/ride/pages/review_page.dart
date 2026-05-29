@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../models/models.dart';
+import '../../../services/driver_api_service.dart';
 
 class ReviewPage extends StatefulWidget {
   static const route = '/review';
@@ -72,7 +73,19 @@ class _ReviewPageState extends State<ReviewPage> {
           const SizedBox(height: 32),
           PrimaryButton(
             label: 'Submit Review',
-            onTap: _stars == 0 ? null : () => Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false),
+            onTap: _stars == 0
+                ? null
+                : () async {
+                    final tags = _selected.join(', ');
+                    final review = [tags, _comment.text].where((s) => s.isNotEmpty).join(' • ');
+                    if (ride != null && ride.id.isNotEmpty) {
+                      try {
+                        await DriverApiService.rateRide(ride.id, _stars, review);
+                      } catch (_) {}
+                    }
+                    if (!context.mounted) return;
+                    Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false);
+                  },
           ),
           const SizedBox(height: 12),
           TextButton(

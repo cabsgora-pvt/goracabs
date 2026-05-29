@@ -22,13 +22,18 @@ class OnRidePage extends StatelessWidget {
           if (state is RideEndedState) {
             Navigator.pushReplacementNamed(context, InvoicePage.route, arguments: state.ride);
           }
+          if (state is OtpErrorState) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Invalid OTP')),
+            );
+          }
         },
         child: BlocBuilder<RideBloc, RideState>(
           builder: (context, state) {
             final bloc = context.read<RideBloc>();
             final r = ride;
             // Determine current stage
-            bool arrived = state is ArrivedAtPickupState || state is RideStartedState || state is RideEndedState;
+            bool arrived = state is ArrivedAtPickupState || state is RideStartedState || state is RideEndedState || state is OtpErrorState;
             bool started = state is RideStartedState;
 
             return Scaffold(
@@ -159,7 +164,7 @@ class OnRidePage extends StatelessWidget {
         actions: [
           TextButton(onPressed: () => Navigator.pop(_), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () { Navigator.pop(_); bloc.add(StartRideEvent()); },
+            onPressed: () { final otp = ctrl.text.trim(); Navigator.pop(_); bloc.add(StartRideEvent(otp)); },
             child: const Text('Start'),
           ),
         ],

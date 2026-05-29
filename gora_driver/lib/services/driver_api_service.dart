@@ -96,4 +96,52 @@ class DriverApiService {
     final types = res['types'] as List? ?? [];
     return types.map((t) => Map<String, dynamic>.from(t as Map)).toList();
   }
+
+  // ── Online + location ─────────────────────────────────────
+  static Future<Map<String, dynamic>> setOnline(bool isOnline, double lat, double lng) =>
+      post('/auth/driver/online', {'isOnline': isOnline, 'lat': lat, 'lng': lng}, auth: true);
+
+  static Future<Map<String, dynamic>> updateLocation(double lat, double lng) =>
+      post('/auth/driver/location', {'lat': lat, 'lng': lng}, auth: true);
+
+  // ── Ride flow ─────────────────────────────────────────────
+  static Future<Map<String, dynamic>> getPendingRequests() =>
+      get('/rides/driver/pending');
+
+  // Returns the parsed body plus an injected '_status' http code so callers can detect 409 (taken)
+  static Future<Map<String, dynamic>> acceptRide(String id) async {
+    final token = await getToken();
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+    final res = await http.post(
+      Uri.parse('$baseUrl/rides/$id/accept'),
+      headers: headers,
+      body: jsonEncode({}),
+    );
+    final data = jsonDecode(res.body) as Map<String, dynamic>;
+    data['_status'] = res.statusCode;
+    return data;
+  }
+
+  static Future<Map<String, dynamic>> rejectRide(String id) =>
+      post('/rides/$id/reject', {}, auth: true);
+
+  static Future<Map<String, dynamic>> arrivedRide(String id) =>
+      post('/rides/$id/arrived', {}, auth: true);
+
+  static Future<Map<String, dynamic>> startRide(String id, String otp) =>
+      post('/rides/$id/start', {'otp': otp}, auth: true);
+
+  static Future<Map<String, dynamic>> completeRide(String id) =>
+      post('/rides/$id/complete', {}, auth: true);
+
+  static Future<Map<String, dynamic>> getRide(String id) => get('/rides/$id');
+
+  static Future<Map<String, dynamic>> rateRide(String id, int rating, String review) =>
+      post('/rides/$id/rate', {'by': 'driver', 'rating': rating, 'review': review}, auth: true);
+
+  static Future<Map<String, dynamic>> getTripHistory() =>
+      get('/rides/driver/history');
 }

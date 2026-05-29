@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../providers/driver_provider.dart';
 import '../../../core/widgets/app_widgets.dart';
+import '../../../models/models.dart';
+import '../../../services/driver_api_service.dart';
+import '../../../services/location_service.dart';
 import '../../earnings/pages/earnings_page.dart';
 import '../../account/pages/account_page.dart';
 import '../../ride/pages/incoming_ride_page.dart';
@@ -109,6 +113,8 @@ class _HomeTab extends StatelessWidget {
           body: Stack(children: [
             // Map placeholder
             const MapPlaceholder(),
+            // Background poller for incoming ride requests (no visual change)
+            if (isOnline) const _RidePoller(),
             // Stats card at top
             if (state is HomeLoaded || state is OnlineStatusChanged)
               Positioned(
@@ -215,6 +221,78 @@ class _OfflinePrompt extends StatelessWidget {
       ]),
     );
   }
+}
+
+// Polls the backend for pending ride requests + pushes location while online.
+class _RidePoller extends StatefulWidget {
+  const _RidePoller();
+  @override
+  State<_RidePoller> createState() => _RidePollerState();
+}
+
+class _RidePollerState extends State<_RidePoller> {
+  Timer? _pollTimer;
+  Timer? _locTimer;
+  bool _navigating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) => _poll());
+    _locTimer = Timer.periodic(const Duration(seconds: 15), (_) => _pushLocation());
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _locTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _pushLocation() async {
+    try {
+      final pos = await LocationService.getCurrentLocation();
+      if (pos != null) {
+        await DriverApiService.updateLocation(pos.latitude, pos.longitude);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _poll() async {
+    if (_navigating || !mounted) return;
+    try {
+      final res = await DriverApiService.getPendingRequests();
+      final rides = (res['rides'] as List?) ?? [];
+      if (rides.isEmpty) return;
+      final r = Map<String, dynamic>.from(rides.first as Map);
+      final fare = (r['fare'] ?? 0);
+      final tip = (r['tip'] ?? 0);
+      final total = (r['totalFare'] ?? (fare + tip));
+      final model = RideRequestModel(
+        id: r['id']?.toString() ?? '',
+        userName: (r['riderName'] ?? 'Rider').toString(),
+        userPhone: (r['riderPhone'] ?? '').toString(),
+        userRating: '5.0',
+        pickupAddress: (r['pickupAddress'] ?? '').toString(),
+        dropAddress: (r['dropAddress'] ?? '').toString(),
+        distance: '${r['distance'] ?? 0} km',
+        fare: '₹ $total',
+        eta: '4 mins',
+        rideType: (r['vehicleType'] ?? 'taxi').toString(),
+        pickupLat: (r['pickupLat'] ?? 23.0225).toDouble(),
+        pickupLng: (r['pickupLng'] ?? 72.5714).toDouble(),
+        dropLat: (r['dropLat'] ?? 23.0732).toDouble(),
+        dropLng: (r['dropLng'] ?? 72.6208).toDouble(),
+      );
+      if (!mounted) return;
+      _navigating = true;
+      await Navigator.pushNamed(context, IncomingRidePage.route, arguments: model);
+      _navigating = false;
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class _BottomNav extends StatelessWidget {

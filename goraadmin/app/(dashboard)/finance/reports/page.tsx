@@ -15,6 +15,7 @@ export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [data, setData] = useState<any>(null)
+  const [summary, setSummary] = useState<any>(null)
   const [loading, setLoading] = useState(false)
 
   const fetchReport = () => {
@@ -28,7 +29,14 @@ export default function ReportsPage() {
       .catch(() => setLoading(false))
   }
 
-  useEffect(() => { fetchReport() }, [])
+  const fetchSummary = () => {
+    fetch('/api/finance/summary')
+      .then(r => r.json())
+      .then(d => setSummary(d))
+      .catch(() => {})
+  }
+
+  useEffect(() => { fetchReport(); fetchSummary() }, [])
 
   const grossRevenue = data?.grossRevenue || 0
   const commission = data?.commission || 0
@@ -43,6 +51,13 @@ export default function ReportsPage() {
       <Header title="Reports" />
       <div className="p-6 space-y-6">
         <PageHeader title="Revenue Reports" subtitle="Analyze your revenue and performance metrics" />
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          <StatsCard icon={DollarSign} label="Admin Commission Profit" value={`₹${(summary?.totalCommission || 0).toLocaleString()}`} iconColor="text-green-600" iconBg="bg-green-50" />
+          <StatsCard icon={TrendingUp} label="Gross Revenue (All Time)" value={`₹${(summary?.grossRevenue || 0).toLocaleString()}`} iconColor="text-blue-600" iconBg="bg-blue-50" />
+          <StatsCard icon={Wallet} label="Total Driver Payout" value={`₹${(summary?.totalDriverPayout || 0).toLocaleString()}`} iconColor="text-purple-600" iconBg="bg-purple-50" />
+          <StatsCard icon={BarChart2} label="Today's Commission" value={`₹${(summary?.todayCommission || 0).toLocaleString()}`} iconColor="text-orange-600" iconBg="bg-orange-50" />
+        </div>
 
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-wrap items-center gap-4">
           <div>

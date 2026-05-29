@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../services/api_service.dart';
 import 'invoice_screen.dart';
 import 'home_screen.dart';
 import 'service_selection_screen.dart';
@@ -21,51 +22,64 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
   bool _isHireDriverExpanded = false;
   bool _isOutstationExpanded = false;
 
+  List<Map<String, dynamic>> _myRides = [];
+  bool _loadingRides = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMyRides();
+  }
+
+  Future<void> _loadMyRides() async {
+    try {
+      final res = await ApiService.getMyRides();
+      final list = (res['rides'] as List?) ?? [];
+      setState(() {
+        _myRides = list.map<Map<String, dynamic>>((r) {
+          final fare = (r['fare'] ?? 0);
+          final tip = (r['tip'] ?? 0);
+          final total = (r['totalFare'] ?? (fare + tip));
+          final status = (r['status'] ?? '').toString();
+          return {
+            'id': r['_id']?.toString() ?? '',
+            'date': r['createdAt'] != null
+                ? _formatDate(r['createdAt'].toString())
+                : '',
+            'from': r['pickupAddress'] ?? '',
+            'to': r['dropAddress'] ?? '',
+            'driver': r['driverName'] ?? '—',
+            'fare': '₹$total',
+            'baseFare': fare,
+            'tip': tip,
+            'total': total,
+            'status': status == 'completed'
+                ? 'Completed'
+                : status == 'cancelled'
+                    ? 'Cancelled'
+                    : status,
+            'rating': (r['driverRating'] ?? 0).toDouble(),
+            'vehicle': r['vehicleType'] ?? '',
+          };
+        }).toList();
+        _loadingRides = false;
+      });
+    } catch (_) {
+      setState(() => _loadingRides = false);
+    }
+  }
+
+  String _formatDate(String iso) {
+    try {
+      final d = DateTime.parse(iso).toLocal();
+      return '${d.day}/${d.month}/${d.year}, ${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return iso;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final rides = [
-      {
-        'date': 'Today, 10:30 AM',
-        'from': 'MG Road, Delhi',
-        'to': 'Cyber City, Gurugram',
-        'driver': 'Rajesh Kumar',
-        'fare': '₹120',
-        'status': 'Completed',
-        'rating': 4.5,
-        'vehicle': 'Gora Go',
-      },
-      {
-        'date': 'Yesterday, 5:45 PM',
-        'from': 'Connaught Place',
-        'to': 'Dwarka Sector 21',
-        'driver': 'Amit Singh',
-        'fare': '₹180',
-        'status': 'Completed',
-        'rating': 5.0,
-        'vehicle': 'Gora Sedan',
-      },
-      {
-        'date': '15 Jan, 2:20 PM',
-        'from': 'Nehru Place',
-        'to': 'Saket Mall',
-        'driver': 'Suresh Patel',
-        'fare': '₹95',
-        'status': 'Completed',
-        'rating': 4.0,
-        'vehicle': 'Gora Go',
-      },
-      {
-        'date': '14 Jan, 11:00 AM',
-        'from': 'IGI Airport',
-        'to': 'Vasant Kunj',
-        'driver': 'Vikram Sharma',
-        'fare': '₹250',
-        'status': 'Cancelled',
-        'rating': 0.0,
-        'vehicle': 'Gora SUV',
-      },
-    ];
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Trip Details', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
@@ -160,31 +174,20 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
   }
 
   Widget _buildRideHistoryList() {
-    final rides = [
-      {
-        'date': 'Today, 10:30 AM',
-        'from': 'MG Road, Delhi',
-        'to': 'Cyber City, Gurugram',
-        'driver': 'Rajesh Kumar',
-        'fare': '₹120',
-        'status': 'Completed',
-        'rating': 4.5,
-        'vehicle': 'Gora Go',
-      },
-      {
-        'date': 'Yesterday, 5:45 PM',
-        'from': 'Connaught Place',
-        'to': 'Dwarka Sector 21',
-        'driver': 'Amit Singh',
-        'fare': '₹180',
-        'status': 'Completed',
-        'rating': 5.0,
-        'vehicle': 'Gora Sedan',
-      },
-    ];
-
+    if (_loadingRides) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_myRides.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: Text('No rides yet', style: TextStyle(color: Colors.grey))),
+      );
+    }
     return Column(
-      children: rides.map((ride) => _buildRideCard(ride)).toList(),
+      children: _myRides.map((ride) => _buildRideCard(ride)).toList(),
     );
   }
 
@@ -320,16 +323,23 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
               width: double.infinity,
               child: TextButton.icon(
                 onPressed: () {
-                  final String originalVehicle = ride['vehicle'] as String;
-                  final String mappedVehicle = originalVehicle == 'Gora Go' ? 'Bike' : 
-                                             originalVehicle == 'Gora Sedan' ? 'Cab Economy' : 
-                                             originalVehicle == 'Gora SUV' ? 'SUV' : 'Premium';
+                  final String originalVehicle = (ride['vehicle'] as String?) ?? '';
+                  // Real rides already carry exact vehicle names; map legacy labels as a fallback
+                  final String mappedVehicle = originalVehicle == 'Gora Go'
+                      ? 'Bike'
+                      : originalVehicle == 'Gora Sedan'
+                          ? 'Cab Economy'
+                          : originalVehicle == 'Gora SUV'
+                              ? 'SUV'
+                              : originalVehicle.isNotEmpty
+                                  ? originalVehicle
+                                  : 'Cab Economy';
                   Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => InvoiceScreen(
                         vehicleName: mappedVehicle,
-                        selectedTip: 0,
+                        selectedTip: (ride['tip'] as int?) ?? 0,
                       ),
                     ),
                   );

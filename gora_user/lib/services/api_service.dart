@@ -82,6 +82,16 @@ class ApiService {
   static Future<Map<String, dynamic>> bookRide(Map<String, dynamic> data) =>
       post('/rides/book', data, auth: true);
 
+  static Future<Map<String, dynamic>> getRide(String id) => get('/rides/$id');
+
+  static Future<Map<String, dynamic>> cancelRide(String id, String reason) =>
+      post('/rides/$id/cancel', {'cancelledBy': 'rider', 'reason': reason}, auth: true);
+
+  static Future<Map<String, dynamic>> rateRide(String id, int rating, String review) =>
+      post('/rides/$id/rate', {'by': 'rider', 'rating': rating, 'review': review}, auth: true);
+
+  static Future<Map<String, dynamic>> getMyRides() => get('/rides/user');
+
   // ── Upload profile picture ────────────────────────────────
   static Future<String?> uploadProfilePic(XFile xfile) async {
     try {

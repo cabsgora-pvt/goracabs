@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
+import '../../../models/models.dart';
 import '../bloc/ride_bloc.dart';
 import 'on_ride_page.dart';
 
@@ -30,8 +31,12 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
 
   @override
   Widget build(BuildContext context) {
+    // Real ride passed from home polling; fall back to mock load if none provided
+    final realRide = ModalRoute.of(context)?.settings.arguments as RideRequestModel?;
     return BlocProvider(
-      create: (_) => RideBloc()..add(LoadRideRequestEvent()),
+      create: (_) => realRide != null
+          ? (RideBloc()..add(SetRideRequestEvent(realRide)))
+          : (RideBloc()..add(LoadRideRequestEvent())),
       child: BlocListener<RideBloc, RideState>(
         listener: (context, state) {
           if (state is RideAcceptedState) {
@@ -39,6 +44,13 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
             Navigator.pushReplacementNamed(context, OnRidePage.route, arguments: state.ride);
           }
           if (state is RideRejectedState) Navigator.pop(context);
+          if (state is RideTakenState) {
+            _t?.cancel();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Ride already taken')),
+            );
+            Navigator.pop(context);
+          }
         },
         child: BlocBuilder<RideBloc, RideState>(
           builder: (context, state) {
