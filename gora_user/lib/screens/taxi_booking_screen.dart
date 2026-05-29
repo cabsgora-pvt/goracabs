@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../services/location_service.dart';
 import 'booking_screen.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
@@ -40,6 +41,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   bool _showArrivingButtons = false;
   bool _showMapPicker = false;
   LatLng _selectedMapLocation = LatLng(28.6139, 77.2090);
+  LatLng _myLocation = LatLng(28.6139, 77.2090);
   final MapController _mapController = MapController();
   List<TextEditingController> _stopControllers = [];
   
@@ -60,6 +62,18 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     // If locations are already provided, consider it confirmed
     if (widget.fromLocation != null && widget.toLocation != null) {
       _locationConfirmed = true;
+    }
+    _initLocation();
+  }
+
+  Future<void> _initLocation() async {
+    final pos = await LocationService.getCurrentLocation();
+    if (pos != null && mounted) {
+      setState(() {
+        _myLocation = LatLng(pos.latitude, pos.longitude);
+        _selectedMapLocation = _myLocation;
+      });
+      try { _mapController.move(_myLocation, 15); } catch (_) {}
     }
     _loadRealFares();
   }
@@ -124,7 +138,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   Future<void> _loadRealFares() async {
     try {
       final res = await ApiService.estimateFare(
-        pickupLat: 28.6139, pickupLng: 77.2090, service: 'taxi',
+        pickupLat: _myLocation.latitude, pickupLng: _myLocation.longitude, service: 'taxi',
       );
       if (res['available'] == true && res['vehicles'] is List) {
         final apiVehicles = res['vehicles'] as List;
@@ -158,9 +172,10 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
             child: Stack(
               children: [
                 FlutterMap(
+                  mapController: _mapController,
                   options: MapOptions(
-                    initialCenter: LatLng(28.6139, 77.2090),
-                    initialZoom: 13.0,
+                    initialCenter: _myLocation,
+                    initialZoom: 15.0,
                     interactionOptions: const InteractionOptions(
                       flags: InteractiveFlag.all,
                     ),
@@ -197,7 +212,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                       markers: [
                         if (!_showFullTripMap)
                           Marker(
-                            point: LatLng(28.6139, 77.2090),
+                            point: _myLocation,
                             width: 40,
                             height: 40,
                             child: const Icon(Icons.location_on, color: Color(0xFFFF5252), size: 40),

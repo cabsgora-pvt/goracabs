@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../services/location_service.dart';
 
-// Driver mock position — Ahmedabad
-const _driverPos = LatLng(23.0225, 72.5714);
+// Fallback position — Ahmedabad
+const _fallbackPos = LatLng(23.0225, 72.5714);
 
-// ─── HOME MAP — driver location ───────────────────────────────
+// ─── HOME MAP — live driver location ──────────────────────────
 class MapPlaceholder extends StatefulWidget {
   const MapPlaceholder({super.key});
   @override
@@ -14,6 +15,21 @@ class MapPlaceholder extends StatefulWidget {
 
 class _MapPlaceholderState extends State<MapPlaceholder> {
   GoogleMapController? _ctrl;
+  LatLng _pos = _fallbackPos;
+
+  @override
+  void initState() {
+    super.initState();
+    _initLocation();
+  }
+
+  Future<void> _initLocation() async {
+    final p = await LocationService.getCurrentLocation();
+    if (p != null && mounted) {
+      setState(() => _pos = LatLng(p.latitude, p.longitude));
+      _ctrl?.animateCamera(CameraUpdate.newLatLng(_pos));
+    }
+  }
 
   @override
   void dispose() {
@@ -24,15 +40,19 @@ class _MapPlaceholderState extends State<MapPlaceholder> {
   @override
   Widget build(BuildContext context) {
     return GoogleMap(
-      initialCameraPosition: const CameraPosition(target: _driverPos, zoom: 14.5),
-      onMapCreated: (c) => _ctrl = c,
-      myLocationButtonEnabled: false,
+      initialCameraPosition: CameraPosition(target: _pos, zoom: 15),
+      onMapCreated: (c) {
+        _ctrl = c;
+        _ctrl?.animateCamera(CameraUpdate.newLatLng(_pos));
+      },
+      myLocationEnabled: true,
+      myLocationButtonEnabled: true,
       zoomControlsEnabled: true,
       mapToolbarEnabled: false,
       markers: {
         Marker(
           markerId: const MarkerId('driver'),
-          position: _driverPos,
+          position: _pos,
           icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
           infoWindow: const InfoWindow(title: 'You are here'),
         ),
