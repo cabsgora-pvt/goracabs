@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../theme/app_theme.dart';
+import '../services/api_service.dart';
 import 'booking_screen.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
@@ -60,6 +61,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     if (widget.fromLocation != null && widget.toLocation != null) {
       _locationConfirmed = true;
     }
+    _loadRealFares();
   }
 
   @override
@@ -110,13 +112,36 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     LatLng(28.6145, 77.2090),
   ];
 
-  final List<Map<String, dynamic>> _vehicles = [
+  List<Map<String, dynamic>> _vehicles = [
     {'name': 'Bike', 'type': 'Quick Rides', 'price': '₹49', 'eta': '2 min', 'capacity': '1', 'icon': Icons.two_wheeler, 'color': Color(0xFF2196F3), 'image': 'assets/images/bike.png'},
     {'name': 'Auto', 'type': 'Affordable', 'price': '₹76', 'eta': '3 min', 'capacity': '3', 'icon': Icons.electric_rickshaw, 'color': Color(0xFF2196F3), 'image': 'assets/images/auto.jpg'},
     {'name': 'Cab Economy', 'type': 'Comfortable', 'price': '₹144', 'eta': '4 min', 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF2196F3), 'image': 'assets/images/economy.png'},
     {'name': 'SUV', 'type': 'Spacious', 'price': '₹250', 'eta': '5 min', 'capacity': '6', 'icon': Icons.airport_shuttle, 'color': Color(0xFF2196F3), 'image': 'assets/images/texi.png'},
     {'name': 'Premium', 'type': 'Luxury Sedan', 'price': '₹320', 'eta': '6 min', 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF2196F3), 'image': 'assets/images/texi2.png'},
   ];
+
+  // Fetch real fares from admin zone pricing — overlay prices, keep same UI
+  Future<void> _loadRealFares() async {
+    try {
+      final res = await ApiService.estimateFare(
+        pickupLat: 28.6139, pickupLng: 77.2090, service: 'taxi',
+      );
+      if (res['available'] == true && res['vehicles'] is List) {
+        final apiVehicles = res['vehicles'] as List;
+        setState(() {
+          for (final v in _vehicles) {
+            final match = apiVehicles.firstWhere(
+              (a) => (a['name'] as String?)?.toLowerCase() == (v['name'] as String).toLowerCase(),
+              orElse: () => null,
+            );
+            if (match != null && match['fare'] != null) {
+              v['price'] = '₹${match['fare']}';
+            }
+          }
+        });
+      }
+    } catch (_) {/* keep default prices */}
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -2,11 +2,12 @@ import mongoose, { Schema } from 'mongoose'
 const PricingSchema = new Schema({
   vehicleTypeId: { type: Schema.Types.ObjectId, ref: 'VehicleType' },
   vehicleTypeName: String,
-  service: { type: String, enum: ['taxi', 'rental', 'outstation', 'delivery'] },
+  service: { type: String, enum: ['taxi', 'rental', 'outstation', 'delivery', 'hire_driver'] },
   baseFare: Number,
   perKm: Number,
   perMin: Number,
   minFare: Number,
+  commissionPercent: { type: Number, default: 20 },
 })
 const ZoneSchema = new Schema({
   name: String,

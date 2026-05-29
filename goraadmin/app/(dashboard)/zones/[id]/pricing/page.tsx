@@ -17,7 +17,7 @@ const TABS = [
 ]
 
 type VehicleType = { _id: string; name: string; imageUrl: string; services: string[]; baseFare: number; perKm: number; perMin: number; minFare: number }
-type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; isActive: boolean }
+type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean }
 
 export default function ZonePricingPage() {
   const { id } = useParams()
@@ -59,6 +59,7 @@ export default function ZonePricingPage() {
             perKm: v.perKm,
             perMin: v.perMin,
             minFare: v.minFare,
+            commissionPercent: 20,
             isActive: false, // not enabled yet
           })
         })
@@ -176,6 +177,7 @@ export default function ZonePricingPage() {
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Per KM</th>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Per Min</th>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Min Fare</th>
+                  <th className="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Commission</th>
                   <th className="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">Edit</th>
                 </tr>
               </thead>
@@ -213,6 +215,9 @@ export default function ZonePricingPage() {
                       <td className="px-4 py-3 text-gray-700">₹{row?.perKm ?? v.perKm}</td>
                       <td className="px-4 py-3 text-gray-700">₹{row?.perMin ?? v.perMin}</td>
                       <td className="px-4 py-3 text-gray-700">₹{row?.minFare ?? v.minFare}</td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-1 bg-green-50 text-green-700 rounded-md text-xs font-semibold">{row?.commissionPercent ?? 20}%</span>
+                      </td>
                       {/* Edit */}
                       <td className="px-4 py-3">
                         <button type="button" title="Edit pricing" disabled={!active}
@@ -254,6 +259,19 @@ export default function ZonePricingPage() {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                 </div>
               ))}
+            </div>
+            {/* Commission — admin profit % */}
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+              <label htmlFor="p-commission" className="block text-sm font-medium text-green-800 mb-1">
+                Admin Commission (%) — your profit per ride
+              </label>
+              <input id="p-commission" type="number" step="1" min="0" max="100"
+                value={editForm.commissionPercent}
+                onChange={e => setEditForm({ ...editForm, commissionPercent: +e.target.value })}
+                className="w-full border border-green-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+              <p className="text-xs text-green-600 mt-1">
+                e.g. 20% on ₹100 fare → admin keeps ₹20, driver gets ₹80
+              </p>
             </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setEditRow(null)}

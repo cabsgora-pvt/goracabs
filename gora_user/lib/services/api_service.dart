@@ -70,6 +70,18 @@ class ApiService {
 
   static Future<Map<String, dynamic>> getProfile() => get('/auth/user/profile');
 
+  // ── Ride engine ───────────────────────────────────────────
+  static Future<Map<String, dynamic>> estimateFare({
+    required double pickupLat, required double pickupLng,
+    double? dropLat, double? dropLng, String service = 'taxi',
+  }) => post('/fare/estimate', {
+        'pickupLat': pickupLat, 'pickupLng': pickupLng,
+        'dropLat': dropLat, 'dropLng': dropLng, 'service': service,
+      });
+
+  static Future<Map<String, dynamic>> bookRide(Map<String, dynamic> data) =>
+      post('/rides/book', data, auth: true);
+
   // ── Upload profile picture ────────────────────────────────
   static Future<String?> uploadProfilePic(XFile xfile) async {
     try {
