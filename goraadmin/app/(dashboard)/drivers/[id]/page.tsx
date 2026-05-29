@@ -3,8 +3,13 @@ import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import { Header } from '@/components/header'
 import { Badge } from '@/components/ui/badge'
+import { Modal } from '@/components/ui/modal'
 import { Toast } from '@/components/ui/toast'
-import { ArrowLeft, Phone, Car, Star, TrendingUp, DollarSign, CheckCircle, XCircle } from 'lucide-react'
+import {
+  ArrowLeft, Phone, Car, Star, TrendingUp, DollarSign,
+  CheckCircle, XCircle, Mail, MapPin, CreditCard, FileText,
+  Trash2, Ban,
+} from 'lucide-react'
 import Link from 'next/link'
 
 export default function DriverDetailPage() {
@@ -13,6 +18,10 @@ export default function DriverDetailPage() {
   const [recentRides, setRecentRides] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const [rejectModal, setRejectModal] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
+  const [deleteModal, setDeleteModal] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
 
   const fetchDriver = () => {
     fetch(`/api/drivers/${id}`)
@@ -24,23 +33,54 @@ export default function DriverDetailPage() {
   useEffect(() => { fetchDriver() }, [id])
 
   const approveDriver = async () => {
+    setActionLoading(true)
     const res = await fetch(`/api/drivers/${id}/approve`, { method: 'POST' })
     if (res.ok) {
       setDriver((d: any) => ({ ...d, status: 'approved' }))
       setToast({ msg: 'Driver approved!', type: 'success' })
     }
+    setActionLoading(false)
   }
 
   const rejectDriver = async () => {
+    setActionLoading(true)
     const res = await fetch(`/api/drivers/${id}/reject`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ reason: 'Rejected by admin' }),
+      body: JSON.stringify({ reason: rejectReason || 'Rejected by admin' }),
     })
     if (res.ok) {
-      setDriver((d: any) => ({ ...d, status: 'rejected' }))
+      setDriver((d: any) => ({ ...d, status: 'rejected', rejectionReason: rejectReason }))
+      setRejectModal(false)
+      setRejectReason('')
       setToast({ msg: 'Driver rejected', type: 'error' })
     }
+    setActionLoading(false)
+  }
+
+  const blockDriver = async () => {
+    setActionLoading(true)
+    const patchRes = await fetch(`/api/drivers/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'blocked' }),
+    })
+    if (patchRes.ok) {
+      setDriver((d: any) => ({ ...d, status: 'blocked' }))
+      setToast({ msg: 'Driver blocked', type: 'error' })
+    }
+    setActionLoading(false)
+  }
+
+  const deleteDriver = async () => {
+    setActionLoading(true)
+    const res = await fetch(`/api/drivers/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setToast({ msg: 'Driver deleted', type: 'error' })
+      setTimeout(() => window.location.href = '/drivers', 1200)
+    }
+    setActionLoading(false)
+    setDeleteModal(false)
   }
 
   const verifyDoc = async (docId: string) => {
@@ -95,25 +135,42 @@ export default function DriverDetailPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Profile */}
+          {/* Profile Card */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
             <div className="text-center mb-6">
               <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-bold text-3xl mx-auto mb-3">
                 {driver.name?.charAt(0) || '?'}
               </div>
-              <h2 className="text-lg font-bold text-gray-900">{driver.name}</h2>
-              <Badge status={driver.status} className="mt-2" />
+              <h2 className="text-lg font-bold text-gray-900">{driver.name || 'Unnamed'}</h2>
+              <div className="mt-2"><Badge status={driver.status} /></div>
+              {driver.rejectionReason && (
+                <p className="mt-2 text-xs text-red-500 bg-red-50 rounded px-2 py-1">
+                  Reason: {driver.rejectionReason}
+                </p>
+              )}
             </div>
             <div className="space-y-3">
               <div className="flex items-center gap-3 text-sm">
                 <Phone className="w-4 h-4 text-gray-400" />
                 <span className="text-gray-700">{driver.phone}</span>
               </div>
+              {driver.email && (
+                <div className="flex items-center gap-3 text-sm">
+                  <Mail className="w-4 h-4 text-gray-400" />
+                  <span className="text-gray-700">{driver.email}</span>
+                </div>
+              )}
+              {(driver.state || driver.zoneName) && (
+                <div className="flex items-center gap-3 text-sm">
+                  <MapPin className="w-4 h-4 text-gray-400" />
+                  <span className="text-gray-700">{[driver.zoneName, driver.state].filter(Boolean).join(', ')}</span>
+                </div>
+              )}
               <div className="flex items-center gap-3 text-sm">
                 <Car className="w-4 h-4 text-gray-400" />
                 <div>
-                  <p className="text-gray-700 font-mono">{driver.vehicleNumber}</p>
-                  <p className="text-gray-500 text-xs">{driver.vehicleType}</p>
+                  <p className="text-gray-700 font-mono">{driver.vehicleRegistrationNumber || driver.vehicleNumber || '—'}</p>
+                  <p className="text-gray-500 text-xs">{driver.selectedVehicleTypeName || driver.vehicleType || '—'} • {driver.vehicleModel || '—'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 text-sm">
@@ -121,22 +178,37 @@ export default function DriverDetailPage() {
                 <span className="text-gray-700">{driver.rating > 0 ? driver.rating : 'No ratings yet'}</span>
               </div>
             </div>
-            {driver.status === 'pending' && (
-              <div className="mt-5 flex gap-2">
-                <button type="button" onClick={approveDriver}
-                  className="flex-1 flex items-center justify-center gap-1 py-2 bg-green-50 text-green-700 rounded-lg text-sm font-medium hover:bg-green-100 border border-green-200">
-                  <CheckCircle className="w-4 h-4" /> Approve
+
+            {/* Action buttons */}
+            <div className="mt-5 space-y-2">
+              {driver.status === 'pending' && (
+                <div className="flex gap-2">
+                  <button type="button" onClick={approveDriver} disabled={actionLoading}
+                    className="flex-1 flex items-center justify-center gap-1 py-2 bg-green-50 text-green-700 rounded-lg text-sm font-medium hover:bg-green-100 border border-green-200 disabled:opacity-50">
+                    <CheckCircle className="w-4 h-4" /> Approve
+                  </button>
+                  <button type="button" onClick={() => setRejectModal(true)} disabled={actionLoading}
+                    className="flex-1 flex items-center justify-center gap-1 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 border border-red-200 disabled:opacity-50">
+                    <XCircle className="w-4 h-4" /> Reject
+                  </button>
+                </div>
+              )}
+              {driver.status === 'approved' && (
+                <button type="button" onClick={blockDriver} disabled={actionLoading}
+                  className="w-full flex items-center justify-center gap-1 py-2 bg-orange-50 text-orange-600 rounded-lg text-sm font-medium hover:bg-orange-100 border border-orange-200 disabled:opacity-50">
+                  <Ban className="w-4 h-4" /> Block Driver
                 </button>
-                <button type="button" onClick={rejectDriver}
-                  className="flex-1 flex items-center justify-center gap-1 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 border border-red-200">
-                  <XCircle className="w-4 h-4" /> Reject
-                </button>
-              </div>
-            )}
+              )}
+              <button type="button" onClick={() => setDeleteModal(true)} disabled={actionLoading}
+                className="w-full flex items-center justify-center gap-1 py-2 bg-red-50 text-red-600 rounded-lg text-sm font-medium hover:bg-red-100 border border-red-200 disabled:opacity-50">
+                <Trash2 className="w-4 h-4" /> Delete Driver
+              </button>
+            </div>
           </div>
 
-          {/* Stats + Documents */}
+          {/* Right column */}
           <div className="lg:col-span-2 space-y-4">
+            {/* Stats */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 text-center">
                 <Star className="w-6 h-6 text-yellow-400 fill-yellow-400 mx-auto mb-1" />
@@ -160,34 +232,74 @@ export default function DriverDetailPage() {
               </div>
             </div>
 
+            {/* Bank Details */}
+            {driver.bankDetails?.accountNumber && (
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                  <CreditCard className="w-4 h-4" /> Bank Details
+                </h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+                  <div><p className="text-xs text-gray-500">Account Holder</p><p className="font-medium">{driver.bankDetails.accountHolderName}</p></div>
+                  <div><p className="text-xs text-gray-500">Bank Name</p><p className="font-medium">{driver.bankDetails.bankName}</p></div>
+                  <div><p className="text-xs text-gray-500">Branch</p><p className="font-medium">{driver.bankDetails.branch || '—'}</p></div>
+                  <div><p className="text-xs text-gray-500">Account Number</p><p className="font-mono font-medium">{'••••' + driver.bankDetails.accountNumber.slice(-4)}</p></div>
+                  <div><p className="text-xs text-gray-500">IFSC Code</p><p className="font-mono font-medium">{driver.bankDetails.ifscCode}</p></div>
+                  <div><p className="text-xs text-gray-500">Account Type</p><p className="font-medium capitalize">{driver.bankDetails.accountType || 'savings'}</p></div>
+                </div>
+              </div>
+            )}
+
             {/* Documents */}
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-              <h3 className="font-semibold text-gray-800 mb-4">Documents</h3>
-              <div className="space-y-3">
+              <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <FileText className="w-4 h-4" /> Documents
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {(driver.documents || []).map((doc: any) => (
-                  <div key={doc._id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div>
-                      <p className="text-sm font-medium text-gray-800">{doc.name}</p>
-                      <Badge status={doc.status} />
-                    </div>
-                    <div className="flex gap-2">
-                      {doc.status !== 'verified' && (
-                        <button type="button" onClick={() => verifyDoc(doc._id)}
-                          className="flex items-center gap-1 px-2 py-1 bg-green-50 text-green-700 rounded text-xs hover:bg-green-100 border border-green-200">
-                          <CheckCircle className="w-3 h-3" /> Verify
-                        </button>
-                      )}
-                      {doc.status !== 'rejected' && (
-                        <button type="button" onClick={() => rejectDoc(doc._id)}
-                          className="flex items-center gap-1 px-2 py-1 bg-red-50 text-red-600 rounded text-xs hover:bg-red-100 border border-red-200">
-                          <XCircle className="w-3 h-3" /> Reject
-                        </button>
-                      )}
+                  <div key={doc._id} className="border border-gray-200 rounded-lg overflow-hidden">
+                    {doc.fileUrl ? (
+                      <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="block">
+                        <img
+                          src={doc.fileUrl}
+                          alt={doc.name}
+                          className="w-full h-28 object-cover"
+                          onError={(e) => {
+                            const el = e.target as HTMLImageElement
+                            el.parentElement!.innerHTML = '<div class="w-full h-28 bg-gray-100 flex items-center justify-center text-gray-300 text-xs">No preview</div>'
+                          }}
+                        />
+                      </a>
+                    ) : (
+                      <div className="w-full h-28 bg-gray-100 flex items-center justify-center">
+                        <FileText className="w-8 h-8 text-gray-300" />
+                      </div>
+                    )}
+                    <div className="p-2">
+                      <p className="text-xs font-medium text-gray-800 mb-1">{doc.name}</p>
+                      <div className="flex items-center justify-between">
+                        <Badge status={doc.status} />
+                        <div className="flex gap-1">
+                          {doc.status !== 'verified' && (
+                            <button type="button" onClick={() => verifyDoc(doc._id)}
+                              title="Verify"
+                              className="p-1 bg-green-50 text-green-700 rounded hover:bg-green-100 border border-green-200">
+                              <CheckCircle className="w-3 h-3" />
+                            </button>
+                          )}
+                          {doc.status !== 'rejected' && (
+                            <button type="button" onClick={() => rejectDoc(doc._id)}
+                              title="Reject"
+                              className="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100 border border-red-200">
+                              <XCircle className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ))}
                 {(!driver.documents || driver.documents.length === 0) && (
-                  <p className="text-sm text-gray-400">No documents uploaded</p>
+                  <p className="text-sm text-gray-400 col-span-3">No documents uploaded</p>
                 )}
               </div>
             </div>
@@ -224,6 +336,52 @@ export default function DriverDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Reject modal */}
+      {rejectModal && (
+        <Modal title="Reject Driver" onClose={() => { setRejectModal(false); setRejectReason('') }} size="sm">
+          <div>
+            <div className="text-center mb-4">
+              <XCircle className="w-12 h-12 text-red-500 mx-auto mb-2" />
+              <p className="text-gray-700">Reject driver <strong>{driver.name}</strong>?</p>
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Rejection Reason</label>
+              <textarea
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                placeholder="Enter reason for rejection"
+                rows={3}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-300 resize-none"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => { setRejectModal(false); setRejectReason('') }}
+                className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-50">Cancel</button>
+              <button type="button" onClick={rejectDriver} disabled={actionLoading}
+                className="flex-1 bg-red-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-red-700 disabled:opacity-50">Reject</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteModal && (
+        <Modal title="Delete Driver" onClose={() => setDeleteModal(false)} size="sm">
+          <div className="text-center">
+            <Trash2 className="w-12 h-12 text-red-500 mx-auto mb-3" />
+            <p className="text-gray-700 font-semibold">Delete driver <strong>{driver.name}</strong>?</p>
+            <p className="text-gray-500 text-sm mt-1">This action cannot be undone.</p>
+            <div className="flex gap-3 mt-5">
+              <button type="button" onClick={() => setDeleteModal(false)}
+                className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-50">Cancel</button>
+              <button type="button" onClick={deleteDriver} disabled={actionLoading}
+                className="flex-1 bg-red-600 text-white rounded-lg py-2 text-sm font-medium hover:bg-red-700 disabled:opacity-50">Delete</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   )

@@ -4,6 +4,8 @@ import '../../core/constants/app_colors.dart';
 import '../auth/bloc/auth_bloc.dart';
 import '../onboarding/onboarding_page.dart';
 import '../home/pages/home_page.dart';
+import '../registration/kyc_pending_page.dart';
+import '../registration/rejection_page.dart';
 
 class SplashPage extends StatefulWidget {
   static const route = '/splash';
@@ -38,6 +40,14 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
           Navigator.pushReplacementNamed(context, OnboardingPage.route);
         } else if (state is AuthenticatedState) {
           Navigator.pushReplacementNamed(context, HomePage.route);
+        } else if (state is RegistrationSubmittedState) {
+          Navigator.pushReplacementNamed(context, KycPendingPage.route);
+        } else if (state is RejectionState) {
+          Navigator.pushReplacementNamed(
+            context,
+            RejectionPage.route,
+            arguments: {'reason': state.reason, 'driver': state.driver},
+          );
         }
       },
       child: Scaffold(

@@ -4,11 +4,13 @@ const DocumentSchema = new Schema({
   fileUrl: String,
   status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
   expiryDate: String,
+  uploadedAt: Date,
 })
 const DriverSchema = new Schema({
   name: String,
   phone: { type: String, unique: true },
   email: String,
+  profilePicUrl: String,
   status: { type: String, enum: ['pending', 'approved', 'blocked', 'rejected'], default: 'pending' },
   isOnline: { type: Boolean, default: false },
   vehicleNumber: String,
@@ -23,5 +25,22 @@ const DriverSchema = new Schema({
   currentLat: Number,
   currentLng: Number,
   fleetOwnerId: { type: Schema.Types.ObjectId, ref: 'FleetOwner' },
+  // Registration fields
+  state: String,
+  zoneId: String,
+  zoneName: String,
+  registrationStep: { type: String, default: 'otp' },
+  rejectionReason: String,
+  selectedVehicleTypeId: String,
+  selectedVehicleTypeName: String,
+  vehicleRegistrationNumber: String,
+  bankDetails: {
+    accountHolderName: String,
+    bankName: String,
+    branch: String,
+    accountNumber: String,
+    ifscCode: String,
+    accountType: { type: String, enum: ['savings', 'current'], default: 'savings' },
+  },
 }, { timestamps: true })
 export default mongoose.models.Driver || mongoose.model('Driver', DriverSchema)

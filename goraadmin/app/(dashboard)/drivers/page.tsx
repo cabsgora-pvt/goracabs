@@ -5,7 +5,7 @@ import { StatsCard } from '@/components/ui/stats-card'
 import { Badge } from '@/components/ui/badge'
 import { Toast } from '@/components/ui/toast'
 import { PageHeader } from '@/components/ui/page-header'
-import { Users, Car, Eye, Ban, Search, Star } from 'lucide-react'
+import { Users, Car, Eye, Ban, Search, Star, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 
 export default function DriversPage() {
@@ -37,6 +37,15 @@ export default function DriversPage() {
     const matchVehicle = vehicleFilter === 'all' || d.vehicleType === vehicleFilter
     return matchSearch && matchVehicle
   })
+
+  const deleteDriver = async (id: string, name: string) => {
+    if (!confirm(`Delete driver "${name}"? This cannot be undone.`)) return
+    const res = await fetch(`/api/drivers/${id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setDrivers(prev => prev.filter(d => d._id !== id))
+      setToast({ msg: 'Driver deleted', type: 'success' })
+    }
+  }
 
   const toggleBlock = async (id: string, current: string) => {
     const newStatus = current !== 'blocked' ? 'blocked' : 'approved'
@@ -134,6 +143,11 @@ export default function DriversPage() {
                             title={d.status !== 'blocked' ? 'Block driver' : 'Unblock driver'}
                             className={`p-1.5 rounded-lg ${d.status !== 'blocked' ? 'hover:bg-red-50 text-red-500' : 'hover:bg-green-50 text-green-600'}`}>
                             <Ban className="w-4 h-4" />
+                          </button>
+                          <button type="button" onClick={() => deleteDriver(d._id, d.name || d.phone)}
+                            title="Delete driver"
+                            className="p-1.5 hover:bg-red-50 rounded-lg text-red-500">
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </td>

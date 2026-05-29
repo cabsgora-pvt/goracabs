@@ -1,17 +1,12 @@
 import { NextResponse } from 'next/server'
 
-export function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  }
-}
+// Middleware handles CORS headers globally.
+// These helpers just return proper JSON responses.
 
 export function withCors(data: object, status = 200) {
-  return NextResponse.json(data, { status, headers: corsHeaders() })
+  return NextResponse.json(data, { status })
 }
 
 export function corsOptions() {
-  return new NextResponse(null, { status: 204, headers: corsHeaders() })
+  return new NextResponse(null, { status: 204 })
 }

@@ -1,6 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
+import { withCors, corsOptions } from '@/lib/cors'
+
+export async function OPTIONS() {
+  return corsOptions()
+}
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -11,9 +16,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       { status: 'rejected', rejectionReason: body.reason || '' },
       { new: true }
     ).lean()
-    if (!driver) return NextResponse.json({ error: 'Driver not found' }, { status: 404 })
-    return NextResponse.json({ success: true, driver })
+    if (!driver) return withCors({ error: 'Driver not found' }, 404)
+    return withCors({ success: true, driver })
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return withCors({ error: error.message }, 500)
   }
 }

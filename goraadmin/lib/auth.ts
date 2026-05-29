@@ -17,8 +17,20 @@ export function getTokenFromRequest(req: NextRequest) {
   return req.cookies.get('admin_token')?.value || null
 }
 
+export function getDriverTokenFromRequest(req: NextRequest) {
+  const auth = req.headers.get('authorization')
+  if (auth?.startsWith('Bearer ')) return auth.slice(7)
+  return req.cookies.get('driver_token')?.value || null
+}
+
 export function requireAuth(req: NextRequest) {
   const token = getTokenFromRequest(req)
   if (!token) return null
   try { return verifyToken(token) } catch { return null }
+}
+
+export function requireDriverAuth(req: NextRequest) {
+  const token = getDriverTokenFromRequest(req)
+  if (!token) return null
+  try { return verifyToken(token) as any } catch { return null }
 }

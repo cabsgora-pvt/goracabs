@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
-import '../bloc/auth_bloc.dart';
-import 'otp_page.dart';
+import '../../../services/driver_api_service.dart';
+import 'driver_otp_page.dart';
 
 class LoginPage extends StatefulWidget {
   static const route = '/login';
@@ -15,18 +14,14 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final _phone = TextEditingController();
   final _form = GlobalKey<FormState>();
+  bool _loading = false;
 
   @override
   void dispose() { _phone.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
-    return BlocListener<AuthBloc, AuthState>(
-      listener: (context, state) {
-        if (state is OtpSentState) Navigator.pushNamed(context, OtpPage.route, arguments: state.phone);
-        if (state is AuthErrorState) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message), backgroundColor: AppColors.red));
-      },
-      child: Scaffold(
+    return Scaffold(
         body: SingleChildScrollView(
           child: Column(children: [
             // Header
@@ -74,16 +69,32 @@ class _LoginPageState extends State<LoginPage> {
                     validator: (v) => (v == null || v.length < 10) ? 'Enter valid 10-digit number' : null,
                   ),
                   const SizedBox(height: 32),
-                  BlocBuilder<AuthBloc, AuthState>(
-                    builder: (context, state) => PrimaryButton(
-                      label: 'Send OTP',
-                      loading: state is AuthLoading,
-                      onTap: () {
-                        if (_form.currentState!.validate()) {
-                          context.read<AuthBloc>().add(LoginEvent(_phone.text));
+                  PrimaryButton(
+                    label: 'Send OTP',
+                    loading: _loading,
+                    onTap: () async {
+                      if (!_form.currentState!.validate()) return;
+                      if (_phone.text.length < 10) return;
+                      setState(() => _loading = true);
+                      try {
+                        final res = await DriverApiService.sendOtp(_phone.text);
+                        if (!mounted) return;
+                        if (res['success'] == true) {
+                          Navigator.pushNamed(context, DriverOtpPage.route, arguments: _phone.text);
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(res['error']?.toString() ?? 'Failed to send OTP'), backgroundColor: AppColors.red),
+                          );
                         }
-                      },
-                    ),
+                      } catch (_) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Cannot connect to server'), backgroundColor: AppColors.red),
+                        );
+                      } finally {
+                        if (mounted) setState(() => _loading = false);
+                      }
+                    },
                   ),
                   const SizedBox(height: 24),
                   Center(
@@ -100,7 +111,6 @@ class _LoginPageState extends State<LoginPage> {
             ),
           ]),
         ),
-      ),
     );
   }
 }
