@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'goraadmin',
-      cwd: '/var/www/goraadmin/goradmin',
+      cwd: '/var/www/goraadmin/goraadmin',
       script: 'node_modules/next/dist/bin/next',
       args: 'start -p 3000',
       instances: 1,
