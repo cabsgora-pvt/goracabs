@@ -22,6 +22,26 @@ class ApiService {
     await prefs.remove('user_token');
   }
 
+  // Google Places autocomplete (via backend proxy)
+  static Future<List<Map<String, dynamic>>> placesAutocomplete(String query) async {
+    if (query.trim().length < 2) return [];
+    try {
+      final res = await http.get(Uri.parse('$baseUrl/places/autocomplete?q=${Uri.encodeQueryComponent(query)}'));
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final list = (data['predictions'] as List?) ?? [];
+      return list.map((p) => Map<String, dynamic>.from(p as Map)).toList();
+    } catch (_) { return []; }
+  }
+
+  static Future<Map<String, dynamic>?> placeDetails(String placeId) async {
+    try {
+      final res = await http.get(Uri.parse('$baseUrl/places/details?placeId=$placeId'));
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      if (data['lat'] != null) return data;
+      return null;
+    } catch (_) { return null; }
+  }
+
   static Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body, {bool auth = false}) async {
     final headers = {'Content-Type': 'application/json'};
     if (auth) {

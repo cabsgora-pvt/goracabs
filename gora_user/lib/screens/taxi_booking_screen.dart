@@ -52,6 +52,54 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   String _driverPhone = '';
   Timer? _pollTimer;
 
+  // ── Places autocomplete state ──
+  List<Map<String, dynamic>> _dropSuggestions = [];
+  List<Map<String, dynamic>> _mapPickerSuggestions = [];
+  Timer? _searchDebounce;
+  final _mapSearchController = TextEditingController();
+
+  void _searchPlaces(String q, {required bool forMapPicker}) {
+    _searchDebounce?.cancel();
+    if (q.trim().length < 2) {
+      setState(() {
+        if (forMapPicker) _mapPickerSuggestions = [];
+        else _dropSuggestions = [];
+      });
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
+      final results = await ApiService.placesAutocomplete(q);
+      if (!mounted) return;
+      setState(() {
+        if (forMapPicker) _mapPickerSuggestions = results;
+        else _dropSuggestions = results;
+      });
+    });
+  }
+
+  Future<void> _selectSuggestion(Map<String, dynamic> s, {required bool forMapPicker}) async {
+    final placeId = s['placeId'] as String? ?? '';
+    final desc = s['description'] as String? ?? '';
+    final details = await ApiService.placeDetails(placeId);
+    if (!mounted) return;
+    if (details == null) return;
+    final lat = (details['lat'] as num).toDouble();
+    final lng = (details['lng'] as num).toDouble();
+    setState(() {
+      _selectedMapLocation = LatLng(lat, lng);
+      _dropController.text = details['address'] as String? ?? desc;
+      if (forMapPicker) {
+        _mapSearchController.text = details['address'] as String? ?? desc;
+        _mapPickerSuggestions = [];
+      } else {
+        _dropSuggestions = [];
+      }
+    });
+    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_selectedMapLocation, 16));
+    // Drop changed → refresh fares using real distance
+    _loadRealFares();
+  }
+
   final List<int> _tipAmounts = [10, 20, 50, 100];
 
   // Vehicles to display, filtered by the service mode (bike/auto/cab)
@@ -69,7 +117,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     super.initState();
     // Set default locations
     _pickupController.text = widget.fromLocation ?? 'Current Location';
-    _dropController.text = widget.toLocation ?? 'Select Destination';
+    // Empty so the hint/placeholder shows; user types to search
+    _dropController.text = widget.toLocation ?? '';
     
     // Set preselected vehicle if provided
     if (widget.preselectedVehicle != null) {
@@ -98,8 +147,10 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _searchDebounce?.cancel();
     _pickupController.dispose();
     _dropController.dispose();
+    _mapSearchController.dispose();
     for (var controller in _stopControllers) {
       controller.dispose();
     }
@@ -152,15 +203,29 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     {'name': 'Premium', 'type': 'Luxury Sedan', 'price': '₹320', 'eta': '6 min', 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF2196F3), 'image': 'assets/images/texi2.png'},
   ];
 
-  // Fetch real fares from admin zone pricing — overlay prices, keep same UI
+  // Distance + duration from latest fare estimate (used at booking)
+  double _rideDistance = 0;
+  int _rideDuration = 0;
+
+  // Fetch real fares from admin zone pricing — uses drop coords if available
   Future<void> _loadRealFares() async {
     try {
+      // Only send drop coords if a real drop was picked (not equal to pickup)
+      final hasDrop = _dropController.text.trim().isNotEmpty &&
+          (_selectedMapLocation.latitude != _myLocation.latitude ||
+              _selectedMapLocation.longitude != _myLocation.longitude);
       final res = await ApiService.estimateFare(
-        pickupLat: _myLocation.latitude, pickupLng: _myLocation.longitude, service: 'taxi',
+        pickupLat: _myLocation.latitude,
+        pickupLng: _myLocation.longitude,
+        dropLat: hasDrop ? _selectedMapLocation.latitude : null,
+        dropLng: hasDrop ? _selectedMapLocation.longitude : null,
+        service: 'taxi',
       );
       if (res['available'] == true && res['vehicles'] is List) {
         final apiVehicles = res['vehicles'] as List;
         setState(() {
+          _rideDistance = (res['distance'] as num?)?.toDouble() ?? 0;
+          _rideDuration = (res['duration'] as num?)?.toInt() ?? 0;
           for (final v in _vehicles) {
             final match = apiVehicles.firstWhere(
               (a) => (a['name'] as String?)?.toLowerCase() == (v['name'] as String).toLowerCase(),
@@ -192,6 +257,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         'vehicleType': _selectedVehicle,
         'fare': basePrice,
         'tip': tip,
+        'distance': _rideDistance,
+        'duration': _rideDuration,
         'paymentMode': 'cash',
       });
       if (res['ride'] != null) {
@@ -556,7 +623,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                     ],
                   ),
                 ),
-                _buildLocationInput(Icons.location_on, _dropController, const Color(0xFFFF5252), 'Select Destination'),
+                _buildLocationInput(Icons.location_on, _dropController, const Color(0xFFFF5252), 'Search destination',
+                    onChanged: (q) => _searchPlaces(q, forMapPicker: false)),
                 const SizedBox(height: 16),
                 InkWell(
                   onTap: () {
@@ -603,23 +671,32 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                Text(
-                  'RECENT',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600], fontWeight: FontWeight.w600, letterSpacing: 0.5),
-                ),
-                const SizedBox(height: 12),
-                _buildRecentLocation(
-                  'Audi Bangalore (Koramangala Road)',
-                  'Koramangala, Bangalore - 560',
-                ),
-                _buildRecentLocation(
-                  'Patna',
-                  'Bihar, Rajendra Nagar, Patna - 800',
-                ),
-                _buildRecentLocation(
-                  'JMD Mall (Sohna Road)',
-                  'Sector 48, Gurugram - 122018',
-                ),
+                if (_dropSuggestions.isNotEmpty) ...[
+                  Text('SUGGESTIONS',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600], fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+                  const SizedBox(height: 8),
+                  ..._dropSuggestions.map((s) => _buildSuggestionTile(s, forMapPicker: false)),
+                ] else if (_dropController.text.trim().isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Text('Searching...', style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                    ),
+                  ),
+                ] else ...[
+                  Padding(
+                    padding: const EdgeInsets.only(top: 40),
+                    child: Column(children: [
+                      Icon(Icons.search, size: 48, color: Colors.grey[300]),
+                      const SizedBox(height: 12),
+                      Text('Search for your destination',
+                          style: TextStyle(fontSize: 14, color: Colors.grey[500], fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 4),
+                      Text('Type to see Google suggestions',
+                          style: TextStyle(fontSize: 12, color: Colors.grey[400])),
+                    ]),
+                  ),
+                ],
               ],
             ),
           ),
@@ -670,8 +747,13 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
       body: Stack(
         children: [
           GoogleMap(
-            initialCameraPosition: CameraPosition(target: _selectedMapLocation, zoom: 15),
-            onMapCreated: (c) => _mapController = c,
+            initialCameraPosition: CameraPosition(target: _myLocation, zoom: 15),
+            onMapCreated: (c) {
+              _mapController = c;
+              // Always center on user's real location when picker opens
+              c.animateCamera(CameraUpdate.newLatLngZoom(_myLocation, 16));
+              _selectedMapLocation = _myLocation;
+            },
             myLocationEnabled: true,
             myLocationButtonEnabled: false,
             zoomControlsEnabled: false,
@@ -749,23 +831,51 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))],
                               ),
-                            ],
-                          ),
-                          child: const Text(
-                            'Move map to select location',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                          ),
+                              child: Row(children: [
+                                const Icon(Icons.search, color: Colors.grey, size: 20),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: _mapSearchController,
+                                    onChanged: (q) => _searchPlaces(q, forMapPicker: true),
+                                    decoration: const InputDecoration(
+                                      hintText: 'Search for a place',
+                                      border: InputBorder.none,
+                                      isDense: true,
+                                    ),
+                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                                  ),
+                                ),
+                              ]),
+                            ),
+                            if (_mapPickerSuggestions.isNotEmpty)
+                              Container(
+                                margin: const EdgeInsets.only(top: 6),
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))],
+                                ),
+                                constraints: const BoxConstraints(maxHeight: 260),
+                                child: ListView(
+                                  shrinkWrap: true,
+                                  children: _mapPickerSuggestions
+                                      .map((s) => _buildSuggestionTile(s, forMapPicker: true))
+                                      .toList(),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     ],
@@ -831,10 +941,17 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                       child: ElevatedButton(
                         onPressed: () {
                           setState(() {
-                            _dropController.text = 'Lat: ${_selectedMapLocation.latitude.toStringAsFixed(4)}, Lng: ${_selectedMapLocation.longitude.toStringAsFixed(4)}';
+                            // Use search text if user typed/selected, else show coords
+                            if (_mapSearchController.text.trim().isNotEmpty) {
+                              _dropController.text = _mapSearchController.text;
+                            } else {
+                              _dropController.text = 'Lat: ${_selectedMapLocation.latitude.toStringAsFixed(4)}, Lng: ${_selectedMapLocation.longitude.toStringAsFixed(4)}';
+                            }
                             _showMapPicker = false;
                             _locationConfirmed = true;
                           });
+                          // Recalculate fares with real distance to selected drop
+                          _loadRealFares();
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF2196F3),
@@ -922,6 +1039,36 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     );
   }
 
+  Widget _buildSuggestionTile(Map<String, dynamic> s, {required bool forMapPicker}) {
+    final main = s['mainText'] as String? ?? s['description'] as String? ?? '';
+    final sub = s['secondaryText'] as String? ?? '';
+    return InkWell(
+      onTap: () => _selectSuggestion(s, forMapPicker: forMapPicker),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: Colors.grey[100], shape: BoxShape.circle),
+              child: Icon(Icons.location_on_outlined, color: Colors.grey[700], size: 18),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(main, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+                if (sub.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(sub, style: TextStyle(fontSize: 12, color: Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildRecentLocation(String title, String subtitle) {
     return InkWell(
       onTap: () {
@@ -966,7 +1113,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     );
   }
 
-  Widget _buildLocationInput(IconData icon, TextEditingController controller, Color iconColor, String hint) {
+  Widget _buildLocationInput(IconData icon, TextEditingController controller, Color iconColor, String hint, {ValueChanged<String>? onChanged}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
@@ -981,6 +1128,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
           Expanded(
             child: TextField(
               controller: controller,
+              onChanged: onChanged,
               decoration: InputDecoration(
                 hintText: hint,
                 border: InputBorder.none,

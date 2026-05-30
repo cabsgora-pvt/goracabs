@@ -12,7 +12,13 @@ class DriverProvider extends ChangeNotifier {
   String get phone => _data?['phone'] as String? ?? '';
   String get email => _data?['email'] as String? ?? '';
   String get state => _data?['state'] as String? ?? '';
-  String get profilePicUrl => _data?['profilePicUrl'] as String? ?? '';
+  String get profilePicUrl {
+    final raw = (_data?['profilePicUrl'] as String? ?? '');
+    if (raw.isEmpty) return '';
+    // Extract just /uploads/... in case URL was stored with a bad prefix
+    final m = RegExp(r'/uploads/[^\s?#]+').firstMatch(raw);
+    return m != null ? m.group(0)! : raw;
+  }
   String get vehicleNumber => _data?['vehicleRegistrationNumber'] as String? ?? _data?['vehicleNumber'] as String? ?? '';
   String get vehicleModel => _data?['vehicleModel'] as String? ?? '';
   String get vehicleType => _data?['selectedVehicleTypeName'] as String? ?? _data?['vehicleType'] as String? ?? '';

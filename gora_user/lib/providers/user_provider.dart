@@ -13,7 +13,12 @@ class UserProvider extends ChangeNotifier {
   String get email => _user?['email'] ?? '';
   String get city => _user?['city'] ?? '';
   String get idNumber => _user?['idNumber'] ?? '';
-  String get profilePicUrl => _user?['profilePicUrl'] ?? '';
+  String get profilePicUrl {
+    final raw = (_user?['profilePicUrl'] as String? ?? '');
+    if (raw.isEmpty) return '';
+    final m = RegExp(r'/uploads/[^\s?#]+').firstMatch(raw);
+    return m != null ? m.group(0)! : raw;
+  }
 
   Future<void> loadProfile() async {
     final token = await ApiService.getToken();
