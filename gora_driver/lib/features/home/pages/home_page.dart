@@ -70,6 +70,8 @@ class _HomeTab extends StatelessWidget {
           appBar: AppBar(
             backgroundColor: AppColors.primary,
             elevation: 0,
+            automaticallyImplyLeading: false,
+            titleSpacing: 16,
             title: Row(children: [
               CircleAvatar(
                 backgroundColor: Colors.white24,
@@ -81,10 +83,14 @@ class _HomeTab extends StatelessWidget {
                     : null,
               ),
               const SizedBox(width: 10),
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(dp.name.isNotEmpty ? dp.name : 'Driver', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
-                Text(dp.vehicleNumber, style: const TextStyle(fontSize: 11, color: Colors.white70)),
-              ]),
+              Expanded(
+                child: Text(
+                  dp.name.isNotEmpty ? dp.name : 'Driver',
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ]),
             actions: [
               // Online/Offline Toggle
@@ -126,22 +132,6 @@ class _HomeTab extends StatelessWidget {
               Positioned(
                 bottom: 100, left: 24, right: 24,
                 child: _OfflinePrompt(onGoOnline: () => context.read<HomeBloc>().add(ToggleOnlineEvent(true))),
-              ),
-            // Simulate ride button (for demo)
-            if (isOnline)
-              Positioned(
-                bottom: 100, left: 24, right: 24,
-                child: ElevatedButton.icon(
-                  icon: const Icon(Icons.flash_on),
-                  label: const Text('Simulate Incoming Ride'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () => Navigator.pushNamed(context, IncomingRidePage.route),
-                ),
               ),
           ]),
         );

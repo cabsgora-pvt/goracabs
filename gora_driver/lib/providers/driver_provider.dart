@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/app_config.dart';
 import '../services/driver_api_service.dart';
 
 class DriverProvider extends ChangeNotifier {
@@ -17,7 +18,9 @@ class DriverProvider extends ChangeNotifier {
     if (raw.isEmpty) return '';
     // Extract just /uploads/... in case URL was stored with a bad prefix
     final m = RegExp(r'/uploads/[^\s?#]+').firstMatch(raw);
-    return m != null ? m.group(0)! : raw;
+    final relative = m != null ? m.group(0)! : raw;
+    // Convert to full URL so Image.network / NetworkImage can load it
+    return AppConfig.imageUrl(relative);
   }
   String get vehicleNumber => _data?['vehicleRegistrationNumber'] as String? ?? _data?['vehicleNumber'] as String? ?? '';
   String get vehicleModel => _data?['vehicleModel'] as String? ?? '';
