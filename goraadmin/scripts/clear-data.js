@@ -11,10 +11,21 @@
  *     node scripts/clear-data.js
  */
 const mongoose = require('mongoose')
-require('dotenv').config({ path: '.env.production' })
-require('dotenv').config({ path: '.env.local' })
+const fs = require('fs')
+const path = require('path')
 
-const URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/goraadmin'
+// Try to load MONGODB_URI from env first, else from .env.production / .env.local
+function loadUri() {
+  if (process.env.MONGODB_URI) return process.env.MONGODB_URI
+  for (const f of ['.env.production', '.env.local', '.env']) {
+    const p = path.join(process.cwd(), f)
+    if (!fs.existsSync(p)) continue
+    const line = fs.readFileSync(p, 'utf8').split('\n').find(l => l.startsWith('MONGODB_URI='))
+    if (line) return line.replace('MONGODB_URI=', '').trim()
+  }
+  return 'mongodb://localhost:27017/goraadmin'
+}
+const URI = loadUri()
 
 // All collections we use
 const ALL_COLLECTIONS = [
