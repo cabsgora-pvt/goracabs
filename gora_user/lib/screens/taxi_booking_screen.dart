@@ -60,6 +60,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   Timer? _pollTimer;
   Timer? _driverLocTimer;
   Timer? _etaTimer;
+  Timer? _fareRefreshTimer;
 
   // ── Route + live tracking state ─────────────────────────────
   List<LatLng> _routePoints = [];           // decoded pickup → drop polyline
@@ -156,9 +157,22 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     if (pos != null && mounted) {
       setState(() {
         _myLocation = LatLng(pos.latitude, pos.longitude);
-        _selectedMapLocation = _myLocation;
+        // Only set selected = pickup if no drop has been picked yet
+        if (_dropController.text.trim().isEmpty) _selectedMapLocation = _myLocation;
       });
-      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_myLocation, 15));
+      _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_myLocation, 16));
+      // Replace generic "Current Location" with the real street/area name
+      if (_pickupController.text.trim().isEmpty || _pickupController.text == 'Current Location') {
+        final addr = await ApiService.reverseGeocode(pos.latitude, pos.longitude);
+        if (mounted && addr.isNotEmpty) setState(() => _pickupController.text = addr);
+      }
+    } else if (mounted) {
+      // Show a clear message + retry button so the user understands why pickup is wrong
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Could not get your location. Check GPS/location permission.'),
+        action: SnackBarAction(label: 'Retry', onPressed: _initLocation),
+        duration: const Duration(seconds: 6),
+      ));
     }
     _loadRealFares();
   }
@@ -168,6 +182,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     _pollTimer?.cancel();
     _driverLocTimer?.cancel();
     _etaTimer?.cancel();
+    _fareRefreshTimer?.cancel();
     _searchDebounce?.cancel();
     _pickupController.dispose();
     _dropController.dispose();
@@ -252,15 +267,31 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
               (a) => (a['name'] as String?)?.toLowerCase() == (v['name'] as String).toLowerCase(),
               orElse: () => null,
             );
-            if (match != null && match['fare'] != null) {
-              v['price'] = '₹${match['fare']}';
+            if (match != null) {
+              if (match['fare'] != null) v['price'] = '₹${match['fare']}';
+              // Real driver ETA from backend; null when no driver of this type is online
+              final eta = match['etaMin'];
+              v['eta'] = eta is num ? '$eta min' : 'No driver';
+            } else {
+              v['eta'] = 'No driver';
             }
           }
         });
       }
       // Once we have a drop, also fetch real road directions for polyline + road distance
       if (hasDrop) await _loadDirections();
+      // Keep ETAs/fares fresh while the user is picking a vehicle (until ride is booked)
+      _startFareRefresh();
     } catch (_) {/* keep default prices */}
+  }
+
+  // Refresh fare estimate every 20s so driver ETA stays current. Stops once a ride is booked.
+  void _startFareRefresh() {
+    if (_fareRefreshTimer != null && _fareRefreshTimer!.isActive) return;
+    _fareRefreshTimer = Timer.periodic(const Duration(seconds: 20), (t) {
+      if (!mounted || _rideId != null) { t.cancel(); _fareRefreshTimer = null; return; }
+      _loadRealFares();
+    });
   }
 
   // Fetch encoded polyline + road distance + duration; decode + draw + fit-bounds
@@ -934,12 +965,37 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () {
-                    if (_dropController.text.isNotEmpty && _dropController.text != 'Select Destination') {
-                      setState(() {
-                        _locationConfirmed = true;
-                      });
+                  onPressed: () async {
+                    final dropText = _dropController.text.trim();
+                    if (dropText.isEmpty || dropText == 'Select Destination') {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Please enter your destination')),
+                      );
+                      return;
                     }
+                    // If drop coords are stale (still equal to pickup), resolve them now.
+                    final coordsLookValid = _selectedMapLocation.latitude != _myLocation.latitude ||
+                        _selectedMapLocation.longitude != _myLocation.longitude;
+                    if (!coordsLookValid) {
+                      // If there's a queued autocomplete suggestion, take the top one
+                      if (_dropSuggestions.isNotEmpty) {
+                        await _selectSuggestion(_dropSuggestions.first, forMapPicker: false);
+                      } else {
+                        // Otherwise try to autocomplete + take first hit
+                        final results = await ApiService.placesAutocomplete(dropText);
+                        if (results.isNotEmpty) {
+                          await _selectSuggestion(results.first, forMapPicker: false);
+                        } else {
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Couldn\'t find that place. Pick from the suggestions.')),
+                          );
+                          return;
+                        }
+                      }
+                    }
+                    if (!mounted) return;
+                    setState(() => _locationConfirmed = true);
+                    _loadRealFares();
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2196F3),
@@ -1163,17 +1219,17 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                       width: double.infinity,
                       child: ElevatedButton(
                         onPressed: () async {
-                          // Always resolve a real place name (search bar or reverse geocode)
-                          String addr = _mapSearchController.text.trim();
-                          if (addr.isEmpty) {
-                            addr = await ApiService.reverseGeocode(
-                              _selectedMapLocation.latitude, _selectedMapLocation.longitude);
-                          }
+                          // Always reverse-geocode the actual pin position — typed search text
+                          // may be stale if the user dragged the map after typing.
+                          final addr = await ApiService.reverseGeocode(
+                            _selectedMapLocation.latitude, _selectedMapLocation.longitude);
                           if (!mounted) return;
                           setState(() {
                             _dropController.text = addr.isNotEmpty
                                 ? addr
-                                : 'Selected location';
+                                : (_mapSearchController.text.trim().isNotEmpty
+                                    ? _mapSearchController.text.trim()
+                                    : 'Selected location');
                             _showMapPicker = false;
                             _locationConfirmed = true;
                           });
@@ -1195,18 +1251,29 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
               ),
             ),
           ),
-          // Current location button
+          // Current location button (fetches fresh GPS, not cached)
           Positioned(
             bottom: 200,
             right: 16,
             child: FloatingActionButton(
               mini: true,
               backgroundColor: Colors.white,
-              onPressed: () {
+              onPressed: () async {
+                final pos = await LocationService.getCurrentLocation();
+                if (pos == null) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Enable GPS / location permission to use this')),
+                  );
+                  return;
+                }
+                final ll = LatLng(pos.latitude, pos.longitude);
+                if (!mounted) return;
                 setState(() {
-                  _selectedMapLocation = _myLocation;
+                  _myLocation = ll;
+                  _selectedMapLocation = ll;
                 });
-                _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_myLocation, 15.0));
+                _mapController?.animateCamera(CameraUpdate.newLatLngZoom(ll, 16));
               },
               child: const Icon(Icons.my_location, color: Color(0xFF2196F3)),
             ),
