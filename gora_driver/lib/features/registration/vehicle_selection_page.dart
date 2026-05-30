@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../config/app_config.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/widgets/app_widgets.dart';
 import '../../services/driver_api_service.dart';
@@ -102,7 +103,8 @@ class _VehicleSelectionPageState extends State<VehicleSelectionPage> {
                                             mainAxisAlignment: MainAxisAlignment.center,
                                             children: [
                                               Builder(builder: (_) {
-                                                final imgUrl = (vt['imageUrl'] as String? ?? '').trim();
+                                                final raw = (vt['imageUrl'] as String? ?? '').trim();
+                                                final imgUrl = raw.isEmpty ? '' : AppConfig.imageUrl(raw);
                                                 return imgUrl.isNotEmpty
                                                     ? Image.network(
                                                         imgUrl,
