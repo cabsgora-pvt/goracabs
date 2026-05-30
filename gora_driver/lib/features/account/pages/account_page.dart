@@ -22,36 +22,139 @@ class AccountPage extends StatelessWidget {
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
-            expandedHeight: 200,
+            expandedHeight: 260,
             pinned: true,
             backgroundColor: AppColors.primary,
             automaticallyImplyLeading: false,
+            elevation: 0,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.edit_outlined, color: Colors.white),
+                tooltip: 'Edit profile',
+                onPressed: () => Navigator.pushNamed(context, '/profile'),
+              ),
+            ],
             flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(colors: [AppColors.primaryDark, AppColors.primary], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                ),
-                child: SafeArea(
-                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    CircleAvatar(
-                      radius: 40,
-                      backgroundColor: Colors.white24,
-                      backgroundImage: picUrl.isNotEmpty ? NetworkImage(picUrl) : null,
-                      child: picUrl.isEmpty
-                          ? Text(displayName[0].toUpperCase(), style: const TextStyle(fontSize: 34, color: Colors.white, fontWeight: FontWeight.w800))
-                          : null,
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Gradient backdrop
+                  Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [AppColors.primaryDark, AppColors.primary],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
                     ),
-                    const SizedBox(height: 10),
-                    Text(displayName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.white)),
-                    Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      const Icon(Icons.star, color: AppColors.orange, size: 16),
-                      Text(' ${dp.rating}  •  ${dp.totalRides} rides', style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                    ]),
-                  ]),
-                ),
+                  ),
+                  // Soft decorative circles
+                  Positioned(
+                    top: -40, right: -30,
+                    child: Container(width: 160, height: 160,
+                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.06), shape: BoxShape.circle)),
+                  ),
+                  Positioned(
+                    bottom: -50, left: -40,
+                    child: Container(width: 180, height: 180,
+                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), shape: BoxShape.circle)),
+                  ),
+                  // Profile content
+                  SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 50, 20, 16),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Avatar with white ring + camera badge
+                          GestureDetector(
+                            onTap: () => Navigator.pushNamed(context, '/profile'),
+                            child: Stack(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(3),
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 2.5),
+                                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 12, offset: const Offset(0, 4))],
+                                  ),
+                                  child: CircleAvatar(
+                                    radius: 38,
+                                    backgroundColor: Colors.white.withOpacity(0.18),
+                                    backgroundImage: picUrl.isNotEmpty ? NetworkImage(picUrl) : null,
+                                    child: picUrl.isEmpty
+                                        ? Text(displayName[0].toUpperCase(),
+                                            style: const TextStyle(fontSize: 30, color: Colors.white, fontWeight: FontWeight.w800))
+                                        : null,
+                                  ),
+                                ),
+                                Positioned(
+                                  bottom: 0, right: 0,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white, shape: BoxShape.circle,
+                                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 4)],
+                                    ),
+                                    child: const Icon(Icons.camera_alt, size: 14, color: AppColors.primary),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          // Name + verified tick
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  displayName,
+                                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.2),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Icon(Icons.verified, color: Colors.white, size: 18),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          // Phone pill
+                          if (dp.phone.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.phone, size: 11, color: Colors.white70),
+                                  const SizedBox(width: 4),
+                                  Text('+91 ${dp.phone}', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                            ),
+                          const SizedBox(height: 10),
+                          // Rating + rides chips
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _HeaderChip(icon: Icons.star_rounded, iconColor: AppColors.orange,
+                                label: dp.rating.toString() == '0' ? 'New' : dp.rating),
+                              const SizedBox(width: 8),
+                              _HeaderChip(icon: Icons.directions_car_rounded, iconColor: Colors.white,
+                                label: '${dp.totalRides} rides'),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            title: const Text('Account', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
           ),
           SliverToBoxAdapter(
             child: Padding(
@@ -130,6 +233,30 @@ class AccountPage extends StatelessWidget {
       ],
     ));
   }
+}
+
+class _HeaderChip extends StatelessWidget {
+  final IconData icon;
+  final Color iconColor;
+  final String label;
+  const _HeaderChip({required this.icon, required this.iconColor, required this.label});
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.18),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: Colors.white24, width: 0.5),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: iconColor, size: 14),
+        const SizedBox(width: 5),
+        Text(label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+      ],
+    ),
+  );
 }
 
 class _QuickStat extends StatelessWidget {
