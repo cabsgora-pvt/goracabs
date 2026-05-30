@@ -62,10 +62,12 @@ class _RatingScreenState extends State<RatingScreen> {
                         selectedRating = index + 1;
                       });
                     },
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    constraints: const BoxConstraints(),
                     icon: Icon(
                       index < selectedRating ? Icons.star : Icons.star_border,
                       color: Colors.amber,
-                      size: 48,
+                      size: 44,
                     ),
                   );
                 }),

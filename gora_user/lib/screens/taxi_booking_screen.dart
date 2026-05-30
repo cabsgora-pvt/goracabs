@@ -1879,6 +1879,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
       context: context,
       isDismissible: false,
       enableDrag: false,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       barrierColor: Colors.transparent, // Don't dim the map
       builder: (BuildContext context) {
@@ -1907,7 +1908,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         });
 
         return Container(
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.only(
+            left: 20, right: 20, top: 20,
+            // Honour system bottom inset (gesture-bar) so the cancel button never overflows
+            bottom: 20 + MediaQuery.of(context).viewPadding.bottom,
+          ),
           decoration: const BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -1915,25 +1920,26 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
               BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -2)),
             ],
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[300],
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
                 ),
-              ),
-              const Text(
-                'Your taxi on the way',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black),
-              ),
+                const Text(
+                  'Your taxi on the way',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black),
+                ),
               const SizedBox(height: 12),
               Row(
                 mainAxisAlignment: MainAxisAlignment.start,
@@ -2121,6 +2127,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
               ),
               const SizedBox(height: 10),
             ],
+          ),
           ),
         );
       },
