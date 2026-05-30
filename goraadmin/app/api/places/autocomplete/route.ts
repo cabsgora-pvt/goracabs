@@ -24,12 +24,16 @@ export async function GET(req: NextRequest) {
       return withCors({ predictions: [], googleStatus: data.status, googleError: data.error_message || 'Places API error' })
     }
 
-    const predictions = (data.predictions || []).map((p: any) => ({
-      placeId: p.place_id,
-      description: p.description,
-      mainText: p.structured_formatting?.main_text || p.description,
-      secondaryText: p.structured_formatting?.secondary_text || '',
-    }))
+    // Filter out Plus Code-only predictions (e.g. "JJ4Q+39 Ahmedabad")
+    const plusCode = /^[A-Z0-9]{4,8}\+[A-Z0-9]{2,4}\b/i
+    const predictions = (data.predictions || [])
+      .filter((p: any) => !plusCode.test((p.structured_formatting?.main_text || p.description || '').trim()))
+      .map((p: any) => ({
+        placeId: p.place_id,
+        description: p.description,
+        mainText: p.structured_formatting?.main_text || p.description,
+        secondaryText: p.structured_formatting?.secondary_text || '',
+      }))
     return withCors({ predictions })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)

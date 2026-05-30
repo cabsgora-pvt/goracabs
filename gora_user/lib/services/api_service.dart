@@ -34,12 +34,20 @@ class ApiService {
     } catch (_) { return []; }
   }
 
-  // Reverse geocode: lat/lng → address string
+  // Reverse geocode: lat/lng → address string. Strips Plus Codes defensively
+  // (in case backend hasn't been updated to filter them).
+  static final RegExp _plusCodeRe = RegExp(r'^[A-Z0-9]{4,8}\+[A-Z0-9]{2,4}\b', caseSensitive: false);
   static Future<String> reverseGeocode(double lat, double lng) async {
     try {
       final res = await http.get(Uri.parse('$baseUrl/places/reverse?lat=$lat&lng=$lng'));
       final data = jsonDecode(res.body) as Map<String, dynamic>;
-      return (data['address'] as String?) ?? '';
+      var addr = ((data['address'] as String?) ?? '').trim();
+      if (addr.isEmpty) return '';
+      // Strip leading Plus Code if present (e.g. "JJ4Q+39 Bopal" → "Bopal")
+      if (_plusCodeRe.hasMatch(addr)) {
+        addr = addr.replaceFirst(_plusCodeRe, '').replaceFirst(RegExp(r'^[\s,]+'), '').trim();
+      }
+      return addr;
     } catch (_) { return ''; }
   }
 
@@ -47,8 +55,14 @@ class ApiService {
     try {
       final res = await http.get(Uri.parse('$baseUrl/places/details?placeId=$placeId'));
       final data = jsonDecode(res.body) as Map<String, dynamic>;
-      if (data['lat'] != null) return data;
-      return null;
+      if (data['lat'] == null) return null;
+      // Strip Plus Code prefix from address if Google returned one
+      var addr = ((data['address'] as String?) ?? '').trim();
+      if (addr.isNotEmpty && _plusCodeRe.hasMatch(addr)) {
+        addr = addr.replaceFirst(_plusCodeRe, '').replaceFirst(RegExp(r'^[\s,]+'), '').trim();
+        data['address'] = addr;
+      }
+      return data;
     } catch (_) { return null; }
   }
 
