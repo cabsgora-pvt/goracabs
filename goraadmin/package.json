@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "seed": "node scripts/seed.js"
+    "seed": "node scripts/seed.js",
+    "clear": "node scripts/clear-data.js",
+    "wipe": "node scripts/clear-data.js --all"
   },
   "dependencies": {
     "@react-google-maps/api": "^2.20.8",
