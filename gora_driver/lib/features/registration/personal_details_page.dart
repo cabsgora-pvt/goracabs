@@ -293,7 +293,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  'Step 1 of 4 — Tell us about yourself',
+                  'Step 1 of 3 — Tell us about yourself',
                   style: TextStyle(fontSize: 13, color: Colors.white70),
                 ),
               ),
@@ -306,7 +306,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
 
   Widget _stepIndicator(int current) {
     return Row(
-      children: List.generate(4, (i) => Expanded(
+      children: List.generate(3, (i) => Expanded(
         child: Container(
           height: 4,
           margin: const EdgeInsets.symmetric(horizontal: 2),

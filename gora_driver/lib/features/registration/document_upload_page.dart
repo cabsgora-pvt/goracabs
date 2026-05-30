@@ -3,7 +3,8 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/widgets/app_widgets.dart';
 import '../../services/driver_api_service.dart';
-import 'bank_details_page.dart';
+// import 'bank_details_page.dart'; // Bank details deferred — driver can add later from settings
+import 'kyc_success_page.dart';
 
 const _requiredDocs = [
   'Aadhaar Card',
@@ -62,7 +63,9 @@ class _DocumentUploadPageState extends State<DocumentUploadPage> {
       if (res['error'] != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['error'].toString()), backgroundColor: AppColors.red));
       } else {
-        Navigator.pushNamed(context, BankDetailsPage.route);
+        // Bank details deferred — skip directly to KYC success
+        // Navigator.pushNamed(context, BankDetailsPage.route);
+        Navigator.pushNamedAndRemoveUntil(context, KycSuccessPage.route, (_) => false);
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.red));
@@ -229,7 +232,7 @@ class _DocumentUploadPageState extends State<DocumentUploadPage> {
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  'Step 3 of 4 — Upload all required documents',
+                  'Step 3 of 3 — Upload all required documents',
                   style: TextStyle(fontSize: 13, color: Colors.white70),
                 ),
               ),
@@ -242,7 +245,7 @@ class _DocumentUploadPageState extends State<DocumentUploadPage> {
 
   Widget _stepIndicator(int current) {
     return Row(
-      children: List.generate(4, (i) => Expanded(
+      children: List.generate(3, (i) => Expanded(
         child: Container(
           height: 4,
           margin: const EdgeInsets.symmetric(horizontal: 2),

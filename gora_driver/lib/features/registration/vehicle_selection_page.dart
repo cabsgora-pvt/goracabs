@@ -192,7 +192,7 @@ class _VehicleSelectionPageState extends State<VehicleSelectionPage> {
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  'Step 2 of 4 — Choose your vehicle category',
+                  'Step 2 of 3 — Choose your vehicle category',
                   style: TextStyle(fontSize: 13, color: Colors.white70),
                 ),
               ),
