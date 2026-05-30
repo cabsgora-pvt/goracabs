@@ -62,7 +62,7 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="admin@gora.com"
+                placeholder="Enter your email"
                 className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -92,12 +92,6 @@ export default function LoginPage() {
               {loading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
-
-          <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-100">
-            <p className="text-xs text-blue-700 font-medium">Demo Credentials</p>
-            <p className="text-xs text-blue-600 mt-1">Email: admin@gora.com</p>
-            <p className="text-xs text-blue-600">Password: admin123</p>
-          </div>
         </div>
 
         <p className="text-center text-blue-200 text-sm mt-6">
