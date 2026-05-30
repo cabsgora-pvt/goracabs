@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../config/app_config.dart';
 import '../theme/app_theme.dart';
@@ -95,9 +96,22 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     context.watch<UserProvider>(); // rebuild when user data changes
-    return Scaffold(
-      body: _getSelectedPage(),
-      bottomNavigationBar: _buildBottomNavBar(),
+    return PopScope(
+      // If we're not on the Home tab, intercept back → switch to Home tab.
+      // If we're already on Home → allow system to close the app.
+      canPop: _currentIndex == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_currentIndex != 0) {
+          setState(() => _currentIndex = 0);
+        } else {
+          SystemNavigator.pop();
+        }
+      },
+      child: Scaffold(
+        body: _getSelectedPage(),
+        bottomNavigationBar: _buildBottomNavBar(),
+      ),
     );
   }
 

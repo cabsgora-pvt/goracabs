@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
@@ -39,13 +40,26 @@ class _HomePageState extends State<HomePage> {
       child: BlocBuilder<HomeBloc, HomeState>(
         builder: (context, state) {
           final homeBloc = context.read<HomeBloc>();
-          return Scaffold(
-            body: IndexedStack(index: _tab, children: [
-              _HomeTab(homeBloc: homeBloc),
-              const EarningsPage(),
-              AccountPage(),
-            ]),
-            bottomNavigationBar: _BottomNav(tab: _tab, onTap: (i) => setState(() => _tab = i)),
+          return PopScope(
+            // If we're not on Home tab, intercept back → switch to Home tab (index 0).
+            // If we're already on Home → allow system to close app.
+            canPop: _tab == 0,
+            onPopInvokedWithResult: (didPop, _) {
+              if (didPop) return;
+              if (_tab != 0) {
+                setState(() => _tab = 0);
+              } else {
+                SystemNavigator.pop();
+              }
+            },
+            child: Scaffold(
+              body: IndexedStack(index: _tab, children: [
+                _HomeTab(homeBloc: homeBloc),
+                const EarningsPage(),
+                AccountPage(),
+              ]),
+              bottomNavigationBar: _BottomNav(tab: _tab, onTap: (i) => setState(() => _tab = i)),
+            ),
           );
         },
       ),
