@@ -73,8 +73,8 @@ export default function VehicleTypesPage() {
     const res = await fetch('/api/upload', { method: 'POST', body: fd })
     const data = await res.json()
     if (data.url) {
-      const url = `http://localhost:3000${data.url}`
-      setForm((f: any) => ({ ...f, imageUrl: url }))
+      // Store relative path — browser resolves against current host (works on localhost + production)
+      setForm((f: any) => ({ ...f, imageUrl: data.url }))
     }
     setUploading(false)
   }

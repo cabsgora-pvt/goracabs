@@ -94,10 +94,10 @@ export default function UserDetailPage() {
               <div className="text-center mb-5">
                 {user.profilePicUrl ? (
                   <img
-                    src={`http://localhost:3000${user.profilePicUrl}`}
+                    src={user.profilePicUrl}
                     alt="Profile"
                     className="w-24 h-24 rounded-full object-cover mx-auto mb-3 border-4 border-blue-100 cursor-pointer hover:opacity-90"
-                    onClick={() => setImgModal(`http://localhost:3000${user.profilePicUrl}`)}
+                    onClick={() => setImgModal(user.profilePicUrl)}
                   />
                 ) : (
                   <div className="w-24 h-24 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-4xl mx-auto mb-3">
@@ -151,10 +151,10 @@ export default function UserDetailPage() {
               <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
                 <p className="text-sm font-semibold text-gray-700 mb-3">ID Proof</p>
                 <img
-                  src={`http://localhost:3000${user.idPhotoUrl}`}
+                  src={user.idPhotoUrl}
                   alt="ID Proof"
                   className="w-full rounded-lg object-cover cursor-pointer hover:opacity-90 border border-gray-100"
-                  onClick={() => setImgModal(`http://localhost:3000${user.idPhotoUrl}`)}
+                  onClick={() => setImgModal(user.idPhotoUrl)}
                 />
                 <p className="text-xs text-gray-400 mt-2 text-center">Click to enlarge</p>
               </div>
