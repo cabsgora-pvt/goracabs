@@ -8,6 +8,7 @@ const PricingSchema = new Schema({
   perMin: Number,
   minFare: Number,
   commissionPercent: { type: Number, default: 20 },
+  isActive: { type: Boolean, default: true },
 })
 const ZoneSchema = new Schema({
   name: String,
