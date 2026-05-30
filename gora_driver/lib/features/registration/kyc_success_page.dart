@@ -1,9 +1,52 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
+import '../../services/driver_api_service.dart';
+import '../home/pages/home_page.dart';
+import 'rejection_page.dart';
 
-class KycSuccessPage extends StatelessWidget {
+class KycSuccessPage extends StatefulWidget {
   static const route = '/registration/kyc-success';
   const KycSuccessPage({super.key});
+
+  @override
+  State<KycSuccessPage> createState() => _KycSuccessPageState();
+}
+
+class _KycSuccessPageState extends State<KycSuccessPage> {
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    // Check immediately, then every 5s
+    _checkStatus();
+    _poll = Timer.periodic(const Duration(seconds: 5), (_) => _checkStatus());
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkStatus() async {
+    try {
+      final res = await DriverApiService.getProfile();
+      final driver = res['driver'] as Map<String, dynamic>?;
+      final status = driver?['status']?.toString();
+      if (!mounted) return;
+      if (status == 'approved') {
+        _poll?.cancel();
+        Navigator.pushNamedAndRemoveUntil(context, HomePage.route, (_) => false);
+      } else if (status == 'rejected') {
+        _poll?.cancel();
+        Navigator.pushNamedAndRemoveUntil(context, RejectionPage.route, (_) => false);
+      }
+    } catch (_) {
+      // silent retry next tick
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +91,7 @@ class KycSuccessPage extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 48),
                 child: Text(
-                  'Your application is under review.\nYou will be notified within 24 hours.',
+                  'Your application is under review.\nThis screen will update automatically once approved.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 15,
@@ -57,7 +100,27 @@ class KycSuccessPage extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 32),
+              // Live indicator
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation(Colors.white.withOpacity(0.8)),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Waiting for admin approval...',
+                    style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 32),
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 32),
                 padding: const EdgeInsets.all(20),
