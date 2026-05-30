@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import '../providers/user_provider.dart';
+import '../config/app_config.dart';
 import 'home_screen.dart';
 
 class SignupScreen extends StatefulWidget {
@@ -103,7 +104,7 @@ class _SignupScreenState extends State<SignupScreen> {
       String picUrl = '';
       if (_profilePhoto != null) {
         final fullUrl = await ApiService.uploadProfilePic(_profilePhoto!) ?? '';
-        picUrl = fullUrl.replaceFirst('http://localhost:3000', '');
+        picUrl = fullUrl.replaceFirst(AppConfig.serverBaseUrl, '');
       }
       final res = await ApiService.register(
         name: _nameController.text.trim(),

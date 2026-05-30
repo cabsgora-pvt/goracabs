@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 import '../providers/user_provider.dart';
 import 'taxi_booking_screen.dart';
@@ -180,7 +181,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     radius: 22,
                     backgroundColor: AppTheme.primaryBlue,
                     backgroundImage: picUrl.isNotEmpty
-                        ? NetworkImage('http://localhost:3000$picUrl')
+                        ? NetworkImage(AppConfig.imageUrl(picUrl))
                         : null,
                     child: picUrl.isEmpty
                         ? Text(displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
@@ -781,7 +782,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       radius: 50,
                       backgroundColor: AppTheme.primaryBlue.withAlpha(25),
                       backgroundImage: picUrl.isNotEmpty
-                          ? NetworkImage('http://localhost:3000$picUrl')
+                          ? NetworkImage(AppConfig.imageUrl(picUrl))
                           : null,
                       child: picUrl.isEmpty
                           ? Text(

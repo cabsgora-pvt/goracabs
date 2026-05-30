@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/user_provider.dart';
 import '../services/api_service.dart';
+import '../config/app_config.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -63,7 +64,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _newPicBytes = bytes);
     final url = await ApiService.uploadProfilePic(picked);
     if (url != null && mounted) {
-      final relUrl = url.replaceFirst('http://localhost:3000', '');
+      final relUrl = url.replaceFirst(AppConfig.serverBaseUrl, '');
       context.read<UserProvider>().setUser({
         ...?context.read<UserProvider>().user,
         'profilePicUrl': relUrl,
@@ -161,7 +162,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ? Image.memory(_newPicBytes!, fit: BoxFit.cover)
                             : picUrl.isNotEmpty
                                 ? Image.network(
-                                    'http://localhost:3000$picUrl',
+                                    AppConfig.imageUrl(picUrl),
                                     fit: BoxFit.cover,
                                     errorBuilder: (_, __, ___) => _avatarFallback(displayName),
                                   )
