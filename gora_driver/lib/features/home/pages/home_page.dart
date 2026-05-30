@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../config/app_config.dart';
 import '../../../providers/driver_provider.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../models/models.dart';
@@ -258,16 +259,21 @@ class _RidePollerState extends State<_RidePoller> {
       final fare = (r['fare'] ?? 0);
       final tip = (r['tip'] ?? 0);
       final total = (r['totalFare'] ?? (fare + tip));
+      final ratingNum = r['riderRating'];
+      final ratingStr = ratingNum is num && ratingNum > 0 ? ratingNum.toStringAsFixed(1) : '5.0';
+      final picRaw = (r['riderProfilePicUrl'] ?? '').toString();
+      final picUrl = picRaw.isEmpty ? '' : AppConfig.imageUrl(picRaw);
       final model = RideRequestModel(
         id: r['id']?.toString() ?? '',
         userName: (r['riderName'] ?? 'Rider').toString(),
         userPhone: (r['riderPhone'] ?? '').toString(),
-        userRating: '5.0',
+        userRating: ratingStr,
+        userProfilePicUrl: picUrl,
         pickupAddress: (r['pickupAddress'] ?? '').toString(),
         dropAddress: (r['dropAddress'] ?? '').toString(),
         distance: '${r['distance'] ?? 0} km',
         fare: '₹ $total',
-        eta: '4 mins',
+        eta: '${r['duration'] ?? 4} min',
         rideType: (r['vehicleType'] ?? 'taxi').toString(),
         pickupLat: (r['pickupLat'] ?? 23.0225).toDouble(),
         pickupLng: (r['pickupLng'] ?? 72.5714).toDouble(),

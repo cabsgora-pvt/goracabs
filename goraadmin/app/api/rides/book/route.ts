@@ -8,8 +8,35 @@ import Zone from '@/models/Zone'
 import { distanceKm, pointInPolygon } from '@/lib/geo'
 import { requireAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
+import { getSettings } from '@/lib/settings'
 
 export async function OPTIONS() { return corsOptions() }
+
+// Helper: ask Google Directions for road distance + duration + polyline
+async function fetchDirections(originLat: number, originLng: number, destLat: number, destLng: number) {
+  try {
+    const s: any = getSettings()
+    const key = s?.maps?.googleMapsApiKey || s?.maps?.javascriptApiKey || ''
+    if (!key) return null
+    const url = `https://maps.googleapis.com/maps/api/directions/json` +
+      `?origin=${originLat},${originLng}` +
+      `&destination=${destLat},${destLng}` +
+      `&mode=driving&departure_time=now&traffic_model=best_guess` +
+      `&key=${key}`
+    const r = await fetch(url)
+    const data = await r.json()
+    if (data.status !== 'OK' || !data.routes?.length) return null
+    const leg = data.routes[0].legs?.[0] || {}
+    return {
+      polyline: data.routes[0].overview_polyline?.points || '',
+      distanceKm: +((leg.distance?.value || 0) / 1000).toFixed(2),
+      durationMin: Math.round(((leg.duration_in_traffic?.value ?? leg.duration?.value) || 0) / 60),
+    }
+  } catch (e) {
+    console.error('[Directions in book] failed', e)
+    return null
+  }
+}
 
 // POST booking → creates ride (status pending). Online matching drivers pick it up via polling.
 export async function POST(req: NextRequest) {
@@ -33,10 +60,6 @@ export async function POST(req: NextRequest) {
 
     // Generate ride OTP
     const otp = Math.floor(1000 + Math.random() * 9000).toString()
-
-    const fare = b.fare || 0
-    const tip = b.tip || 0
-    const totalFare = fare + tip
 
     const service = b.service || 'taxi'
 
@@ -63,12 +86,51 @@ export async function POST(req: NextRequest) {
     }
     const zoneId = b.zoneId || (zone ? zone._id : undefined)
 
-    // Look up commission % from the zone pricing for this vehicle + service
+    // Pricing row for this vehicle in this zone+service
+    let pricingRow: any = null
     let commissionPercent = 20
     if (zone?.pricing) {
-      const p = zone.pricing.find((x: any) => x.vehicleTypeName === b.vehicleType && x.service === service)
-      if (p?.commissionPercent != null) commissionPercent = p.commissionPercent
+      pricingRow = zone.pricing.find((x: any) => x.vehicleTypeName === b.vehicleType && x.service === service)
+      if (pricingRow?.commissionPercent != null) commissionPercent = pricingRow.commissionPercent
     }
+
+    // Ask Google for actual road distance + duration + polyline (fallback to client-sent values)
+    let routePolyline = ''
+    let roadDistanceKm = b.distance
+    let roadDurationMin = b.duration
+    if (b.pickupLat != null && b.pickupLng != null && b.dropLat != null && b.dropLng != null) {
+      const dir = await fetchDirections(b.pickupLat, b.pickupLng, b.dropLat, b.dropLng)
+      if (dir) {
+        routePolyline = dir.polyline
+        roadDistanceKm = dir.distanceKm
+        roadDurationMin = dir.durationMin
+      }
+    }
+
+    // Compute fare from pricing row + road distance/duration
+    let computedFare = b.fare || 0
+    let breakdown: any = null
+    if (pricingRow && roadDistanceKm != null && roadDurationMin != null) {
+      const base = pricingRow.baseFare || 0
+      const perKm = pricingRow.perKm || 0
+      const perMin = pricingRow.perMin || 0
+      const minFare = pricingRow.minFare || 0
+      const distanceCharge = +(roadDistanceKm * perKm).toFixed(2)
+      const timeCharge = +(roadDurationMin * perMin).toFixed(2)
+      let subtotal = +(base + distanceCharge + timeCharge).toFixed(2)
+      if (subtotal < minFare) subtotal = minFare
+      const surge = 0  // surge multiplier hook (set when surge feature is wired)
+      const tax = 0    // tax hook
+      const total = +(subtotal + surge + tax).toFixed(2)
+      const commission = +((total * commissionPercent) / 100).toFixed(2)
+      breakdown = { base, perKm, perMin, minFare, distanceKm: roadDistanceKm, durationMin: roadDurationMin, distanceCharge, timeCharge, subtotal, surge, tax, commission }
+      // Only override the client-sent fare when the client didn't send one (server is the source of truth going forward)
+      if (!b.fare) computedFare = total
+    }
+
+    const fare = computedFare
+    const tip = b.tip || 0
+    const totalFare = fare + tip
 
     const ride = await Ride.create({
       riderId, riderName, riderPhone,
@@ -77,7 +139,9 @@ export async function POST(req: NextRequest) {
       dropLat: b.dropLat, dropLng: b.dropLng,
       service, vehicleType: b.vehicleType,
       fare, tip, totalFare, commissionPercent,
-      distance: b.distance, duration: b.duration,
+      distance: roadDistanceKm, duration: roadDurationMin,
+      routePolyline,
+      fareBreakdown: breakdown,
       paymentMode: b.paymentMode || 'cash',
       zoneId, otp, status: 'pending',
     })
@@ -98,7 +162,10 @@ export async function POST(req: NextRequest) {
 
     return withCors({
       success: true,
-      ride: { id: ride._id, otp, status: 'pending', fare, tip, totalFare, commissionPercent },
+      ride: {
+        id: ride._id, otp, status: 'pending', fare, tip, totalFare, commissionPercent,
+        distance: roadDistanceKm, duration: roadDurationMin, routePolyline, fareBreakdown: breakdown,
+      },
       driverFound: !!nearest,
       driver: nearest ? { id: nearest._id, name: nearest.name, phone: nearest.phone, distanceKm: +nd.toFixed(1) } : null,
     })

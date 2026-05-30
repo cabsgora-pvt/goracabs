@@ -114,6 +114,16 @@ class ApiService {
 
   static Future<Map<String, dynamic>> getRide(String id) => get('/rides/$id');
 
+  // Returns { polyline, distanceKm, durationMin } — used to draw route + show road ETA
+  static Future<Map<String, dynamic>> getDirections({
+    required double originLat, required double originLng,
+    required double destLat, required double destLng,
+  }) => get('/directions?originLat=$originLat&originLng=$originLng&destLat=$destLat&destLng=$destLng');
+
+  // Polled by rider during accepted/arrived/ongoing ride to track driver position
+  static Future<Map<String, dynamic>> getDriverLocation(String rideId) =>
+      get('/rides/$rideId/driver-location');
+
   static Future<Map<String, dynamic>> cancelRide(String id, String reason) =>
       post('/rides/$id/cancel', {'cancelledBy': 'rider', 'reason': reason}, auth: true);
 

@@ -24,6 +24,8 @@ const DriverSchema = new Schema({
   fcmToken: String,
   currentLat: Number,
   currentLng: Number,
+  currentHeading: { type: Number, default: 0 },   // 0-360, used to rotate driver marker on map
+  locationUpdatedAt: Date,                          // last time location was pushed
   fleetOwnerId: { type: Schema.Types.ObjectId, ref: 'FleetOwner' },
   // Registration fields
   state: String,

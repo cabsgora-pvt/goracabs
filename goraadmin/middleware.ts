@@ -56,6 +56,11 @@ export function middleware(req: NextRequest) {
     }
   }
 
+  // ── Public /track/* page (no auth needed) ──
+  if (pathname.startsWith('/track/')) {
+    return NextResponse.next()
+  }
+
   // ── Bare / → /dashboard (middleware handles auth above) ──
   if (pathname === '/') {
     const url = req.nextUrl.clone()

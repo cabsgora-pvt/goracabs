@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../utils/polyline_utils.dart';
 import 'invoice_screen.dart';
 import 'home_screen.dart';
 import 'service_selection_screen.dart';
@@ -60,6 +62,11 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                     : status,
             'rating': (r['driverRating'] ?? 0).toDouble(),
             'vehicle': r['vehicleType'] ?? '',
+            'pickupLat': (r['pickupLat'] as num?)?.toDouble() ?? 0,
+            'pickupLng': (r['pickupLng'] as num?)?.toDouble() ?? 0,
+            'dropLat': (r['dropLat'] as num?)?.toDouble() ?? 0,
+            'dropLng': (r['dropLng'] as num?)?.toDouble() ?? 0,
+            'routePolyline': (r['routePolyline'] as String?) ?? '',
           };
         }).toList();
         _loadingRides = false;
@@ -76,6 +83,87 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     } catch (_) {
       return iso;
     }
+  }
+
+  // Open a bottom sheet with a static map showing the saved trip polyline
+  void _showRouteReplay(Map<String, dynamic> ride) {
+    final encoded = (ride['routePolyline'] as String?) ?? '';
+    final pickup = LatLng((ride['pickupLat'] as double?) ?? 0, (ride['pickupLng'] as double?) ?? 0);
+    final drop = LatLng((ride['dropLat'] as double?) ?? 0, (ride['dropLng'] as double?) ?? 0);
+    final pts = encoded.isNotEmpty ? decodePolyline(encoded) : <LatLng>[pickup, drop];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        final size = MediaQuery.of(ctx).size;
+        return SizedBox(
+          height: size.height * 0.7,
+          child: Column(
+            children: [
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  margin: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                child: Row(children: [
+                  const Icon(Icons.route, color: AppTheme.primaryBlue),
+                  const SizedBox(width: 8),
+                  const Text('Trip Route', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  IconButton(onPressed: () => Navigator.pop(ctx), icon: const Icon(Icons.close)),
+                ]),
+              ),
+              Expanded(
+                child: GoogleMap(
+                  initialCameraPosition: CameraPosition(target: pickup, zoom: 13),
+                  onMapCreated: (c) {
+                    final b = boundsFromPoints(pts);
+                    if (b != null) {
+                      // Slight delay so the map is laid out before camera animates
+                      Future.delayed(const Duration(milliseconds: 300), () {
+                        c.animateCamera(CameraUpdate.newLatLngBounds(b, 60));
+                      });
+                    }
+                  },
+                  myLocationEnabled: false,
+                  myLocationButtonEnabled: false,
+                  zoomControlsEnabled: true,
+                  markers: {
+                    Marker(markerId: const MarkerId('pickup'), position: pickup, icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen), infoWindow: InfoWindow(title: 'Pickup', snippet: ride['from']?.toString())),
+                    Marker(markerId: const MarkerId('drop'),   position: drop,   icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),   infoWindow: InfoWindow(title: 'Drop',   snippet: ride['to']?.toString())),
+                  },
+                  polylines: {
+                    Polyline(polylineId: const PolylineId('route'), points: pts, color: AppTheme.primaryBlue, width: 5),
+                  },
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(color: Colors.grey[50], border: Border(top: BorderSide(color: Colors.grey[200]!))),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [const Icon(Icons.radio_button_checked, size: 14, color: Colors.green), const SizedBox(width: 8), Expanded(child: Text(ride['from']?.toString() ?? '', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)))]),
+                  const SizedBox(height: 6),
+                  Row(children: [const Icon(Icons.location_on, size: 14, color: Colors.red), const SizedBox(width: 8), Expanded(child: Text(ride['to']?.toString() ?? '', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)))]),
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    Text(ride['date']?.toString() ?? '', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                    const Spacer(),
+                    Text(ride['fare']?.toString() ?? '', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
+                  ]),
+                ]),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -319,35 +407,45 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
           ),
           if (!isCancelled) ...[
             const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton.icon(
-                onPressed: () {
-                  final String originalVehicle = (ride['vehicle'] as String?) ?? '';
-                  // Real rides already carry exact vehicle names; map legacy labels as a fallback
-                  final String mappedVehicle = originalVehicle == 'Gora Go'
-                      ? 'Bike'
-                      : originalVehicle == 'Gora Sedan'
-                          ? 'Cab Economy'
-                          : originalVehicle == 'Gora SUV'
-                              ? 'SUV'
-                              : originalVehicle.isNotEmpty
-                                  ? originalVehicle
-                                  : 'Cab Economy';
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => InvoiceScreen(
-                        vehicleName: mappedVehicle,
-                        selectedTip: (ride['tip'] as int?) ?? 0,
-                      ),
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.receipt_long, size: 14),
-                label: const Text('Invoice', style: TextStyle(fontSize: 12)),
-                style: TextButton.styleFrom(foregroundColor: AppTheme.primaryBlue),
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: () => _showRouteReplay(ride),
+                    icon: const Icon(Icons.route, size: 14),
+                    label: const Text('Show Route', style: TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(foregroundColor: AppTheme.primaryBlue),
+                  ),
+                ),
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: () {
+                      final String originalVehicle = (ride['vehicle'] as String?) ?? '';
+                      final String mappedVehicle = originalVehicle == 'Gora Go'
+                          ? 'Bike'
+                          : originalVehicle == 'Gora Sedan'
+                              ? 'Cab Economy'
+                              : originalVehicle == 'Gora SUV'
+                                  ? 'SUV'
+                                  : originalVehicle.isNotEmpty
+                                      ? originalVehicle
+                                      : 'Cab Economy';
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => InvoiceScreen(
+                            vehicleName: mappedVehicle,
+                            selectedTip: (ride['tip'] as int?) ?? 0,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.receipt_long, size: 14),
+                    label: const Text('Invoice', style: TextStyle(fontSize: 12)),
+                    style: TextButton.styleFrom(foregroundColor: AppTheme.primaryBlue),
+                  ),
+                ),
+              ],
             ),
           ],
         ],

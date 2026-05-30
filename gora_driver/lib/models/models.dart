@@ -16,12 +16,14 @@ class DriverModel {
 class RideRequestModel {
   final String id, userName, userPhone, userRating, pickupAddress, dropAddress, distance, fare, eta, rideType;
   final double pickupLat, pickupLng, dropLat, dropLng;
+  final String userProfilePicUrl;
 
   const RideRequestModel({
     required this.id, required this.userName, required this.userPhone, required this.userRating,
     required this.pickupAddress, required this.dropAddress, required this.distance,
     required this.fare, required this.eta, required this.rideType,
     required this.pickupLat, required this.pickupLng, required this.dropLat, required this.dropLng,
+    this.userProfilePicUrl = '',
   });
 }
 

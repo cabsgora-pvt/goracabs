@@ -84,8 +84,15 @@ class OnRidePage extends StatelessWidget {
                       const SizedBox(height: 16),
                       // User
                       Row(children: [
-                        CircleAvatar(radius: 22, backgroundColor: AppColors.primary,
-                          child: Text(r.userName[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+                        CircleAvatar(
+                          radius: 22,
+                          backgroundColor: AppColors.primary,
+                          backgroundImage: r.userProfilePicUrl.isNotEmpty ? NetworkImage(r.userProfilePicUrl) : null,
+                          child: r.userProfilePicUrl.isEmpty
+                            ? Text(r.userName.isNotEmpty ? r.userName[0].toUpperCase() : 'R',
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))
+                            : null,
+                        ),
                         const SizedBox(width: 12),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Text(r.userName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.textDark)),

@@ -12,12 +12,13 @@ export async function POST(req: NextRequest) {
     const payload = requireDriverAuth(req)
     if (!payload) return withCors({ error: 'Unauthorized' }, 401)
 
-    const { lat, lng } = await req.json()
+    const { lat, lng, heading } = await req.json()
     await connectDB()
 
-    const update: any = {}
+    const update: any = { locationUpdatedAt: new Date() }
     if (lat != null) update.currentLat = lat
     if (lng != null) update.currentLng = lng
+    if (heading != null) update.currentHeading = heading
 
     await Driver.findByIdAndUpdate(payload.id, update)
     return withCors({ success: true })

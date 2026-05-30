@@ -101,8 +101,15 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(16)),
               child: Row(children: [
-                CircleAvatar(radius: 28, backgroundColor: AppColors.primary,
-                  child: Text(r.userName[0], style: const TextStyle(fontSize: 22, color: Colors.white, fontWeight: FontWeight.w800))),
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: AppColors.primary,
+                  backgroundImage: r.userProfilePicUrl.isNotEmpty ? NetworkImage(r.userProfilePicUrl) : null,
+                  child: r.userProfilePicUrl.isEmpty
+                    ? Text(r.userName.isNotEmpty ? r.userName[0].toUpperCase() : 'R',
+                        style: const TextStyle(fontSize: 22, color: Colors.white, fontWeight: FontWeight.w800))
+                    : null,
+                ),
                 const SizedBox(width: 14),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text(r.userName, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.textDark)),

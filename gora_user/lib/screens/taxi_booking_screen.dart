@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import '../theme/app_theme.dart';
+import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../utils/polyline_utils.dart';
 import 'booking_screen.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
@@ -50,7 +53,23 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   String? _rideOtp;
   String _driverName = 'Driver';
   String _driverPhone = '';
+  String _driverPicUrl = '';
+  String _driverVehicleModel = '';
+  String _driverVehicleNumber = '';
+  double _driverRating = 0;
   Timer? _pollTimer;
+  Timer? _driverLocTimer;
+  Timer? _etaTimer;
+
+  // ── Route + live tracking state ─────────────────────────────
+  List<LatLng> _routePoints = [];           // decoded pickup → drop polyline
+  String _routePolylineEncoded = '';
+  LatLng? _driverLatLng;                     // live driver position
+  double _driverHeading = 0;                 // 0-360, for marker rotation
+  int? _driverEtaMin;                        // driver → pickup minutes
+  double? _driverDistanceKm;                 // driver → pickup km
+  int? _tripEtaMin;                          // remaining time to destination during ride
+  Map<String, dynamic>? _fareBreakdown;
 
   // ── Places autocomplete state ──
   List<Map<String, dynamic>> _dropSuggestions = [];
@@ -147,6 +166,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _driverLocTimer?.cancel();
+    _etaTimer?.cancel();
     _searchDebounce?.cancel();
     _pickupController.dispose();
     _dropController.dispose();
@@ -237,7 +258,107 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
           }
         });
       }
+      // Once we have a drop, also fetch real road directions for polyline + road distance
+      if (hasDrop) await _loadDirections();
     } catch (_) {/* keep default prices */}
+  }
+
+  // Fetch encoded polyline + road distance + duration; decode + draw + fit-bounds
+  Future<void> _loadDirections() async {
+    try {
+      final d = await ApiService.getDirections(
+        originLat: _myLocation.latitude,
+        originLng: _myLocation.longitude,
+        destLat: _selectedMapLocation.latitude,
+        destLng: _selectedMapLocation.longitude,
+      );
+      if (d['polyline'] is String && (d['polyline'] as String).isNotEmpty) {
+        final pts = decodePolyline(d['polyline'] as String);
+        if (!mounted) return;
+        setState(() {
+          _routePolylineEncoded = d['polyline'] as String;
+          _routePoints = pts;
+          // Prefer road distance + duration from Directions over Haversine
+          if (d['distanceKm'] != null) _rideDistance = (d['distanceKm'] as num).toDouble();
+          if (d['durationMin'] != null) _rideDuration = (d['durationMin'] as num).toInt();
+        });
+        _fitMapToRoute();
+      }
+    } catch (_) {/* fallback to estimateFare values */}
+  }
+
+  // Fit map to pickup + drop + driver (if known) bounds
+  void _fitMapToRoute() {
+    final pts = <LatLng>[];
+    pts.add(_myLocation);
+    if (_routePoints.isNotEmpty) pts.addAll(_routePoints);
+    if (_dropController.text.trim().isNotEmpty) pts.add(_selectedMapLocation);
+    if (_driverLatLng != null) pts.add(_driverLatLng!);
+    final b = boundsFromPoints(pts);
+    if (b == null || _mapController == null) return;
+    _mapController!.animateCamera(CameraUpdate.newLatLngBounds(b, 60));
+  }
+
+  // Poll the assigned driver's live location every 5s during the ride
+  void _startDriverLocationPolling() {
+    _driverLocTimer?.cancel();
+    if (_rideId == null) return;
+    _driverLocTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      if (!mounted) { timer.cancel(); return; }
+      try {
+        final res = await ApiService.getDriverLocation(_rideId!);
+        final dr = res['driver'] as Map<String, dynamic>?;
+        if (dr == null || dr['lat'] == null || dr['lng'] == null) return;
+        if (!mounted) return;
+        setState(() {
+          _driverLatLng = LatLng((dr['lat'] as num).toDouble(), (dr['lng'] as num).toDouble());
+          _driverHeading = ((dr['heading'] as num?) ?? 0).toDouble();
+        });
+      } catch (_) {/* keep last known */}
+    });
+  }
+
+  // Periodically recompute ETA: driver → pickup (before start), or driver → drop (during ride)
+  Future<void> _fetchEtaOnce() async {
+    if (_driverLatLng == null || !mounted) return;
+    try {
+      final goingToDrop = _showFullTripMap;
+      final dest = goingToDrop ? _selectedMapLocation : _myLocation;
+      final d = await ApiService.getDirections(
+        originLat: _driverLatLng!.latitude,
+        originLng: _driverLatLng!.longitude,
+        destLat: dest.latitude,
+        destLng: dest.longitude,
+      );
+      if (!mounted) return;
+      final mins = (d['durationMin'] as num?)?.toInt();
+      final km = (d['distanceKm'] as num?)?.toDouble();
+      setState(() {
+        if (goingToDrop) {
+          _tripEtaMin = mins;
+        } else {
+          _driverEtaMin = mins;
+          _driverDistanceKm = km;
+        }
+      });
+    } catch (_) {/* keep last */}
+  }
+
+  void _startEtaPolling() {
+    _etaTimer?.cancel();
+    _etaTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (!mounted) { timer.cancel(); return; }
+      _fetchEtaOnce();
+    });
+    // Fire once immediately so UI doesn't have to wait 30s
+    Future.delayed(const Duration(seconds: 2), _fetchEtaOnce);
+  }
+
+  // Share live trip link via OS share sheet
+  void _shareTrip() {
+    if (_rideId == null) return;
+    final url = '${AppConfig.serverBaseUrl}/track/$_rideId';
+    Share.share('I\'m on a Gora ride — follow me live: $url', subject: 'My Gora Cabs trip');
   }
 
   // Book the ride against the backend (keeps UI; only sends real data)
@@ -262,10 +383,81 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         'paymentMode': 'cash',
       });
       if (res['ride'] != null) {
-        _rideId = res['ride']['id']?.toString();
-        _rideOtp = res['ride']['otp']?.toString();
+        final r = res['ride'] as Map<String, dynamic>;
+        _rideId = r['id']?.toString();
+        _rideOtp = r['otp']?.toString();
+        if (r['fareBreakdown'] is Map) {
+          _fareBreakdown = Map<String, dynamic>.from(r['fareBreakdown'] as Map);
+        }
+        if (r['routePolyline'] is String && (r['routePolyline'] as String).isNotEmpty) {
+          _routePolylineEncoded = r['routePolyline'] as String;
+          _routePoints = decodePolyline(_routePolylineEncoded);
+        }
       }
     } catch (_) {/* keep flow; polling will simply not find a ride */}
+  }
+
+  // Bottom sheet: show line-by-line fare breakdown
+  void _showFareBreakdown() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (_) {
+        final b = _fareBreakdown;
+        Widget row(String label, String value, {bool bold = false, Color? color}) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Text(label, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.bold : FontWeight.w500, color: color ?? Colors.black87)),
+            Text(value, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.bold : FontWeight.w500, color: color ?? Colors.black87)),
+          ]),
+        );
+        return Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
+            const Text('Fare Breakdown', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            if (b == null) ...[
+              // Pre-booking: show what we know
+              row('Distance', '${_rideDistance.toStringAsFixed(1)} km'),
+              row('Duration', '$_rideDuration min'),
+              const Divider(height: 24),
+              row('Estimated fare', _selectedVehicle != null
+                ? (_vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => {'price': '—'})['price'] as String)
+                : '—', bold: true, color: const Color(0xFF1976D2)),
+              const SizedBox(height: 8),
+              const Text('Full breakdown will be available after booking.', style: TextStyle(fontSize: 11, color: Colors.grey)),
+            ]
+            else ...[
+              row('Base fare', '₹${(b['base'] ?? 0).toStringAsFixed(0)}'),
+              row('Distance (${(b['distanceKm'] ?? 0).toStringAsFixed(1)} km × ₹${(b['perKm'] ?? 0)})', '₹${(b['distanceCharge'] ?? 0).toStringAsFixed(0)}'),
+              row('Time (${(b['durationMin'] ?? 0)} min × ₹${(b['perMin'] ?? 0)})', '₹${(b['timeCharge'] ?? 0).toStringAsFixed(0)}'),
+              if ((b['surge'] ?? 0) > 0) row('Surge', '+₹${(b['surge']).toStringAsFixed(0)}', color: Colors.orange),
+              if ((b['tax'] ?? 0) > 0) row('Tax', '+₹${(b['tax']).toStringAsFixed(0)}'),
+              const Divider(height: 24),
+              row('Subtotal', '₹${(b['subtotal'] ?? 0).toStringAsFixed(0)}', bold: true),
+              if (_selectedTip != null && _selectedTip! > 0) row('Tip', '+₹${_selectedTip!}', color: Colors.green),
+              const Divider(height: 24),
+              row('Total', '₹${((b['subtotal'] ?? 0) + (_selectedTip ?? 0)).toStringAsFixed(0)}', bold: true, color: const Color(0xFF1976D2)),
+              const SizedBox(height: 8),
+              Text('Admin commission: ₹${(b['commission'] ?? 0).toStringAsFixed(0)} (${b['perKm'] != null ? '' : ''}deducted from driver earnings)',
+                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            ],
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1976D2), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                child: const Text('OK', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+              ),
+            ),
+          ]),
+        );
+      },
+    );
   }
 
   // Poll ride status; invokes [onStatus] with the latest status string
@@ -279,6 +471,21 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         final status = (ride['status'] ?? 'pending').toString();
         if (ride['driverName'] != null) _driverName = ride['driverName'].toString();
         if (ride['driverPhone'] != null) _driverPhone = ride['driverPhone'].toString();
+        // Pick up extra driver details (vehicle, pic, rating) as soon as driver is assigned
+        final dr = ride['driver'] as Map<String, dynamic>?;
+        if (dr != null) {
+          _driverVehicleModel = (dr['vehicleModel'] ?? _driverVehicleModel).toString();
+          _driverVehicleNumber = (dr['vehicleNumber'] ?? dr['vehicleRegistrationNumber'] ?? _driverVehicleNumber).toString();
+          final pic = (dr['profilePicUrl'] ?? '').toString();
+          if (pic.isNotEmpty) _driverPicUrl = AppConfig.imageUrl(pic);
+          final r = dr['rating'];
+          if (r is num) _driverRating = r.toDouble();
+        }
+        // Once a driver is assigned (status >= accepted), start live driver-location + ETA polling
+        if (status != 'pending' && _driverLocTimer == null) {
+          _startDriverLocationPolling();
+          _startEtaPolling();
+        }
         onStatus(status, ride);
       } catch (_) {}
     });
@@ -288,28 +495,35 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   Set<Marker> _buildMapMarkers() {
     final markers = <Marker>{};
 
-    // Pickup (your location)
-    if (!_showFullTripMap) {
-      markers.add(Marker(
-        markerId: const MarkerId('pickup'),
-        position: _myLocation,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
-        infoWindow: const InfoWindow(title: 'Pickup'),
-      ));
-    }
+    // Pickup (your location) — draggable so rider can fine-tune
+    markers.add(Marker(
+      markerId: const MarkerId('pickup'),
+      position: _myLocation,
+      draggable: true,
+      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+      infoWindow: const InfoWindow(title: 'Pickup (drag to adjust)'),
+      onDragEnd: (LatLng p) async {
+        setState(() => _myLocation = p);
+        // Update pickup address via reverse geocode
+        final addr = await ApiService.reverseGeocode(p.latitude, p.longitude);
+        if (mounted && addr.isNotEmpty) setState(() => _pickupController.text = addr);
+        // Recompute fares + polyline with new pickup
+        _loadRealFares();
+      },
+    ));
 
-    // Drop (full trip view)
-    if (_showFullTripMap) {
+    // Drop marker (whenever a drop is set)
+    if (_dropController.text.trim().isNotEmpty) {
       markers.add(Marker(
         markerId: const MarkerId('drop'),
-        position: const LatLng(28.6200, 77.2300),
+        position: _selectedMapLocation,
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
-        infoWindow: const InfoWindow(title: 'Drop'),
+        infoWindow: InfoWindow(title: 'Drop', snippet: _dropController.text),
       ));
     }
 
-    // Nearby available vehicles for selected type
-    if (!_isTaxiComing && _selectedVehicle != null) {
+    // Nearby available vehicles for selected type (only before a driver is assigned)
+    if (_driverLatLng == null && !_isTaxiComing && _selectedVehicle != null) {
       List<LatLng> spots = [];
       if (_selectedVehicle == 'Bike') spots = _bikeLocations;
       else if (_selectedVehicle == 'Auto') spots = _autoLocations;
@@ -326,13 +540,20 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
       }
     }
 
-    // Driver coming marker
-    if (_isTaxiComing && _comingTaxiLocation != null && !_showFullTripMap) {
+    // Live driver marker (with heading rotation + ETA infoWindow)
+    if (_driverLatLng != null) {
+      final eta = _driverEtaMin;
       markers.add(Marker(
-        markerId: const MarkerId('coming'),
-        position: _comingTaxiLocation!,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-        infoWindow: const InfoWindow(title: 'Driver'),
+        markerId: const MarkerId('driver'),
+        position: _driverLatLng!,
+        rotation: _driverHeading,
+        flat: true,
+        anchor: const Offset(0.5, 0.5),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        infoWindow: InfoWindow(
+          title: eta != null ? '$eta min away' : 'Driver',
+          snippet: _driverName,
+        ),
       ));
     }
 
@@ -341,20 +562,13 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
 
   Set<Polyline> _buildMapPolylines() {
     final lines = <Polyline>{};
-    if (_isTaxiComing && !_showFullTripMap) {
-      lines.add(Polyline(
-        polylineId: const PolylineId('toPickup'),
-        points: [const LatLng(28.6220, 77.2150), _myLocation],
-        color: const Color(0xFF2196F3),
-        width: 4,
-      ));
-    }
-    if (_showFullTripMap) {
+    // Trip polyline (pickup → drop) — drawn whenever route is available
+    if (_routePoints.isNotEmpty) {
       lines.add(Polyline(
         polylineId: const PolylineId('trip'),
-        points: [_myLocation, const LatLng(28.6200, 77.2300)],
-        color: const Color(0xFF4CAF50),
-        width: 4,
+        points: _routePoints,
+        color: const Color(0xFF1976D2),
+        width: 5,
       ));
     }
     return lines;
@@ -421,7 +635,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                         const SizedBox(height: 12),
                         FloatingActionButton.small(
                           heroTag: 'share_btn_map',
-                          onPressed: () {},
+                          onPressed: _shareTrip,
                           backgroundColor: Colors.white,
                           child: const Icon(Icons.share, color: Colors.black87),
                         ),
@@ -1328,25 +1542,32 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[50],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey[200]!),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Total Fare: ${selectedVehicleData['price']}',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          _selectedTip != null ? '(₹$_selectedTip tip added)' : '(No tip added)',
-                          style: TextStyle(fontSize: 12, color: _selectedTip != null ? Colors.green : Colors.grey[600]),
-                        ),
-                      ],
+                  GestureDetector(
+                    onTap: _showFareBreakdown,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.grey[200]!),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(children: [
+                            Text(
+                              'Total Fare: ${selectedVehicleData['price']}',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(width: 6),
+                            const Icon(Icons.info_outline, size: 16, color: Color(0xFF1976D2)),
+                          ]),
+                          Text(
+                            _selectedTip != null ? '(₹$_selectedTip tip added)' : '(Tap to see breakdown)',
+                            style: TextStyle(fontSize: 11, color: _selectedTip != null ? Colors.green : Colors.grey[600]),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -1667,7 +1888,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
               ),
               const SizedBox(height: 16),
               
-              // ETA and Distance Info
+              // ETA and Distance Info (live values populated by directions polling)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1675,18 +1896,18 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                   children: [
                     const Icon(Icons.access_time_filled, color: Color(0xFF2196F3), size: 18),
                     const SizedBox(width: 8),
-                    const Text(
-                      'Arriving in 4 mins',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black),
+                    Text(
+                      _driverEtaMin != null ? 'Arriving in $_driverEtaMin min' : 'Calculating ETA…',
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black),
                     ),
                     const SizedBox(width: 12),
                     Container(width: 1, height: 15, color: Colors.grey[300]),
                     const SizedBox(width: 12),
                     const Icon(Icons.location_on, color: Colors.green, size: 18),
                     const SizedBox(width: 8),
-                    const Text(
-                      '1.2 km away',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black),
+                    Text(
+                      _driverDistanceKm != null ? '${_driverDistanceKm!.toStringAsFixed(1)} km away' : '— km away',
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black),
                     ),
                   ],
                 ),
@@ -1706,18 +1927,22 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                 ),
                 child: Row(
                   children: [
-                    // Driver Profile Image (Now on the left)
+                    // Driver Profile Image (real photo if available, else initial)
                     Container(
-                      width: 55,
-                      height: 55,
+                      width: 55, height: 55,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
+                        color: Colors.grey[200],
                         border: Border.all(color: Colors.grey[200]!, width: 2),
-                        image: const DecorationImage(
-                          image: NetworkImage('https://i.pravatar.cc/150?u=rajesh'),
-                          fit: BoxFit.cover,
-                        ),
+                        image: _driverPicUrl.isNotEmpty
+                          ? DecorationImage(image: NetworkImage(_driverPicUrl), fit: BoxFit.cover)
+                          : null,
                       ),
+                      alignment: Alignment.center,
+                      child: _driverPicUrl.isEmpty
+                        ? Text(_driverName.isNotEmpty ? _driverName[0].toUpperCase() : 'D',
+                            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black54))
+                        : null,
                     ),
                     const SizedBox(width: 12),
                     // Driver Details
@@ -1730,17 +1955,20 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
                           ),
                           const SizedBox(height: 4),
-                          const Row(
+                          Row(
                             children: [
-                              Icon(Icons.star, color: Colors.amber, size: 16),
-                              SizedBox(width: 4),
-                              Text('4.9 (1.2k+ rides)', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                              const Icon(Icons.star, color: Colors.amber, size: 16),
+                              const SizedBox(width: 4),
+                              Text(
+                                _driverRating > 0 ? _driverRating.toStringAsFixed(1) : '—',
+                                style: const TextStyle(fontSize: 13, color: Colors.grey),
+                              ),
                             ],
                           ),
                           const SizedBox(height: 4),
-                          const Text(
-                            'White Swift Dzire • DL 01 AB 1234',
-                            style: TextStyle(fontSize: 11, color: Colors.grey),
+                          Text(
+                            [_driverVehicleModel, _driverVehicleNumber].where((s) => s.isNotEmpty).join(' • '),
+                            style: const TextStyle(fontSize: 11, color: Colors.grey),
                           ),
                         ],
                       ),
@@ -1794,9 +2022,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: () {},
-                      icon: const Icon(Icons.message, color: Color(0xFF2196F3)),
-                      label: const Text('Message', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                      onPressed: _shareTrip,
+                      icon: const Icon(Icons.share, color: Color(0xFF2196F3)),
+                      label: const Text('Share', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.white,
                         foregroundColor: Colors.black,

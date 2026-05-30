@@ -21,8 +21,24 @@ const RideSchema = new Schema({
   commissionAmount: Number,   // admin profit
   driverEarning: Number,
   commissionPercent: Number,
-  distance: Number,
-  duration: Number,
+  distance: Number,            // road distance (km)
+  duration: Number,            // road duration (min)
+  routePolyline: String,       // encoded polyline (pickup→drop) for map render + replay
+  // Fare breakdown (added for fare-breakdown popup)
+  fareBreakdown: {
+    base: Number,
+    perKm: Number,
+    perMin: Number,
+    minFare: Number,
+    distanceKm: Number,
+    durationMin: Number,
+    distanceCharge: Number,
+    timeCharge: Number,
+    subtotal: Number,
+    surge: Number,
+    tax: Number,
+    commission: Number,
+  },
   paymentMode: { type: String, enum: ['cash', 'wallet', 'online'], default: 'cash' },
   paymentStatus: { type: String, enum: ['pending', 'paid'], default: 'pending' },
   scheduledAt: Date,
