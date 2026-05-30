@@ -33,6 +33,15 @@ class ApiService {
     } catch (_) { return []; }
   }
 
+  // Reverse geocode: lat/lng → address string
+  static Future<String> reverseGeocode(double lat, double lng) async {
+    try {
+      final res = await http.get(Uri.parse('$baseUrl/places/reverse?lat=$lat&lng=$lng'));
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return (data['address'] as String?) ?? '';
+    } catch (_) { return ''; }
+  }
+
   static Future<Map<String, dynamic>?> placeDetails(String placeId) async {
     try {
       final res = await http.get(Uri.parse('$baseUrl/places/details?placeId=$placeId'));

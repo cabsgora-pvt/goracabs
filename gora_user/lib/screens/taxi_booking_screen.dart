@@ -490,6 +490,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                                       ),
                                     ),
                                   ] else ...[
+                                    // ── Pickup → Drop + Distance card ──
+                                    _buildTripSummaryCard(),
+                                    const SizedBox(height: 16),
                                     const Text('Select Vehicle', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                                   ],
                                   const SizedBox(height: 16),
@@ -761,8 +764,14 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
             onCameraMove: (pos) {
               _selectedMapLocation = pos.target;
             },
-            onCameraIdle: () {
+            onCameraIdle: () async {
               setState(() {});
+              // Reverse geocode the pin position → show real place name
+              final addr = await ApiService.reverseGeocode(
+                _selectedMapLocation.latitude, _selectedMapLocation.longitude);
+              if (addr.isNotEmpty && mounted) {
+                setState(() => _mapSearchController.text = addr);
+              }
             },
           ),
           // Center pin
@@ -939,18 +948,21 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: () {
+                        onPressed: () async {
+                          // Always resolve a real place name (search bar or reverse geocode)
+                          String addr = _mapSearchController.text.trim();
+                          if (addr.isEmpty) {
+                            addr = await ApiService.reverseGeocode(
+                              _selectedMapLocation.latitude, _selectedMapLocation.longitude);
+                          }
+                          if (!mounted) return;
                           setState(() {
-                            // Use search text if user typed/selected, else show coords
-                            if (_mapSearchController.text.trim().isNotEmpty) {
-                              _dropController.text = _mapSearchController.text;
-                            } else {
-                              _dropController.text = 'Lat: ${_selectedMapLocation.latitude.toStringAsFixed(4)}, Lng: ${_selectedMapLocation.longitude.toStringAsFixed(4)}';
-                            }
+                            _dropController.text = addr.isNotEmpty
+                                ? addr
+                                : 'Selected location';
                             _showMapPicker = false;
                             _locationConfirmed = true;
                           });
-                          // Recalculate fares with real distance to selected drop
                           _loadRealFares();
                         },
                         style: ElevatedButton.styleFrom(
@@ -1139,6 +1151,79 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, height: 1.4),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  // Pickup → Drop + Distance summary shown above vehicle list
+  Widget _buildTripSummaryCard() {
+    final pickup = _pickupController.text.trim().isEmpty ? 'Current Location' : _pickupController.text;
+    final drop = _dropController.text.trim().isEmpty ? 'Drop' : _dropController.text;
+    final dist = _rideDistance > 0 ? '${_rideDistance.toStringAsFixed(1)} km' : '— km';
+    final eta = _rideDuration > 0 ? '${_rideDuration} min' : '— min';
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Column(
+        children: [
+          // Pickup
+          Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+            const Icon(Icons.radio_button_checked, color: Color(0xFF4CAF50), size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(pickup,
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87)),
+            ),
+          ]),
+          // Connector
+          Padding(
+            padding: const EdgeInsets.only(left: 7, top: 2, bottom: 2),
+            child: SizedBox(
+              height: 14,
+              child: Column(children: List.generate(3, (_) => Container(
+                margin: const EdgeInsets.symmetric(vertical: 1),
+                width: 2, height: 2,
+                color: Colors.grey[400],
+              ))),
+            ),
+          ),
+          // Drop
+          Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+            const Icon(Icons.location_on, color: Color(0xFFFF5252), size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(drop,
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87)),
+            ),
+          ]),
+          // Divider + distance/time chips
+          const SizedBox(height: 10),
+          Container(height: 1, color: Colors.grey[200]),
+          const SizedBox(height: 8),
+          Row(children: [
+            const Icon(Icons.route, size: 14, color: Color(0xFF2196F3)),
+            const SizedBox(width: 4),
+            Text(dist, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF2196F3))),
+            const SizedBox(width: 16),
+            const Icon(Icons.access_time, size: 14, color: Colors.grey),
+            const SizedBox(width: 4),
+            Text(eta, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: () => setState(() => _locationConfirmed = false),
+              icon: const Icon(Icons.edit, size: 14, color: Color(0xFF2196F3)),
+              label: const Text('Change', style: TextStyle(fontSize: 12, color: Color(0xFF2196F3), fontWeight: FontWeight.w600)),
+              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8), minimumSize: const Size(0, 28)),
+            ),
+          ]),
         ],
       ),
     );
