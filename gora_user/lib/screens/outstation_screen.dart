@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
@@ -61,6 +62,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
   String _driverPicUrl = '';
   String _driverVehicleModel = '';
   String _driverVehicleNumber = '';
+  double _driverRating = 0;
   Timer? _pollTimer;
 
   // Vehicles list — populated from backend (admin-configured outstation-enabled VehicleTypes)
@@ -274,6 +276,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
           _driverVehicleNumber = (dr['vehicleNumber'] ?? _driverVehicleNumber).toString();
           final pic = (dr['profilePicUrl'] ?? '').toString();
           if (pic.isNotEmpty) _driverPicUrl = AppConfig.imageUrl(pic);
+          final r = dr['rating'];
+          if (r is num) _driverRating = r.toDouble();
         }
         onStatus(status, ride);
       } catch (_) {}
@@ -1720,7 +1724,31 @@ class _OutstationScreenState extends State<OutstationScreen> {
             children: [
               Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
               const Text('Pilot Assigned for Outstation', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+              // Prominent OTP/PIN box — driver asks for this to start the ride
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [const Color(0xFF1976D2).withOpacity(0.08), const Color(0xFF1976D2).withOpacity(0.02)]),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFF1976D2).withOpacity(0.3)),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.lock_outline, color: Color(0xFF1976D2), size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('Share OTP with pilot', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600, letterSpacing: 0.3)),
+                    const SizedBox(height: 2),
+                    const Text('Driver will ask for this 4-digit PIN to start the trip', style: TextStyle(fontSize: 11, color: Colors.black54)),
+                  ])),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1976D2))),
+                    child: Text(_rideOtp ?? '----', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4, color: Color(0xFF1976D2))),
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 14),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey[200]!), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))]),
@@ -1764,9 +1792,24 @@ class _OutstationScreenState extends State<OutstationScreen> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Expanded(child: ElevatedButton.icon(onPressed: () {}, icon: const Icon(Icons.call, color: Colors.green), label: const Text('Call', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2))),
+                  Expanded(child: ElevatedButton.icon(
+                    onPressed: () {
+                      if (_driverPhone.isEmpty) return;
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Driver: $_driverName • $_driverPhone')));
+                    },
+                    icon: const Icon(Icons.call, color: Colors.green), label: const Text('Call', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2),
+                  )),
                   const SizedBox(width: 12),
-                  Expanded(child: ElevatedButton.icon(onPressed: () {}, icon: const Icon(Icons.message, color: Color(0xFF2196F3)), label: const Text('Message', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2))),
+                  Expanded(child: ElevatedButton.icon(
+                    onPressed: () {
+                      if (_rideId != null) {
+                        Share.share('I\'m on a Gora outstation trip — follow me: ${AppConfig.serverBaseUrl}/track/$_rideId');
+                      }
+                    },
+                    icon: const Icon(Icons.share, color: Color(0xFF2196F3)), label: const Text('Share', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2),
+                  )),
                 ],
               ),
               const SizedBox(height: 16),
@@ -1781,26 +1824,26 @@ class _OutstationScreenState extends State<OutstationScreen> {
                       context,
                       MaterialPageRoute(
                         builder: (context) => OutstationRideDetailsScreen(
-                          inquiryId: 'GC-OUT-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+                          inquiryId: _rideId != null ? 'GC-OUT-${_rideId!.substring(_rideId!.length - 6).toUpperCase()}' : 'GC-OUT-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
                           fromLocation: _fromController.text.isEmpty ? 'Current Location' : _fromController.text,
                           toLocation: _toController.text.isEmpty ? 'Select Destination' : _toController.text,
                           vehicleName: _selectedVehicle!,
-                          vehicleType: selectedVehicleData['type'],
-                          capacity: selectedVehicleData['capacity'],
+                          vehicleType: selectedVehicleData['type'] as String? ?? '',
+                          capacity: selectedVehicleData['capacity'] as String? ?? '4',
                           tripType: _tripType,
                           departureDate: _departureDateController.text.isEmpty ? 'Today' : _departureDateController.text,
                           departureTime: _departureTimeController.text.isEmpty ? 'Now' : _departureTimeController.text,
                           returnDate: _tripType == 'Round Trip' ? (_returnDateController.text.isEmpty ? 'Not Set' : _returnDateController.text) : null,
                           returnTime: _tripType == 'Round Trip' ? (_returnTimeController.text.isEmpty ? 'Not Set' : _returnTimeController.text) : null,
                           price: currentPrice,
-                          estimatedDistance: '~250 km',
-                          estimatedDuration: '~5 hours',
-                          driverName: 'Rahul Sharma',
-                          driverRating: '4.8 (2.5k+ trips)',
-                          driverExperience: '7 Years',
-                          vehicleNumber: 'RJ 14 EF 1234',
-                          vehicleModel: 'Mahindra Marazzo',
-                          vehicleColor: 'Silver',
+                          estimatedDistance: '${_distanceKm.toStringAsFixed(0)} km',
+                          estimatedDuration: _durationMin >= 60 ? '${_durationMin ~/ 60}h ${(_durationMin % 60).toString().padLeft(2, "0")}m' : '$_durationMin min',
+                          driverName: _driverName,
+                          driverRating: _driverRating > 0 ? _driverRating.toStringAsFixed(1) : '—',
+                          driverExperience: '—',
+                          vehicleNumber: _driverVehicleNumber.isEmpty ? '—' : _driverVehicleNumber,
+                          vehicleModel: _driverVehicleModel.isEmpty ? '—' : _driverVehicleModel,
+                          vehicleColor: '—',
                         ),
                       ),
                     );
