@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import '../utils/polyline_utils.dart';
@@ -45,6 +46,8 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
           final tip = (r['tip'] ?? 0);
           final total = (r['totalFare'] ?? (fare + tip));
           final status = (r['status'] ?? '').toString();
+          final dr = r['driver'] as Map<String, dynamic>?;
+          final driverPic = (dr?['profilePicUrl'] ?? '').toString();
           return {
             'id': r['_id']?.toString() ?? '',
             'date': r['createdAt'] != null
@@ -52,7 +55,11 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                 : '',
             'from': r['pickupAddress'] ?? '',
             'to': r['dropAddress'] ?? '',
-            'driver': r['driverName'] ?? '—',
+            'driver': (dr?['name'] ?? r['driverName'] ?? '—').toString(),
+            'driverPic': driverPic.isEmpty ? '' : AppConfig.imageUrl(driverPic),
+            'driverVehicleModel': (dr?['vehicleModel'] ?? '').toString(),
+            'driverVehicleNumber': (dr?['vehicleNumber'] ?? '').toString(),
+            'driverRatingVal': (dr?['rating'] as num?)?.toDouble() ?? 0,
             'fare': '₹$total',
             'baseFare': fare,
             'tip': tip,
@@ -278,11 +285,8 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     if (_loadingRides) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
     final rentals = _myRides.where((r) => r['service'] == 'rental').toList();
     if (rentals.isEmpty) return const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No rental bookings yet', style: TextStyle(color: Colors.grey))));
-    return Column(children: rentals.map((r) => _buildRentalCard({
-      ...r,
-      'package': r['vehicle'] ?? '',
-      'duration': '${r['duration']} min',
-    })).toList());
+    // Reuse the unified ride card (shows driver pic + vehicle + rating)
+    return Column(children: rentals.map((r) => _buildRideCard(r)).toList());
   }
 
   Widget _buildHireDriverList() {
@@ -299,7 +303,8 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     if (_loadingRides) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
     final outs = _myRides.where((r) => r['service'] == 'outstation').toList();
     if (outs.isEmpty) return const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No outstation trips yet', style: TextStyle(color: Colors.grey))));
-    return Column(children: outs.map((r) => _buildOutstationCard(r)).toList());
+    // Reuse the unified ride card (shows driver pic + vehicle + rating + route)
+    return Column(children: outs.map((r) => _buildRideCard(r)).toList());
   }
 
   Widget _buildRideCard(Map<String, dynamic> ride) {
@@ -377,6 +382,36 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
               Text(ride['fare'] as String, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
             ],
           ),
+          // Driver row — pic + name + vehicle (real data for all service types)
+          if ((ride['driver'] as String?) != null && ride['driver'] != '—') ...[
+            const SizedBox(height: 10),
+            const Divider(height: 1),
+            const SizedBox(height: 10),
+            Row(children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: AppTheme.primaryBlue.withOpacity(0.1),
+                backgroundImage: (ride['driverPic'] as String).isNotEmpty ? NetworkImage(ride['driverPic'] as String) : null,
+                child: (ride['driverPic'] as String).isEmpty
+                    ? Text((ride['driver'] as String).isNotEmpty ? (ride['driver'] as String)[0].toUpperCase() : 'D',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue))
+                    : null,
+              ),
+              const SizedBox(width: 8),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(ride['driver'] as String, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                Text(
+                  [ride['driverVehicleModel'], ride['driverVehicleNumber']].where((s) => (s as String).isNotEmpty).join(' • '),
+                  style: TextStyle(fontSize: 11, color: Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis,
+                ),
+              ])),
+              if ((ride['driverRatingVal'] as double) > 0) Row(children: [
+                const Icon(Icons.star, size: 13, color: Colors.amber),
+                const SizedBox(width: 2),
+                Text((ride['driverRatingVal'] as double).toStringAsFixed(1), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              ]),
+            ]),
+          ],
           if (!isCancelled) ...[
             const SizedBox(height: 12),
             Row(
