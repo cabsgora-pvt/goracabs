@@ -178,6 +178,24 @@ export async function POST(req: NextRequest) {
       if (!zone || nd > 25) return withCors({ available: false, message: 'Service not available here' })
     }
 
+    // ── Out-of-zone check for taxi/rental/delivery: if drop is OUTSIDE the pickup zone,
+    //    tell the user to switch to Outstation (intercity). We only flag this when
+    //    pickup actually fell inside a polygon (not a 25 km nearest-zone fallback).
+    let outOfZone = false
+    if (dropLat != null && dropLng != null && zone?.polygonPath?.length >= 3) {
+      const pickupInside = pointInPolygon({ lat: pickupLat, lng: pickupLng }, zone.polygonPath)
+      const dropInside   = pointInPolygon({ lat: dropLat,    lng: dropLng    }, zone.polygonPath)
+      if (pickupInside && !dropInside) outOfZone = true
+    }
+    if (outOfZone) {
+      return withCors({
+        available: true,
+        outOfZone: true,
+        zone: { id: zone._id, name: zone.name },
+        message: `Your destination is outside ${zone.name} zone. Please switch to Outstation (Intercity) ride.`,
+      })
+    }
+
     // Distance & time (Haversine — replaced by Directions API at booking time)
     let distance = 5, duration = 15
     if (dropLat != null && dropLng != null) {

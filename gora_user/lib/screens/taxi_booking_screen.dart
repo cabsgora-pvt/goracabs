@@ -9,6 +9,7 @@ import '../services/location_service.dart';
 import '../utils/polyline_utils.dart';
 import 'booking_screen.dart';
 import 'home_screen.dart';
+import 'outstation_screen.dart';
 import 'rating_screen.dart';
 
 class TaxiBookingScreen extends StatefulWidget {
@@ -257,6 +258,12 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         dropLng: hasDrop ? _selectedMapLocation.longitude : null,
         service: 'taxi',
       );
+      // Drop is outside the city zone — prompt the user to switch to Outstation
+      if (res['outOfZone'] == true && mounted) {
+        final zoneName = (res['zone'] as Map?)?['name']?.toString() ?? 'this city';
+        _showOutOfZoneDialog(zoneName);
+        return;
+      }
       if (res['available'] == true && res['vehicles'] is List) {
         final apiVehicles = res['vehicles'] as List;
         setState(() {
@@ -292,6 +299,45 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
       if (!mounted || _rideId != null) { t.cancel(); _fareRefreshTimer = null; return; }
       _loadRealFares();
     });
+  }
+
+  // Shown when user picks a drop OUTSIDE the pickup city zone — offers to switch to Outstation
+  bool _outOfZoneDialogShown = false;
+  void _showOutOfZoneDialog(String zoneName) {
+    if (_outOfZoneDialogShown) return; // don't spam the user on every refresh
+    _outOfZoneDialogShown = true;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(children: const [
+          Icon(Icons.swap_horizontal_circle, color: Color(0xFFFF9800), size: 28),
+          SizedBox(width: 8),
+          Expanded(child: Text('Out of City', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+        ]),
+        content: Text(
+          'Your destination is outside the $zoneName zone. Local taxi rides aren\'t available across cities — please switch to Outstation (Intercity) ride.',
+          style: const TextStyle(fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () { _outOfZoneDialogShown = false; Navigator.pop(context); },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1976D2), foregroundColor: Colors.white),
+            onPressed: () {
+              Navigator.pop(context); // close dialog
+              // Navigate to Outstation screen — user picks From/To again there
+              Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const OutstationScreen()));
+            },
+            icon: const Icon(Icons.map, size: 16),
+            label: const Text('Switch to Outstation'),
+          ),
+        ],
+      ),
+    );
   }
 
   // Fetch encoded polyline + road distance + duration; decode + draw + fit-bounds
