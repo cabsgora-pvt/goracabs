@@ -44,11 +44,13 @@ class _PreferencesPageState extends State<PreferencesPage> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: ${res['error']}'), backgroundColor: AppColors.red));
         return;
       }
-      // Pull back what the server actually persisted so the toggle reflects DB truth
-      final saved = (res['preferences']?['acceptsOutstation'] as bool?) ?? _outstation;
-      setState(() => _outstation = saved);
+      // Pull back what the server actually persisted so the toggles reflect DB truth
+      final prefs = res['preferences'] as Map<String, dynamic>?;
+      final savedOut = (prefs?['acceptsOutstation'] as bool?) ?? _outstation;
+      final savedRent = (prefs?['acceptsRental'] as bool?) ?? _rental;
+      setState(() { _outstation = savedOut; _rental = savedRent; });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Outstation: ${saved ? 'ON' : 'OFF'} — saved'),
+        content: Text('Saved — Outstation: ${savedOut ? 'ON' : 'OFF'}, Rental: ${savedRent ? 'ON' : 'OFF'}'),
         backgroundColor: AppColors.green,
       ));
       // Do not auto-pop so the user can visually confirm the toggle stayed where they set it

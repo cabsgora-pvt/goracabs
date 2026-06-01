@@ -263,13 +263,30 @@ class _RidePollerState extends State<_RidePoller> {
     } catch (_) {}
   }
 
+  // Ride IDs already shown this session, and content signatures to dedupe rapid duplicates
+  final Set<String> _handledRideIds = {};
+  final Set<String> _handledSigs = {};
+
   Future<void> _poll() async {
     if (_navigating || !mounted) return;
     try {
       final res = await DriverApiService.getPendingRequests();
       final rides = (res['rides'] as List?) ?? [];
       if (rides.isEmpty) return;
-      final r = Map<String, dynamic>.from(rides.first as Map);
+      // Pick the first ride we haven't already shown (by id or content signature)
+      Map<String, dynamic>? pick;
+      for (final raw in rides) {
+        final m = Map<String, dynamic>.from(raw as Map);
+        final id = m['id']?.toString() ?? '';
+        final sig = '${m['pickupAddress']}|${m['fare']}|${m['vehicleType']}|${m['service']}';
+        if (_handledRideIds.contains(id) || _handledSigs.contains(sig)) continue;
+        pick = m; break;
+      }
+      if (pick == null) return; // all current pending already handled
+      final r = pick;
+      final rideId = r['id']?.toString() ?? '';
+      _handledRideIds.add(rideId);
+      _handledSigs.add('${r['pickupAddress']}|${r['fare']}|${r['vehicleType']}|${r['service']}');
       final fare = (r['fare'] ?? 0);
       final tip = (r['tip'] ?? 0);
       final total = (r['totalFare'] ?? (fare + tip));
