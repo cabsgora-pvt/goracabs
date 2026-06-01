@@ -58,6 +58,7 @@ const navItems: NavItem[] = [
       { label: 'All Rides', href: '/rides', icon: LayoutDashboard },
       { label: 'Ongoing', href: '/rides/ongoing', icon: Clock },
       { label: 'Outstation', href: '/rides/outstation', icon: MapPin },
+      { label: 'Rental', href: '/rides/rental', icon: Clock },
       { label: 'Scheduled', href: '/rides/scheduled', icon: CheckCircle },
       { label: 'Cancelled', href: '/rides/cancelled', icon: XCircle },
     ]

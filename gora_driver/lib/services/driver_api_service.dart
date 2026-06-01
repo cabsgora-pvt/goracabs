@@ -154,4 +154,8 @@ class DriverApiService {
   // Outstation phase / distance / night-halt update
   static Future<Map<String, dynamic>> updatePhase(String rideId, Map<String, dynamic> body) =>
       post('/rides/$rideId/phase', body, auth: true);
+
+  // Rental actions: start / ping / wait / addStop / extend / end
+  static Future<Map<String, dynamic>> rentalAction(String rideId, Map<String, dynamic> body) =>
+      post('/rides/$rideId/rental', body, auth: true);
 }

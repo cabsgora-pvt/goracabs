@@ -159,6 +159,8 @@ export async function POST(req: NextRequest) {
       packageKm: b.packageKm || 0,
       extraHourRate: b.extraHourRate || 0,
       extraKmRate: b.extraKmRate || 0,
+      nightChargeRental: b.nightChargeRental || 0,
+      rentalPhase: service === 'rental' ? 'pending' : undefined,
     })
 
     // Find nearest online approved driver: same zone + vehicle type

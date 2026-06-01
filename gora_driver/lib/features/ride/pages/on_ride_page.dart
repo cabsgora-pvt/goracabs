@@ -8,6 +8,7 @@ import '../../../services/driver_api_service.dart';
 import '../bloc/ride_bloc.dart';
 import '../../home/pages/map_placeholder.dart' show RideMap;
 import 'invoice_page.dart';
+import 'rental_progress_page.dart';
 
 class OnRidePage extends StatelessWidget {
   static const route = '/on-ride';
@@ -24,6 +25,11 @@ class OnRidePage extends StatelessWidget {
       create: (_) => RideBloc()..currentRide = ride,
       child: BlocListener<RideBloc, RideState>(
         listener: (context, state) {
+          // Rental: once OTP-started, go to the live rental-progress screen instead of plain end
+          if (state is RideStartedState && ride.service == 'rental') {
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => RentalProgressPage(ride: ride)));
+            return;
+          }
           if (state is RideEndedState) {
             Navigator.pushReplacementNamed(context, InvoicePage.route, arguments: state.ride);
           }

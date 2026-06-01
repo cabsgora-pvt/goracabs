@@ -56,6 +56,11 @@ class _RentalScreenState extends State<RentalScreen> {
   String _driverVehicleNumber = '';
   double _driverRating = 0;
   Timer? _pollTimer;
+  // Live rental status (from backend during ride)
+  String _rentalPhase = 'pending';
+  double _liveHours = 0, _liveKm = 0;
+  int _pkgHrs = 0, _pkgKm = 0;
+  void Function(void Function())? _dialogSetState; // rebuilds the assigned dialog live
 
   @override
   void initState() {
@@ -67,6 +72,7 @@ class _RentalScreenState extends State<RentalScreen> {
   void dispose() {
     _pollTimer?.cancel();
     _searchDebounce?.cancel();
+    _dialogSetState = null;
     _pickupController.dispose();
     _dropController.dispose();
     super.dispose();
@@ -160,7 +166,8 @@ class _RentalScreenState extends State<RentalScreen> {
         'pickupAddress': _pickupController.text,
         'dropAddress': _dropController.text,
         'pickupLat': _pickupLat, 'pickupLng': _pickupLng,
-        'dropLat': _pickupLat, 'dropLng': _pickupLng, // rental has no fixed drop
+        // Use real drop if the user picked one, else fall back to pickup
+        'dropLat': _dropLat ?? _pickupLat, 'dropLng': _dropLng ?? _pickupLng,
         'service': 'rental',
         'vehicleType': _selectedVehicle,
         'fare': _scaledPrice(p),            // hours × per-hour rate
@@ -197,19 +204,66 @@ class _RentalScreenState extends State<RentalScreen> {
           final r = dr['rating'];
           if (r is num) _driverRating = r.toDouble();
         }
-        // Completion handled at screen level
+        // Capture live rental fields
+        _rentalPhase = (ride['rentalPhase'] ?? _rentalPhase).toString();
+        _liveHours = (ride['actualHours'] as num?)?.toDouble() ?? _liveHours;
+        _liveKm = (ride['actualKm'] as num?)?.toDouble() ?? _liveKm;
+        _pkgHrs = (ride['packageHours'] as num?)?.toInt() ?? _pkgHrs;
+        _pkgKm = (ride['packageKm'] as num?)?.toInt() ?? _pkgKm;
+        _dialogSetState?.call(() {}); // refresh the assigned dialog live
+        // Completion → show final bill, then rating
         if (status == 'completed') {
           t.cancel(); _pollTimer = null;
           if (!mounted) return;
           Navigator.of(this.context, rootNavigator: true).popUntil((r) => r.isFirst);
-          Navigator.of(this.context).push(MaterialPageRoute(builder: (_) => RatingScreen(
-            driverName: _driverName, vehicleName: _selectedVehicle ?? 'Rental', selectedTip: 0, rideId: _rideId,
-          )));
+          _showFinalBill(ride);
           return;
         }
         onStatus(status, ride);
       } catch (_) {}
     });
+  }
+
+  // Final bill breakdown on rental completion → then rating
+  void _showFinalBill(Map<String, dynamic> ride) {
+    final base = (ride['fare'] as num?)?.toInt() ?? 0;
+    final exHr = (ride['extraHoursCharge'] as num?)?.toInt() ?? 0;
+    final exKm = (ride['extraKmCharge'] as num?)?.toInt() ?? 0;
+    final night = (ride['nightChargeRental'] as num?)?.toInt() ?? 0;
+    final total = (ride['finalFare'] as num?)?.toInt() ?? (base + exHr + exKm + night);
+    Widget row(String l, String v, {bool bold = false, Color? c}) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text(l, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w500, color: c)),
+        Text(v, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: c)),
+      ]),
+    );
+    showModalBottomSheet(context: this.context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Rental Bill', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 14),
+          row('Used', '${(ride['actualHours'] ?? 0).toStringAsFixed(1)} hr / ${(ride['actualKm'] ?? 0).toStringAsFixed(1)} km'),
+          row('Package', '${ride['packageHours'] ?? 0} hr / ${ride['packageKm'] ?? 0} km'),
+          const Divider(),
+          row('Base fare', '₹$base'),
+          if (exHr > 0) row('Extra hours', '₹$exHr', c: Colors.orange),
+          if (exKm > 0) row('Extra km', '₹$exKm', c: Colors.orange),
+          if (night > 0) row('Night charge', '₹$night'),
+          const Divider(),
+          row('Total', '₹$total', bold: true, c: const Color(0xFF1976D2)),
+          const SizedBox(height: 18),
+          SizedBox(width: double.infinity, child: ElevatedButton(
+            onPressed: () { Navigator.pop(ctx); Navigator.of(this.context).push(MaterialPageRoute(builder: (_) => RatingScreen(
+              driverName: _driverName, vehicleName: _selectedVehicle ?? 'Rental', selectedTip: 0, rideId: _rideId))); },
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1976D2), padding: const EdgeInsets.symmetric(vertical: 14)),
+            child: const Text('Rate your trip', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+          )),
+        ]),
+      ),
+    );
   }
 
   // Picks the package for the selected vehicle whose hours best matches _selectedHours
@@ -1101,6 +1155,10 @@ class _RentalScreenState extends State<RentalScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
+        return StatefulBuilder(builder: (context, setSheet) {
+        _dialogSetState = setSheet; // let polling refresh this sheet live
+        final inProgress = _rentalPhase == 'ongoing' || _rentalPhase == 'extra_time' || _rentalPhase == 'paused';
+        final overLimit = _liveHours > _pkgHrs || _liveKm > _pkgKm;
         return Container(
           padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(context).viewPadding.bottom),
           decoration: const BoxDecoration(
@@ -1113,8 +1171,37 @@ class _RentalScreenState extends State<RentalScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
-              const Text('Pilot Assigned for Rental', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
+              Text(inProgress ? 'Rental in Progress' : 'Pilot Assigned for Rental', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
               const SizedBox(height: 12),
+              // Live counter once the rental has started
+              if (inProgress) ...[
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: overLimit ? Colors.orange[50] : const Color(0xFF1976D2).withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: overLimit ? Colors.orange : const Color(0xFF1976D2).withOpacity(0.3)),
+                  ),
+                  child: Column(children: [
+                    Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+                      Column(children: [
+                        Text('${_liveHours.toStringAsFixed(1)} hr', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: overLimit ? Colors.orange[800] : const Color(0xFF1976D2))),
+                        Text('of $_pkgHrs hr', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      ]),
+                      Container(width: 1, height: 36, color: Colors.grey[300]),
+                      Column(children: [
+                        Text('${_liveKm.toStringAsFixed(1)} km', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: overLimit ? Colors.orange[800] : const Color(0xFF1976D2))),
+                        Text('of $_pkgKm km', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                      ]),
+                    ]),
+                    if (overLimit) const Padding(padding: EdgeInsets.only(top: 8),
+                      child: Text('⚠ Limit exceeded — extra charges apply', style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.w600))),
+                    if (_rentalPhase == 'paused') const Padding(padding: EdgeInsets.only(top: 8),
+                      child: Text('⏸ Driver waiting (paused)', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600))),
+                  ]),
+                ),
+                const SizedBox(height: 12),
+              ],
               // OTP box — driver asks for this to start
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1204,10 +1291,12 @@ class _RentalScreenState extends State<RentalScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              Center(child: TextButton(onPressed: () => _showCancelReasonDialog(), child: const Text('Cancel Rental', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600, fontSize: 15)))),
+              if (!inProgress)
+                Center(child: TextButton(onPressed: () => _showCancelReasonDialog(), child: const Text('Cancel Rental', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600, fontSize: 15)))),
             ],
           )),
         );
+        });
       },
     );
   }

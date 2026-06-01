@@ -39,9 +39,20 @@ const RideSchema = new Schema({
   packageKm: { type: Number, default: 0 },       // included km in package
   extraHourRate: { type: Number, default: 0 },
   extraKmRate: { type: Number, default: 0 },
-  actualHours: { type: Number, default: 0 },     // filled at trip end
-  actualKm: { type: Number, default: 0 },        // filled at trip end
+  nightChargeRental: { type: Number, default: 0 },
+  actualHours: { type: Number, default: 0 },     // live + final
+  actualKm: { type: Number, default: 0 },        // live (accumulated from pings) + final
   rentalStartedAt: Date,
+  rentalEndedAt: Date,
+  rentalLastLat: Number,                          // for distance accumulation
+  rentalLastLng: Number,
+  // started → ongoing → extra_time → completed
+  rentalPhase: { type: String, enum: ['pending', 'started', 'ongoing', 'extra_time', 'paused', 'completed'], default: 'pending' },
+  isWaiting: { type: Boolean, default: false },   // driver halt/wait toggle
+  extraHoursCharge: { type: Number, default: 0 },
+  extraKmCharge: { type: Number, default: 0 },
+  finalFare: { type: Number, default: 0 },        // base + extras, computed at end
+  rentalStops: [{ address: String, lat: Number, lng: Number, at: Date }],
   fare: Number,
   tip: { type: Number, default: 0 },
   totalFare: Number,          // fare + tip
