@@ -59,6 +59,12 @@ const RideSchema = new Schema({
   hireTotalHours: { type: Number, default: 0 },
   hirePerHour: { type: Number, default: 0 },
   transmission: { type: String, enum: ['manual', 'automatic', ''], default: '' },
+  hireStartedAt: Date,            // when driver actually started
+  hireActualHours: { type: Number, default: 0 },
+  hireExtraHours: { type: Number, default: 0 },
+  hireExtraCharge: { type: Number, default: 0 },
+  hireFinalFare: { type: Number, default: 0 },
+  hirePhase: { type: String, enum: ['pending', 'ongoing', 'overtime', 'completed'], default: 'pending' },
   fare: Number,
   tip: { type: Number, default: 0 },
   totalFare: Number,          // fare + tip

@@ -38,6 +38,11 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   String _driverName = 'Driver', _driverPhone = '', _driverPic = '', _vModel = '', _vNumber = '';
   double _driverRating = 0;
   Timer? _poll;
+  // Live hire status
+  String _hirePhase = 'pending';
+  double _hireActual = 0;
+  int _hireBooked = 0;
+  void Function(void Function())? _dialogSet;
 
   int get _totalHours {
     if (_startAt == null || _endAt == null) return 0;
@@ -49,7 +54,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   void initState() { super.initState(); _initLocation(); }
 
   @override
-  void dispose() { _poll?.cancel(); _debounce?.cancel(); _pickupCtrl.dispose(); _dropCtrl.dispose(); super.dispose(); }
+  void dispose() { _poll?.cancel(); _debounce?.cancel(); _dialogSet = null; _pickupCtrl.dispose(); _dropCtrl.dispose(); super.dispose(); }
 
   Future<void> _initLocation() async {
     final pos = await LocationService.getCurrentLocation();
@@ -128,12 +133,16 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
           if (p.isNotEmpty) _driverPic = AppConfig.imageUrl(p);
           if (dr['rating'] is num) _driverRating = (dr['rating'] as num).toDouble();
         }
+        _hirePhase = (ride['hirePhase'] ?? _hirePhase).toString();
+        _hireActual = (ride['hireActualHours'] as num?)?.toDouble() ?? _hireActual;
+        _hireBooked = (ride['hireTotalHours'] as num?)?.toInt() ?? _hireBooked;
+        _dialogSet?.call(() {});
         if (status == 'accepted' || status == 'arrived' || status == 'ongoing') {
           if (Navigator.canPop(context)) { Navigator.pop(context); _showAssigned(); }
         } else if (status == 'completed') {
           t.cancel(); if (!mounted) return;
           Navigator.of(context, rootNavigator: true).popUntil((r) => r.isFirst);
-          Navigator.push(context, MaterialPageRoute(builder: (_) => RatingScreen(driverName: _driverName, vehicleName: _selectedVehicle ?? 'Hire', selectedTip: 0, rideId: _rideId)));
+          _showFinalBill(ride);
         }
       } catch (_) {}
     });
@@ -247,13 +256,56 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
       });
   }
 
+  void _showFinalBill(Map<String, dynamic> ride) {
+    final base = (ride['fare'] as num?)?.toInt() ?? 0;
+    final extra = (ride['hireExtraCharge'] as num?)?.toInt() ?? 0;
+    final total = (ride['hireFinalFare'] as num?)?.toInt() ?? (base + extra);
+    Widget r(String l, String v, {bool b = false, Color? c}) => Padding(padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text(l, style: TextStyle(fontSize: 14, fontWeight: b ? FontWeight.w800 : FontWeight.w500, color: c)),
+        Text(v, style: TextStyle(fontSize: 14, fontWeight: b ? FontWeight.w800 : FontWeight.w600, color: c))]));
+    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Padding(padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Hire Bill', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 14),
+          r('Booked', '${ride['hireTotalHours'] ?? 0} hr'),
+          r('Worked', '${(ride['hireActualHours'] ?? 0).toStringAsFixed(1)} hr'),
+          const Divider(),
+          r('Base', '₹$base'),
+          if (extra > 0) r('Overtime (${ride['hireExtraHours'] ?? 0}hr)', '₹$extra', c: Colors.orange),
+          const Divider(),
+          r('Total', '₹$total', b: true, c: const Color(0xFF1976D2)),
+          const SizedBox(height: 18),
+          SizedBox(width: double.infinity, child: ElevatedButton(
+            onPressed: () { Navigator.pop(ctx); Navigator.push(context, MaterialPageRoute(builder: (_) => RatingScreen(driverName: _driverName, vehicleName: _selectedVehicle ?? 'Hire', selectedTip: 0, rideId: _rideId))); },
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1976D2), padding: const EdgeInsets.symmetric(vertical: 14)),
+            child: const Text('Rate your trip', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)))),
+        ])));
+  }
+
   void _showAssigned() {
     showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => Padding(padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        _dialogSet = setSheet;
+        final inProgress = _hirePhase == 'ongoing' || _hirePhase == 'overtime';
+        return Padding(padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Driver Assigned', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          Text(inProgress ? 'Hire in Progress' : 'Driver Assigned', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
+          if (inProgress) ...[
+            Container(padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(color: _hirePhase == 'overtime' ? Colors.orange[50] : const Color(0xFF1976D2).withOpacity(0.06),
+                borderRadius: BorderRadius.circular(12), border: Border.all(color: _hirePhase == 'overtime' ? Colors.orange : const Color(0xFF1976D2).withOpacity(0.3))),
+              child: Column(children: [
+                Text('${_hireActual.toStringAsFixed(1)} hr', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: _hirePhase == 'overtime' ? Colors.orange[800] : const Color(0xFF1976D2))),
+                Text('of $_hireBooked hr booked', style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                if (_hirePhase == 'overtime') const Padding(padding: EdgeInsets.only(top: 6), child: Text('⚠ Overtime — extra hours billed', style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.w600))),
+              ])),
+            const SizedBox(height: 12),
+          ],
           Container(padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(color: const Color(0xFF1976D2).withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF1976D2).withOpacity(0.3))),
             child: Row(children: [const Icon(Icons.lock_outline, color: Color(0xFF1976D2)), const SizedBox(width: 10),
@@ -281,9 +333,10 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
             icon: const Icon(Icons.call, color: Colors.white), label: const Text('Call Driver', style: TextStyle(color: Colors.white)),
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4CAF50), padding: const EdgeInsets.symmetric(vertical: 14)))),
           const SizedBox(height: 10),
-          Center(child: TextButton(onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (r) => false),
+          if (!inProgress) Center(child: TextButton(onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (r) => false),
             child: const Text('Cancel', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)))),
-        ])));
+        ]));
+      }));
   }
 
   // ── Map picker ──

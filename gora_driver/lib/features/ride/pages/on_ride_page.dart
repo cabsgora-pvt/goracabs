@@ -9,6 +9,7 @@ import '../bloc/ride_bloc.dart';
 import '../../home/pages/map_placeholder.dart' show RideMap;
 import 'invoice_page.dart';
 import 'rental_progress_page.dart';
+import 'hire_progress_page.dart';
 
 class OnRidePage extends StatelessWidget {
   static const route = '/on-ride';
@@ -28,6 +29,11 @@ class OnRidePage extends StatelessWidget {
           // Rental: once OTP-started, go to the live rental-progress screen instead of plain end
           if (state is RideStartedState && ride.service == 'rental') {
             Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => RentalProgressPage(ride: ride)));
+            return;
+          }
+          // Hire: once OTP-started, go to the live hire-progress screen
+          if (state is RideStartedState && ride.service == 'hire_driver') {
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HireProgressPage(ride: ride)));
             return;
           }
           if (state is RideEndedState) {
