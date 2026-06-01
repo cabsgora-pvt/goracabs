@@ -10,7 +10,7 @@ class PreferencesPage extends StatefulWidget {
 }
 
 class _PreferencesPageState extends State<PreferencesPage> {
-  bool _taxi = true, _rental = true, _outstation = false, _delivery = false;
+  bool _taxi = true, _rental = true, _outstation = false, _delivery = false, _hireDriver = false;
   bool _bidding = true, _instantRide = true;
   String _maxDistance = '10 km';
   bool _acOnly = false, _femaleOnly = false;
@@ -31,6 +31,7 @@ class _PreferencesPageState extends State<PreferencesPage> {
       setState(() {
         if (d.containsKey('acceptsOutstation') && d['acceptsOutstation'] is bool) _outstation = d['acceptsOutstation'] as bool;
         if (d.containsKey('acceptsRental') && d['acceptsRental'] is bool) _rental = d['acceptsRental'] as bool;
+        if (d.containsKey('acceptsHireDriver') && d['acceptsHireDriver'] is bool) _hireDriver = d['acceptsHireDriver'] as bool;
       });
     } catch (_) {}
   }
@@ -38,7 +39,7 @@ class _PreferencesPageState extends State<PreferencesPage> {
   Future<void> _savePrefs() async {
     setState(() => _saving = true);
     try {
-      final res = await DriverApiService.updatePreferences({'acceptsOutstation': _outstation, 'acceptsRental': _rental});
+      final res = await DriverApiService.updatePreferences({'acceptsOutstation': _outstation, 'acceptsRental': _rental, 'acceptsHireDriver': _hireDriver});
       if (!mounted) return;
       if (res['error'] != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: ${res['error']}'), backgroundColor: AppColors.red));
@@ -48,9 +49,10 @@ class _PreferencesPageState extends State<PreferencesPage> {
       final prefs = res['preferences'] as Map<String, dynamic>?;
       final savedOut = (prefs?['acceptsOutstation'] as bool?) ?? _outstation;
       final savedRent = (prefs?['acceptsRental'] as bool?) ?? _rental;
-      setState(() { _outstation = savedOut; _rental = savedRent; });
+      final savedHire = (prefs?['acceptsHireDriver'] as bool?) ?? _hireDriver;
+      setState(() { _outstation = savedOut; _rental = savedRent; _hireDriver = savedHire; });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Saved — Outstation: ${savedOut ? 'ON' : 'OFF'}, Rental: ${savedRent ? 'ON' : 'OFF'}'),
+        content: Text('Saved — Outstation: ${savedOut ? 'ON' : 'OFF'}, Rental: ${savedRent ? 'ON' : 'OFF'}, Hire: ${savedHire ? 'ON' : 'OFF'}'),
         backgroundColor: AppColors.green,
       ));
       // Do not auto-pop so the user can visually confirm the toggle stayed where they set it
@@ -73,6 +75,7 @@ class _PreferencesPageState extends State<PreferencesPage> {
           _switchRow('Taxi / Cab', 'Regular point-to-point rides', Icons.local_taxi, _taxi, (v) => setState(() => _taxi = v)),
           _switchRow('Rental', 'Hourly rental package bookings', Icons.access_time, _rental, (v) => setState(() => _rental = v)),
           _switchRow('Outstation', 'Long-distance city-to-city rides', Icons.map, _outstation, (v) => setState(() => _outstation = v)),
+          _switchRow('Hire a Driver', 'Drive customer\'s own car (hourly)', Icons.person_pin_circle, _hireDriver, (v) => setState(() => _hireDriver = v)),
           _switchRow('Delivery', 'Package & goods delivery', Icons.inventory_2, _delivery, (v) => setState(() => _delivery = v)),
 
           const SizedBox(height: 8),

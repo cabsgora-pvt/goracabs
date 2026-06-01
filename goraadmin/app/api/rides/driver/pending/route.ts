@@ -28,8 +28,8 @@ export async function GET(req: NextRequest) {
     const baseFilter: any = {
       vehicleType: driver.selectedVehicleTypeName,
     }
-    // Taxi branch covers everyday in-city services (NOT outstation, NOT rental)
-    const taxiBranch: any = { ...baseFilter, service: { $nin: ['outstation', 'rental'] } }
+    // Taxi branch covers everyday in-city services (NOT outstation, rental, hire)
+    const taxiBranch: any = { ...baseFilter, service: { $nin: ['outstation', 'rental', 'hire_driver'] } }
     if (driver.zoneId) taxiBranch.zoneId = driver.zoneId
 
     const branches: any[] = [taxiBranch]
@@ -37,9 +37,10 @@ export async function GET(req: NextRequest) {
       branches.push({ ...baseFilter, service: 'outstation' })
     }
     if (driver.acceptsRental) {
-      // Rental: match by vehicle type only (no strict zone match — avoids ObjectId/string
-      // mismatches silently dropping requests). Driver opted in, so deliver it.
       branches.push({ ...baseFilter, service: 'rental' })
+    }
+    if (driver.acceptsHireDriver) {
+      branches.push({ ...baseFilter, service: 'hire_driver' })
     }
 
     const query: any = {
@@ -52,7 +53,7 @@ export async function GET(req: NextRequest) {
     // Outstation + rental stay valid up to 15 min; plain taxi keeps the 2-min freshness window
     let rides = await Ride.find(query).sort({ createdAt: -1 }).lean() as any[]
     rides = rides.filter((r: any) => {
-      if (r.service === 'outstation' || r.service === 'rental') return true
+      if (['outstation', 'rental', 'hire_driver'].includes(r.service)) return true
       return new Date(r.createdAt) >= twoMinAgo
     })
 
@@ -95,6 +96,11 @@ export async function GET(req: NextRequest) {
         // Rental extras
         packageHours: r.packageHours,
         packageKm: r.packageKm,
+        // Hire extras
+        hireTotalHours: r.hireTotalHours,
+        transmission: r.transmission,
+        hireStartAt: r.hireStartAt,
+        hireEndAt: r.hireEndAt,
       }
     })
 

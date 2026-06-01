@@ -17,6 +17,8 @@ const DriverSchema = new Schema({
   acceptsOutstation: { type: Boolean, default: false },
   // Driver opts in to receive hourly rental package requests
   acceptsRental: { type: Boolean, default: false },
+  // Driver opts in to receive hire-a-driver requests (drive customer's own car)
+  acceptsHireDriver: { type: Boolean, default: false },
   vehicleNumber: String,
   vehicleModel: String,
   vehicleType: String,

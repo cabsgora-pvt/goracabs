@@ -17,7 +17,7 @@ const TABS = [
 ]
 
 type VehicleType = { _id: string; name: string; imageUrl: string; services: string[]; baseFare: number; perKm: number; perMin: number; minFare: number }
-type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean; nightHaltCharge?: number; emptyReturnPercent?: number }
+type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean; nightHaltCharge?: number; emptyReturnPercent?: number; perHour?: number }
 type RentalPackage = { vehicleTypeId: string; vehicleTypeName: string; hours: number; km: number; basePrice: number; extraHourRate: number; extraKmRate: number; nightCharge: number; commissionPercent: number; isActive: boolean }
 
 export default function ZonePricingPage() {
@@ -74,6 +74,7 @@ export default function ZonePricingPage() {
             isActive: false,
             nightHaltCharge: 0,
             emptyReturnPercent: 0,
+            perHour: 0,
           })
         })
       })
@@ -373,6 +374,17 @@ export default function ZonePricingPage() {
                 e.g. 20% on ₹100 fare → admin keeps ₹20, driver gets ₹80
               </p>
             </div>
+            {/* Hire-a-driver: per-hour rate (the customer's car, priced by hours) */}
+            {editRow.service === 'hire_driver' && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3">
+                <label htmlFor="p-perhour" className="block text-sm font-medium text-indigo-800 mb-1">Per Hour Rate (₹) — driver pay per hour</label>
+                <input id="p-perhour" type="number" step="10" min="0"
+                  value={editForm.perHour || 0}
+                  onChange={e => setEditForm({ ...editForm, perHour: +e.target.value })}
+                  className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                <p className="text-xs text-indigo-700 mt-1">Fare = Base + (total hours × this rate). e.g. ₹150/hr × 4 hr = ₹600 + base.</p>
+              </div>
+            )}
             {/* Outstation-only extras: only shown when editing an outstation pricing row */}
             {editRow.service === 'outstation' && (
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 space-y-3">

@@ -6,6 +6,7 @@ const PricingSchema = new Schema({
   baseFare: Number,
   perKm: Number,
   perMin: Number,
+  perHour: { type: Number, default: 0 },   // used by hire-a-driver pricing
   minFare: Number,
   commissionPercent: { type: Number, default: 20 },
   isActive: { type: Boolean, default: true },

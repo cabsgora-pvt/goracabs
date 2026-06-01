@@ -28,6 +28,9 @@ class RideRequestModel {
   // Rental extras
   final int packageHours;
   final int packageKm;
+  // Hire extras
+  final int hireTotalHours;
+  final String transmission;
 
   const RideRequestModel({
     required this.id, required this.userName, required this.userPhone, required this.userRating,
@@ -44,6 +47,8 @@ class RideRequestModel {
     this.numPassengers = 0,
     this.packageHours = 0,
     this.packageKm = 0,
+    this.hireTotalHours = 0,
+    this.transmission = '',
   });
 }
 

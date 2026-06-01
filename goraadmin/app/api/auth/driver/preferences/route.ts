@@ -17,12 +17,14 @@ async function handle(req: NextRequest) {
     const update: any = {}
     if (typeof body.acceptsOutstation === 'boolean') update.acceptsOutstation = body.acceptsOutstation
     if (typeof body.acceptsRental === 'boolean') update.acceptsRental = body.acceptsRental
+    if (typeof body.acceptsHireDriver === 'boolean') update.acceptsHireDriver = body.acceptsHireDriver
 
     await connectDB()
-    const d = await Driver.findByIdAndUpdate(payload.id, update, { new: true }).select('acceptsOutstation acceptsRental').lean()
+    const d = await Driver.findByIdAndUpdate(payload.id, update, { new: true }).select('acceptsOutstation acceptsRental acceptsHireDriver').lean()
     return withCors({ success: true, preferences: {
       acceptsOutstation: (d as any)?.acceptsOutstation ?? false,
       acceptsRental: (d as any)?.acceptsRental ?? false,
+      acceptsHireDriver: (d as any)?.acceptsHireDriver ?? false,
     } })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)

@@ -187,6 +187,24 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
                 ]),
               ),
             ],
+            // Hire-a-driver badge — customer's own car
+            if (r.service == 'hire_driver') ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity, padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [Colors.indigo.withOpacity(0.12), Colors.indigo.withOpacity(0.04)]),
+                  borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.indigo.withOpacity(0.4)),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.person_pin_circle, color: Colors.indigo, size: 20),
+                  const SizedBox(width: 8),
+                  Text('HIRE DRIVER · ${r.hireTotalHours}hr', style: const TextStyle(color: Colors.indigo, fontWeight: FontWeight.w800, fontSize: 12, letterSpacing: 0.5)),
+                  const Spacer(),
+                  if (r.transmission.isNotEmpty) _miniChip(Icons.settings, r.transmission == 'automatic' ? 'Auto' : 'Manual'),
+                ]),
+              ),
+            ],
             const SizedBox(height: 16),
             // Ride info
             Container(

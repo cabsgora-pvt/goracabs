@@ -161,6 +161,12 @@ export async function POST(req: NextRequest) {
       extraKmRate: b.extraKmRate || 0,
       nightChargeRental: b.nightChargeRental || 0,
       rentalPhase: service === 'rental' ? 'pending' : undefined,
+      // Hire-a-driver fields
+      hireStartAt: b.hireStartAt ? new Date(b.hireStartAt) : undefined,
+      hireEndAt: b.hireEndAt ? new Date(b.hireEndAt) : undefined,
+      hireTotalHours: b.hireTotalHours || 0,
+      hirePerHour: b.hirePerHour || 0,
+      transmission: b.transmission || '',
     })
 
     // Find nearest online approved driver: same zone + vehicle type

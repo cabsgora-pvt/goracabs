@@ -319,6 +319,8 @@ class _RidePollerState extends State<_RidePoller> {
         numPassengers: (r['numPassengers'] as num?)?.toInt() ?? 0,
         packageHours: (r['packageHours'] as num?)?.toInt() ?? 0,
         packageKm: (r['packageKm'] as num?)?.toInt() ?? 0,
+        hireTotalHours: (r['hireTotalHours'] as num?)?.toInt() ?? 0,
+        transmission: (r['transmission'] ?? '').toString(),
       );
       if (!mounted) return;
       _navigating = true;

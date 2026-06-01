@@ -32,10 +32,48 @@ async function fetchDirections(originLat: number, originLng: number, destLat: nu
 // → returns zone + list of vehicles with calculated fare + real ETA (nearest driver) per vehicle type
 export async function POST(req: NextRequest) {
   try {
-    const { pickupLat, pickupLng, dropLat, dropLng, service = 'taxi', tripType = 'one_way' } = await req.json()
+    const { pickupLat, pickupLng, dropLat, dropLng, service = 'taxi', tripType = 'one_way', totalHours = 0 } = await req.json()
     if (pickupLat == null || pickupLng == null) return withCors({ error: 'pickup required' }, 400)
 
     await connectDB()
+
+    // ── Hire a Driver: customer's own car, priced by hours × perHour per vehicle type ──
+    if (service === 'hire_driver') {
+      const zonesH = await Zone.find({ isActive: true }).lean() as any[]
+      let zoneH: any = null
+      for (const z of zonesH) {
+        if (z.polygonPath?.length >= 3 && pointInPolygon({ lat: pickupLat, lng: pickupLng }, z.polygonPath)) { zoneH = z; break }
+      }
+      if (!zoneH) {
+        let nd = Infinity
+        for (const z of zonesH) {
+          const d = distanceKm({ lat: pickupLat, lng: pickupLng }, { lat: z.centerLat || 0, lng: z.centerLng || 0 })
+          if (d < nd) { nd = d; zoneH = z }
+        }
+        if (!zoneH || nd > 25) return withCors({ available: false, message: 'Hire a Driver not available here' })
+      }
+      const hours = Math.max(1, Math.ceil(totalHours || 0))
+      const hirePricing = (zoneH.pricing || []).filter((p: any) => p.service === 'hire_driver' && p.isActive !== false)
+      const drv: any[] = await Driver.find({ status: 'approved', isOnline: true, acceptsHireDriver: true, currentLat: { $ne: null } })
+        .select('selectedVehicleTypeName currentLat currentLng').lean()
+      const nearH = new Map<string, number>()
+      for (const d of drv) {
+        const t = d.selectedVehicleTypeName; if (!t) continue
+        const km = distanceKm({ lat: pickupLat, lng: pickupLng }, { lat: d.currentLat, lng: d.currentLng })
+        if (nearH.get(t) == null || km < nearH.get(t)!) nearH.set(t, km)
+      }
+      const vehicles = hirePricing.map((p: any) => {
+        const perHour = p.perHour || 0
+        const fare = Math.max(p.minFare || 0, Math.round((p.baseFare || 0) + hours * perHour))
+        const km = nearH.get(p.vehicleTypeName)
+        return {
+          vehicleTypeId: p.vehicleTypeId, name: p.vehicleTypeName,
+          fare, perHour, baseFare: p.baseFare || 0, commissionPercent: p.commissionPercent ?? 20,
+          etaMin: km != null ? Math.max(1, Math.min(30, Math.round(km * 2))) : null,
+        }
+      })
+      return withCors({ available: true, zone: { id: zoneH._id, name: zoneH.name }, service: 'hire_driver', totalHours: hours, vehicles })
+    }
 
     // ── Outstation: city-to-city, no zone restriction, use Directions API + outstation pricing ──
     if (service === 'outstation') {

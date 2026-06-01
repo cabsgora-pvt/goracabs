@@ -53,6 +53,12 @@ const RideSchema = new Schema({
   extraKmCharge: { type: Number, default: 0 },
   finalFare: { type: Number, default: 0 },        // base + extras, computed at end
   rentalStops: [{ address: String, lat: Number, lng: Number, at: Date }],
+  // ── Hire-a-driver fields ──
+  hireStartAt: Date,
+  hireEndAt: Date,
+  hireTotalHours: { type: Number, default: 0 },
+  hirePerHour: { type: Number, default: 0 },
+  transmission: { type: String, enum: ['manual', 'automatic', ''], default: '' },
   fare: Number,
   tip: { type: Number, default: 0 },
   totalFare: Number,          // fare + tip
