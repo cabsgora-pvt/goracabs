@@ -120,6 +120,12 @@ class TripDetailScreen extends StatelessWidget {
       if (_n(ride['nightHaltCharge']) > 0) rows.add(_fareRow('Night halt', '₹${_n(ride['nightHaltCharge'])}', color: Colors.orange));
       if (_n(ride['emptyReturnCharge']) > 0) rows.add(_fareRow('Empty return', '₹${_n(ride['emptyReturnCharge'])}', color: Colors.orange));
       if (_n(ride['tollCharge']) > 0) rows.add(_fareRow('Toll', '₹${_n(ride['tollCharge'])}'));
+    } else if (_service == 'hire_driver') {
+      rows.add(_fareRow('Transmission', ride['transmission'] == 'automatic' ? 'Automatic' : 'Manual'));
+      rows.add(_fareRow('Duration', '${_n(ride['hireTotalHours'])} hr'));
+      rows.add(_fareRow('Rate', '₹${_n(ride['hirePerHour'])}/hr'));
+      final s = _fmtDt(ride['hireStartAt']?.toString() ?? ''), e = _fmtDt(ride['hireEndAt']?.toString() ?? '');
+      if (s.isNotEmpty || e.isNotEmpty) rows.add(_fareRow('Schedule', '$s → $e'));
     } else {
       rows.add(_fareRow('Distance', '${_d(ride['distance']).toStringAsFixed(1)} km'));
     }
@@ -137,10 +143,19 @@ class TripDetailScreen extends StatelessWidget {
     switch (_service) {
       case 'rental': return 'RENTAL · ${_n(ride['packageHours'])}hr';
       case 'outstation': return 'OUTSTATION · ${ride['tripType'] == 'round_trip' ? 'Round' : 'One Way'}';
+      case 'hire_driver': return 'HIRE DRIVER · ${_n(ride['hireTotalHours'])}hr';
       default: return (ride['vehicle'] ?? 'TAXI').toString().toUpperCase();
     }
   }
-  Color _serviceColor() => _service == 'outstation' ? Colors.orange : (_service == 'rental' ? Colors.purple : AppTheme.primaryBlue);
+  Color _serviceColor() => _service == 'outstation' ? Colors.orange
+      : _service == 'rental' ? Colors.purple
+      : _service == 'hire_driver' ? Colors.indigo : AppTheme.primaryBlue;
+
+  String _fmtDt(String iso) {
+    if (iso.isEmpty) return '';
+    try { final d = DateTime.parse(iso).toLocal(); return '${d.day}/${d.month} ${d.hour}:${d.minute.toString().padLeft(2, '0')}'; }
+    catch (_) { return ''; }
+  }
 
   Widget _card(Widget child) => Container(
     margin: const EdgeInsets.fromLTRB(16, 12, 16, 0), padding: const EdgeInsets.all(16),

@@ -62,12 +62,17 @@ export async function POST(req: NextRequest) {
         const km = distanceKm({ lat: pickupLat, lng: pickupLng }, { lat: d.currentLat, lng: d.currentLng })
         if (nearH.get(t) == null || km < nearH.get(t)!) nearH.set(t, km)
       }
+      // Vehicle images + capacity by type name
+      const vtsH: any[] = await VehicleType.find({ isActive: true }).select('name imageUrl capacity').lean()
+      const vtMapH = new Map<string, any>(vtsH.map(v => [v.name, v]))
       const vehicles = hirePricing.map((p: any) => {
         const perHour = p.perHour || 0
         const fare = Math.max(p.minFare || 0, Math.round((p.baseFare || 0) + hours * perHour))
         const km = nearH.get(p.vehicleTypeName)
+        const vt = vtMapH.get(p.vehicleTypeName)
         return {
           vehicleTypeId: p.vehicleTypeId, name: p.vehicleTypeName,
+          imageUrl: vt?.imageUrl || '', capacity: vt?.capacity || 4,
           fare, perHour, baseFare: p.baseFare || 0, commissionPercent: p.commissionPercent ?? 20,
           etaMin: km != null ? Math.max(1, Math.min(30, Math.round(km * 2))) : null,
         }

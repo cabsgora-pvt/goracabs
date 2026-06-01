@@ -97,6 +97,12 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
             'nightHaltCharge': (r['nightHaltCharge'] as num?)?.toInt() ?? 0,
             'emptyReturnCharge': (r['emptyReturnCharge'] as num?)?.toInt() ?? 0,
             'tollCharge': (r['tollCharge'] as num?)?.toInt() ?? 0,
+            // Hire extras
+            'hireTotalHours': (r['hireTotalHours'] as num?)?.toInt() ?? 0,
+            'hirePerHour': (r['hirePerHour'] as num?)?.toInt() ?? 0,
+            'transmission': (r['transmission'] ?? '').toString(),
+            'hireStartAt': (r['hireStartAt'] ?? '').toString(),
+            'hireEndAt': (r['hireEndAt'] ?? '').toString(),
           };
         }).toList();
         _loadingRides = false;
@@ -310,10 +316,8 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     if (_loadingRides) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
     final hires = _myRides.where((r) => r['service'] == 'hire_driver').toList();
     if (hires.isEmpty) return const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No hire-driver bookings yet', style: TextStyle(color: Colors.grey))));
-    return Column(children: hires.map((r) => _buildHireDriverCard({
-      ...r,
-      'duration': '${r['duration']} min',
-    })).toList());
+    // Unified card → tap opens full detail (real driver, vehicle, price, hours)
+    return Column(children: hires.map((r) => _buildRideCard(r)).toList());
   }
 
   Widget _buildOutstationList() {
