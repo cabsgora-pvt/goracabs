@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
+import '../services/location_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/polyline_utils.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
 import 'booking_screen.dart';
@@ -42,6 +43,15 @@ class _OutstationScreenState extends State<OutstationScreen> {
   List<Map<String, dynamic>> _toSuggestions = [];
   Timer? _searchDebounce;
   bool _loadingFares = false;
+  // Google Maps state
+  GoogleMapController? _mapController;
+  List<LatLng> _routePoints = [];
+  // Map-picker state (for choosing From/To by dragging a pin)
+  bool _showMapPicker = false;
+  bool _pickingFrom = true; // which field the picker is currently filling
+  LatLng _pickerCenter = const LatLng(23.0225, 72.5714); // Ahmedabad default
+  GoogleMapController? _pickerMapController;
+  String _pickerAddress = '';
 
   // Live ride state
   String? _rideId;
@@ -53,19 +63,28 @@ class _OutstationScreenState extends State<OutstationScreen> {
   String _driverVehicleNumber = '';
   Timer? _pollTimer;
 
-  final List<Map<String, dynamic>> _vehicles = [
-    {'name': 'Economy', 'type': 'Comfortable', 'oneWayPrice': '—', 'roundTripPrice': '—', 'oneWayFare': 0, 'roundTripFare': 0, 'capacity': '4', 'icon': Icons.directions_car, 'image': 'assets/images/economy.png'},
-    {'name': 'Sedan',   'type': 'Premium',     'oneWayPrice': '—', 'roundTripPrice': '—', 'oneWayFare': 0, 'roundTripFare': 0, 'capacity': '4', 'icon': Icons.directions_car, 'image': 'assets/images/texi.png'},
-    {'name': 'SUV',     'type': 'Spacious',    'oneWayPrice': '—', 'roundTripPrice': '—', 'oneWayFare': 0, 'roundTripFare': 0, 'capacity': '6', 'icon': Icons.airport_shuttle, 'image': 'assets/images/texi2.png'},
-    {'name': 'Premium', 'type': 'Luxury',      'oneWayPrice': '—', 'roundTripPrice': '—', 'oneWayFare': 0, 'roundTripFare': 0, 'capacity': '4', 'icon': Icons.car_rental, 'image': 'assets/images/texi3.png'},
-  ];
+  // Vehicles list — populated from backend (admin-configured outstation-enabled VehicleTypes)
+  List<Map<String, dynamic>> _vehicles = [];
 
   @override
   void initState() {
     super.initState();
-    // Set empty controllers for placeholders
     _fromController.text = '';
     _toController.text = '';
+    _initCurrentLocation();
+  }
+
+  // Pre-fill From field with the user's real current location
+  Future<void> _initCurrentLocation() async {
+    final pos = await LocationService.getCurrentLocation();
+    if (pos == null || !mounted) return;
+    _fromLat = pos.latitude; _fromLng = pos.longitude;
+    final addr = await ApiService.reverseGeocode(pos.latitude, pos.longitude);
+    if (!mounted) return;
+    setState(() {
+      _fromController.text = addr.isNotEmpty ? addr : 'Current location';
+    });
+    _mapController?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 11));
   }
 
   @override
@@ -73,6 +92,20 @@ class _OutstationScreenState extends State<OutstationScreen> {
     _pollTimer?.cancel();
     _searchDebounce?.cancel();
     super.dispose();
+  }
+
+  // Animate Google Map to fit from + to + route polyline
+  void _fitMapToRoute() {
+    if (_mapController == null) return;
+    final pts = <LatLng>[];
+    if (_fromLat != null && _fromLng != null) pts.add(LatLng(_fromLat!, _fromLng!));
+    if (_toLat != null && _toLng != null) pts.add(LatLng(_toLat!, _toLng!));
+    pts.addAll(_routePoints);
+    final b = boundsFromPoints(pts);
+    if (b == null) return;
+    Future.delayed(const Duration(milliseconds: 200), () {
+      _mapController?.animateCamera(CameraUpdate.newLatLngBounds(b, 80));
+    });
   }
 
   // Debounced places autocomplete for From/To city inputs
@@ -134,25 +167,47 @@ class _OutstationScreenState extends State<OutstationScreen> {
     try {
       final oneWay = await oneWayF;
       final round = await roundF;
+      // Fetch actual road polyline so the map shows the real city-to-city route
+      final dir = await ApiService.getDirections(
+        originLat: _fromLat!, originLng: _fromLng!,
+        destLat: _toLat!, destLng: _toLng!,
+      );
       if (!mounted) return;
+      final encoded = dir['polyline'] as String?;
+      if (encoded != null && encoded.isNotEmpty) {
+        _routePoints = decodePolyline(encoded);
+      }
       setState(() {
         _distanceKm = (oneWay['oneWayKm'] as num?)?.toDouble() ?? (oneWay['distance'] as num?)?.toDouble() ?? 0;
         _durationMin = (oneWay['oneWayMin'] as num?)?.toInt() ?? (oneWay['duration'] as num?)?.toInt() ?? 0;
 
+        // Build the vehicle list straight from backend — this picks up exactly what
+        // admin has configured (Bike / Auto / Cab Economy / SUV / Premium / etc.)
         final oneWayVehicles = (oneWay['vehicles'] as List?) ?? [];
         final roundVehicles = (round['vehicles'] as List?) ?? [];
-        for (final v in _vehicles) {
-          final ow = oneWayVehicles.firstWhere(
-            (a) => (a['name'] as String?)?.toLowerCase() == (v['name'] as String).toLowerCase(),
-            orElse: () => null);
-          final rt = roundVehicles.firstWhere(
-            (a) => (a['name'] as String?)?.toLowerCase() == (v['name'] as String).toLowerCase(),
-            orElse: () => null);
-          if (ow != null) { v['oneWayFare'] = ow['fare'] ?? 0; v['oneWayPrice'] = '₹${ow['fare']}'; }
-          if (rt != null) { v['roundTripFare'] = rt['fare'] ?? 0; v['roundTripPrice'] = '₹${rt['fare']}'; }
-        }
+        final rtByName = {for (final v in roundVehicles) (v['name'] as String? ?? '').toLowerCase(): v};
+
+        _vehicles = oneWayVehicles.map<Map<String, dynamic>>((ow) {
+          final name = (ow['name'] as String?) ?? 'Vehicle';
+          final rt = rtByName[name.toLowerCase()];
+          final raw = (ow['imageUrl'] as String?) ?? '';
+          final cap = (ow['capacity'] as num?)?.toInt() ?? 4;
+          return {
+            'name': name,
+            'type': cap >= 6 ? 'Spacious' : (cap >= 4 ? 'Comfortable' : 'Quick'),
+            'oneWayFare':    ow['fare'] ?? 0,
+            'oneWayPrice':   '₹${ow['fare'] ?? 0}',
+            'roundTripFare': rt?['fare'] ?? (ow['fare'] ?? 0),
+            'roundTripPrice':'₹${rt?['fare'] ?? (ow['fare'] ?? 0)}',
+            'capacity': cap.toString(),
+            'icon': Icons.directions_car,
+            'image': raw.isEmpty ? 'assets/images/economy.png' : '__network__',
+            'networkImage': raw.isEmpty ? '' : AppConfig.imageUrl(raw),
+          };
+        }).toList();
         _loadingFares = false;
       });
+      _fitMapToRoute();
     } catch (_) {
       if (mounted) setState(() => _loadingFares = false);
     }
@@ -227,7 +282,12 @@ class _OutstationScreenState extends State<OutstationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Use the clean full-screen From/To picker (same as taxi) before confirmation —
+    // avoids the buggy in-place panel + Stack layout that was causing hit-test errors.
+    if (_showMapPicker) return _buildOutstationMapPicker();
+    if (!_locationConfirmed) return _buildOutstationLocationScreen();
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       body: Column(
         children: [
           if (!_locationConfirmed)
@@ -290,10 +350,12 @@ class _OutstationScreenState extends State<OutstationScreen> {
                       ),
                     ),
                     if (_showLocationInputs)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                        child: Column(
-                          children: [
+                      // Scrollable so suggestion lists + inputs + confirm button never overflow
+                      // when the on-screen keyboard pushes the layout up
+                      Flexible(child: SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Column(
+                        children: [
                             _buildLocationInput(Icons.radio_button_checked, _fromController, Color(0xFF4CAF50), 'From (Pickup Location)'),
                             Padding(
                               padding: const EdgeInsets.only(left: 10),
@@ -350,7 +412,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                             ),
                           ],
                         ),
-                      ),
+                      )),
                   ],
                 ),
               ),
@@ -358,35 +420,46 @@ class _OutstationScreenState extends State<OutstationScreen> {
           Expanded(
             child: Stack(
               children: [
-                FlutterMap(
-                  options: MapOptions(
-                    initialCenter: LatLng(28.6139, 77.2090),
-                    initialZoom: 13.0,
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.goracabs.customer',
-                    ),
-                    MarkerLayer(
-                      markers: [
-                        Marker(
-                          point: LatLng(28.6139, 77.2090),
-                          width: 40,
-                          height: 40,
-                          child: const Icon(Icons.location_on, color: Color(0xFF4CAF50), size: 40),
-                        ),
-                        Marker(
-                          point: LatLng(28.7041, 77.1025),
-                          width: 40,
-                          height: 40,
-                          child: const Icon(Icons.location_on, color: Color(0xFFFF5252), size: 40),
-                        ),
-                      ],
-                    ),
-                  ],
+                GoogleMap(
+                  initialCameraPosition: const CameraPosition(target: LatLng(23.0225, 72.5714), zoom: 6),
+                  onMapCreated: (c) {
+                    _mapController = c;
+                    _fitMapToRoute();
+                  },
+                  myLocationEnabled: true,
+                  myLocationButtonEnabled: false,
+                  zoomControlsEnabled: false,
+                  mapToolbarEnabled: false,
+                  markers: {
+                    if (_fromLat != null && _fromLng != null)
+                      Marker(
+                        markerId: const MarkerId('from'),
+                        position: LatLng(_fromLat!, _fromLng!),
+                        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+                        infoWindow: InfoWindow(title: 'From', snippet: _fromController.text),
+                      ),
+                    if (_toLat != null && _toLng != null)
+                      Marker(
+                        markerId: const MarkerId('to'),
+                        position: LatLng(_toLat!, _toLng!),
+                        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+                        infoWindow: InfoWindow(title: 'To', snippet: _toController.text),
+                      ),
+                  },
+                  polylines: {
+                    if (_routePoints.isNotEmpty)
+                      Polyline(
+                        polylineId: const PolylineId('route'),
+                        points: _routePoints,
+                        color: const Color(0xFF1976D2),
+                        width: 5,
+                      ),
+                  },
                 ),
                 DraggableScrollableSheet(
+                  // Key forces the sheet to recreate when confirmed state flips,
+                  // so initialChildSize is re-applied and the panel auto-expands
+                  key: ValueKey('outstation-sheet-${_locationConfirmed ? 'confirmed' : 'pick'}'),
                   initialChildSize: _locationConfirmed ? 0.4 : 0.15,
                   minChildSize: _locationConfirmed ? 0.4 : 0.15,
                   maxChildSize: _locationConfirmed ? 0.85 : 0.15,
@@ -528,6 +601,46 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                     ),
                                   if (_showVehicleSelection)
                                     const SizedBox(height: 16),
+                                  // Route summary above vehicle list — From → To + km/duration/trip type
+                                  if (_showVehicleSelection)
+                                    Container(
+                                      margin: const EdgeInsets.only(bottom: 12),
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[50],
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(color: Colors.grey[200]!),
+                                      ),
+                                      child: Column(children: [
+                                        Row(children: [
+                                          const Icon(Icons.radio_button_checked, size: 14, color: Color(0xFF4CAF50)),
+                                          const SizedBox(width: 8),
+                                          Expanded(child: Text(_fromController.text, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
+                                        ]),
+                                        const SizedBox(height: 6),
+                                        Row(children: [
+                                          const Icon(Icons.location_on, size: 14, color: Color(0xFFFF5252)),
+                                          const SizedBox(width: 8),
+                                          Expanded(child: Text(_toController.text, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600))),
+                                        ]),
+                                        const Divider(height: 16),
+                                        Row(children: [
+                                          const Icon(Icons.route, size: 13, color: Color(0xFF2196F3)),
+                                          const SizedBox(width: 4),
+                                          Text('${_distanceKm.toStringAsFixed(0)} km', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF2196F3))),
+                                          const SizedBox(width: 14),
+                                          const Icon(Icons.access_time, size: 13, color: Colors.grey),
+                                          const SizedBox(width: 4),
+                                          Text(_durationMin > 60 ? '${(_durationMin / 60).toStringAsFixed(1)} hr' : '$_durationMin min', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.grey[700])),
+                                          const Spacer(),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(color: const Color(0xFF2196F3).withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+                                            child: Text(_tripType, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF2196F3))),
+                                          ),
+                                        ]),
+                                      ]),
+                                    ),
                                   if (_showVehicleSelection)
                                     Column(
                                       children: _vehicles.map((v) => _buildVehicleCard(v)).toList(),
@@ -622,65 +735,244 @@ class _OutstationScreenState extends State<OutstationScreen> {
     );
   }
 
-  Widget _buildLocationInput(IconData icon, TextEditingController controller, Color iconColor, String hint) {
-    final isFrom = identical(controller, _fromController);
-    final suggestions = isFrom ? _fromSuggestions : _toSuggestions;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey[200]!),
-          ),
-          child: Row(
+  // Clean full-screen From/To picker — mirrors the taxi screen UX so behaviour is consistent
+  Widget _buildOutstationLocationScreen() {
+    // Whichever field is empty drives the suggestion list shown below
+    final activeIsFrom = _fromController.text.trim().isEmpty || _toController.text.trim().isNotEmpty == false;
+    final suggestions = activeIsFrom ? _fromSuggestions : _toSuggestions;
+    return Scaffold(
+      backgroundColor: Colors.white,
+      resizeToAvoidBottomInset: true,
+      appBar: AppBar(
+        backgroundColor: Colors.white, elevation: 0,
+        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => Navigator.pop(context)),
+        title: const Text('Outstation', style: TextStyle(color: Colors.black, fontSize: 18, fontWeight: FontWeight.w600)),
+        centerTitle: true,
+      ),
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(children: [
+            _buildLocationInput(Icons.radio_button_checked, _fromController, const Color(0xFF4CAF50), 'From city'),
+            const SizedBox(height: 12),
+            _buildLocationInput(Icons.location_on, _toController, const Color(0xFFFF5252), 'To city'),
+            const SizedBox(height: 12),
+            // Quick action: pick either field via draggable map pin
+            Row(children: [
+              Expanded(child: OutlinedButton.icon(
+                onPressed: () => _openMapPicker(forFrom: true),
+                icon: const Icon(Icons.map, size: 16, color: Color(0xFF4CAF50)),
+                label: const Text('Pick From on map', style: TextStyle(fontSize: 12, color: Color(0xFF4CAF50))),
+                style: OutlinedButton.styleFrom(side: BorderSide(color: Colors.grey[300]!), padding: const EdgeInsets.symmetric(vertical: 10)),
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: OutlinedButton.icon(
+                onPressed: () => _openMapPicker(forFrom: false),
+                icon: const Icon(Icons.map, size: 16, color: Color(0xFFFF5252)),
+                label: const Text('Pick To on map', style: TextStyle(fontSize: 12, color: Color(0xFFFF5252))),
+                style: OutlinedButton.styleFrom(side: BorderSide(color: Colors.grey[300]!), padding: const EdgeInsets.symmetric(vertical: 10)),
+              )),
+            ]),
+          ]),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
             children: [
-              Icon(icon, color: iconColor, size: 18),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  onChanged: (q) => _searchPlaces(q, isFrom: isFrom),
-                  decoration: InputDecoration(
-                    hintText: hint,
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 15),
+              // Always-visible quick action: use GPS to set From field
+              if (activeIsFrom)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(color: const Color(0xFF2196F3).withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.my_location, color: Color(0xFF2196F3), size: 20),
                   ),
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, height: 1.4),
+                  title: const Text('Use my current location', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF2196F3))),
+                  subtitle: const Text('Fetch GPS and fill From', style: TextStyle(fontSize: 11, color: Colors.grey)),
+                  onTap: _initCurrentLocation,
                 ),
-              ),
+              if (activeIsFrom) const Divider(),
+              if (suggestions.isNotEmpty) ...[
+                Text('SUGGESTIONS', style: TextStyle(fontSize: 12, color: Colors.grey[600], fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+                const SizedBox(height: 8),
+                ...suggestions.map((s) => ListTile(
+                  leading: const Icon(Icons.location_on, color: Color(0xFFFF5252), size: 22),
+                  title: Text(s['mainText']?.toString() ?? '', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  subtitle: Text(s['secondaryText']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                  onTap: () => _selectSuggestion(s, isFrom: activeIsFrom),
+                )),
+              ] else if (!activeIsFrom)
+                Padding(
+                  padding: const EdgeInsets.only(top: 40),
+                  child: Column(children: [
+                    Icon(Icons.search, size: 48, color: Colors.grey[300]),
+                    const SizedBox(height: 12),
+                    Text('Type a destination city', style: TextStyle(fontSize: 14, color: Colors.grey[500], fontWeight: FontWeight.w500)),
+                  ]),
+                ),
             ],
           ),
         ),
-        if (suggestions.isNotEmpty)
-          Container(
-            margin: const EdgeInsets.only(top: 4),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.grey[200]!),
-            ),
-            constraints: const BoxConstraints(maxHeight: 220),
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: suggestions.length,
-              itemBuilder: (_, i) {
-                final s = suggestions[i];
-                return ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.location_on, color: Color(0xFFFF5252), size: 18),
-                  title: Text(s['mainText']?.toString() ?? '', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  subtitle: Text(s['secondaryText']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-                  onTap: () => _selectSuggestion(s, isFrom: isFrom),
-                );
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: const BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
+          child: SafeArea(top: false, child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () async {
+                if (_fromController.text.trim().isEmpty || _toController.text.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter both From and To cities')));
+                  return;
+                }
+                if (_fromLat == null && _fromSuggestions.isNotEmpty) await _selectSuggestion(_fromSuggestions.first, isFrom: true);
+                if (_toLat == null && _toSuggestions.isNotEmpty) await _selectSuggestion(_toSuggestions.first, isFrom: false);
+                if (_fromLat == null || _toLat == null) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pick cities from the suggestions')));
+                  return;
+                }
+                if (!mounted) return;
+                setState(() {
+                  _showLocationInputs = false;
+                  _locationConfirmed = true;
+                  _showTripDetails = true;
+                });
+                _loadOutstationFares();
               },
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              child: const Text('Confirm Location', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w600)),
+            ),
+          )),
+        ),
+      ]),
+    );
+  }
+
+  // Open the draggable-pin map for either From or To
+  void _openMapPicker({required bool forFrom}) {
+    final start = forFrom
+        ? (_fromLat != null ? LatLng(_fromLat!, _fromLng!) : _pickerCenter)
+        : (_toLat != null ? LatLng(_toLat!, _toLng!) : _pickerCenter);
+    setState(() {
+      _pickingFrom = forFrom;
+      _pickerCenter = start;
+      _pickerAddress = '';
+      _showMapPicker = true;
+    });
+  }
+
+  // Full-screen map with a fixed center pin; reverse-geocode on camera idle
+  Widget _buildOutstationMapPicker() {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white, elevation: 0,
+        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => setState(() => _showMapPicker = false)),
+        title: Text(_pickingFrom ? 'Pick From location' : 'Pick To location',
+            style: const TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.w600)),
+        centerTitle: true,
+      ),
+      body: Stack(children: [
+        GoogleMap(
+          initialCameraPosition: CameraPosition(target: _pickerCenter, zoom: 13),
+          onMapCreated: (c) => _pickerMapController = c,
+          onCameraMove: (pos) => _pickerCenter = pos.target,
+          onCameraIdle: () async {
+            final addr = await ApiService.reverseGeocode(_pickerCenter.latitude, _pickerCenter.longitude);
+            if (!mounted) return;
+            setState(() => _pickerAddress = addr);
+          },
+          myLocationEnabled: true,
+          myLocationButtonEnabled: false,
+          zoomControlsEnabled: false,
+          mapToolbarEnabled: false,
+        ),
+        // Center pin
+        const Center(child: Padding(padding: EdgeInsets.only(bottom: 40), child: Icon(Icons.location_on, color: Color(0xFFFF5252), size: 48))),
+        // GPS button
+        Positioned(bottom: 180, right: 16, child: FloatingActionButton(
+          mini: true, backgroundColor: Colors.white,
+          onPressed: () async {
+            final pos = await LocationService.getCurrentLocation();
+            if (pos == null) return;
+            final ll = LatLng(pos.latitude, pos.longitude);
+            _pickerMapController?.animateCamera(CameraUpdate.newLatLngZoom(ll, 14));
+          },
+          child: const Icon(Icons.my_location, color: Color(0xFF2196F3)),
+        )),
+        // Bottom card: address preview + Confirm
+        Positioned(left: 0, right: 0, bottom: 0, child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
+          child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              Icon(_pickingFrom ? Icons.radio_button_checked : Icons.location_on,
+                color: _pickingFrom ? const Color(0xFF4CAF50) : const Color(0xFFFF5252), size: 18),
+              const SizedBox(width: 8),
+              Expanded(child: Text(
+                _pickerAddress.isEmpty ? 'Move the map to set location...' : _pickerAddress,
+                maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              )),
+            ]),
+            const SizedBox(height: 12),
+            SizedBox(width: double.infinity, child: ElevatedButton(
+              onPressed: _pickerAddress.isEmpty ? null : () {
+                if (!mounted) return;
+                setState(() {
+                  if (_pickingFrom) {
+                    _fromLat = _pickerCenter.latitude; _fromLng = _pickerCenter.longitude;
+                    _fromController.text = _pickerAddress;
+                    _fromSuggestions = [];
+                  } else {
+                    _toLat = _pickerCenter.latitude; _toLng = _pickerCenter.longitude;
+                    _toController.text = _pickerAddress;
+                    _toSuggestions = [];
+                  }
+                  _showMapPicker = false;
+                });
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              child: const Text('Confirm Location', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
+            )),
+          ])),
+        )),
+      ]),
+    );
+  }
+
+  Widget _buildLocationInput(IconData icon, TextEditingController controller, Color iconColor, String hint) {
+    final isFrom = identical(controller, _fromController);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: iconColor, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              onChanged: (q) => _searchPlaces(q, isFrom: isFrom),
+              decoration: InputDecoration(
+                hintText: hint,
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                hintStyle: TextStyle(color: Colors.grey[400], fontSize: 15),
+              ),
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, height: 1.4),
             ),
           ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -785,16 +1077,13 @@ class _OutstationScreenState extends State<OutstationScreen> {
         ),
         child: Row(
           children: [
-            Container(
-              width: 60,
-              height: 50,
-              child: Image.asset(
-                v['image'],
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) {
-                  return Icon(v['icon'], color: Color(0xFF2196F3), size: 40);
-                },
-              ),
+            SizedBox(
+              width: 60, height: 50,
+              child: (v['networkImage'] as String?)?.isNotEmpty == true
+                  ? Image.network(v['networkImage'] as String, fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => Icon(v['icon'], color: const Color(0xFF2196F3), size: 40))
+                  : Image.asset(v['image'] as String? ?? 'assets/images/economy.png', fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => Icon(v['icon'], color: const Color(0xFF2196F3), size: 40)),
             ),
             const SizedBox(width: 14),
             Expanded(

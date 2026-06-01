@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Zone from '@/models/Zone'
 import Driver from '@/models/Driver'
+import VehicleType from '@/models/VehicleType'
 import { pointInPolygon, distanceKm } from '@/lib/geo'
 import { withCors, corsOptions } from '@/lib/cors'
 import { getSettings } from '@/lib/settings'
@@ -83,49 +84,40 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Build vehicles list — prefer per-zone pricing; fall back to a flat estimate if none configured
-      let vehicles: any[]
-      if (outstationPricing.length) {
-        vehicles = outstationPricing.map((p: any) => {
-          const distanceCharge = totalKm * (p.perKm || 0)
-          const timeCharge = totalMin * (p.perMin || 0)
-          let fare = Math.round((p.baseFare || 0) + distanceCharge + timeCharge)
-          fare = Math.max(fare, p.minFare || 0)
-          const eta = nearestByType.get(p.vehicleTypeName)
-          return {
-            vehicleTypeId: p.vehicleTypeId,
-            name: p.vehicleTypeName,
-            fare,
-            baseFare: p.baseFare,
-            perKm: p.perKm,
-            perMin: p.perMin,
-            commissionPercent: p.commissionPercent ?? 20,
-            etaMin: eta ? eta.min : null,
-            driverDistanceKm: eta ? eta.km : null,
-          }
-        })
-      } else {
-        // Sensible default fallback so users can still see prices even before admin configures outstation pricing
-        const fallback = [
-          { name: 'Economy', perKm: 12, base: 500 },
-          { name: 'Sedan',   perKm: 14, base: 700 },
-          { name: 'SUV',     perKm: 18, base: 1000 },
-          { name: 'Premium', perKm: 22, base: 1500 },
-        ]
-        vehicles = fallback.map(v => {
-          const eta = nearestByType.get(v.name)
-          return {
-            name: v.name,
-            fare: Math.round(v.base + totalKm * v.perKm),
-            baseFare: v.base,
-            perKm: v.perKm,
-            perMin: 0,
-            commissionPercent: 20,
-            etaMin: eta ? eta.min : null,
-            driverDistanceKm: eta ? eta.km : null,
-          }
-        })
-      }
+      // Pull every active vehicle type that admin has marked as supporting outstation.
+      // For each: prefer the zone's outstation override pricing; fall back to the vehicle's own
+      // baseFare/perKm (configured on the VehicleType doc itself).
+      const vts: any[] = await VehicleType.find({
+        services: 'outstation',
+        isActive: true,
+      }).sort({ sortOrder: 1, name: 1 }).lean()
+
+      const pricingByName = new Map<string, any>()
+      for (const p of outstationPricing) pricingByName.set(p.vehicleTypeName, p)
+
+      const vehicles = vts.map(v => {
+        const p = pricingByName.get(v.name)
+        const baseFare = p?.baseFare ?? v.baseFare ?? 0
+        const perKm    = p?.perKm    ?? v.perKm    ?? 0
+        const perMin   = p?.perMin   ?? v.perMin   ?? 0
+        const minFare  = p?.minFare  ?? v.minFare  ?? 0
+        const commission = p?.commissionPercent ?? 20
+        let fare = Math.round(baseFare + totalKm * perKm + totalMin * perMin)
+        fare = Math.max(fare, minFare)
+        const eta = nearestByType.get(v.name)
+        return {
+          vehicleTypeId: v._id,
+          name: v.name,
+          imageUrl: v.imageUrl || '',
+          capacity: v.capacity,
+          fare,
+          baseFare, perKm, perMin,
+          commissionPercent: commission,
+          etaMin: eta ? eta.min : null,
+          driverDistanceKm: eta ? eta.km : null,
+          source: p ? 'zone' : 'vehicle',
+        }
+      })
 
       return withCors({
         available: true,
