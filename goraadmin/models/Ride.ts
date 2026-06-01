@@ -34,6 +34,14 @@ const RideSchema = new Schema({
   // Night halt confirmed by both parties (one boolean stamps once user/driver confirms)
   nightHaltConfirmed: { type: Boolean, default: false },
   nightHaltConfirmedAt: Date,
+  // ── Rental-only fields (ignored by taxi/outstation/delivery) ──
+  packageHours: { type: Number, default: 0 },   // included hours in package
+  packageKm: { type: Number, default: 0 },       // included km in package
+  extraHourRate: { type: Number, default: 0 },
+  extraKmRate: { type: Number, default: 0 },
+  actualHours: { type: Number, default: 0 },     // filled at trip end
+  actualKm: { type: Number, default: 0 },        // filled at trip end
+  rentalStartedAt: Date,
   fare: Number,
   tip: { type: Number, default: 0 },
   totalFare: Number,          // fare + tip

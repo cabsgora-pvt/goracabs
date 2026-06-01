@@ -23,32 +23,37 @@ export async function GET(req: NextRequest) {
     const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000)
     const driverId = String(driver._id)
 
-    // Build a $or so drivers see BOTH their in-city taxi rides AND outstation rides
-    // (when they've opted in). Existing taxi flow is untouched — drivers who haven't
-    // opted into outstation see only the taxi branch.
+    // Build a $or so drivers see in-city taxi rides PLUS opt-in services (outstation, rental).
+    // Taxi/delivery/hire are always shown; outstation + rental require the driver to opt in.
     const baseFilter: any = {
       vehicleType: driver.selectedVehicleTypeName,
     }
-    const taxiBranch: any = { ...baseFilter, service: { $ne: 'outstation' } }
+    // Taxi branch covers everyday in-city services (NOT outstation, NOT rental)
+    const taxiBranch: any = { ...baseFilter, service: { $nin: ['outstation', 'rental'] } }
     if (driver.zoneId) taxiBranch.zoneId = driver.zoneId
 
     const branches: any[] = [taxiBranch]
     if (driver.acceptsOutstation) {
-      // Outstation: ignore zone restriction (cross-city), allow longer window (15 min)
       branches.push({ ...baseFilter, service: 'outstation' })
+    }
+    if (driver.acceptsRental) {
+      // Rental: keep zone restriction (it's a local hourly hire)
+      const rentalBranch: any = { ...baseFilter, service: 'rental' }
+      if (driver.zoneId) rentalBranch.zoneId = driver.zoneId
+      branches.push(rentalBranch)
     }
 
     const query: any = {
       status: 'pending',
-      createdAt: { $gte: new Date(Date.now() - 15 * 60 * 1000) }, // widest window; per-branch filtering above handles other cases
+      createdAt: { $gte: new Date(Date.now() - 15 * 60 * 1000) },
       rejectedBy: { $ne: driverId },
       $or: branches,
     }
 
-    // For non-outstation taxi rides we still want the 2-min freshness — apply after fetch
+    // Outstation + rental stay valid up to 15 min; plain taxi keeps the 2-min freshness window
     let rides = await Ride.find(query).sort({ createdAt: -1 }).lean() as any[]
     rides = rides.filter((r: any) => {
-      if (r.service === 'outstation') return true // outstation rides stay valid up to 15 min
+      if (r.service === 'outstation' || r.service === 'rental') return true
       return new Date(r.createdAt) >= twoMinAgo
     })
 
@@ -87,6 +92,10 @@ export async function GET(req: NextRequest) {
         cityTo: r.cityTo,
         departureAt: r.departureAt,
         returnAt: r.returnAt,
+        numPassengers: r.numPassengers,
+        // Rental extras
+        packageHours: r.packageHours,
+        packageKm: r.packageKm,
       }
     })
 

@@ -1,4 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../config/app_config.dart';
+import '../services/api_service.dart';
+import '../services/location_service.dart';
 import '../theme/app_theme.dart';
 import 'ride_history_screen.dart';
 import 'home_screen.dart';
@@ -22,18 +26,173 @@ class _RentalScreenState extends State<RentalScreen> {
   bool _isSearching = false;
   bool _driverAssigned = false;
 
-  Map<String, dynamic> _getPackageData() {
-    int basePricePerHour = 200;
-    if (_selectedVehicle != null) {
-      final v = _vehicles.firstWhere((element) => element['name'] == _selectedVehicle);
-      basePricePerHour = v['pricePerHour'];
+  // ── Backend-wired state ──
+  double? _pickupLat, _pickupLng;
+  bool _loadingPackages = true;
+  String? _packagesError;
+  // Packages grouped by vehicle name → list of {hours, km, basePrice, extraHourRate, extraKmRate, commissionPercent, etaMin}
+  Map<String, List<Map<String, dynamic>>> _packagesByVehicle = {};
+  Map<String, dynamic>? _selectedPackage; // the chosen package map
+
+  // Live ride state
+  String? _rideId;
+  String? _rideOtp;
+  String _driverName = 'Pilot';
+  String _driverPhone = '';
+  String _driverPicUrl = '';
+  String _driverVehicleModel = '';
+  String _driverVehicleNumber = '';
+  double _driverRating = 0;
+  Timer? _pollTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _initLocationAndPackages();
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _pickupController.dispose();
+    _dropController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initLocationAndPackages() async {
+    final pos = await LocationService.getCurrentLocation();
+    if (pos != null) {
+      _pickupLat = pos.latitude; _pickupLng = pos.longitude;
+      final addr = await ApiService.reverseGeocode(pos.latitude, pos.longitude);
+      if (mounted && addr.isNotEmpty) _pickupController.text = addr;
     }
-    int price = _selectedHours * basePricePerHour;
-    int distance = _selectedHours * 10; // Base distance 10km/hr
+    await _loadPackages();
+  }
+
+  Future<void> _loadPackages() async {
+    if (_pickupLat == null || _pickupLng == null) {
+      setState(() { _loadingPackages = false; _packagesError = 'Location needed to load packages'; });
+      return;
+    }
+    try {
+      final res = await ApiService.getRentalPackages(pickupLat: _pickupLat!, pickupLng: _pickupLng!);
+      if (res['available'] != true) {
+        setState(() { _loadingPackages = false; _packagesError = (res['message'] ?? 'No packages available').toString(); });
+        return;
+      }
+      final pkgs = (res['packages'] as List?) ?? [];
+      final grouped = <String, List<Map<String, dynamic>>>{};
+      for (final p in pkgs) {
+        final m = Map<String, dynamic>.from(p as Map);
+        final name = (m['vehicleTypeName'] as String?) ?? 'Vehicle';
+        (grouped[name] ??= []).add(m);
+      }
+      setState(() {
+        _packagesByVehicle = grouped;
+        _loadingPackages = false;
+        _packagesError = grouped.isEmpty ? 'No rental packages configured' : null;
+      });
+    } catch (e) {
+      setState(() { _loadingPackages = false; _packagesError = 'Failed to load packages'; });
+    }
+  }
+
+  Future<void> _bookRental() async {
+    if (_pickupLat == null || _selectedPackage == null || _selectedVehicle == null) return;
+    final p = _selectedPackage!;
+    DateTime? startAt;
+    if (_selectedDate != null) {
+      final t = _selectedTime ?? const TimeOfDay(hour: 9, minute: 0);
+      startAt = DateTime(_selectedDate!.year, _selectedDate!.month, _selectedDate!.day, t.hour, t.minute);
+    }
+    try {
+      final res = await ApiService.bookRide({
+        'pickupAddress': _pickupController.text,
+        'dropAddress': _dropController.text,
+        'pickupLat': _pickupLat, 'pickupLng': _pickupLng,
+        'dropLat': _pickupLat, 'dropLng': _pickupLng, // rental has no fixed drop
+        'service': 'rental',
+        'vehicleType': _selectedVehicle,
+        'fare': p['basePrice'] ?? 0,
+        'packageHours': p['hours'] ?? 0,
+        'packageKm': p['km'] ?? 0,
+        'extraHourRate': p['extraHourRate'] ?? 0,
+        'extraKmRate': p['extraKmRate'] ?? 0,
+        'departureAt': startAt?.toIso8601String(),
+        'paymentMode': 'cash',
+      });
+      if (res['ride'] != null) {
+        _rideId = res['ride']['id']?.toString();
+        _rideOtp = res['ride']['otp']?.toString();
+      }
+    } catch (_) {/* polling will just find nothing */}
+  }
+
+  void _startStatusPolling(void Function(String status, Map<String, dynamic> ride) onStatus) {
+    _pollTimer?.cancel();
+    if (_rideId == null) return;
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (t) async {
+      if (!mounted) { t.cancel(); return; }
+      try {
+        final ride = await ApiService.getRide(_rideId!);
+        final status = (ride['status'] ?? 'pending').toString();
+        if (ride['driverName'] != null) _driverName = ride['driverName'].toString();
+        if (ride['driverPhone'] != null) _driverPhone = ride['driverPhone'].toString();
+        final dr = ride['driver'] as Map<String, dynamic>?;
+        if (dr != null) {
+          _driverVehicleModel = (dr['vehicleModel'] ?? _driverVehicleModel).toString();
+          _driverVehicleNumber = (dr['vehicleNumber'] ?? _driverVehicleNumber).toString();
+          final pic = (dr['profilePicUrl'] ?? '').toString();
+          if (pic.isNotEmpty) _driverPicUrl = AppConfig.imageUrl(pic);
+          final r = dr['rating'];
+          if (r is num) _driverRating = r.toDouble();
+        }
+        // Completion handled at screen level
+        if (status == 'completed') {
+          t.cancel(); _pollTimer = null;
+          if (!mounted) return;
+          Navigator.of(this.context, rootNavigator: true).popUntil((r) => r.isFirst);
+          Navigator.of(this.context).push(MaterialPageRoute(builder: (_) => RatingScreen(
+            driverName: _driverName, vehicleName: _selectedVehicle ?? 'Rental', selectedTip: 0, rideId: _rideId,
+          )));
+          return;
+        }
+        onStatus(status, ride);
+      } catch (_) {}
+    });
+  }
+
+  // Picks the package for the selected vehicle whose hours best matches _selectedHours
+  void _pickPackageForVehicle(String vehicle) {
+    final list = _packagesByVehicle[vehicle] ?? [];
+    if (list.isEmpty) { _selectedPackage = null; return; }
+    // Exact hours match, else closest
+    Map<String, dynamic> best = list.first;
+    int bestDiff = (best['hours'] as num? ?? 0).toInt() - _selectedHours;
+    bestDiff = bestDiff.abs();
+    for (final p in list) {
+      final diff = ((p['hours'] as num? ?? 0).toInt() - _selectedHours).abs();
+      if (diff < bestDiff) { best = p; bestDiff = diff; }
+    }
+    _selectedPackage = best;
+    _selectedHours = (best['hours'] as num? ?? _selectedHours).toInt();
+  }
+
+  Map<String, dynamic> _getPackageData() {
+    final p = _selectedPackage;
+    if (p != null) {
+      return {
+        'duration': '${p['hours']} Hours',
+        'distance': '${p['km']} km',
+        'price': '₹${p['basePrice']}',
+        'icon': Icons.schedule,
+        'color': const Color(0xFF2196F3),
+      };
+    }
     return {
       'duration': '$_selectedHours Hours',
-      'distance': '$distance km',
-      'price': '₹$price',
+      'distance': '${_selectedHours * 10} km',
+      'price': '₹—',
       'icon': Icons.schedule,
       'color': const Color(0xFF2196F3),
     };
@@ -252,13 +411,30 @@ class _RentalScreenState extends State<RentalScreen> {
                   const SizedBox(height: 20),
                   const Text('Select Vehicle', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 12),
-                  ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _vehicles.length,
-                    separatorBuilder: (context, index) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) => _buildVehicleCard(_vehicles[index]),
-                  ),
+                  if (_loadingPackages)
+                    const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
+                  else if (_packagesError != null)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(color: Colors.orange[50], borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.orange[200]!)),
+                      child: Row(children: [
+                        Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(child: Text(_packagesError!, style: TextStyle(fontSize: 13, color: Colors.orange[800]))),
+                      ]),
+                    )
+                  else
+                    // Only vehicles that admin configured packages for
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _vehicles.where((v) => _packagesByVehicle.containsKey(v['name'])).length,
+                      separatorBuilder: (context, index) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
+                        final list = _vehicles.where((v) => _packagesByVehicle.containsKey(v['name'])).toList();
+                        return _buildVehicleCard(list[index]);
+                      },
+                    ),
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(16),
@@ -336,10 +512,22 @@ class _RentalScreenState extends State<RentalScreen> {
 
   Widget _buildVehicleCard(Map<String, dynamic> v) {
     final isSelected = _selectedVehicle == v['name'];
-    final totalPrice = v['pricePerHour'] * _selectedHours;
-    final totalDistance = _selectedHours * 10;
+    // Use the real backend package for this vehicle nearest to selected hours
+    final pkgList = _packagesByVehicle[v['name'] as String] ?? [];
+    Map<String, dynamic>? matchPkg;
+    if (pkgList.isNotEmpty) {
+      matchPkg = pkgList.first;
+      int bd = ((matchPkg['hours'] as num? ?? 0).toInt() - _selectedHours).abs();
+      for (final p in pkgList) {
+        final d = ((p['hours'] as num? ?? 0).toInt() - _selectedHours).abs();
+        if (d < bd) { matchPkg = p; bd = d; }
+      }
+    }
+    final totalPrice = matchPkg != null ? (matchPkg['basePrice'] ?? 0) : v['pricePerHour'] * _selectedHours;
+    final totalDistance = matchPkg != null ? (matchPkg['km'] ?? 0) : _selectedHours * 10;
+    final pkgHours = matchPkg != null ? (matchPkg['hours'] ?? _selectedHours) : _selectedHours;
     return GestureDetector(
-      onTap: () => setState(() => _selectedVehicle = v['name']),
+      onTap: () => setState(() { _selectedVehicle = v['name']; _pickPackageForVehicle(v['name'] as String); }),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
@@ -407,7 +595,7 @@ class _RentalScreenState extends State<RentalScreen> {
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF2196F3)),
                 ),
                 Text(
-                  '₹${v['pricePerHour']}/hr',
+                  '$pkgHours hr / $totalDistance km',
                   style: TextStyle(fontSize: 11, color: Colors.grey[500]),
                 ),
               ],
@@ -739,12 +927,20 @@ class _RentalScreenState extends State<RentalScreen> {
       enableDrag: false,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
-        Future.delayed(const Duration(seconds: 3), () {
-          if (Navigator.canPop(context)) {
-            Navigator.of(context).pop();
-            _showDriverAssignedDialog();
-          }
-        });
+        // Book the rental then poll for driver assignment
+        () async {
+          await _bookRental();
+          _startStatusPolling((status, ride) {
+            if (status == 'accepted' || status == 'arrived' || status == 'ongoing') {
+              if (Navigator.canPop(context)) {
+                Navigator.of(context).pop();
+                _showDriverAssignedDialog();
+              }
+            } else if (status == 'cancelled') {
+              _pollTimer?.cancel();
+            }
+          });
+        }();
 
         return Container(
           padding: const EdgeInsets.all(20),
@@ -793,16 +989,47 @@ class _RentalScreenState extends State<RentalScreen> {
             children: [
               Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
               const Text('Pilot Assigned for Rental', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+              // OTP box — driver asks for this to start
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(color: const Color(0xFF1976D2).withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF1976D2).withOpacity(0.3))),
+                child: Row(children: [
+                  const Icon(Icons.lock_outline, color: Color(0xFF1976D2), size: 22),
+                  const SizedBox(width: 10),
+                  const Expanded(child: Text('Share this PIN with the pilot to start', style: TextStyle(fontSize: 12, color: Colors.black54))),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1976D2))),
+                    child: Text(_rideOtp ?? '----', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4, color: Color(0xFF1976D2))),
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 14),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey[200]!), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))]),
                 child: Row(
                   children: [
-                    Container(width: 55, height: 55, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.grey[200]!, width: 2), image: const DecorationImage(image: NetworkImage('https://i.pravatar.cc/150?u=rentalpilot'), fit: BoxFit.cover))),
+                    Container(
+                      width: 55, height: 55,
+                      decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.grey[200], border: Border.all(color: Colors.grey[200]!, width: 2),
+                        image: _driverPicUrl.isNotEmpty ? DecorationImage(image: NetworkImage(_driverPicUrl), fit: BoxFit.cover) : null),
+                      alignment: Alignment.center,
+                      child: _driverPicUrl.isEmpty ? Text(_driverName.isNotEmpty ? _driverName[0].toUpperCase() : 'P', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black54)) : null,
+                    ),
                     const SizedBox(width: 12),
-                    const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Vikram Singh', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)), SizedBox(height: 4), Row(children: [Icon(Icons.star, color: Colors.amber, size: 16), SizedBox(width: 4), Text('4.9 (1.2k+ rentals)', style: TextStyle(fontSize: 13, color: Colors.grey))]), SizedBox(height: 4), Text('White Toyota Innova • RJ 14 CD 9012', style: TextStyle(fontSize: 11, color: Colors.grey))])),
-                    SizedBox(width: 70, height: 50, child: Image.asset(_vehicles.firstWhere((v) => v['name'] == _selectedVehicle)['image'], fit: BoxFit.contain)),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(_driverName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                      const SizedBox(height: 4),
+                      Row(children: [
+                        const Icon(Icons.star, color: Colors.amber, size: 16), const SizedBox(width: 4),
+                        Text(_driverRating > 0 ? _driverRating.toStringAsFixed(1) : '—', style: const TextStyle(fontSize: 13, color: Colors.grey)),
+                      ]),
+                      const SizedBox(height: 4),
+                      Text([_driverVehicleModel, _driverVehicleNumber].where((s) => s.isNotEmpty).join(' • '), style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                    ])),
+                    SizedBox(width: 70, height: 50, child: Image.asset(_vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => {'image': 'assets/images/economy.png'})['image'] as String, fit: BoxFit.contain)),
                   ],
                 ),
               ),

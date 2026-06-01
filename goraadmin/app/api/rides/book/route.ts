@@ -154,6 +154,11 @@ export async function POST(req: NextRequest) {
       multiStops: Array.isArray(b.multiStops) ? b.multiStops : [],
       nightHaltCharge: b.nightHaltCharge || 0,
       emptyReturnCharge: b.emptyReturnCharge || 0,
+      // Rental-only fields (silently ignored for other services)
+      packageHours: b.packageHours || 0,
+      packageKm: b.packageKm || 0,
+      extraHourRate: b.extraHourRate || 0,
+      extraKmRate: b.extraKmRate || 0,
     })
 
     // Find nearest online approved driver: same zone + vehicle type

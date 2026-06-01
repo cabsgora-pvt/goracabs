@@ -25,6 +25,9 @@ class RideRequestModel {
   final String departureAt;   // ISO string from backend; '' if not scheduled
   final String returnAt;      // ISO string from backend; '' if not round trip
   final int numPassengers;    // 0 if not provided
+  // Rental extras
+  final int packageHours;
+  final int packageKm;
 
   const RideRequestModel({
     required this.id, required this.userName, required this.userPhone, required this.userRating,
@@ -39,6 +42,8 @@ class RideRequestModel {
     this.departureAt = '',
     this.returnAt = '',
     this.numPassengers = 0,
+    this.packageHours = 0,
+    this.packageKm = 0,
   });
 }
 

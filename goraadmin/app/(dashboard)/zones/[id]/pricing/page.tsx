@@ -5,7 +5,7 @@ import { Header } from '@/components/header'
 import { PageHeader } from '@/components/ui/page-header'
 import { Modal } from '@/components/ui/modal'
 import { Toast } from '@/components/ui/toast'
-import { ArrowLeft, Pencil, Car, ToggleLeft, ToggleRight } from 'lucide-react'
+import { ArrowLeft, Pencil, Car, ToggleLeft, ToggleRight, Plus, Trash2, Clock } from 'lucide-react'
 import Link from 'next/link'
 
 const TABS = [
@@ -18,6 +18,7 @@ const TABS = [
 
 type VehicleType = { _id: string; name: string; imageUrl: string; services: string[]; baseFare: number; perKm: number; perMin: number; minFare: number }
 type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean; nightHaltCharge?: number; emptyReturnPercent?: number }
+type RentalPackage = { vehicleTypeId: string; vehicleTypeName: string; hours: number; km: number; basePrice: number; extraHourRate: number; extraKmRate: number; nightCharge: number; commissionPercent: number; isActive: boolean }
 
 export default function ZonePricingPage() {
   const { id } = useParams()
@@ -29,16 +30,26 @@ export default function ZonePricingPage() {
   const [activeTab, setActiveTab] = useState('taxi')
   const [editRow, setEditRow]     = useState<PricingRow | null>(null)
   const [editForm, setEditForm]   = useState<PricingRow | null>(null)
+  const [rentalPackages, setRentalPackages] = useState<RentalPackage[]>([])
+  const [savingRental, setSavingRental]     = useState(false)
   const [toast, setToast]         = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
-      const [zoneRes, pricingRes, vehicleRes] = await Promise.all([
+      const [zoneRes, pricingRes, vehicleRes, rentalRes] = await Promise.all([
         fetch(`/api/zones/${id}`).then(r => r.json()),
         fetch(`/api/zones/${id}/pricing`).then(r => r.json()),
         fetch('/api/vehicles/types').then(r => r.json()),
+        fetch(`/api/zones/${id}/rental-packages`).then(r => r.json()),
       ])
       setZoneName(zoneRes.name || '')
+      setRentalPackages((rentalRes.packages || []).map((p: any) => ({
+        vehicleTypeId: p.vehicleTypeId, vehicleTypeName: p.vehicleTypeName,
+        hours: p.hours, km: p.km, basePrice: p.basePrice,
+        extraHourRate: p.extraHourRate, extraKmRate: p.extraKmRate,
+        nightCharge: p.nightCharge ?? 0, commissionPercent: p.commissionPercent ?? 20,
+        isActive: p.isActive !== false,
+      })))
       const allVehicles: VehicleType[] = vehicleRes.types || []
       setVehicles(allVehicles)
 
@@ -117,6 +128,31 @@ export default function ZonePricingPage() {
     else setToast({ msg: 'Failed to save', type: 'error' })
   }
 
+  // ── Rental packages management ──
+  const addPackage = (v: VehicleType) => {
+    setRentalPackages(prev => [...prev, {
+      vehicleTypeId: v._id, vehicleTypeName: v.name,
+      hours: 4, km: 40, basePrice: 0, extraHourRate: 0, extraKmRate: 0,
+      nightCharge: 0, commissionPercent: 20, isActive: true,
+    }])
+  }
+  const updatePackage = (idx: number, patch: Partial<RentalPackage>) => {
+    setRentalPackages(prev => prev.map((p, i) => i === idx ? { ...p, ...patch } : p))
+  }
+  const removePackage = (idx: number) => {
+    setRentalPackages(prev => prev.filter((_, i) => i !== idx))
+  }
+  const saveRentalPackages = async () => {
+    setSavingRental(true)
+    const res = await fetch(`/api/zones/${id}/rental-packages`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ packages: rentalPackages }),
+    })
+    setSavingRental(false)
+    setToast(res.ok ? { msg: 'Rental packages saved!', type: 'success' } : { msg: 'Failed to save packages', type: 'error' })
+  }
+
   if (loading) return (
     <div><Header title="Zone Pricing" />
       <div className="p-6 flex items-center justify-center h-64">
@@ -159,8 +195,70 @@ export default function ZonePricingPage() {
           ))}
         </div>
 
-        {/* Vehicle list for this service */}
-        {tabVehicles.length === 0 ? (
+        {/* ── RENTAL: package builder UI ── */}
+        {activeTab === 'rental' ? (
+          <div className="space-y-5">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-500">Create hourly rental packages (e.g. 4hr/40km, 8hr/80km) per vehicle.</p>
+              <button type="button" onClick={saveRentalPackages} disabled={savingRental}
+                className="px-5 py-2 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary-dark disabled:opacity-60">
+                {savingRental ? 'Saving...' : 'Save Packages'}
+              </button>
+            </div>
+
+            {tabVehicles.length === 0 ? (
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-12 text-center">
+                <Car className="w-10 h-10 mx-auto mb-3 text-gray-200" />
+                <p className="text-gray-500 font-medium">No vehicles support Rental</p>
+                <p className="text-gray-400 text-sm mt-1">Go to <Link href="/vehicles/types" className="text-blue-600 underline">Vehicle Types</Link> and enable Rental for a vehicle</p>
+              </div>
+            ) : tabVehicles.map(v => {
+              const pkgs = rentalPackages.map((p, i) => ({ p, i })).filter(({ p }) => p.vehicleTypeId === v._id)
+              return (
+                <div key={v._id} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-100">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-8 rounded bg-white border border-gray-100 flex items-center justify-center overflow-hidden">
+                        {v.imageUrl ? <img src={v.imageUrl} alt={v.name} className="w-full h-full object-contain p-0.5" /> : <Car className="w-4 h-4 text-gray-300" />}
+                      </div>
+                      <span className="font-semibold text-gray-900">{v.name}</span>
+                      <span className="text-xs text-gray-400">{pkgs.length} package{pkgs.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <button type="button" onClick={() => addPackage(v)}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-primary/10 text-primary rounded-lg text-xs font-semibold hover:bg-primary/20">
+                      <Plus className="w-3.5 h-3.5" /> Add Package
+                    </button>
+                  </div>
+
+                  {pkgs.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-sm text-gray-400">No packages yet — click "Add Package"</div>
+                  ) : (
+                    <div className="divide-y divide-gray-50">
+                      {pkgs.map(({ p, i }) => (
+                        <div key={i} className="px-4 py-3 grid grid-cols-2 md:grid-cols-7 gap-3 items-end">
+                          <NumField label="Hours" value={p.hours} onChange={n => updatePackage(i, { hours: n })} />
+                          <NumField label="Incl. KM" value={p.km} onChange={n => updatePackage(i, { km: n })} />
+                          <NumField label="Base ₹" value={p.basePrice} onChange={n => updatePackage(i, { basePrice: n })} />
+                          <NumField label="Extra Hr ₹" value={p.extraHourRate} onChange={n => updatePackage(i, { extraHourRate: n })} />
+                          <NumField label="Extra KM ₹" value={p.extraKmRate} onChange={n => updatePackage(i, { extraKmRate: n })} />
+                          <NumField label="Commission %" value={p.commissionPercent} onChange={n => updatePackage(i, { commissionPercent: n })} />
+                          <div className="flex items-center gap-2">
+                            <button type="button" onClick={() => updatePackage(i, { isActive: !p.isActive })}
+                              title={p.isActive ? 'Active' : 'Inactive'} className="text-gray-400">
+                              {p.isActive ? <ToggleRight className="w-7 h-7 text-green-500" /> : <ToggleLeft className="w-7 h-7 text-gray-300" />}
+                            </button>
+                            <button type="button" onClick={() => removePackage(i)} title="Delete"
+                              className="p-1.5 hover:bg-red-50 rounded-lg text-red-500"><Trash2 className="w-4 h-4" /></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ) : tabVehicles.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-12 text-center">
             <Car className="w-10 h-10 mx-auto mb-3 text-gray-200" />
             <p className="text-gray-500 font-medium">No vehicles support this service</p>
@@ -308,6 +406,18 @@ export default function ZonePricingPage() {
       )}
 
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+    </div>
+  )
+}
+
+// Small labelled number input used in the rental package rows
+function NumField({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }) {
+  return (
+    <div>
+      <label className="block text-[10px] font-medium text-gray-500 uppercase mb-1">{label}</label>
+      <input type="number" step="1" min="0" value={value} title={label} placeholder={label}
+        onChange={e => onChange(+e.target.value)}
+        className="w-full border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
     </div>
   )
 }

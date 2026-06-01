@@ -15,6 +15,8 @@ const DriverSchema = new Schema({
   isOnline: { type: Boolean, default: false },
   // Driver opts in to receive intercity outstation requests (off by default — taxi only)
   acceptsOutstation: { type: Boolean, default: false },
+  // Driver opts in to receive hourly rental package requests
+  acceptsRental: { type: Boolean, default: false },
   vehicleNumber: String,
   vehicleModel: String,
   vehicleType: String,

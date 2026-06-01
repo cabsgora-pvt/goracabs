@@ -300,6 +300,8 @@ class _RidePollerState extends State<_RidePoller> {
         departureAt: (r['departureAt'] ?? '').toString(),
         returnAt: (r['returnAt'] ?? '').toString(),
         numPassengers: (r['numPassengers'] as num?)?.toInt() ?? 0,
+        packageHours: (r['packageHours'] as num?)?.toInt() ?? 0,
+        packageKm: (r['packageKm'] as num?)?.toInt() ?? 0,
       );
       if (!mounted) return;
       _navigating = true;

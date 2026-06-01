@@ -28,18 +28,17 @@ class _PreferencesPageState extends State<PreferencesPage> {
       final res = await DriverApiService.getProfile();
       final d = res['driver'] as Map<String, dynamic>?;
       if (d == null || !mounted) return;
-      // Only update if the field is actually present — otherwise keep local UI state
-      // (prevents toggle from auto-flipping OFF before backend has saved it)
-      if (d.containsKey('acceptsOutstation') && d['acceptsOutstation'] is bool) {
-        setState(() => _outstation = d['acceptsOutstation'] as bool);
-      }
+      setState(() {
+        if (d.containsKey('acceptsOutstation') && d['acceptsOutstation'] is bool) _outstation = d['acceptsOutstation'] as bool;
+        if (d.containsKey('acceptsRental') && d['acceptsRental'] is bool) _rental = d['acceptsRental'] as bool;
+      });
     } catch (_) {}
   }
 
   Future<void> _savePrefs() async {
     setState(() => _saving = true);
     try {
-      final res = await DriverApiService.updatePreferences({'acceptsOutstation': _outstation});
+      final res = await DriverApiService.updatePreferences({'acceptsOutstation': _outstation, 'acceptsRental': _rental});
       if (!mounted) return;
       if (res['error'] != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: ${res['error']}'), backgroundColor: AppColors.red));
@@ -70,7 +69,7 @@ class _PreferencesPageState extends State<PreferencesPage> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _section('Ride Types'),
           _switchRow('Taxi / Cab', 'Regular point-to-point rides', Icons.local_taxi, _taxi, (v) => setState(() => _taxi = v)),
-          _switchRow('Rental', 'Hourly rental bookings', Icons.access_time, _rental, (v) => setState(() => _rental = v)),
+          _switchRow('Rental', 'Hourly rental package bookings', Icons.access_time, _rental, (v) => setState(() => _rental = v)),
           _switchRow('Outstation', 'Long-distance city-to-city rides', Icons.map, _outstation, (v) => setState(() => _outstation = v)),
           _switchRow('Delivery', 'Package & goods delivery', Icons.inventory_2, _delivery, (v) => setState(() => _delivery = v)),
 

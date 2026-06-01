@@ -166,6 +166,27 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
                 ]),
               ),
             ],
+            // Rental badge — hourly package hire
+            if (r.service == 'rental') ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [AppColors.primary.withOpacity(0.12), AppColors.primary.withOpacity(0.04)]),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.primary.withOpacity(0.4)),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.access_time_filled, color: AppColors.primary, size: 20),
+                  const SizedBox(width: 8),
+                  Text('RENTAL · ${r.packageHours}hr / ${r.packageKm}km',
+                    style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 12, letterSpacing: 0.5)),
+                  const Spacer(),
+                  if (r.departureAt.isNotEmpty) _miniChip(Icons.event, _formatIso(r.departureAt)),
+                ]),
+              ),
+            ],
             const SizedBox(height: 16),
             // Ride info
             Container(

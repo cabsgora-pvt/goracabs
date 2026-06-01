@@ -114,6 +114,11 @@ class ApiService {
 
   static Future<Map<String, dynamic>> getProfile() => get('/auth/user/profile');
 
+  // ── Rental packages (for pickup zone) ─────────────────────
+  static Future<Map<String, dynamic>> getRentalPackages({
+    required double pickupLat, required double pickupLng,
+  }) => get('/rental/packages?pickupLat=$pickupLat&pickupLng=$pickupLng');
+
   // ── Ride engine ───────────────────────────────────────────
   static Future<Map<String, dynamic>> estimateFare({
     required double pickupLat, required double pickupLng,
