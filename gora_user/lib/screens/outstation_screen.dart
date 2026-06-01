@@ -592,7 +592,11 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                           const SizedBox(width: 8),
                                           Expanded(
                                             child: Text(
-                                              'Estimated distance: 45 km • Duration: 1h 30m',
+                                              _loadingFares
+                                                ? 'Calculating distance & duration...'
+                                                : _distanceKm > 0
+                                                  ? 'Estimated distance: ${_distanceKm.toStringAsFixed(0)} km • Duration: ${_durationMin >= 60 ? "${_durationMin ~/ 60}h ${(_durationMin % 60).toString().padLeft(2, "0")}m" : "$_durationMin min"}'
+                                                  : 'Estimated distance: —',
                                               style: TextStyle(fontSize: 12, color: Colors.blue[700]),
                                             ),
                                           ),
@@ -1466,7 +1470,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 const Text('Estimated Distance', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                                const Text('~250 km', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                                Text('${_distanceKm.toStringAsFixed(0)} km', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                               ],
                             ),
                             const SizedBox(height: 8),
@@ -1474,7 +1478,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 const Text('Estimated Duration', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                                const Text('~5 hours', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                                Text(_durationMin >= 60 ? '${_durationMin ~/ 60}h ${(_durationMin % 60).toString().padLeft(2, "0")}m' : '$_durationMin min',
+                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                               ],
                             ),
                           ],
