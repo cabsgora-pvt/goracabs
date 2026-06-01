@@ -7,8 +7,8 @@ import { withCors, corsOptions } from '@/lib/cors'
 
 export async function OPTIONS() { return corsOptions() }
 
-// PATCH driver preferences (currently just acceptsOutstation; extend with more flags as features land)
-export async function PATCH(req: NextRequest) {
+// Both POST and PATCH supported so CORS allow-method differences don't matter
+async function handle(req: NextRequest) {
   try {
     const payload = requireDriverAuth(req)
     if (!payload) return withCors({ error: 'Unauthorized' }, 401)
@@ -24,3 +24,6 @@ export async function PATCH(req: NextRequest) {
     return withCors({ error: e.message || 'Server error' }, 500)
   }
 }
+
+export const POST = handle
+export const PATCH = handle

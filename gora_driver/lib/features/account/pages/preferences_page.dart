@@ -28,23 +28,34 @@ class _PreferencesPageState extends State<PreferencesPage> {
       final res = await DriverApiService.getProfile();
       final d = res['driver'] as Map<String, dynamic>?;
       if (d == null || !mounted) return;
-      setState(() {
-        _outstation = (d['acceptsOutstation'] as bool?) ?? false;
-      });
+      // Only update if the field is actually present — otherwise keep local UI state
+      // (prevents toggle from auto-flipping OFF before backend has saved it)
+      if (d.containsKey('acceptsOutstation') && d['acceptsOutstation'] is bool) {
+        setState(() => _outstation = d['acceptsOutstation'] as bool);
+      }
     } catch (_) {}
   }
 
   Future<void> _savePrefs() async {
     setState(() => _saving = true);
     try {
-      // Persist outstation opt-in to backend; other toggles are local-only for now
-      await DriverApiService.updatePreferences({'acceptsOutstation': _outstation});
+      final res = await DriverApiService.updatePreferences({'acceptsOutstation': _outstation});
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preferences saved!'), backgroundColor: AppColors.green));
-      Navigator.pop(context);
+      if (res['error'] != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: ${res['error']}'), backgroundColor: AppColors.red));
+        return;
+      }
+      // Pull back what the server actually persisted so the toggle reflects DB truth
+      final saved = (res['preferences']?['acceptsOutstation'] as bool?) ?? _outstation;
+      setState(() => _outstation = saved);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Outstation: ${saved ? 'ON' : 'OFF'} — saved'),
+        backgroundColor: AppColors.green,
+      ));
+      // Do not auto-pop so the user can visually confirm the toggle stayed where they set it
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save: $e'), backgroundColor: AppColors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Network error: $e'), backgroundColor: AppColors.red));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
