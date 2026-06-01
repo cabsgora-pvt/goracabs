@@ -126,32 +126,43 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
                 ),
               ]),
             ),
-            // Outstation badge (only for intercity rides) — gives driver clear heads-up
+            // Outstation badge (only for intercity rides) — driver needs to know departure time + pax
             if (r.service == 'outstation') ...[
               const SizedBox(height: 10),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(colors: [AppColors.orange.withOpacity(0.15), AppColors.orange.withOpacity(0.05)]),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: AppColors.orange.withOpacity(0.4)),
                 ),
-                child: Row(children: [
-                  const Icon(Icons.map_outlined, color: AppColors.orange, size: 22),
-                  const SizedBox(width: 10),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    const Icon(Icons.map_outlined, color: AppColors.orange, size: 20),
+                    const SizedBox(width: 8),
                     Text(
                       r.tripType == 'round_trip' ? 'OUTSTATION • Round Trip' : 'OUTSTATION • One Way',
                       style: const TextStyle(color: AppColors.orange, fontWeight: FontWeight.w800, fontSize: 12, letterSpacing: 0.5),
                     ),
-                    if (r.cityFrom.isNotEmpty || r.cityTo.isNotEmpty)
-                      Text(
-                        '${r.cityFrom.isNotEmpty ? r.cityFrom : "Pickup"} → ${r.cityTo.isNotEmpty ? r.cityTo : "Destination"}',
-                        style: const TextStyle(fontSize: 12, color: AppColors.textDark, fontWeight: FontWeight.w600),
-                        maxLines: 1, overflow: TextOverflow.ellipsis,
-                      ),
-                  ])),
+                  ]),
+                  if (r.cityFrom.isNotEmpty || r.cityTo.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text('${r.cityFrom.isNotEmpty ? r.cityFrom : "Pickup"} → ${r.cityTo.isNotEmpty ? r.cityTo : "Destination"}',
+                      style: const TextStyle(fontSize: 12, color: AppColors.textDark, fontWeight: FontWeight.w700),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
+                  const SizedBox(height: 8),
+                  Row(children: [
+                    // Departure time chip
+                    if (r.departureAt.isNotEmpty) _miniChip(Icons.access_time, _formatIso(r.departureAt)),
+                    if (r.departureAt.isNotEmpty) const SizedBox(width: 6),
+                    // Return time chip (round trip only)
+                    if (r.tripType == 'round_trip' && r.returnAt.isNotEmpty) _miniChip(Icons.replay, _formatIso(r.returnAt)),
+                    if (r.tripType == 'round_trip' && r.returnAt.isNotEmpty) const SizedBox(width: 6),
+                    // Passengers chip
+                    if (r.numPassengers > 0) _miniChip(Icons.group, '${r.numPassengers} pax'),
+                  ]),
                 ]),
               ),
             ],
@@ -204,6 +215,25 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
         ),
       ),
     ]);
+  }
+
+  static Widget _miniChip(IconData icon, String text) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: AppColors.orange.withOpacity(0.4))),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 11, color: AppColors.orange),
+      const SizedBox(width: 4),
+      Text(text, style: const TextStyle(fontSize: 10, color: AppColors.textDark, fontWeight: FontWeight.w700)),
+    ]),
+  );
+
+  static String _formatIso(String iso) {
+    try {
+      final d = DateTime.parse(iso).toLocal();
+      final h = d.hour > 12 ? d.hour - 12 : (d.hour == 0 ? 12 : d.hour);
+      final ampm = d.hour >= 12 ? 'PM' : 'AM';
+      return '${d.day}/${d.month} ${h}:${d.minute.toString().padLeft(2, "0")} $ampm';
+    } catch (_) { return iso; }
   }
 
   Widget _locationRow(IconData icon, Color color, String label, String address) {

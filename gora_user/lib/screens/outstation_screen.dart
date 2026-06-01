@@ -319,6 +319,24 @@ class _OutstationScreenState extends State<OutstationScreen> {
         if (status != 'pending' && _driverLocTimer == null) {
           _startDriverLocationPolling();
         }
+
+        // ── COMPLETION at SCREEN level — works no matter which dialog is open ──
+        if (status == 'completed') {
+          t.cancel();
+          _pollTimer = null;
+          _driverLocTimer?.cancel();
+          if (!mounted) return;
+          // Close any open sheets (assigned dialog, etc.) then push rating
+          Navigator.of(this.context, rootNavigator: true).popUntil((route) => route.isFirst);
+          Navigator.of(this.context).push(MaterialPageRoute(builder: (_) => RatingScreen(
+            driverName: _driverName.isNotEmpty ? _driverName : 'Pilot',
+            vehicleName: _selectedVehicle ?? 'Outstation',
+            selectedTip: 0,
+            rideId: _rideId,
+          )));
+          return;
+        }
+
         onStatus(status, ride);
       } catch (_) {}
     });
@@ -1832,16 +1850,17 @@ class _OutstationScreenState extends State<OutstationScreen> {
       context: context,
       isDismissible: false,
       enableDrag: false,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
         return Container(
-          padding: const EdgeInsets.all(20),
+          padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(context).viewPadding.bottom),
           decoration: const BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -2))],
           ),
-          child: Column(
+          child: SingleChildScrollView(child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -1982,7 +2001,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
               const SizedBox(height: 12),
               Center(child: TextButton(onPressed: () => _showCancelReasonDialog(), child: const Text('Cancel Trip', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600, fontSize: 15)))),
             ],
-          ),
+          )),
         );
       },
     );

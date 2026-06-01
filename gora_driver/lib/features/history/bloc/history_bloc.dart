@@ -55,6 +55,12 @@ class HistoryBloc extends Bloc<HistoryEvent, HistoryState> {
           paymentMode: (r['paymentMode'] ?? 'cash').toString(),
           duration: '${r['duration'] ?? 0} min',
           rating: ((r['riderRating'] ?? 0) as num).toDouble(),
+          service: (r['service'] ?? 'taxi').toString(),
+          vehicleType: (r['vehicleType'] ?? '').toString(),
+          tripType: (r['tripType'] ?? 'one_way').toString(),
+          cityFrom: (r['cityFrom'] ?? '').toString(),
+          cityTo: (r['cityTo'] ?? '').toString(),
+          numPassengers: (r['numPassengers'] as num?)?.toInt() ?? 0,
         );
       }).toList();
       emit(HistoryLoaded(trips));

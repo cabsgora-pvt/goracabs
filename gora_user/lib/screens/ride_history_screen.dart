@@ -9,6 +9,7 @@ import 'service_selection_screen.dart';
 import 'rental_booking_details_screen.dart';
 import 'hire_driver_booking_details_screen.dart';
 import 'outstation_ride_details_screen.dart';
+import 'rating_screen.dart';
 
 class RideHistoryScreen extends StatefulWidget {
   const RideHistoryScreen({super.key});
@@ -39,6 +40,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
       final list = (res['rides'] as List?) ?? [];
       setState(() {
         _myRides = list.map<Map<String, dynamic>>((r) {
+          final svc = (r['service'] as String?) ?? 'taxi';
           final fare = (r['fare'] ?? 0);
           final tip = (r['tip'] ?? 0);
           final total = (r['totalFare'] ?? (fare + tip));
@@ -67,6 +69,10 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
             'dropLat': (r['dropLat'] as num?)?.toDouble() ?? 0,
             'dropLng': (r['dropLng'] as num?)?.toDouble() ?? 0,
             'routePolyline': (r['routePolyline'] as String?) ?? '',
+            'service': svc,
+            'tripType': (r['tripType'] as String?) ?? 'one_way',
+            'numPassengers': (r['numPassengers'] as num?)?.toInt() ?? 0,
+            'duration': (r['duration'] as num?)?.toInt() ?? 0,
           };
         }).toList();
         _loadingRides = false;
@@ -262,72 +268,38 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
   }
 
   Widget _buildRideHistoryList() {
-    if (_loadingRides) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-    if (_myRides.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(24),
-        child: Center(child: Text('No rides yet', style: TextStyle(color: Colors.grey))),
-      );
-    }
-    return Column(
-      children: _myRides.map((ride) => _buildRideCard(ride)).toList(),
-    );
+    if (_loadingRides) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
+    final rides = _myRides.where((r) => r['service'] == 'taxi').toList();
+    if (rides.isEmpty) return const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No taxi rides yet', style: TextStyle(color: Colors.grey))));
+    return Column(children: rides.map((r) => _buildRideCard(r)).toList());
   }
 
   Widget _buildRentalPackagesList() {
-    final rentals = [
-      {
-        'date': '12 Jan, 9:00 AM',
-        'package': '8 Hours Package',
-        'vehicle': 'Economy',
-        'fare': '₹1,500',
-        'status': 'Completed',
-        'duration': '8 hours',
-      },
-    ];
-
-    return Column(
-      children: rentals.map((rental) => _buildRentalCard(rental)).toList(),
-    );
+    if (_loadingRides) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
+    final rentals = _myRides.where((r) => r['service'] == 'rental').toList();
+    if (rentals.isEmpty) return const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No rental bookings yet', style: TextStyle(color: Colors.grey))));
+    return Column(children: rentals.map((r) => _buildRentalCard({
+      ...r,
+      'package': r['vehicle'] ?? '',
+      'duration': '${r['duration']} min',
+    })).toList());
   }
 
   Widget _buildHireDriverList() {
-    final hireDrivers = [
-      {
-        'date': '10 Jan, 2:00 PM',
-        'duration': '4 hours',
-        'driver': 'Mohan Singh',
-        'fare': '₹800',
-        'status': 'Completed',
-      },
-    ];
-
-    return Column(
-      children: hireDrivers.map((hire) => _buildHireDriverCard(hire)).toList(),
-    );
+    if (_loadingRides) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
+    final hires = _myRides.where((r) => r['service'] == 'hire_driver').toList();
+    if (hires.isEmpty) return const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No hire-driver bookings yet', style: TextStyle(color: Colors.grey))));
+    return Column(children: hires.map((r) => _buildHireDriverCard({
+      ...r,
+      'duration': '${r['duration']} min',
+    })).toList());
   }
 
   Widget _buildOutstationList() {
-    final outstations = [
-      {
-        'date': '8 Jan, 6:00 AM',
-        'from': 'Delhi',
-        'to': 'Agra',
-        'driver': 'Ravi Kumar',
-        'fare': '₹3,500',
-        'status': 'Completed',
-        'vehicle': 'Sedan',
-      },
-    ];
-
-    return Column(
-      children: outstations.map((outstation) => _buildOutstationCard(outstation)).toList(),
-    );
+    if (_loadingRides) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
+    final outs = _myRides.where((r) => r['service'] == 'outstation').toList();
+    if (outs.isEmpty) return const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No outstation trips yet', style: TextStyle(color: Colors.grey))));
+    return Column(children: outs.map((r) => _buildOutstationCard(r)).toList());
   }
 
   Widget _buildRideCard(Map<String, dynamic> ride) {
@@ -417,6 +389,21 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                     style: TextButton.styleFrom(foregroundColor: AppTheme.primaryBlue),
                   ),
                 ),
+                // Rate button — only when ride is completed AND not yet rated
+                if (((ride['rating'] as double?) ?? 0) <= 0)
+                  Expanded(
+                    child: TextButton.icon(
+                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RatingScreen(
+                        driverName: (ride['driver'] as String?) ?? 'Driver',
+                        vehicleName: (ride['vehicle'] as String?) ?? '',
+                        selectedTip: 0,
+                        rideId: ride['id'] as String?,
+                      ))),
+                      icon: const Icon(Icons.star_rate, size: 14, color: Colors.amber),
+                      label: const Text('Rate', style: TextStyle(fontSize: 12, color: Colors.amber)),
+                      style: TextButton.styleFrom(foregroundColor: Colors.amber),
+                    ),
+                  ),
                 Expanded(
                   child: TextButton.icon(
                     onPressed: () {

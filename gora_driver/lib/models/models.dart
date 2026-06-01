@@ -22,6 +22,9 @@ class RideRequestModel {
   final String tripType;      // 'one_way' | 'round_trip'
   final String cityFrom;
   final String cityTo;
+  final String departureAt;   // ISO string from backend; '' if not scheduled
+  final String returnAt;      // ISO string from backend; '' if not round trip
+  final int numPassengers;    // 0 if not provided
 
   const RideRequestModel({
     required this.id, required this.userName, required this.userPhone, required this.userRating,
@@ -33,17 +36,33 @@ class RideRequestModel {
     this.tripType = 'one_way',
     this.cityFrom = '',
     this.cityTo = '',
+    this.departureAt = '',
+    this.returnAt = '',
+    this.numPassengers = 0,
   });
 }
 
 class TripModel {
   final String id, userName, pickupAddress, dropAddress, distance, fare, date, status, paymentMode, duration;
   final double rating;
+  // Service info — taxi / outstation / rental / hire_driver
+  final String service;
+  final String vehicleType;
+  final String tripType;
+  final String cityFrom;
+  final String cityTo;
+  final int numPassengers;
 
   const TripModel({
     required this.id, required this.userName, required this.pickupAddress, required this.dropAddress,
     required this.distance, required this.fare, required this.date, required this.status,
     required this.paymentMode, required this.duration, required this.rating,
+    this.service = 'taxi',
+    this.vehicleType = '',
+    this.tripType = 'one_way',
+    this.cityFrom = '',
+    this.cityTo = '',
+    this.numPassengers = 0,
   });
 }
 

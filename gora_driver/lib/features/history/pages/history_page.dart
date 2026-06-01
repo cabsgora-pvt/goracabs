@@ -57,6 +57,37 @@ class _TripCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)]),
         child: Column(children: [
+          // Service label + vehicle type on top
+          Row(children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: trip.service == 'outstation' ? AppColors.orange.withOpacity(0.15) : AppColors.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                trip.service == 'outstation'
+                  ? 'OUTSTATION · ${trip.tripType == "round_trip" ? "Round" : "One Way"}'
+                  : trip.service.toUpperCase(),
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.3,
+                  color: trip.service == 'outstation' ? AppColors.orange : AppColors.primary),
+              ),
+            ),
+            const SizedBox(width: 6),
+            if (trip.vehicleType.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(6)),
+                child: Text(trip.vehicleType, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey)),
+              ),
+            const Spacer(),
+            if (trip.numPassengers > 0) ...[
+              const Icon(Icons.group, size: 12, color: AppColors.textGrey),
+              const SizedBox(width: 3),
+              Text('${trip.numPassengers}', style: const TextStyle(fontSize: 11, color: AppColors.textGrey, fontWeight: FontWeight.w600)),
+            ],
+          ]),
+          const SizedBox(height: 10),
           Row(children: [
             CircleAvatar(radius: 20, backgroundColor: AppColors.primary.withOpacity(0.1),
               child: Text(trip.userName[0], style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.primary))),
@@ -64,6 +95,10 @@ class _TripCard extends StatelessWidget {
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(trip.userName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textDark)),
               Text(trip.date, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+              if (trip.service == 'outstation' && (trip.cityFrom.isNotEmpty || trip.cityTo.isNotEmpty))
+                Text('${trip.cityFrom} → ${trip.cityTo}',
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, color: AppColors.orange, fontWeight: FontWeight.w600)),
             ])),
             Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
               Text(trip.fare, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.textDark)),
