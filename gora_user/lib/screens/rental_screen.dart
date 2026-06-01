@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
@@ -28,8 +29,19 @@ class _RentalScreenState extends State<RentalScreen> {
 
   // ── Backend-wired state ──
   double? _pickupLat, _pickupLng;
+  double? _dropLat, _dropLng;
   bool _loadingPackages = true;
   String? _packagesError;
+  // Places autocomplete
+  List<Map<String, dynamic>> _pickupSuggestions = [];
+  List<Map<String, dynamic>> _dropSuggestions = [];
+  Timer? _searchDebounce;
+  // Map picker
+  bool _showMapPicker = false;
+  bool _pickingPickup = true;
+  LatLng _pickerCenter = const LatLng(23.0225, 72.5714);
+  GoogleMapController? _pickerMapController;
+  String _pickerAddress = '';
   // Packages grouped by vehicle name → list of {hours, km, basePrice, extraHourRate, extraKmRate, commissionPercent, etaMin}
   Map<String, List<Map<String, dynamic>>> _packagesByVehicle = {};
   Map<String, dynamic>? _selectedPackage; // the chosen package map
@@ -54,6 +66,7 @@ class _RentalScreenState extends State<RentalScreen> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _searchDebounce?.cancel();
     _pickupController.dispose();
     _dropController.dispose();
     super.dispose();
@@ -97,6 +110,43 @@ class _RentalScreenState extends State<RentalScreen> {
     }
   }
 
+  // Debounced places autocomplete
+  void _searchPlaces(String q, {required bool isPickup}) {
+    _searchDebounce?.cancel();
+    if (q.trim().length < 2) {
+      setState(() { if (isPickup) _pickupSuggestions = []; else _dropSuggestions = []; });
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
+      final results = await ApiService.placesAutocomplete(q);
+      if (!mounted) return;
+      setState(() { if (isPickup) _pickupSuggestions = results; else _dropSuggestions = results; });
+    });
+  }
+
+  Future<void> _selectSuggestion(Map<String, dynamic> s, {required bool isPickup}) async {
+    final details = await ApiService.placeDetails(s['placeId'] as String? ?? '');
+    if (details == null || !mounted) return;
+    final lat = (details['lat'] as num).toDouble();
+    final lng = (details['lng'] as num).toDouble();
+    final addr = details['address'] as String? ?? (s['description'] ?? '').toString();
+    setState(() {
+      if (isPickup) {
+        _pickupLat = lat; _pickupLng = lng; _pickupController.text = addr; _pickupSuggestions = [];
+      } else {
+        _dropLat = lat; _dropLng = lng; _dropController.text = addr; _dropSuggestions = [];
+      }
+    });
+    if (isPickup) _loadPackages(); // pickup changed → refresh packages for new zone
+  }
+
+  void _openMapPicker({required bool forPickup}) {
+    final start = forPickup
+        ? (_pickupLat != null ? LatLng(_pickupLat!, _pickupLng!) : _pickerCenter)
+        : (_dropLat != null ? LatLng(_dropLat!, _dropLng!) : (_pickupLat != null ? LatLng(_pickupLat!, _pickupLng!) : _pickerCenter));
+    setState(() { _pickingPickup = forPickup; _pickerCenter = start; _pickerAddress = ''; _showMapPicker = true; });
+  }
+
   Future<void> _bookRental() async {
     if (_pickupLat == null || _selectedPackage == null || _selectedVehicle == null) return;
     final p = _selectedPackage!;
@@ -113,10 +163,10 @@ class _RentalScreenState extends State<RentalScreen> {
         'dropLat': _pickupLat, 'dropLng': _pickupLng, // rental has no fixed drop
         'service': 'rental',
         'vehicleType': _selectedVehicle,
-        'fare': p['basePrice'] ?? 0,
-        'packageHours': p['hours'] ?? 0,
-        'packageKm': p['km'] ?? 0,
-        'extraHourRate': p['extraHourRate'] ?? 0,
+        'fare': _scaledPrice(p),            // hours × per-hour rate
+        'packageHours': _selectedHours,     // the hours the user actually picked
+        'packageKm': _scaledKm(p),          // scaled included km
+        'extraHourRate': p['extraHourRate'] ?? _hourlyRate(p),
         'extraKmRate': p['extraKmRate'] ?? 0,
         'departureAt': startAt?.toIso8601String(),
         'paymentMode': 'cash',
@@ -175,16 +225,30 @@ class _RentalScreenState extends State<RentalScreen> {
       if (diff < bestDiff) { best = p; bestDiff = diff; }
     }
     _selectedPackage = best;
-    _selectedHours = (best['hours'] as num? ?? _selectedHours).toInt();
   }
+
+  // Per-hour rate derived from the package (basePrice / package hours)
+  int _hourlyRate(Map<String, dynamic> p) {
+    final h = (p['hours'] as num? ?? 1).toInt();
+    final base = (p['basePrice'] as num? ?? 0).toInt();
+    return h > 0 ? (base / h).round() : base;
+  }
+  int _kmPerHour(Map<String, dynamic> p) {
+    final h = (p['hours'] as num? ?? 1).toInt();
+    final km = (p['km'] as num? ?? 0).toInt();
+    return h > 0 ? (km / h).round() : km;
+  }
+  // Total price for the currently selected hours, scaled from the package rate
+  int _scaledPrice(Map<String, dynamic> p) => _hourlyRate(p) * _selectedHours;
+  int _scaledKm(Map<String, dynamic> p) => _kmPerHour(p) * _selectedHours;
 
   Map<String, dynamic> _getPackageData() {
     final p = _selectedPackage;
     if (p != null) {
       return {
-        'duration': '${p['hours']} Hours',
-        'distance': '${p['km']} km',
-        'price': '₹${p['basePrice']}',
+        'duration': '$_selectedHours Hours',
+        'distance': '${_scaledKm(p)} km',
+        'price': '₹${_scaledPrice(p)}',
         'icon': Icons.schedule,
         'color': const Color(0xFF2196F3),
       };
@@ -207,6 +271,7 @@ class _RentalScreenState extends State<RentalScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_showMapPicker) return _buildMapPicker();
     return Scaffold(
       appBar: AppBar(
         title: const Text('Rental Package'),
@@ -241,10 +306,11 @@ class _RentalScreenState extends State<RentalScreen> {
                             Icon(Icons.radio_button_checked, color: Color(0xFF4CAF50), size: 18),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: Container(
+                              child: SizedBox(
                                 height: 40,
                                 child: TextField(
                                   controller: _pickupController,
+                                  onChanged: (q) => _searchPlaces(q, isPickup: true),
                                   decoration: InputDecoration(
                                     hintText: 'Enter pickup location',
                                     border: InputBorder.none,
@@ -256,8 +322,14 @@ class _RentalScreenState extends State<RentalScreen> {
                                 ),
                               ),
                             ),
+                            IconButton(
+                              icon: const Icon(Icons.map, color: Color(0xFF4CAF50), size: 20),
+                              tooltip: 'Pick on map',
+                              onPressed: () => _openMapPicker(forPickup: true),
+                            ),
                           ],
                         ),
+                        ..._pickupSuggestions.map((s) => _suggestionTile(s, isPickup: true)),
                         Padding(
                           padding: const EdgeInsets.only(left: 9, top: 8, bottom: 8),
                           child: Row(
@@ -281,12 +353,13 @@ class _RentalScreenState extends State<RentalScreen> {
                             Icon(Icons.location_on, color: Color(0xFFFF5252), size: 18),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: Container(
+                              child: SizedBox(
                                 height: 40,
                                 child: TextField(
                                   controller: _dropController,
+                                  onChanged: (q) => _searchPlaces(q, isPickup: false),
                                   decoration: InputDecoration(
-                                    hintText: 'Enter drop location',
+                                    hintText: 'Drop location (optional)',
                                     border: InputBorder.none,
                                     isDense: true,
                                     contentPadding: const EdgeInsets.symmetric(vertical: 12),
@@ -296,8 +369,14 @@ class _RentalScreenState extends State<RentalScreen> {
                                 ),
                               ),
                             ),
+                            IconButton(
+                              icon: const Icon(Icons.map, color: Color(0xFFFF5252), size: 20),
+                              tooltip: 'Pick on map',
+                              onPressed: () => _openMapPicker(forPickup: false),
+                            ),
                           ],
                         ),
+                        ..._dropSuggestions.map((s) => _suggestionTile(s, isPickup: false)),
                       ],
                     ),
                   ),
@@ -370,36 +449,29 @@ class _RentalScreenState extends State<RentalScreen> {
                               onTap: () {
                                 if (_selectedHours > 1) {
                                   setState(() => _selectedHours--);
+                                  if (_selectedVehicle != null) setState(() => _pickPackageForVehicle(_selectedVehicle!));
                                 }
                               },
                               child: Container(
                                 padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey[100],
-                                  shape: BoxShape.circle,
-                                ),
+                                decoration: BoxDecoration(color: Colors.grey[100], shape: BoxShape.circle),
                                 child: const Icon(Icons.remove, size: 20, color: Color(0xFF2196F3)),
                               ),
                             ),
                             Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 20),
-                              child: Text(
-                                '$_selectedHours',
-                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                              ),
+                              child: Text('$_selectedHours', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                             ),
                             GestureDetector(
                               onTap: () {
                                 if (_selectedHours < 12) {
                                   setState(() => _selectedHours++);
+                                  if (_selectedVehicle != null) setState(() => _pickPackageForVehicle(_selectedVehicle!));
                                 }
                               },
                               child: Container(
                                 padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey[100],
-                                  shape: BoxShape.circle,
-                                ),
+                                decoration: BoxDecoration(color: Colors.grey[100], shape: BoxShape.circle),
                                 child: const Icon(Icons.add, size: 20, color: Color(0xFF2196F3)),
                               ),
                             ),
@@ -424,15 +496,15 @@ class _RentalScreenState extends State<RentalScreen> {
                       ]),
                     )
                   else
-                    // Only vehicles that admin configured packages for
+                    // Build cards straight from backend package vehicle names (no hardcoded list)
                     ListView.separated(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _vehicles.where((v) => _packagesByVehicle.containsKey(v['name'])).length,
+                      itemCount: _packagesByVehicle.keys.length,
                       separatorBuilder: (context, index) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
-                        final list = _vehicles.where((v) => _packagesByVehicle.containsKey(v['name'])).toList();
-                        return _buildVehicleCard(list[index]);
+                        final vehicleName = _packagesByVehicle.keys.elementAt(index);
+                        return _buildVehicleCard(vehicleName);
                       },
                     ),
                   const SizedBox(height: 16),
@@ -510,94 +582,137 @@ class _RentalScreenState extends State<RentalScreen> {
     );
   }
 
-  Widget _buildVehicleCard(Map<String, dynamic> v) {
-    final isSelected = _selectedVehicle == v['name'];
-    // Use the real backend package for this vehicle nearest to selected hours
-    final pkgList = _packagesByVehicle[v['name'] as String] ?? [];
-    Map<String, dynamic>? matchPkg;
-    if (pkgList.isNotEmpty) {
-      matchPkg = pkgList.first;
-      int bd = ((matchPkg['hours'] as num? ?? 0).toInt() - _selectedHours).abs();
-      for (final p in pkgList) {
-        final d = ((p['hours'] as num? ?? 0).toInt() - _selectedHours).abs();
-        if (d < bd) { matchPkg = p; bd = d; }
-      }
+  Widget _suggestionTile(Map<String, dynamic> s, {required bool isPickup}) {
+    return ListTile(
+      dense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+      leading: const Icon(Icons.location_on, color: Color(0xFFFF5252), size: 18),
+      title: Text(s['mainText']?.toString() ?? '', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+      subtitle: Text(s['secondaryText']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+      onTap: () => _selectSuggestion(s, isPickup: isPickup),
+    );
+  }
+
+  // Full-screen draggable-pin map picker for pickup/drop
+  Widget _buildMapPicker() {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white, elevation: 0,
+        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => setState(() => _showMapPicker = false)),
+        title: Text(_pickingPickup ? 'Pick pickup location' : 'Pick drop location', style: const TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.w600)),
+        centerTitle: true,
+      ),
+      body: Stack(children: [
+        GoogleMap(
+          initialCameraPosition: CameraPosition(target: _pickerCenter, zoom: 14),
+          onMapCreated: (c) => _pickerMapController = c,
+          onCameraMove: (pos) => _pickerCenter = pos.target,
+          onCameraIdle: () async {
+            final addr = await ApiService.reverseGeocode(_pickerCenter.latitude, _pickerCenter.longitude);
+            if (!mounted) return;
+            setState(() => _pickerAddress = addr);
+          },
+          myLocationEnabled: true, myLocationButtonEnabled: false, zoomControlsEnabled: false, mapToolbarEnabled: false,
+        ),
+        const Center(child: Padding(padding: EdgeInsets.only(bottom: 40), child: Icon(Icons.location_on, color: Color(0xFFFF5252), size: 48))),
+        Positioned(bottom: 180, right: 16, child: FloatingActionButton(
+          mini: true, backgroundColor: Colors.white,
+          onPressed: () async {
+            final pos = await LocationService.getCurrentLocation();
+            if (pos == null) return;
+            _pickerMapController?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 15));
+          },
+          child: const Icon(Icons.my_location, color: Color(0xFF2196F3)),
+        )),
+        Positioned(left: 0, right: 0, bottom: 0, child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20)), boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
+          child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              Icon(_pickingPickup ? Icons.radio_button_checked : Icons.location_on, color: _pickingPickup ? const Color(0xFF4CAF50) : const Color(0xFFFF5252), size: 18),
+              const SizedBox(width: 8),
+              Expanded(child: Text(_pickerAddress.isEmpty ? 'Move the map to set location...' : _pickerAddress, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
+            ]),
+            const SizedBox(height: 12),
+            SizedBox(width: double.infinity, child: ElevatedButton(
+              onPressed: _pickerAddress.isEmpty ? null : () {
+                setState(() {
+                  if (_pickingPickup) {
+                    _pickupLat = _pickerCenter.latitude; _pickupLng = _pickerCenter.longitude; _pickupController.text = _pickerAddress; _pickupSuggestions = [];
+                  } else {
+                    _dropLat = _pickerCenter.latitude; _dropLng = _pickerCenter.longitude; _dropController.text = _pickerAddress; _dropSuggestions = [];
+                  }
+                  _showMapPicker = false;
+                });
+                if (_pickingPickup) _loadPackages();
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              child: const Text('Confirm Location', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
+            )),
+          ])),
+        )),
+      ]),
+    );
+  }
+
+  Widget _buildVehicleCard(String vehicleName) {
+    final isSelected = _selectedVehicle == vehicleName;
+    // Real backend packages for this vehicle, nearest to selected hours
+    final pkgList = _packagesByVehicle[vehicleName] ?? [];
+    if (pkgList.isEmpty) return const SizedBox.shrink();
+    Map<String, dynamic> matchPkg = pkgList.first;
+    int bd = ((matchPkg['hours'] as num? ?? 0).toInt() - _selectedHours).abs();
+    for (final p in pkgList) {
+      final d = ((p['hours'] as num? ?? 0).toInt() - _selectedHours).abs();
+      if (d < bd) { matchPkg = p; bd = d; }
     }
-    final totalPrice = matchPkg != null ? (matchPkg['basePrice'] ?? 0) : v['pricePerHour'] * _selectedHours;
-    final totalDistance = matchPkg != null ? (matchPkg['km'] ?? 0) : _selectedHours * 10;
-    final pkgHours = matchPkg != null ? (matchPkg['hours'] ?? _selectedHours) : _selectedHours;
+    final totalPrice = _scaledPrice(matchPkg);   // hours × per-hour rate
+    final totalDistance = _scaledKm(matchPkg);   // hours × per-hour km
+    final pkgHours = _selectedHours;
+    final cap = matchPkg['capacity'] ?? 4;
+    final raw = (matchPkg['imageUrl'] as String?) ?? '';
+    final imgUrl = raw.isEmpty ? '' : AppConfig.imageUrl(raw);
+    const accent = Color(0xFF2196F3);
+
     return GestureDetector(
-      onTap: () => setState(() { _selectedVehicle = v['name']; _pickPackageForVehicle(v['name'] as String); }),
+      onTap: () => setState(() { _selectedVehicle = vehicleName; _pickPackageForVehicle(vehicleName); }),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? (v['color'] as Color) : Colors.grey[200]!, 
-            width: isSelected ? 2 : 1
-          ),
-          boxShadow: isSelected ? [
-            BoxShadow(
-              color: (v['color'] as Color).withOpacity(0.1),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            )
-          ] : [],
+          border: Border.all(color: isSelected ? accent : Colors.grey[200]!, width: isSelected ? 2 : 1),
+          boxShadow: isSelected ? [BoxShadow(color: accent.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 4))] : [],
         ),
         child: Row(
           children: [
-            Container(
-              width: 90,
-              height: 60,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Image.asset(
-                  v['image'],
-                  fit: BoxFit.contain,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Icon(v['icon'], color: v['color'] as Color, size: 40);
-                  },
-                ),
-              ),
+            SizedBox(
+              width: 90, height: 60,
+              child: imgUrl.isNotEmpty
+                  ? Image.network(imgUrl, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.directions_car, color: accent, size: 40))
+                  : const Icon(Icons.directions_car, color: accent, size: 40),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    v['name'], 
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                  ),
+                  Text(vehicleName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                   const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Text(
-                        v['type'], 
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '• Up to $totalDistance km',
-                        style: TextStyle(fontSize: 12, color: Colors.blue[700], fontWeight: FontWeight.w500),
-                      ),
-                    ],
-                  ),
+                  Row(children: [
+                    Text('$cap seats', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    const SizedBox(width: 8),
+                    Text('• ${pkgList.length} package${pkgList.length != 1 ? 's' : ''}', style: TextStyle(fontSize: 12, color: Colors.blue[700], fontWeight: FontWeight.w500)),
+                  ]),
                 ],
               ),
             ),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text(
-                  '₹$totalPrice',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF2196F3)),
-                ),
-                Text(
-                  '$pkgHours hr / $totalDistance km',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
-                ),
+                Text('₹$totalPrice', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: accent)),
+                Text('$pkgHours hr / $totalDistance km', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
               ],
             ),
           ],
@@ -608,8 +723,9 @@ class _RentalScreenState extends State<RentalScreen> {
 
   void _showBookingConfirmationDialog() {
     final packageData = _getPackageData();
-    final vehicleData = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
-    
+    final vehicleData = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle,
+        orElse: () => {'name': _selectedVehicle, 'pricePerHour': 0, 'image': 'assets/images/economy.png', 'type': '', 'capacity': '4', 'icon': Icons.directions_car, 'color': const Color(0xFF2196F3)});
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -800,8 +916,16 @@ class _RentalScreenState extends State<RentalScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('Rate per hour', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                                Text('₹${vehicleData['pricePerHour']}/hr', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                                const Text('Extra hour rate', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                                Text('₹${_selectedPackage?['extraHourRate'] ?? 0}/hr', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text('Extra km rate', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                                Text('₹${_selectedPackage?['extraKmRate'] ?? 0}/km', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                               ],
                             ),
                           ],
