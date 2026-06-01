@@ -235,7 +235,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
           final cap = (ow['capacity'] as num?)?.toInt() ?? 4;
           // Keep the active breakdown for the currently picked trip type so booking
           // can send the correct night-halt / empty-return values to backend.
-          final bk = (_tripType == 'Round Trip' ? rt?['breakdown'] : ow['breakdown']) as Map?;
+          final Map? bk = _tripType == 'Round Trip' ? (rt?['breakdown'] as Map?) : (ow['breakdown'] as Map?);
           return {
             'name': name,
             'type': cap >= 6 ? 'Spacious' : (cap >= 4 ? 'Comfortable' : 'Quick'),
