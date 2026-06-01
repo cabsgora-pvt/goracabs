@@ -84,6 +84,21 @@ class DriverApiService {
   static Future<Map<String, dynamic>> saveBank(Map<String, dynamic> data) =>
       post('/auth/driver/register/bank', data, auth: true);
 
+  // Patch driver preferences (currently: acceptsOutstation). Returns saved values.
+  static Future<Map<String, dynamic>> updatePreferences(Map<String, dynamic> prefs) async {
+    final token = await getToken();
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+    final res = await http.patch(
+      Uri.parse('$baseUrl/auth/driver/preferences'),
+      headers: headers,
+      body: jsonEncode(prefs),
+    );
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   // Zones
   static Future<List<Map<String, dynamic>>> getZones() async {
     final res = await get('/zones');

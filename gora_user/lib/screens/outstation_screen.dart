@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import '../config/app_config.dart';
+import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
@@ -31,11 +34,30 @@ class _OutstationScreenState extends State<OutstationScreen> {
   bool _isSearching = false;
   bool _driverAssigned = false;
 
+  // ── Backend-wired state ──
+  double? _fromLat, _fromLng, _toLat, _toLng;
+  double _distanceKm = 0;
+  int _durationMin = 0;
+  List<Map<String, dynamic>> _fromSuggestions = [];
+  List<Map<String, dynamic>> _toSuggestions = [];
+  Timer? _searchDebounce;
+  bool _loadingFares = false;
+
+  // Live ride state
+  String? _rideId;
+  String? _rideOtp;
+  String _driverName = 'Pilot';
+  String _driverPhone = '';
+  String _driverPicUrl = '';
+  String _driverVehicleModel = '';
+  String _driverVehicleNumber = '';
+  Timer? _pollTimer;
+
   final List<Map<String, dynamic>> _vehicles = [
-    {'name': 'Economy', 'type': 'Comfortable', 'oneWayPrice': '₹2,500', 'roundTripPrice': '₹4,800', 'capacity': '4', 'icon': Icons.directions_car, 'image': 'assets/images/economy.png'},
-    {'name': 'Sedan', 'type': 'Premium', 'oneWayPrice': '₹3,200', 'roundTripPrice': '₹6,200', 'capacity': '4', 'icon': Icons.directions_car, 'image': 'assets/images/texi.png'},
-    {'name': 'SUV', 'type': 'Spacious', 'oneWayPrice': '₹4,500', 'roundTripPrice': '₹8,800', 'capacity': '6', 'icon': Icons.airport_shuttle, 'image': 'assets/images/texi2.png'},
-    {'name': 'Premium', 'type': 'Luxury', 'oneWayPrice': '₹5,800', 'roundTripPrice': '₹11,200', 'capacity': '4', 'icon': Icons.car_rental, 'image': 'assets/images/texi3.png'},
+    {'name': 'Economy', 'type': 'Comfortable', 'oneWayPrice': '—', 'roundTripPrice': '—', 'oneWayFare': 0, 'roundTripFare': 0, 'capacity': '4', 'icon': Icons.directions_car, 'image': 'assets/images/economy.png'},
+    {'name': 'Sedan',   'type': 'Premium',     'oneWayPrice': '—', 'roundTripPrice': '—', 'oneWayFare': 0, 'roundTripFare': 0, 'capacity': '4', 'icon': Icons.directions_car, 'image': 'assets/images/texi.png'},
+    {'name': 'SUV',     'type': 'Spacious',    'oneWayPrice': '—', 'roundTripPrice': '—', 'oneWayFare': 0, 'roundTripFare': 0, 'capacity': '6', 'icon': Icons.airport_shuttle, 'image': 'assets/images/texi2.png'},
+    {'name': 'Premium', 'type': 'Luxury',      'oneWayPrice': '—', 'roundTripPrice': '—', 'oneWayFare': 0, 'roundTripFare': 0, 'capacity': '4', 'icon': Icons.car_rental, 'image': 'assets/images/texi3.png'},
   ];
 
   @override
@@ -44,6 +66,163 @@ class _OutstationScreenState extends State<OutstationScreen> {
     // Set empty controllers for placeholders
     _fromController.text = '';
     _toController.text = '';
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _searchDebounce?.cancel();
+    super.dispose();
+  }
+
+  // Debounced places autocomplete for From/To city inputs
+  void _searchPlaces(String q, {required bool isFrom}) {
+    _searchDebounce?.cancel();
+    if (q.trim().length < 2) {
+      setState(() {
+        if (isFrom) _fromSuggestions = [];
+        else _toSuggestions = [];
+      });
+      return;
+    }
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
+      final results = await ApiService.placesAutocomplete(q);
+      if (!mounted) return;
+      setState(() {
+        if (isFrom) _fromSuggestions = results;
+        else _toSuggestions = results;
+      });
+    });
+  }
+
+  Future<void> _selectSuggestion(Map<String, dynamic> s, {required bool isFrom}) async {
+    final desc = s['description'] as String? ?? '';
+    final details = await ApiService.placeDetails(s['placeId'] as String? ?? '');
+    if (details == null || !mounted) return;
+    final lat = (details['lat'] as num).toDouble();
+    final lng = (details['lng'] as num).toDouble();
+    setState(() {
+      if (isFrom) {
+        _fromLat = lat; _fromLng = lng;
+        _fromController.text = details['address'] as String? ?? desc;
+        _fromSuggestions = [];
+      } else {
+        _toLat = lat; _toLng = lng;
+        _toController.text = details['address'] as String? ?? desc;
+        _toSuggestions = [];
+      }
+    });
+  }
+
+  // Fetch real outstation fares from backend (one-way + round-trip prices per vehicle)
+  Future<void> _loadOutstationFares() async {
+    if (_fromLat == null || _fromLng == null || _toLat == null || _toLng == null) return;
+    setState(() => _loadingFares = true);
+
+    // Fetch both one-way and round-trip in parallel so user can switch trip type freely
+    final oneWayF = ApiService.estimateFare(
+      pickupLat: _fromLat!, pickupLng: _fromLng!,
+      dropLat: _toLat!, dropLng: _toLng!,
+      service: 'outstation',
+    );
+    final roundF = ApiService.post('/fare/estimate', {
+      'pickupLat': _fromLat, 'pickupLng': _fromLng,
+      'dropLat': _toLat, 'dropLng': _toLng,
+      'service': 'outstation', 'tripType': 'round_trip',
+    });
+
+    try {
+      final oneWay = await oneWayF;
+      final round = await roundF;
+      if (!mounted) return;
+      setState(() {
+        _distanceKm = (oneWay['oneWayKm'] as num?)?.toDouble() ?? (oneWay['distance'] as num?)?.toDouble() ?? 0;
+        _durationMin = (oneWay['oneWayMin'] as num?)?.toInt() ?? (oneWay['duration'] as num?)?.toInt() ?? 0;
+
+        final oneWayVehicles = (oneWay['vehicles'] as List?) ?? [];
+        final roundVehicles = (round['vehicles'] as List?) ?? [];
+        for (final v in _vehicles) {
+          final ow = oneWayVehicles.firstWhere(
+            (a) => (a['name'] as String?)?.toLowerCase() == (v['name'] as String).toLowerCase(),
+            orElse: () => null);
+          final rt = roundVehicles.firstWhere(
+            (a) => (a['name'] as String?)?.toLowerCase() == (v['name'] as String).toLowerCase(),
+            orElse: () => null);
+          if (ow != null) { v['oneWayFare'] = ow['fare'] ?? 0; v['oneWayPrice'] = '₹${ow['fare']}'; }
+          if (rt != null) { v['roundTripFare'] = rt['fare'] ?? 0; v['roundTripPrice'] = '₹${rt['fare']}'; }
+        }
+        _loadingFares = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingFares = false);
+    }
+  }
+
+  // Book the outstation trip against the backend
+  Future<void> _bookOutstationRide() async {
+    if (_fromLat == null || _toLat == null || _selectedVehicle == null) return;
+    final isRoundTrip = _tripType == 'Round Trip';
+    final selVehicle = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
+    final fare = isRoundTrip ? selVehicle['roundTripFare'] : selVehicle['oneWayFare'];
+
+    // Combine date + time controllers into ISO strings
+    DateTime? departureAt;
+    DateTime? returnAt;
+    try {
+      if (_departureDateController.text.isNotEmpty) {
+        departureAt = DateTime.tryParse(_departureDateController.text);
+      }
+      if (isRoundTrip && _returnDateController.text.isNotEmpty) {
+        returnAt = DateTime.tryParse(_returnDateController.text);
+      }
+    } catch (_) {}
+
+    try {
+      final res = await ApiService.bookRide({
+        'pickupAddress': _fromController.text,
+        'dropAddress': _toController.text,
+        'pickupLat': _fromLat, 'pickupLng': _fromLng,
+        'dropLat': _toLat, 'dropLng': _toLng,
+        'service': 'outstation',
+        'tripType': isRoundTrip ? 'round_trip' : 'one_way',
+        'vehicleType': _selectedVehicle,
+        'fare': fare,
+        'distance': _distanceKm,
+        'duration': _durationMin,
+        'cityFrom': _fromController.text,
+        'cityTo': _toController.text,
+        'departureAt': departureAt?.toIso8601String(),
+        'returnAt': returnAt?.toIso8601String(),
+        'paymentMode': 'cash',
+      });
+      if (res['ride'] != null) {
+        _rideId = res['ride']['id']?.toString();
+        _rideOtp = res['ride']['otp']?.toString();
+      }
+    } catch (_) {/* polling will just find no ride */}
+  }
+
+  // Poll backend for status; closes finding-dialog when driver accepts
+  void _startStatusPolling(void Function(String status, Map<String, dynamic> ride) onStatus) {
+    _pollTimer?.cancel();
+    if (_rideId == null) return;
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (t) async {
+      if (!mounted) { t.cancel(); return; }
+      try {
+        final ride = await ApiService.getRide(_rideId!);
+        final status = (ride['status'] ?? 'pending').toString();
+        if (ride['driverName'] != null) _driverName = ride['driverName'].toString();
+        if (ride['driverPhone'] != null) _driverPhone = ride['driverPhone'].toString();
+        final dr = ride['driver'] as Map<String, dynamic>?;
+        if (dr != null) {
+          _driverVehicleModel = (dr['vehicleModel'] ?? _driverVehicleModel).toString();
+          _driverVehicleNumber = (dr['vehicleNumber'] ?? _driverVehicleNumber).toString();
+          final pic = (dr['profilePicUrl'] ?? '').toString();
+          if (pic.isNotEmpty) _driverPicUrl = AppConfig.imageUrl(pic);
+        }
+        onStatus(status, ride);
+      } catch (_) {}
+    });
   }
 
   @override
@@ -136,14 +315,30 @@ class _OutstationScreenState extends State<OutstationScreen> {
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton(
-                                onPressed: () {
-                                  if (_toController.text.isNotEmpty && _fromController.text.isNotEmpty) {
-                                    setState(() {
-                                      _showLocationInputs = false;
-                                      _locationConfirmed = true;
-                                      _showTripDetails = true;
-                                    });
+                                onPressed: () async {
+                                  if (_toController.text.isEmpty || _fromController.text.isEmpty) return;
+                                  // If user typed but never picked a suggestion, auto-pick top match
+                                  if (_fromLat == null && _fromSuggestions.isNotEmpty) {
+                                    await _selectSuggestion(_fromSuggestions.first, isFrom: true);
                                   }
+                                  if (_toLat == null && _toSuggestions.isNotEmpty) {
+                                    await _selectSuggestion(_toSuggestions.first, isFrom: false);
+                                  }
+                                  if (_fromLat == null || _toLat == null) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Pick a city from the suggestions for both From and To')),
+                                    );
+                                    return;
+                                  }
+                                  if (!mounted) return;
+                                  setState(() {
+                                    _showLocationInputs = false;
+                                    _locationConfirmed = true;
+                                    _showTripDetails = true;
+                                  });
+                                  // Fetch real outstation prices from backend
+                                  _loadOutstationFares();
                                 },
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Color(0xFF2196F3),
@@ -428,32 +623,64 @@ class _OutstationScreenState extends State<OutstationScreen> {
   }
 
   Widget _buildLocationInput(IconData icon, TextEditingController controller, Color iconColor, String hint) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey[200]!),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: iconColor, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              decoration: InputDecoration(
-                hintText: hint,
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                hintStyle: TextStyle(color: Colors.grey[400], fontSize: 15),
+    final isFrom = identical(controller, _fromController);
+    final suggestions = isFrom ? _fromSuggestions : _toSuggestions;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: iconColor, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  onChanged: (q) => _searchPlaces(q, isFrom: isFrom),
+                  decoration: InputDecoration(
+                    hintText: hint,
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 15),
+                  ),
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, height: 1.4),
+                ),
               ),
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500, height: 1.4),
+            ],
+          ),
+        ),
+        if (suggestions.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey[200]!),
+            ),
+            constraints: const BoxConstraints(maxHeight: 220),
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: suggestions.length,
+              itemBuilder: (_, i) {
+                final s = suggestions[i];
+                return ListTile(
+                  dense: true,
+                  leading: const Icon(Icons.location_on, color: Color(0xFFFF5252), size: 18),
+                  title: Text(s['mainText']?.toString() ?? '', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  subtitle: Text(s['secondaryText']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                  onTap: () => _selectSuggestion(s, isFrom: isFrom),
+                );
+              },
             ),
           ),
-        ],
-      ),
+      ],
     );
   }
 
@@ -1137,12 +1364,20 @@ class _OutstationScreenState extends State<OutstationScreen> {
       enableDrag: false,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
-        Future.delayed(const Duration(seconds: 3), () {
-          if (Navigator.canPop(context)) {
-            Navigator.of(context).pop();
-            _showDriverAssignedDialog();
-          }
-        });
+        // Actually book the outstation ride then poll backend for driver assignment
+        () async {
+          await _bookOutstationRide();
+          _startStatusPolling((status, ride) {
+            if (status == 'accepted' || status == 'arrived' || status == 'ongoing') {
+              if (Navigator.canPop(context)) {
+                Navigator.of(context).pop();
+                _showDriverAssignedDialog();
+              }
+            } else if (status == 'cancelled') {
+              _pollTimer?.cancel();
+            }
+          });
+        }();
 
         return Container(
           padding: const EdgeInsets.all(20),
@@ -1197,9 +1432,37 @@ class _OutstationScreenState extends State<OutstationScreen> {
                 decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey[200]!), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))]),
                 child: Row(
                   children: [
-                    Container(width: 55, height: 55, decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.grey[200]!, width: 2), image: const DecorationImage(image: NetworkImage('https://i.pravatar.cc/150?u=outstationpilot'), fit: BoxFit.cover))),
+                    Container(
+                      width: 55, height: 55,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.grey[200],
+                        border: Border.all(color: Colors.grey[200]!, width: 2),
+                        image: _driverPicUrl.isNotEmpty
+                            ? DecorationImage(image: NetworkImage(_driverPicUrl), fit: BoxFit.cover)
+                            : null,
+                      ),
+                      alignment: Alignment.center,
+                      child: _driverPicUrl.isEmpty
+                          ? Text(_driverName.isNotEmpty ? _driverName[0].toUpperCase() : 'P',
+                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black54))
+                          : null,
+                    ),
                     const SizedBox(width: 12),
-                    const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Rahul Sharma', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)), SizedBox(height: 4), Row(children: [Icon(Icons.star, color: Colors.amber, size: 16), SizedBox(width: 4), Text('4.8 (2.5k+ trips)', style: TextStyle(fontSize: 13, color: Colors.grey))]), SizedBox(height: 4), Text('Silver Mahindra Marazzo • RJ 14 EF 1234', style: TextStyle(fontSize: 11, color: Colors.grey))])),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(_driverName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                      const SizedBox(height: 4),
+                      Row(children: [
+                        const Icon(Icons.star, color: Colors.amber, size: 16),
+                        const SizedBox(width: 4),
+                        Text(_rideOtp != null ? 'PIN: $_rideOtp' : 'Outstation pilot', style: const TextStyle(fontSize: 13, color: Colors.grey)),
+                      ]),
+                      const SizedBox(height: 4),
+                      Text(
+                        [_driverVehicleModel, _driverVehicleNumber].where((s) => s.isNotEmpty).join(' • '),
+                        style: const TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ])),
                     SizedBox(width: 70, height: 50, child: Image.asset(_vehicles.firstWhere((v) => v['name'] == _selectedVehicle)['image'], fit: BoxFit.contain)),
                   ],
                 ),

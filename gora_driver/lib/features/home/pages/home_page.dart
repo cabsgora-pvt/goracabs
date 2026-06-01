@@ -293,6 +293,10 @@ class _RidePollerState extends State<_RidePoller> {
         pickupLng: (r['pickupLng'] ?? 72.5714).toDouble(),
         dropLat: (r['dropLat'] ?? 23.0732).toDouble(),
         dropLng: (r['dropLng'] ?? 72.6208).toDouble(),
+        service: (r['service'] ?? 'taxi').toString(),
+        tripType: (r['tripType'] ?? 'one_way').toString(),
+        cityFrom: (r['cityFrom'] ?? '').toString(),
+        cityTo: (r['cityTo'] ?? '').toString(),
       );
       if (!mounted) return;
       _navigating = true;

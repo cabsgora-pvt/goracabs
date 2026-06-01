@@ -17,6 +17,11 @@ class RideRequestModel {
   final String id, userName, userPhone, userRating, pickupAddress, dropAddress, distance, fare, eta, rideType;
   final double pickupLat, pickupLng, dropLat, dropLng;
   final String userProfilePicUrl;
+  // Outstation extras — empty for taxi rides
+  final String service;       // 'taxi' | 'outstation' | ...
+  final String tripType;      // 'one_way' | 'round_trip'
+  final String cityFrom;
+  final String cityTo;
 
   const RideRequestModel({
     required this.id, required this.userName, required this.userPhone, required this.userRating,
@@ -24,6 +29,10 @@ class RideRequestModel {
     required this.fare, required this.eta, required this.rideType,
     required this.pickupLat, required this.pickupLng, required this.dropLat, required this.dropLng,
     this.userProfilePicUrl = '',
+    this.service = 'taxi',
+    this.tripType = 'one_way',
+    this.cityFrom = '',
+    this.cityTo = '',
   });
 }
 

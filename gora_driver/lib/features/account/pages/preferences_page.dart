@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
+import '../../../services/driver_api_service.dart';
 
 class PreferencesPage extends StatefulWidget {
   static const route = '/preferences';
@@ -13,6 +14,41 @@ class _PreferencesPageState extends State<PreferencesPage> {
   bool _bidding = true, _instantRide = true;
   String _maxDistance = '10 km';
   bool _acOnly = false, _femaleOnly = false;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Load current outstation opt-in from backend so toggle reflects DB state
+    _loadCurrent();
+  }
+
+  Future<void> _loadCurrent() async {
+    try {
+      final res = await DriverApiService.getProfile();
+      final d = res['driver'] as Map<String, dynamic>?;
+      if (d == null || !mounted) return;
+      setState(() {
+        _outstation = (d['acceptsOutstation'] as bool?) ?? false;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _savePrefs() async {
+    setState(() => _saving = true);
+    try {
+      // Persist outstation opt-in to backend; other toggles are local-only for now
+      await DriverApiService.updatePreferences({'acceptsOutstation': _outstation});
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preferences saved!'), backgroundColor: AppColors.green));
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to save: $e'), backgroundColor: AppColors.red));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,11 +105,8 @@ class _PreferencesPageState extends State<PreferencesPage> {
 
           const SizedBox(height: 24),
           PrimaryButton(
-            label: 'Save Preferences',
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preferences saved!'), backgroundColor: AppColors.green));
-              Navigator.pop(context);
-            },
+            label: _saving ? 'Saving...' : 'Save Preferences',
+            onTap: _saving ? null : _savePrefs,
           ),
         ]),
       ),

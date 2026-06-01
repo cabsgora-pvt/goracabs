@@ -12,9 +12,15 @@ const RideSchema = new Schema({
   pickupLng: Number,
   dropLat: Number,
   dropLng: Number,
-  service: { type: String, enum: ['taxi', 'rental', 'outstation', 'delivery'], default: 'taxi' },
+  service: { type: String, enum: ['taxi', 'rental', 'outstation', 'delivery', 'hire_driver'], default: 'taxi' },
   vehicleType: String,
   status: { type: String, enum: ['pending', 'accepted', 'arrived', 'ongoing', 'completed', 'cancelled'], default: 'pending' },
+  // ── Outstation-only fields (ignored by taxi/rental/delivery) ──
+  tripType: { type: String, enum: ['one_way', 'round_trip'], default: 'one_way' },
+  cityFrom: String,
+  cityTo: String,
+  departureAt: Date,
+  returnAt: Date,
   fare: Number,
   tip: { type: Number, default: 0 },
   totalFare: Number,          // fare + tip

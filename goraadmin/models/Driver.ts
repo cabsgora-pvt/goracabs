@@ -13,6 +13,8 @@ const DriverSchema = new Schema({
   profilePicUrl: String,
   status: { type: String, enum: ['pending', 'approved', 'blocked', 'rejected'], default: 'pending' },
   isOnline: { type: Boolean, default: false },
+  // Driver opts in to receive intercity outstation requests (off by default — taxi only)
+  acceptsOutstation: { type: Boolean, default: false },
   vehicleNumber: String,
   vehicleModel: String,
   vehicleType: String,

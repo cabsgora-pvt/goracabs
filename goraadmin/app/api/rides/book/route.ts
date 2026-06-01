@@ -144,6 +144,12 @@ export async function POST(req: NextRequest) {
       fareBreakdown: breakdown,
       paymentMode: b.paymentMode || 'cash',
       zoneId, otp, status: 'pending',
+      // Outstation-only fields (silently ignored for other services)
+      tripType: b.tripType || 'one_way',
+      cityFrom: b.cityFrom,
+      cityTo: b.cityTo,
+      departureAt: b.departureAt ? new Date(b.departureAt) : undefined,
+      returnAt: b.returnAt ? new Date(b.returnAt) : undefined,
     })
 
     // Find nearest online approved driver: same zone + vehicle type

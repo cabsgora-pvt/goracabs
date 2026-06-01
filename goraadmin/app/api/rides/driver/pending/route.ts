@@ -23,16 +23,34 @@ export async function GET(req: NextRequest) {
     const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000)
     const driverId = String(driver._id)
 
+    // Build a $or so drivers see BOTH their in-city taxi rides AND outstation rides
+    // (when they've opted in). Existing taxi flow is untouched — drivers who haven't
+    // opted into outstation see only the taxi branch.
+    const baseFilter: any = {
+      vehicleType: driver.selectedVehicleTypeName,
+    }
+    const taxiBranch: any = { ...baseFilter, service: { $ne: 'outstation' } }
+    if (driver.zoneId) taxiBranch.zoneId = driver.zoneId
+
+    const branches: any[] = [taxiBranch]
+    if (driver.acceptsOutstation) {
+      // Outstation: ignore zone restriction (cross-city), allow longer window (15 min)
+      branches.push({ ...baseFilter, service: 'outstation' })
+    }
+
     const query: any = {
       status: 'pending',
-      vehicleType: driver.selectedVehicleTypeName,
-      createdAt: { $gte: twoMinAgo },
+      createdAt: { $gte: new Date(Date.now() - 15 * 60 * 1000) }, // widest window; per-branch filtering above handles other cases
       rejectedBy: { $ne: driverId },
+      $or: branches,
     }
-    // Match by zone (stored as string on driver, ObjectId on ride)
-    if (driver.zoneId) query.zoneId = driver.zoneId
 
-    const rides = await Ride.find(query).sort({ createdAt: -1 }).lean()
+    // For non-outstation taxi rides we still want the 2-min freshness — apply after fetch
+    let rides = await Ride.find(query).sort({ createdAt: -1 }).lean() as any[]
+    rides = rides.filter((r: any) => {
+      if (r.service === 'outstation') return true // outstation rides stay valid up to 15 min
+      return new Date(r.createdAt) >= twoMinAgo
+    })
 
     // Batch-load rider profile pics
     const riderIds = Array.from(new Set(rides.map((r: any) => String(r.riderId)).filter(Boolean)))
@@ -62,6 +80,13 @@ export async function GET(req: NextRequest) {
         paymentMode: r.paymentMode,
         routePolyline: r.routePolyline,
         createdAt: r.createdAt,
+        // Outstation extras (null for taxi rides — driver UI hides outstation chip)
+        service: r.service,
+        tripType: r.tripType,
+        cityFrom: r.cityFrom,
+        cityTo: r.cityTo,
+        departureAt: r.departureAt,
+        returnAt: r.returnAt,
       }
     })
 

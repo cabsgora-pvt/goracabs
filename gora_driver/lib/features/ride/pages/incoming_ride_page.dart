@@ -126,6 +126,35 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
                 ),
               ]),
             ),
+            // Outstation badge (only for intercity rides) — gives driver clear heads-up
+            if (r.service == 'outstation') ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [AppColors.orange.withOpacity(0.15), AppColors.orange.withOpacity(0.05)]),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.orange.withOpacity(0.4)),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.map_outlined, color: AppColors.orange, size: 22),
+                  const SizedBox(width: 10),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(
+                      r.tripType == 'round_trip' ? 'OUTSTATION • Round Trip' : 'OUTSTATION • One Way',
+                      style: const TextStyle(color: AppColors.orange, fontWeight: FontWeight.w800, fontSize: 12, letterSpacing: 0.5),
+                    ),
+                    if (r.cityFrom.isNotEmpty || r.cityTo.isNotEmpty)
+                      Text(
+                        '${r.cityFrom.isNotEmpty ? r.cityFrom : "Pickup"} → ${r.cityTo.isNotEmpty ? r.cityTo : "Destination"}',
+                        style: const TextStyle(fontSize: 12, color: AppColors.textDark, fontWeight: FontWeight.w600),
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                      ),
+                  ])),
+                ]),
+              ),
+            ],
             const SizedBox(height: 16),
             // Ride info
             Container(
