@@ -21,6 +21,12 @@ const RideSchema = new Schema({
   cityTo: String,
   departureAt: Date,
   returnAt: Date,
+  numPassengers: { type: Number, default: 1 },
+  multiStops: [{ address: String, lat: Number, lng: Number }],
+  nightHaltCharge: Number,     // computed at booking
+  emptyReturnCharge: Number,   // computed at booking
+  // Extended status for outstation: 'at_destination' + 'returning' beyond the standard set
+  outstationPhase: { type: String, enum: ['pickup_pending', 'driver_arriving', 'picked_up', 'enroute', 'at_destination', 'returning', 'completed'], default: 'pickup_pending' },
   fare: Number,
   tip: { type: Number, default: 0 },
   totalFare: Number,          // fare + tip

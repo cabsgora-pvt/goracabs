@@ -17,7 +17,7 @@ const TABS = [
 ]
 
 type VehicleType = { _id: string; name: string; imageUrl: string; services: string[]; baseFare: number; perKm: number; perMin: number; minFare: number }
-type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean }
+type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean; nightHaltCharge?: number; emptyReturnPercent?: number }
 
 export default function ZonePricingPage() {
   const { id } = useParams()
@@ -60,7 +60,9 @@ export default function ZonePricingPage() {
             perMin: v.perMin,
             minFare: v.minFare,
             commissionPercent: 20,
-            isActive: false, // not enabled yet
+            isActive: false,
+            nightHaltCharge: 0,
+            emptyReturnPercent: 0,
           })
         })
       })
@@ -273,6 +275,28 @@ export default function ZonePricingPage() {
                 e.g. 20% on ₹100 fare → admin keeps ₹20, driver gets ₹80
               </p>
             </div>
+            {/* Outstation-only extras: only shown when editing an outstation pricing row */}
+            {editRow.service === 'outstation' && (
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 space-y-3">
+                <p className="text-sm font-semibold text-orange-800">Outstation Extras</p>
+                <div>
+                  <label htmlFor="p-night" className="block text-xs font-medium text-orange-800 mb-1">Night Halt (₹ per night) — round trip only</label>
+                  <input id="p-night" type="number" step="50" min="0"
+                    value={editForm.nightHaltCharge || 0}
+                    onChange={e => setEditForm({ ...editForm, nightHaltCharge: +e.target.value })}
+                    className="w-full border border-orange-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  <p className="text-xs text-orange-700 mt-1">Charged when round-trip is overnight. e.g. ₹400/night for driver lodging.</p>
+                </div>
+                <div>
+                  <label htmlFor="p-empty" className="block text-xs font-medium text-orange-800 mb-1">Empty Return (% of fare) — one way only</label>
+                  <input id="p-empty" type="number" step="5" min="0" max="100"
+                    value={editForm.emptyReturnPercent || 0}
+                    onChange={e => setEditForm({ ...editForm, emptyReturnPercent: +e.target.value })}
+                    className="w-full border border-orange-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  <p className="text-xs text-orange-700 mt-1">Added back when driver returns empty. e.g. 30% means ₹100 fare → ₹130 total.</p>
+                </div>
+              </div>
+            )}
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setEditRow(null)}
                 className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-50">Cancel</button>

@@ -150,6 +150,10 @@ export async function POST(req: NextRequest) {
       cityTo: b.cityTo,
       departureAt: b.departureAt ? new Date(b.departureAt) : undefined,
       returnAt: b.returnAt ? new Date(b.returnAt) : undefined,
+      numPassengers: b.numPassengers || 1,
+      multiStops: Array.isArray(b.multiStops) ? b.multiStops : [],
+      nightHaltCharge: b.nightHaltCharge || 0,
+      emptyReturnCharge: b.emptyReturnCharge || 0,
     })
 
     // Find nearest online approved driver: same zone + vehicle type

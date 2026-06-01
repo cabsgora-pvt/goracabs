@@ -9,6 +9,9 @@ const PricingSchema = new Schema({
   minFare: Number,
   commissionPercent: { type: Number, default: 20 },
   isActive: { type: Boolean, default: true },
+  // Outstation-only extras (ignored for taxi / rental / delivery)
+  nightHaltCharge:   { type: Number, default: 0 }, // ₹ per night (round-trip only)
+  emptyReturnPercent:{ type: Number, default: 0 }, // % of one-way fare added back for one-way (driver returns empty)
 })
 const ZoneSchema = new Schema({
   name: String,

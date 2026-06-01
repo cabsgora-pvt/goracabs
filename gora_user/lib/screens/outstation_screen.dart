@@ -47,6 +47,13 @@ class _OutstationScreenState extends State<OutstationScreen> {
   // Google Maps state
   GoogleMapController? _mapController;
   List<LatLng> _routePoints = [];
+  // Real DateTime values backing the date/time text controllers
+  DateTime? _departureDateTime;
+  DateTime? _returnDateTime;
+  // Additional outstation form state
+  int _numPassengers = 2;
+  final List<TextEditingController> _stopControllers = [];
+  final List<Map<String, dynamic>> _stops = []; // {address, lat, lng}
   // Map-picker state (for choosing From/To by dragging a pin)
   bool _showMapPicker = false;
   bool _pickingFrom = true; // which field the picker is currently filling
@@ -63,6 +70,10 @@ class _OutstationScreenState extends State<OutstationScreen> {
   String _driverVehicleModel = '';
   String _driverVehicleNumber = '';
   double _driverRating = 0;
+  // Live driver location (polled every 5s once driver assigned)
+  LatLng? _driverLatLng;
+  double _driverHeading = 0;
+  Timer? _driverLocTimer;
   Timer? _pollTimer;
 
   // Vehicles list — populated from backend (admin-configured outstation-enabled VehicleTypes)
@@ -92,8 +103,36 @@ class _OutstationScreenState extends State<OutstationScreen> {
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _driverLocTimer?.cancel();
     _searchDebounce?.cancel();
     super.dispose();
+  }
+
+  // Poll driver's live position every 5s during the ride; updates map marker
+  void _startDriverLocationPolling() {
+    _driverLocTimer?.cancel();
+    if (_rideId == null) return;
+    _driverLocTimer = Timer.periodic(const Duration(seconds: 5), (t) async {
+      if (!mounted) { t.cancel(); return; }
+      try {
+        final res = await ApiService.getDriverLocation(_rideId!);
+        final dr = res['driver'] as Map<String, dynamic>?;
+        if (dr == null || dr['lat'] == null || dr['lng'] == null) return;
+        if (!mounted) return;
+        setState(() {
+          _driverLatLng = LatLng((dr['lat'] as num).toDouble(), (dr['lng'] as num).toDouble());
+          _driverHeading = ((dr['heading'] as num?) ?? 0).toDouble();
+        });
+      } catch (_) {}
+    });
+  }
+
+  // Format DateTime as "DD/MM, h:MM AM/PM"
+  String _formatDateTime(DateTime dt) {
+    final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    final mm = dt.minute.toString().padLeft(2, '0');
+    return '${dt.day}/${dt.month}, $h:$mm $ampm';
   }
 
   // Animate Google Map to fit from + to + route polyline
@@ -194,6 +233,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
           final rt = rtByName[name.toLowerCase()];
           final raw = (ow['imageUrl'] as String?) ?? '';
           final cap = (ow['capacity'] as num?)?.toInt() ?? 4;
+          // Keep the active breakdown for the currently picked trip type so booking
+          // can send the correct night-halt / empty-return values to backend.
+          final bk = (_tripType == 'Round Trip' ? rt?['breakdown'] : ow['breakdown']) as Map?;
           return {
             'name': name,
             'type': cap >= 6 ? 'Spacious' : (cap >= 4 ? 'Comfortable' : 'Quick'),
@@ -205,6 +247,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
             'icon': Icons.directions_car,
             'image': raw.isEmpty ? 'assets/images/economy.png' : '__network__',
             'networkImage': raw.isEmpty ? '' : AppConfig.imageUrl(raw),
+            'breakdown': bk ?? {},
+            'extras': ow['extras'] ?? 0,
           };
         }).toList();
         _loadingFares = false;
@@ -222,18 +266,6 @@ class _OutstationScreenState extends State<OutstationScreen> {
     final selVehicle = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
     final fare = isRoundTrip ? selVehicle['roundTripFare'] : selVehicle['oneWayFare'];
 
-    // Combine date + time controllers into ISO strings
-    DateTime? departureAt;
-    DateTime? returnAt;
-    try {
-      if (_departureDateController.text.isNotEmpty) {
-        departureAt = DateTime.tryParse(_departureDateController.text);
-      }
-      if (isRoundTrip && _returnDateController.text.isNotEmpty) {
-        returnAt = DateTime.tryParse(_returnDateController.text);
-      }
-    } catch (_) {}
-
     try {
       final res = await ApiService.bookRide({
         'pickupAddress': _fromController.text,
@@ -248,8 +280,12 @@ class _OutstationScreenState extends State<OutstationScreen> {
         'duration': _durationMin,
         'cityFrom': _fromController.text,
         'cityTo': _toController.text,
-        'departureAt': departureAt?.toIso8601String(),
-        'returnAt': returnAt?.toIso8601String(),
+        'departureAt': _departureDateTime?.toIso8601String(),
+        'returnAt': isRoundTrip ? _returnDateTime?.toIso8601String() : null,
+        'numPassengers': _numPassengers,
+        'multiStops': _stops,
+        'nightHaltCharge': (selVehicle['breakdown'] as Map?)?['nightHalt'] ?? 0,
+        'emptyReturnCharge': (selVehicle['breakdown'] as Map?)?['emptyReturn'] ?? 0,
         'paymentMode': 'cash',
       });
       if (res['ride'] != null) {
@@ -278,6 +314,10 @@ class _OutstationScreenState extends State<OutstationScreen> {
           if (pic.isNotEmpty) _driverPicUrl = AppConfig.imageUrl(pic);
           final r = dr['rating'];
           if (r is num) _driverRating = r.toDouble();
+        }
+        // Start live driver location polling once driver is assigned (only once)
+        if (status != 'pending' && _driverLocTimer == null) {
+          _startDriverLocationPolling();
         }
         onStatus(status, ride);
       } catch (_) {}
@@ -449,6 +489,17 @@ class _OutstationScreenState extends State<OutstationScreen> {
                         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
                         infoWindow: InfoWindow(title: 'To', snippet: _toController.text),
                       ),
+                    // Live driver marker once assigned
+                    if (_driverLatLng != null)
+                      Marker(
+                        markerId: const MarkerId('driver'),
+                        position: _driverLatLng!,
+                        rotation: _driverHeading,
+                        flat: true,
+                        anchor: const Offset(0.5, 0.5),
+                        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+                        infoWindow: InfoWindow(title: _driverName, snippet: _driverVehicleNumber),
+                      ),
                   },
                   polylines: {
                     if (_routePoints.isNotEmpty)
@@ -562,6 +613,46 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                         ),
                                       ],
                                     ),
+                                  if (_showTripDetails)
+                                    const SizedBox(height: 12),
+                                  // Passengers picker — affects vehicle suitability (3 vs 6 seats)
+                                  if (_showTripDetails)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                      decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey[200]!)),
+                                      child: Row(children: [
+                                        Icon(Icons.group, color: Colors.grey[600], size: 18),
+                                        const SizedBox(width: 10),
+                                        const Text('Passengers', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                                        const Spacer(),
+                                        IconButton(
+                                          icon: const Icon(Icons.remove_circle_outline, color: Color(0xFF2196F3)),
+                                          padding: EdgeInsets.zero, constraints: const BoxConstraints(),
+                                          onPressed: _numPassengers > 1 ? () => setState(() => _numPassengers--) : null,
+                                        ),
+                                        const SizedBox(width: 14),
+                                        Text('$_numPassengers', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                                        const SizedBox(width: 14),
+                                        IconButton(
+                                          icon: const Icon(Icons.add_circle_outline, color: Color(0xFF2196F3)),
+                                          padding: EdgeInsets.zero, constraints: const BoxConstraints(),
+                                          onPressed: _numPassengers < 12 ? () => setState(() => _numPassengers++) : null,
+                                        ),
+                                      ]),
+                                    ),
+                                  if (_showTripDetails && _departureDateTime != null && _durationMin > 0)
+                                    Padding(padding: const EdgeInsets.only(top: 10), child: Container(
+                                      padding: const EdgeInsets.all(10),
+                                      decoration: BoxDecoration(color: const Color(0xFF4CAF50).withOpacity(0.08), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.3))),
+                                      child: Row(children: [
+                                        const Icon(Icons.flag, color: Color(0xFF4CAF50), size: 16),
+                                        const SizedBox(width: 8),
+                                        Expanded(child: Text(
+                                          'Arriving by ${_formatDateTime(_departureDateTime!.add(Duration(minutes: _durationMin)))}',
+                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2E7D32)),
+                                        )),
+                                      ]),
+                                    )),
                                   if (_showTripDetails)
                                     const SizedBox(height: 16),
                                   GestureDetector(
@@ -1001,14 +1092,24 @@ class _OutstationScreenState extends State<OutstationScreen> {
               controller: controller,
               readOnly: true,
               onTap: () async {
+                final isReturn = identical(controller, _returnDateController);
                 final date = await showDatePicker(
                   context: context,
-                  initialDate: DateTime.now(),
+                  initialDate: (isReturn ? _returnDateTime : _departureDateTime) ?? DateTime.now(),
                   firstDate: DateTime.now(),
                   lastDate: DateTime.now().add(const Duration(days: 365)),
                 );
                 if (date != null) {
                   controller.text = '${date.day}/${date.month}/${date.year}';
+                  setState(() {
+                    if (isReturn) {
+                      final existing = _returnDateTime;
+                      _returnDateTime = DateTime(date.year, date.month, date.day, existing?.hour ?? 9, existing?.minute ?? 0);
+                    } else {
+                      final existing = _departureDateTime;
+                      _departureDateTime = DateTime(date.year, date.month, date.day, existing?.hour ?? 9, existing?.minute ?? 0);
+                    }
+                  });
                 }
               },
               decoration: InputDecoration(
@@ -1043,12 +1144,24 @@ class _OutstationScreenState extends State<OutstationScreen> {
               controller: controller,
               readOnly: true,
               onTap: () async {
+                final isReturn = identical(controller, _returnTimeController);
                 final time = await showTimePicker(
                   context: context,
-                  initialTime: TimeOfDay.now(),
+                  initialTime: TimeOfDay.fromDateTime(
+                    (isReturn ? _returnDateTime : _departureDateTime) ?? DateTime.now(),
+                  ),
                 );
                 if (time != null) {
                   controller.text = time.format(context);
+                  setState(() {
+                    if (isReturn) {
+                      final d = _returnDateTime ?? DateTime.now();
+                      _returnDateTime = DateTime(d.year, d.month, d.day, time.hour, time.minute);
+                    } else {
+                      final d = _departureDateTime ?? DateTime.now();
+                      _departureDateTime = DateTime(d.year, d.month, d.day, time.hour, time.minute);
+                    }
+                  });
                 }
               },
               decoration: InputDecoration(
@@ -1662,7 +1775,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
       enableDrag: false,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
-        // Actually book the outstation ride then poll backend for driver assignment
+        // Actually book the outstation ride then poll backend for driver assignment + completion
         () async {
           await _bookOutstationRide();
           _startStatusPolling((status, ride) {
@@ -1671,6 +1784,16 @@ class _OutstationScreenState extends State<OutstationScreen> {
                 Navigator.of(context).pop();
                 _showDriverAssignedDialog();
               }
+            } else if (status == 'completed') {
+              _pollTimer?.cancel();
+              if (Navigator.canPop(context)) Navigator.of(context).pop();
+              // Send user to rating/review screen straight after ride completes
+              Navigator.push(context, MaterialPageRoute(builder: (_) => RatingScreen(
+                driverName: _driverName.isNotEmpty ? _driverName : 'Pilot',
+                vehicleName: _selectedVehicle ?? 'Outstation',
+                selectedTip: 0,
+                rideId: _rideId,
+              )));
             } else if (status == 'cancelled') {
               _pollTimer?.cancel();
             }
