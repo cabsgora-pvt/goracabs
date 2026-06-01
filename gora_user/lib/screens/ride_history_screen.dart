@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../config/app_config.dart';
 import '../theme/app_theme.dart';
+import 'trip_detail_screen.dart';
 import '../services/api_service.dart';
 import '../utils/polyline_utils.dart';
 import 'invoice_screen.dart';
@@ -80,6 +81,22 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
             'tripType': (r['tripType'] as String?) ?? 'one_way',
             'numPassengers': (r['numPassengers'] as num?)?.toInt() ?? 0,
             'duration': (r['duration'] as num?)?.toInt() ?? 0,
+            'distance': (r['distance'] as num?)?.toDouble() ?? 0,
+            'paymentMode': (r['paymentMode'] ?? 'cash').toString(),
+            'vehicleImageUrl': (r['vehicleImageUrl'] as String?) ?? '',
+            // Rental extras
+            'packageHours': (r['packageHours'] as num?)?.toInt() ?? 0,
+            'packageKm': (r['packageKm'] as num?)?.toInt() ?? 0,
+            'actualHours': (r['actualHours'] as num?)?.toDouble() ?? 0,
+            'actualKm': (r['actualKm'] as num?)?.toDouble() ?? 0,
+            'extraHoursCharge': (r['extraHoursCharge'] as num?)?.toInt() ?? 0,
+            'extraKmCharge': (r['extraKmCharge'] as num?)?.toInt() ?? 0,
+            'nightChargeRental': (r['nightChargeRental'] as num?)?.toInt() ?? 0,
+            'finalFare': (r['finalFare'] as num?)?.toInt() ?? 0,
+            // Outstation extras
+            'nightHaltCharge': (r['nightHaltCharge'] as num?)?.toInt() ?? 0,
+            'emptyReturnCharge': (r['emptyReturnCharge'] as num?)?.toInt() ?? 0,
+            'tollCharge': (r['tollCharge'] as num?)?.toInt() ?? 0,
           };
         }).toList();
         _loadingRides = false;
@@ -309,7 +326,9 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
 
   Widget _buildRideCard(Map<String, dynamic> ride) {
     final isCancelled = ride['status'] == 'Cancelled';
-    return Container(
+    return InkWell(
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TripDetailScreen(ride: ride))),
+      child: Container(
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -471,6 +490,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
             ),
           ],
         ],
+      ),
       ),
     );
   }

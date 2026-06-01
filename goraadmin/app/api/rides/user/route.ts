@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
+import VehicleType from '@/models/VehicleType'
 import { requireAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 
@@ -26,10 +27,15 @@ export async function GET(req: NextRequest) {
       : []
     const dMap = new Map<string, any>(drivers.map(d => [String(d._id), d]))
 
+    // Vehicle images by type name (for the trip detail "car image")
+    const vts = await VehicleType.find({}).select('name imageUrl').lean() as any[]
+    const vtMap = new Map<string, string>(vts.map(v => [v.name, v.imageUrl || '']))
+
     const hydrated = rides.map(r => {
       const d = r.driverId ? dMap.get(String(r.driverId)) : null
       return {
         ...r,
+        vehicleImageUrl: vtMap.get(r.vehicleType) || '',
         driver: d ? {
           name: d.name,
           phone: d.phone,
