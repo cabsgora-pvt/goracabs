@@ -37,10 +37,9 @@ export async function GET(req: NextRequest) {
       branches.push({ ...baseFilter, service: 'outstation' })
     }
     if (driver.acceptsRental) {
-      // Rental: keep zone restriction (it's a local hourly hire)
-      const rentalBranch: any = { ...baseFilter, service: 'rental' }
-      if (driver.zoneId) rentalBranch.zoneId = driver.zoneId
-      branches.push(rentalBranch)
+      // Rental: match by vehicle type only (no strict zone match — avoids ObjectId/string
+      // mismatches silently dropping requests). Driver opted in, so deliver it.
+      branches.push({ ...baseFilter, service: 'rental' })
     }
 
     const query: any = {
