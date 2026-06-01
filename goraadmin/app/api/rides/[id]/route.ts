@@ -15,20 +15,31 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
     if (ride.driverId) {
       const d: any = await Driver.findById(ride.driverId)
-        .select('name phone profilePicUrl vehicleModel vehicleNumber vehicleRegistrationNumber rating currentLat currentLng currentHeading locationUpdatedAt')
+        .select('name phone profilePicUrl vehicleModel vehicleNumber vehicleRegistrationNumber rating totalRides createdAt currentLat currentLng currentHeading locationUpdatedAt selectedVehicleTypeName')
         .lean()
-      if (d) ride.driver = {
-        id: d._id,
-        name: d.name,
-        phone: d.phone,
-        profilePicUrl: d.profilePicUrl,
-        vehicleModel: d.vehicleModel,
-        vehicleNumber: d.vehicleNumber || d.vehicleRegistrationNumber,
-        rating: d.rating,
-        currentLat: d.currentLat,
-        currentLng: d.currentLng,
-        currentHeading: d.currentHeading,
-        locationUpdatedAt: d.locationUpdatedAt,
+      if (d) {
+        // Driver "experience" = years on platform (rounded down)
+        let yearsActive = 0
+        if (d.createdAt) {
+          const ms = Date.now() - new Date(d.createdAt).getTime()
+          yearsActive = Math.max(1, Math.floor(ms / (1000 * 60 * 60 * 24 * 365)))
+        }
+        ride.driver = {
+          id: d._id,
+          name: d.name,
+          phone: d.phone,
+          profilePicUrl: d.profilePicUrl,
+          vehicleModel: d.vehicleModel,
+          vehicleNumber: d.vehicleNumber || d.vehicleRegistrationNumber,
+          rating: d.rating,
+          totalRides: d.totalRides,
+          yearsActive,
+          currentLat: d.currentLat,
+          currentLng: d.currentLng,
+          currentHeading: d.currentHeading,
+          locationUpdatedAt: d.locationUpdatedAt,
+          vehicleTypeName: d.selectedVehicleTypeName,
+        }
       }
     }
 

@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../models/models.dart';
 import '../../../mock/mock_data.dart';
+import '../../../services/driver_api_service.dart';
 import '../bloc/ride_bloc.dart';
 import '../../home/pages/map_placeholder.dart' show RideMap;
 import 'invoice_page.dart';
@@ -11,6 +12,10 @@ import 'invoice_page.dart';
 class OnRidePage extends StatelessWidget {
   static const route = '/on-ride';
   const OnRidePage({super.key});
+
+  // Tracks outstation phase locally (UI-only — backend update via DriverApiService.updatePhase)
+  static final ValueNotifier<String> _outstationPhase = ValueNotifier<String>('enroute');
+  static final ValueNotifier<bool> _nightHaltConfirmed = ValueNotifier<bool>(false);
 
   @override
   Widget build(BuildContext context) {
@@ -127,10 +132,64 @@ class OnRidePage extends StatelessWidget {
                             onTap: () => _showOtpDialog(context, bloc),
                           ),
                         if (started)
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(backgroundColor: AppColors.red, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 52), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                            onPressed: () => _confirmEndRide(context, bloc),
-                            child: const Text('🏁 End Ride', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                          // Outstation round-trip needs intermediate "at destination" + optional night halt + "start return"
+                          // For one-way / taxi, fall through to the standard End Ride button.
+                          ValueListenableBuilder<String>(
+                            valueListenable: _outstationPhase,
+                            builder: (_, phase, __) {
+                              final isOutstation = r.service == 'outstation';
+                              final isRound = isOutstation && r.tripType == 'round_trip';
+
+                              if (isRound && phase == 'enroute') {
+                                return Column(children: [
+                                  PrimaryButton(
+                                    label: '📍 Arrived at Destination',
+                                    onTap: () async {
+                                      await DriverApiService.updatePhase(r.id, {'phase': 'at_destination'});
+                                      _outstationPhase.value = 'at_destination';
+                                    },
+                                  ),
+                                ]);
+                              }
+                              if (isRound && phase == 'at_destination') {
+                                return Column(children: [
+                                  // Night halt confirm — toggles once
+                                  ValueListenableBuilder<bool>(
+                                    valueListenable: _nightHaltConfirmed,
+                                    builder: (_, confirmed, __) => OutlinedButton.icon(
+                                      onPressed: confirmed ? null : () async {
+                                        await DriverApiService.updatePhase(r.id, {'confirmNightHalt': true});
+                                        _nightHaltConfirmed.value = true;
+                                        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Night halt confirmed'), backgroundColor: AppColors.green),
+                                        );
+                                      },
+                                      icon: Icon(Icons.bedtime, color: confirmed ? Colors.grey : AppColors.orange),
+                                      label: Text(confirmed ? 'Night halt confirmed' : 'Confirm Night Halt (optional)'),
+                                      style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 48), side: BorderSide(color: confirmed ? Colors.grey : AppColors.orange)),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  PrimaryButton(
+                                    label: '↻ Start Return Journey',
+                                    onTap: () async {
+                                      await DriverApiService.updatePhase(r.id, {'phase': 'returning'});
+                                      _outstationPhase.value = 'returning';
+                                    },
+                                  ),
+                                ]);
+                              }
+                              // Default: standard End Ride (one-way outstation, taxi, or round-trip returning)
+                              return ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.red, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 52), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                                onPressed: () {
+                                  _outstationPhase.value = 'enroute';  // reset for next ride
+                                  _nightHaltConfirmed.value = false;
+                                  _confirmEndRide(context, bloc);
+                                },
+                                child: const Text('🏁 End Ride', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                              );
+                            },
                           ),
                       ],
                     ]),

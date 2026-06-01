@@ -27,6 +27,13 @@ const RideSchema = new Schema({
   emptyReturnCharge: Number,   // computed at booking
   // Extended status for outstation: 'at_destination' + 'returning' beyond the standard set
   outstationPhase: { type: String, enum: ['pickup_pending', 'driver_arriving', 'picked_up', 'enroute', 'at_destination', 'returning', 'completed'], default: 'pickup_pending' },
+  // Actual km driven (updated by driver location pushes during ride) — used for billing reconciliation
+  actualDistance: { type: Number, default: 0 },
+  // Toll charges (set by client or admin when known — Directions API doesn't expose them on free tier)
+  tollCharge: { type: Number, default: 0 },
+  // Night halt confirmed by both parties (one boolean stamps once user/driver confirms)
+  nightHaltConfirmed: { type: Boolean, default: false },
+  nightHaltConfirmedAt: Date,
   fare: Number,
   tip: { type: Number, default: 0 },
   totalFare: Number,          // fare + tip

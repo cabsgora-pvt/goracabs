@@ -150,4 +150,8 @@ class DriverApiService {
 
   static Future<Map<String, dynamic>> getTripHistory() =>
       get('/rides/driver/history');
+
+  // Outstation phase / distance / night-halt update
+  static Future<Map<String, dynamic>> updatePhase(String rideId, Map<String, dynamic> body) =>
+      post('/rides/$rideId/phase', body, auth: true);
 }

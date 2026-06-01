@@ -74,6 +74,11 @@ class _OutstationScreenState extends State<OutstationScreen> {
   LatLng? _driverLatLng;
   double _driverHeading = 0;
   Timer? _driverLocTimer;
+  // Outstation phase from backend (enroute / at_destination / returning / completed)
+  String _outstationPhase = 'enroute';
+  String _driverVehicleImageUrl = '';
+  int _driverTotalRides = 0;
+  int _driverYearsActive = 0;
   Timer? _pollTimer;
 
   // Vehicles list — populated from backend (admin-configured outstation-enabled VehicleTypes)
@@ -314,6 +319,18 @@ class _OutstationScreenState extends State<OutstationScreen> {
           if (pic.isNotEmpty) _driverPicUrl = AppConfig.imageUrl(pic);
           final r = dr['rating'];
           if (r is num) _driverRating = r.toDouble();
+          _driverTotalRides = (dr['totalRides'] as num?)?.toInt() ?? _driverTotalRides;
+          _driverYearsActive = (dr['yearsActive'] as num?)?.toInt() ?? _driverYearsActive;
+        }
+        // Pull outstation phase from ride for the UI status card
+        final phase = (ride['outstationPhase'] as String?) ?? '';
+        if (phase.isNotEmpty) _outstationPhase = phase;
+        // Vehicle image url — read once when ride is accepted
+        final selected = _selectedVehicle;
+        if (selected != null && _driverVehicleImageUrl.isEmpty) {
+          final v = _vehicles.firstWhere((x) => x['name'] == selected, orElse: () => {});
+          final ni = (v['networkImage'] as String?) ?? '';
+          if (ni.isNotEmpty) _driverVehicleImageUrl = ni;
         }
         // Start live driver location polling once driver is assigned (only once)
         if (status != 'pending' && _driverLocTimer == null) {
@@ -1927,10 +1944,65 @@ class _OutstationScreenState extends State<OutstationScreen> {
                         style: const TextStyle(fontSize: 11, color: Colors.grey),
                       ),
                     ])),
-                    SizedBox(width: 70, height: 50, child: Image.asset(_vehicles.firstWhere((v) => v['name'] == _selectedVehicle)['image'], fit: BoxFit.contain)),
+                    SizedBox(width: 70, height: 50, child: _driverVehicleImageUrl.isNotEmpty
+                        ? Image.network(_driverVehicleImageUrl, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.directions_car, color: Color(0xFF2196F3), size: 40))
+                        : Image.asset(_vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => {'image':'assets/images/economy.png'})['image'] as String, fit: BoxFit.contain)),
                   ],
                 ),
               ),
+              // Driver experience chips (years on platform + total rides)
+              if (_driverYearsActive > 0 || _driverTotalRides > 0) ...[
+                const SizedBox(height: 10),
+                Row(children: [
+                  if (_driverYearsActive > 0) Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(color: const Color(0xFF1976D2).withOpacity(0.08), borderRadius: BorderRadius.circular(20)),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.workspace_premium, color: Color(0xFF1976D2), size: 14),
+                      const SizedBox(width: 4),
+                      Text('${_driverYearsActive}+ yr exp', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF1976D2))),
+                    ]),
+                  ),
+                  if (_driverTotalRides > 0) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(color: const Color(0xFF4CAF50).withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.directions_car, color: Color(0xFF4CAF50), size: 14),
+                        const SizedBox(width: 4),
+                        Text('${_driverTotalRides} trips', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF4CAF50))),
+                      ]),
+                    ),
+                  ],
+                ]),
+              ],
+              // Trip phase status (only relevant for round-trip outstation in progress)
+              if (_tripType == 'Round Trip' && _outstationPhase != 'enroute') ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryBlue.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppTheme.primaryBlue.withOpacity(0.3)),
+                  ),
+                  child: Row(children: [
+                    Icon(
+                      _outstationPhase == 'at_destination' ? Icons.flag :
+                      _outstationPhase == 'returning' ? Icons.replay : Icons.directions_car,
+                      color: AppTheme.primaryBlue,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(
+                      _outstationPhase == 'at_destination' ? 'At destination — driver waiting'
+                      : _outstationPhase == 'returning' ? 'Return journey in progress'
+                      : 'In transit',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue),
+                    )),
+                  ]),
+                ),
+              ],
               const SizedBox(height: 16),
               Row(
                 children: [
