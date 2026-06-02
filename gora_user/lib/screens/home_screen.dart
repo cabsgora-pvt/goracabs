@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 import '../providers/user_provider.dart';
+import '../services/api_service.dart';
+import 'welcome_screen.dart';
 import 'taxi_booking_screen.dart';
 import 'outstation_screen.dart';
 import 'rental_screen.dart';
@@ -853,11 +855,37 @@ class _HomeScreenState extends State<HomeScreen> {
               _buildProfileMenuItem(Icons.settings_outlined, 'Settings', () {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
               }),
-              _buildProfileMenuItem(Icons.logout, 'Logout', () {}, color: Colors.red),
+              _buildProfileMenuItem(Icons.logout, 'Logout', () => _confirmLogout(), color: Colors.red),
               const SizedBox(height: 20),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _confirmLogout() {
+    showDialog(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Logout?', style: TextStyle(fontWeight: FontWeight.bold)),
+        content: const Text('Are you sure you want to logout?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(dctx);
+              await ApiService.clearToken();
+              if (!mounted) return;
+              context.read<UserProvider>().clear();
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const WelcomeScreen()), (route) => false);
+            },
+            child: const Text('Logout', style: TextStyle(color: Colors.white)),
+          ),
+        ],
       ),
     );
   }
