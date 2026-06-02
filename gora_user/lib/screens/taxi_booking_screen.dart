@@ -123,14 +123,49 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
 
   final List<int> _tipAmounts = [10, 20, 50, 100];
 
-  // Vehicles to display, filtered by the service mode (bike/auto/cab)
+  // Vehicles to display. Backend already returns only taxi-service vehicles, so we show
+  // them all (the entry tab is just a hint). Filter loosely by name if a preselect is given.
   List<Map<String, dynamic>> get _displayVehicles {
     final pre = widget.preselectedVehicle;
     if (pre == null) return _vehicles;
-    if (pre == 'Bike') return _vehicles.where((v) => v['name'] == 'Bike').toList();
-    if (pre == 'Auto') return _vehicles.where((v) => v['name'] == 'Auto').toList();
-    // Cab ride → all car types
-    return _vehicles.where((v) => v['name'] == 'Cab Economy' || v['name'] == 'SUV' || v['name'] == 'Premium').toList();
+    final p = pre.toLowerCase();
+    if (p == 'bike') {
+      final m = _vehicles.where((v) => (v['name'] as String).toLowerCase().contains('bike')).toList();
+      return m.isNotEmpty ? m : _vehicles;
+    }
+    if (p == 'auto') {
+      final m = _vehicles.where((v) => (v['name'] as String).toLowerCase().contains('auto')).toList();
+      return m.isNotEmpty ? m : _vehicles;
+    }
+    // Cab → cars (everything that isn't bike/auto)
+    final m = _vehicles.where((v) {
+      final n = (v['name'] as String).toLowerCase();
+      return !n.contains('bike') && !n.contains('auto');
+    }).toList();
+    return m.isNotEmpty ? m : _vehicles;
+  }
+
+  String _typeFor(String name) {
+    final n = name.toLowerCase();
+    if (n.contains('bike')) return 'Quick Rides';
+    if (n.contains('auto')) return 'Affordable';
+    if (n.contains('suv')) return 'Spacious';
+    if (n.contains('premium') || n.contains('prime')) return 'Luxury';
+    return 'Comfortable';
+  }
+  IconData _iconFor(String name) {
+    final n = name.toLowerCase();
+    if (n.contains('bike')) return Icons.two_wheeler;
+    if (n.contains('auto')) return Icons.electric_rickshaw;
+    if (n.contains('suv')) return Icons.airport_shuttle;
+    return Icons.directions_car;
+  }
+  String _assetFor(String name) {
+    final n = name.toLowerCase();
+    if (n.contains('bike')) return 'assets/images/bike.png';
+    if (n.contains('auto')) return 'assets/images/auto.jpg';
+    if (n.contains('suv')) return 'assets/images/texi.png';
+    return 'assets/images/economy.png';
   }
 
   @override
@@ -269,18 +304,28 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         setState(() {
           _rideDistance = (res['distance'] as num?)?.toDouble() ?? 0;
           _rideDuration = (res['duration'] as num?)?.toInt() ?? 0;
-          for (final v in _vehicles) {
-            final match = apiVehicles.firstWhere(
-              (a) => (a['name'] as String?)?.toLowerCase() == (v['name'] as String).toLowerCase(),
-              orElse: () => null,
-            );
-            if (match != null) {
-              if (match['fare'] != null) v['price'] = '₹${match['fare']}';
-              // Real driver ETA from backend; null when no driver of this type is online
-              final eta = match['etaMin'];
-              v['eta'] = eta is num ? '$eta min' : 'No driver';
-            } else {
-              v['eta'] = 'No driver';
+          // Build the vehicle list straight from backend (real admin VehicleType names,
+          // so the booked vehicleType matches what the driver registered with).
+          if (apiVehicles.isNotEmpty) {
+            _vehicles = apiVehicles.map<Map<String, dynamic>>((a) {
+              final name = (a['name'] as String?) ?? 'Vehicle';
+              final eta = a['etaMin'];
+              final raw = (a['imageUrl'] as String?) ?? '';
+              return {
+                'name': name,
+                'type': _typeFor(name),
+                'price': a['fare'] != null ? '₹${a['fare']}' : '—',
+                'eta': eta is num ? '$eta min' : 'No driver',
+                'capacity': '${a['capacity'] ?? 4}',
+                'icon': _iconFor(name),
+                'color': const Color(0xFF2196F3),
+                'image': raw.isEmpty ? _assetFor(name) : '__net__',
+                'networkImage': raw.isEmpty ? '' : AppConfig.imageUrl(raw),
+              };
+            }).toList();
+            // Keep selection valid
+            if (_selectedVehicle != null && !_vehicles.any((v) => v['name'] == _selectedVehicle)) {
+              _selectedVehicle = null;
             }
           }
         });
@@ -1582,15 +1627,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
-                child: Image.asset(
-                  v['image'],
-                  width: 50,
-                  height: 50,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Icon(v['icon'], color: v['color'] as Color, size: 24);
-                  },
-                ),
+                child: (v['image'] == '__net__' && (v['networkImage'] as String?)?.isNotEmpty == true)
+                  ? Image.network(v['networkImage'] as String, width: 50, height: 50, fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Icon(v['icon'] as IconData, color: v['color'] as Color, size: 24))
+                  : Image.asset(v['image'] as String, width: 50, height: 50, fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Icon(v['icon'] as IconData, color: v['color'] as Color, size: 24)),
               ),
             ),
             const SizedBox(width: 12),
