@@ -150,6 +150,8 @@ class ApiService {
       post('/rides/$id/rate', {'by': 'rider', 'rating': rating, 'review': review}, auth: true);
 
   static Future<Map<String, dynamic>> getMyRides() => get('/rides/user');
+  // Parcels addressed TO me (I'm the receiver) — matched by phone
+  static Future<Map<String, dynamic>> getIncomingParcels() => get('/rides/delivery/incoming');
 
   // ── Upload profile picture ────────────────────────────────
   static Future<String?> uploadProfilePic(XFile xfile) async {

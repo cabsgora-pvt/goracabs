@@ -51,8 +51,12 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   String _driverName = 'Driver', _driverPhone = '', _driverPic = '', _vModel = '', _vNumber = '';
   double _driverRating = 0;
   String _deliveryPhase = 'pending';
-  Timer? _poll;
+  Timer? _poll, _locPoll;
   void Function(void Function())? _dialogSet;
+  // Live driver tracking
+  LatLng? _driverLatLng;
+  double _driverHeading = 0;
+  int? _etaMin;
   // Send / Receive tabs
   String _tab = 'Send';
   List<Map<String, dynamic>> _myParcels = [];
@@ -62,7 +66,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   void initState() { super.initState(); _initLocation(); }
 
   @override
-  void dispose() { _poll?.cancel(); _debounce?.cancel(); _dialogSet = null;
+  void dispose() { _poll?.cancel(); _locPoll?.cancel(); _debounce?.cancel(); _dialogSet = null;
     for (final c in [_pickupCtrl, _dropCtrl, _senderName, _senderPhone, _receiverName, _receiverPhone, _weight, _itemValue, _codAmount]) { c.dispose(); }
     super.dispose(); }
 
@@ -150,6 +154,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         _deliveryPhase = (ride['deliveryPhase'] ?? _deliveryPhase).toString();
         _dialogSet?.call(() {});
         if (status == 'accepted' || status == 'arrived' || status == 'ongoing') {
+          if (_locPoll == null) _startDriverLocation();
           if (Navigator.canPop(context)) { Navigator.pop(context); _showAssigned(); }
         } else if (status == 'completed') {
           t.cancel(); if (!mounted) return;
@@ -167,6 +172,31 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     final url = await ApiService.uploadImage(x);
     if (!mounted) return;
     setState(() { if (url != null) _photoUrls.add(url); _uploading = false; });
+  }
+
+  // Poll driver live position every 5s + recompute ETA to the relevant point
+  void _startDriverLocation() {
+    _locPoll?.cancel();
+    if (_rideId == null) return;
+    _locPoll = Timer.periodic(const Duration(seconds: 5), (t) async {
+      if (!mounted) { t.cancel(); return; }
+      try {
+        final res = await ApiService.getDriverLocation(_rideId!);
+        final d = res['driver'] as Map<String, dynamic>?;
+        if (d == null || d['lat'] == null) return;
+        final dLat = (d['lat'] as num).toDouble(), dLng = (d['lng'] as num).toDouble();
+        // Before collection → ETA to pickup; after → ETA to drop
+        final toDrop = _deliveryPhase == 'in_transit';
+        final destLat = toDrop ? (_dLat ?? _pLat!) : _pLat!;
+        final destLng = toDrop ? (_dLng ?? _pLng!) : _pLng!;
+        final dir = await ApiService.getDirections(originLat: dLat, originLng: dLng, destLat: destLat, destLng: destLng);
+        if (!mounted) return;
+        _driverLatLng = LatLng(dLat, dLng);
+        _driverHeading = (d['heading'] as num?)?.toDouble() ?? 0;
+        _etaMin = (dir['durationMin'] as num?)?.toInt();
+        _dialogSet?.call(() {});
+      } catch (_) {}
+    });
   }
 
   bool get _formValid => _pLat != null && _dLat != null && _selectedVehicle != null
@@ -200,13 +230,16 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         child: Center(child: Text(label, style: TextStyle(color: sel ? Colors.white : Colors.black87, fontWeight: FontWeight.bold, fontSize: 14)))));
   }
 
+  List<Map<String, dynamic>> _incoming = [];
   Future<void> _loadMyParcels() async {
     setState(() => _loadingParcels = true);
     try {
-      final res = await ApiService.getMyRides();
-      final list = (res['rides'] as List?) ?? [];
+      final sent = await ApiService.getMyRides();
+      final inc = await ApiService.getIncomingParcels();
+      if (!mounted) return;
       setState(() {
-        _myParcels = list.where((r) => (r['service'] ?? '') == 'delivery').map<Map<String, dynamic>>((r) => Map<String, dynamic>.from(r as Map)).toList();
+        _myParcels = ((sent['rides'] as List?) ?? []).where((r) => (r['service'] ?? '') == 'delivery').map<Map<String, dynamic>>((r) => Map<String, dynamic>.from(r as Map)).toList();
+        _incoming = ((inc['rides'] as List?) ?? []).map<Map<String, dynamic>>((r) => Map<String, dynamic>.from(r as Map)).toList();
         _loadingParcels = false;
       });
     } catch (_) { setState(() => _loadingParcels = false); }
@@ -214,12 +247,24 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
 
   Widget _buildReceive() {
     if (_loadingParcels) return const Center(child: CircularProgressIndicator());
-    if (_myParcels.isEmpty) return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+    if (_myParcels.isEmpty && _incoming.isEmpty) return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
       Icon(Icons.local_shipping, size: 64, color: Colors.grey[300]), const SizedBox(height: 12),
       Text('No parcels yet', style: TextStyle(color: Colors.grey[500], fontSize: 15)),
-      const SizedBox(height: 4), Text('Your sent parcels appear here for tracking', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+      const SizedBox(height: 4), Text('Sent & incoming parcels appear here', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
     ]));
-    return ListView(padding: const EdgeInsets.all(16), children: _myParcels.map((p) {
+    return ListView(padding: const EdgeInsets.all(16), children: [
+      if (_incoming.isNotEmpty) ...[
+        Padding(padding: const EdgeInsets.only(bottom: 8), child: Text('INCOMING TO YOU', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.teal[700], letterSpacing: 0.5))),
+        ..._incoming.map((p) => _parcelTile(p, incoming: true)),
+        const SizedBox(height: 16),
+      ],
+      if (_myParcels.isNotEmpty)
+        Padding(padding: const EdgeInsets.only(bottom: 8), child: Text('SENT BY YOU', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.grey[600], letterSpacing: 0.5))),
+      ..._myParcels.map((p) => _parcelTile(p, incoming: false)),
+    ]);
+  }
+
+  Widget _parcelTile(Map<String, dynamic> p, {required bool incoming}) {
       final status = (p['status'] ?? '').toString();
       final phase = (p['deliveryPhase'] ?? '').toString();
       final done = status == 'completed' || phase == 'delivered';
@@ -235,11 +280,26 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
             Text('₹${p['totalFare'] ?? p['fare'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
           ]),
           const SizedBox(height: 8),
-          Text('${p['itemType'] ?? 'Parcel'} → ${p['receiverName'] ?? ''}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+          Text(incoming ? 'From ${p['senderName'] ?? 'Sender'} · ${p['itemType'] ?? 'Parcel'}' : '${p['itemType'] ?? 'Parcel'} → ${p['receiverName'] ?? ''}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
           Text('${p['pickupAddress'] ?? ''} → ${p['dropAddress'] ?? ''}', style: TextStyle(fontSize: 11, color: Colors.grey[600]), maxLines: 2, overflow: TextOverflow.ellipsis),
           if (p['driverName'] != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text('Driver: ${p['driverName']}', style: const TextStyle(fontSize: 11, color: Colors.grey))),
+          if (done && !incoming) Align(alignment: Alignment.centerRight, child: TextButton.icon(
+            onPressed: () => _reportIssue(p), icon: const Icon(Icons.report_problem, size: 14, color: Colors.orange),
+            label: const Text('Report Issue', style: TextStyle(fontSize: 12, color: Colors.orange)))),
         ]));
-    }).toList());
+  }
+
+  // Insurance / damage claim → opens a prefilled support enquiry
+  void _reportIssue(Map<String, dynamic> p) {
+    showDialog(context: context, builder: (dctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('Report a Delivery Issue', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+      content: Text('Parcel "${p['itemType'] ?? 'Parcel'}" worth ₹${p['itemValue'] ?? 0}.\n\nOur support team will contact you for damage/loss claims and insurance.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancel')),
+        ElevatedButton(onPressed: () { Navigator.pop(dctx); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Claim raised — support will contact you'), backgroundColor: Colors.green)); },
+          child: const Text('Raise Claim')),
+      ]));
   }
 
   Widget _buildSend() {
@@ -352,7 +412,24 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         return Padding(padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(collected ? 'Parcel in Transit' : 'Delivery Partner Assigned', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+          // Live driver map + ETA
+          if (_driverLatLng != null) ...[
+            ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(height: 150, child: GoogleMap(
+              initialCameraPosition: CameraPosition(target: _driverLatLng!, zoom: 14),
+              markers: {
+                Marker(markerId: const MarkerId('driver'), position: _driverLatLng!, rotation: _driverHeading, flat: true, anchor: const Offset(0.5, 0.5), icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
+                Marker(markerId: const MarkerId('dest'), position: collected ? LatLng(_dLat ?? _pLat!, _dLng ?? _pLng!) : LatLng(_pLat!, _pLng!), icon: BitmapDescriptor.defaultMarkerWithHue(collected ? BitmapDescriptor.hueRed : BitmapDescriptor.hueGreen)),
+              },
+              zoomControlsEnabled: false, myLocationButtonEnabled: false, liteModeEnabled: true,
+            ))),
+            const SizedBox(height: 8),
+            if (_etaMin != null) Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(color: AppTheme.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [const Icon(Icons.access_time, size: 14, color: AppTheme.primaryBlue), const SizedBox(width: 4),
+                Text(collected ? 'Reaching receiver in $_etaMin min' : 'Reaching pickup in $_etaMin min', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue))])),
+            const SizedBox(height: 12),
+          ],
           // Two OTPs — pickup (sender) shown until collected, then drop (receiver)
           _otpBox(collected ? 'DELIVERY OTP — receiver shares to confirm handover' : 'PICKUP OTP — give to driver to collect',
             collected ? (_dropOtp ?? '----') : (_pickupOtp ?? '----')),

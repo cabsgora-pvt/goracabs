@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
@@ -5,6 +6,7 @@ import '../../../config/app_config.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
+import '../../../services/location_service.dart';
 import 'invoice_page.dart';
 
 // Delivery flow after pickup-OTP start: collect from sender → deliver to receiver (drop OTP).
@@ -21,11 +23,34 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
   bool _busy = false;
   String? _proofPhoto; // full url of captured proof
   final _picker = ImagePicker();
+  Timer? _ping;
+
+  @override
+  void dispose() { _ping?.cancel(); super.dispose(); }
 
   Future<void> _markCollected() async {
     setState(() => _busy = true);
-    await DriverApiService.deliveryAction(widget.ride.id, {'action': 'collected'});
+    final pos = await LocationService.getCurrentLocation();
+    await DriverApiService.deliveryAction(widget.ride.id, {'action': 'collected', 'lat': pos?.latitude, 'lng': pos?.longitude});
+    // Accumulate distance every 20s while delivering
+    _ping = Timer.periodic(const Duration(seconds: 20), (_) async {
+      final p = await LocationService.getCurrentLocation();
+      if (p != null) DriverApiService.deliveryAction(widget.ride.id, {'action': 'ping', 'lat': p.latitude, 'lng': p.longitude});
+    });
     if (mounted) setState(() { _collected = true; _busy = false; });
+  }
+
+  Future<void> _markFailed() async {
+    final reasons = ['Receiver unavailable', 'Wrong address', 'Receiver refused', 'Could not contact'];
+    final reason = await showDialog<String>(context: context, builder: (_) => SimpleDialog(
+      title: const Text('Return to Sender — reason'),
+      children: reasons.map((x) => SimpleDialogOption(onPressed: () => Navigator.pop(context, x), child: Text(x))).toList()));
+    if (reason == null) return;
+    setState(() => _busy = true);
+    _ping?.cancel();
+    await DriverApiService.deliveryAction(widget.ride.id, {'action': 'failed', 'reason': reason});
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(context, InvoicePage.route, arguments: widget.ride);
   }
 
   Future<void> _captureProof() async {
@@ -113,6 +138,10 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.green, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 52)),
             onPressed: _busy ? null : _deliver,
             child: Text(_busy ? 'Verifying...' : '✅ Delivered — Enter Receiver OTP', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)))),
+          const SizedBox(height: 8),
+          Center(child: TextButton.icon(onPressed: _busy ? null : _markFailed,
+            icon: const Icon(Icons.assignment_return, size: 16, color: AppColors.red),
+            label: const Text('Receiver unavailable — Return to Sender', style: TextStyle(color: AppColors.red, fontSize: 13)))),
         ],
       ]),
     );

@@ -75,7 +75,10 @@ const RideSchema = new Schema({
   parcelPhotos: [String],
   dropOtp: String,                // receiver shows this to driver to confirm handover
   // collected (sender OTP done) → in_transit → delivered
-  deliveryPhase: { type: String, enum: ['pending', 'collected', 'in_transit', 'delivered'], default: 'pending' },
+  deliveryPhase: { type: String, enum: ['pending', 'collected', 'in_transit', 'delivered', 'failed', 'returned'], default: 'pending' },
+  deliveryDistance: { type: Number, default: 0 },   // km driven during delivery
+  deliveryLastLat: Number, deliveryLastLng: Number,
+  failReason: String,
   packageSize: { type: String, enum: ['S', 'M', 'L', ''], default: '' },
   isFragile: { type: Boolean, default: false },
   itemValue: { type: Number, default: 0 },     // declared value (for insurance reference)
