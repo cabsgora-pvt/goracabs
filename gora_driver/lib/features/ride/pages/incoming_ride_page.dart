@@ -205,6 +205,30 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
                 ]),
               ),
             ],
+            // Delivery badge — sender → receiver + item
+            if (r.service == 'delivery') ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity, padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [Colors.teal.withOpacity(0.12), Colors.teal.withOpacity(0.04)]),
+                  borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.teal.withOpacity(0.4)),
+                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    const Icon(Icons.local_shipping, color: Colors.teal, size: 20), const SizedBox(width: 8),
+                    Text('PARCEL · ${r.itemType.isNotEmpty ? r.itemType : "Delivery"}', style: const TextStyle(color: Colors.teal, fontWeight: FontWeight.w800, fontSize: 12, letterSpacing: 0.5)),
+                    const Spacer(),
+                    if (r.weightKg > 0) _miniChip(Icons.fitness_center, '${r.weightKg.toStringAsFixed(0)}kg'),
+                  ]),
+                  if (r.senderName.isNotEmpty || r.receiverName.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text('${r.senderName.isNotEmpty ? r.senderName : "Sender"} → ${r.receiverName.isNotEmpty ? r.receiverName : "Receiver"}',
+                      style: const TextStyle(fontSize: 12, color: AppColors.textDark, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ],
+                ]),
+              ),
+            ],
             const SizedBox(height: 16),
             // Ride info
             Container(

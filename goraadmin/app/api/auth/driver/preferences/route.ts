@@ -18,13 +18,15 @@ async function handle(req: NextRequest) {
     if (typeof body.acceptsOutstation === 'boolean') update.acceptsOutstation = body.acceptsOutstation
     if (typeof body.acceptsRental === 'boolean') update.acceptsRental = body.acceptsRental
     if (typeof body.acceptsHireDriver === 'boolean') update.acceptsHireDriver = body.acceptsHireDriver
+    if (typeof body.acceptsDelivery === 'boolean') update.acceptsDelivery = body.acceptsDelivery
 
     await connectDB()
-    const d = await Driver.findByIdAndUpdate(payload.id, update, { new: true }).select('acceptsOutstation acceptsRental acceptsHireDriver').lean()
+    const d = await Driver.findByIdAndUpdate(payload.id, update, { new: true }).select('acceptsOutstation acceptsRental acceptsHireDriver acceptsDelivery').lean()
     return withCors({ success: true, preferences: {
       acceptsOutstation: (d as any)?.acceptsOutstation ?? false,
       acceptsRental: (d as any)?.acceptsRental ?? false,
       acceptsHireDriver: (d as any)?.acceptsHireDriver ?? false,
+      acceptsDelivery: (d as any)?.acceptsDelivery ?? false,
     } })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)

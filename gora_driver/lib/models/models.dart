@@ -31,6 +31,9 @@ class RideRequestModel {
   // Hire extras
   final int hireTotalHours;
   final String transmission;
+  // Delivery extras
+  final String senderName, senderPhone, receiverName, receiverPhone, itemType;
+  final double weightKg;
 
   const RideRequestModel({
     required this.id, required this.userName, required this.userPhone, required this.userRating,
@@ -49,6 +52,8 @@ class RideRequestModel {
     this.packageKm = 0,
     this.hireTotalHours = 0,
     this.transmission = '',
+    this.senderName = '', this.senderPhone = '', this.receiverName = '', this.receiverPhone = '', this.itemType = '',
+    this.weightKg = 0,
   });
 }
 

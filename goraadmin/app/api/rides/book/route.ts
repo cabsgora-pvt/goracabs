@@ -58,8 +58,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Generate ride OTP
+    // Generate ride OTP (collection OTP for delivery)
     const otp = Math.floor(1000 + Math.random() * 9000).toString()
+    // Delivery gets a second OTP for receiver handover
+    const dropOtp = Math.floor(1000 + Math.random() * 9000).toString()
 
     const service = b.service || 'taxi'
 
@@ -167,6 +169,13 @@ export async function POST(req: NextRequest) {
       hireTotalHours: b.hireTotalHours || 0,
       hirePerHour: b.hirePerHour || 0,
       transmission: b.transmission || '',
+      // Delivery fields
+      senderName: b.senderName, senderPhone: b.senderPhone,
+      receiverName: b.receiverName, receiverPhone: b.receiverPhone,
+      itemType: b.itemType, weightKg: b.weightKg || 0,
+      parcelPhotos: Array.isArray(b.parcelPhotos) ? b.parcelPhotos : [],
+      dropOtp: service === 'delivery' ? dropOtp : undefined,
+      deliveryPhase: service === 'delivery' ? 'pending' : undefined,
     })
 
     // Find nearest online approved driver: same zone + vehicle type

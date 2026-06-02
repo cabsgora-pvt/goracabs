@@ -10,6 +10,7 @@ import '../../home/pages/map_placeholder.dart' show RideMap;
 import 'invoice_page.dart';
 import 'rental_progress_page.dart';
 import 'hire_progress_page.dart';
+import 'delivery_progress_page.dart';
 
 class OnRidePage extends StatelessWidget {
   static const route = '/on-ride';
@@ -34,6 +35,11 @@ class OnRidePage extends StatelessWidget {
           // Hire: once OTP-started, go to the live hire-progress screen
           if (state is RideStartedState && ride.service == 'hire_driver') {
             Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => HireProgressPage(ride: ride)));
+            return;
+          }
+          // Delivery: once collected via pickup OTP, go to the delivery flow (collect → drop OTP)
+          if (state is RideStartedState && ride.service == 'delivery') {
+            Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => DeliveryProgressPage(ride: ride)));
             return;
           }
           if (state is RideEndedState) {

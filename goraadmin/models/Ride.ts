@@ -65,6 +65,17 @@ const RideSchema = new Schema({
   hireExtraCharge: { type: Number, default: 0 },
   hireFinalFare: { type: Number, default: 0 },
   hirePhase: { type: String, enum: ['pending', 'ongoing', 'overtime', 'completed'], default: 'pending' },
+  // ── Parcel / Delivery fields ──
+  senderName: String,
+  senderPhone: String,
+  receiverName: String,
+  receiverPhone: String,
+  itemType: String,
+  weightKg: { type: Number, default: 0 },
+  parcelPhotos: [String],
+  dropOtp: String,                // receiver shows this to driver to confirm handover
+  // collected (sender OTP done) → in_transit → delivered
+  deliveryPhase: { type: String, enum: ['pending', 'collected', 'in_transit', 'delivered'], default: 'pending' },
   fare: Number,
   tip: { type: Number, default: 0 },
   totalFare: Number,          // fare + tip

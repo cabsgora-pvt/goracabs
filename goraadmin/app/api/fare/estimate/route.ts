@@ -225,7 +225,7 @@ export async function POST(req: NextRequest) {
     //    tell the user to switch to Outstation (intercity). We only flag this when
     //    pickup actually fell inside a polygon (not a 25 km nearest-zone fallback).
     let outOfZone = false
-    if (dropLat != null && dropLng != null && zone?.polygonPath?.length >= 3) {
+    if (service === 'taxi' && dropLat != null && dropLng != null && zone?.polygonPath?.length >= 3) {
       const pickupInside = pointInPolygon({ lat: pickupLat, lng: pickupLng }, zone.polygonPath)
       const dropInside   = pointInPolygon({ lat: dropLat,    lng: dropLng    }, zone.polygonPath)
       if (pickupInside && !dropInside) outOfZone = true
@@ -269,6 +269,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Vehicle images by type name (for delivery/taxi vehicle cards)
+    const vtsAll: any[] = await VehicleType.find({ isActive: true }).select('name imageUrl capacity').lean()
+    const vtImg = new Map<string, any>(vtsAll.map(v => [v.name, v]))
+
     // Calculate fare + attach ETA per active vehicle for this service
     const vehicles = (zone.pricing || [])
       .filter((p: any) => p.service === service)
@@ -279,9 +283,11 @@ export async function POST(req: NextRequest) {
         fare = Math.max(fare, p.minFare || 0)
         fare = Math.round(fare)
         const eta = nearestByType.get(p.vehicleTypeName)
+        const vt = vtImg.get(p.vehicleTypeName)
         return {
           vehicleTypeId: p.vehicleTypeId,
           name: p.vehicleTypeName,
+          imageUrl: vt?.imageUrl || '', capacity: vt?.capacity || 4,
           fare,
           baseFare: p.baseFare,
           perKm: p.perKm,

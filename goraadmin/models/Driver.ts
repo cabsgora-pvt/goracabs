@@ -19,6 +19,8 @@ const DriverSchema = new Schema({
   acceptsRental: { type: Boolean, default: false },
   // Driver opts in to receive hire-a-driver requests (drive customer's own car)
   acceptsHireDriver: { type: Boolean, default: false },
+  // Driver opts in to receive parcel/delivery requests
+  acceptsDelivery: { type: Boolean, default: false },
   vehicleNumber: String,
   vehicleModel: String,
   vehicleType: String,

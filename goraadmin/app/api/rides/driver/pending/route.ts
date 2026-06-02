@@ -28,20 +28,15 @@ export async function GET(req: NextRequest) {
     const baseFilter: any = {
       vehicleType: driver.selectedVehicleTypeName,
     }
-    // Taxi branch covers everyday in-city services (NOT outstation, rental, hire)
-    const taxiBranch: any = { ...baseFilter, service: { $nin: ['outstation', 'rental', 'hire_driver'] } }
+    // Taxi branch covers everyday in-city rides (NOT opt-in services)
+    const taxiBranch: any = { ...baseFilter, service: { $nin: ['outstation', 'rental', 'hire_driver', 'delivery'] } }
     if (driver.zoneId) taxiBranch.zoneId = driver.zoneId
 
     const branches: any[] = [taxiBranch]
-    if (driver.acceptsOutstation) {
-      branches.push({ ...baseFilter, service: 'outstation' })
-    }
-    if (driver.acceptsRental) {
-      branches.push({ ...baseFilter, service: 'rental' })
-    }
-    if (driver.acceptsHireDriver) {
-      branches.push({ ...baseFilter, service: 'hire_driver' })
-    }
+    if (driver.acceptsOutstation) branches.push({ ...baseFilter, service: 'outstation' })
+    if (driver.acceptsRental) branches.push({ ...baseFilter, service: 'rental' })
+    if (driver.acceptsHireDriver) branches.push({ ...baseFilter, service: 'hire_driver' })
+    if (driver.acceptsDelivery) branches.push({ ...baseFilter, service: 'delivery' })
 
     const query: any = {
       status: 'pending',
@@ -53,7 +48,7 @@ export async function GET(req: NextRequest) {
     // Outstation + rental stay valid up to 15 min; plain taxi keeps the 2-min freshness window
     let rides = await Ride.find(query).sort({ createdAt: -1 }).lean() as any[]
     rides = rides.filter((r: any) => {
-      if (['outstation', 'rental', 'hire_driver'].includes(r.service)) return true
+      if (['outstation', 'rental', 'hire_driver', 'delivery'].includes(r.service)) return true
       return new Date(r.createdAt) >= twoMinAgo
     })
 
@@ -101,6 +96,10 @@ export async function GET(req: NextRequest) {
         transmission: r.transmission,
         hireStartAt: r.hireStartAt,
         hireEndAt: r.hireEndAt,
+        // Delivery extras
+        senderName: r.senderName, senderPhone: r.senderPhone,
+        receiverName: r.receiverName, receiverPhone: r.receiverPhone,
+        itemType: r.itemType, weightKg: r.weightKg,
       }
     })
 

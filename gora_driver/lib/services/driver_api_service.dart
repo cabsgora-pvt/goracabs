@@ -162,4 +162,8 @@ class DriverApiService {
   // Hire-a-driver actions: start / ping / extend / end
   static Future<Map<String, dynamic>> hireAction(String rideId, Map<String, dynamic> body) =>
       post('/rides/$rideId/hire', body, auth: true);
+
+  // Delivery actions: collected / deliver (with dropOtp)
+  static Future<Map<String, dynamic>> deliveryAction(String rideId, Map<String, dynamic> body) =>
+      post('/rides/$rideId/delivery', body, auth: true);
 }

@@ -321,6 +321,9 @@ class _RidePollerState extends State<_RidePoller> {
         packageKm: (r['packageKm'] as num?)?.toInt() ?? 0,
         hireTotalHours: (r['hireTotalHours'] as num?)?.toInt() ?? 0,
         transmission: (r['transmission'] ?? '').toString(),
+        senderName: (r['senderName'] ?? '').toString(), senderPhone: (r['senderPhone'] ?? '').toString(),
+        receiverName: (r['receiverName'] ?? '').toString(), receiverPhone: (r['receiverPhone'] ?? '').toString(),
+        itemType: (r['itemType'] ?? '').toString(), weightKg: (r['weightKg'] as num?)?.toDouble() ?? 0,
       );
       if (!mounted) return;
       _navigating = true;
