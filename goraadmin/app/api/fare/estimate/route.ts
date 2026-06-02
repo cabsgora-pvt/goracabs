@@ -32,7 +32,7 @@ async function fetchDirections(originLat: number, originLng: number, destLat: nu
 // → returns zone + list of vehicles with calculated fare + real ETA (nearest driver) per vehicle type
 export async function POST(req: NextRequest) {
   try {
-    const { pickupLat, pickupLng, dropLat, dropLng, service = 'taxi', tripType = 'one_way', totalHours = 0 } = await req.json()
+    const { pickupLat, pickupLng, dropLat, dropLng, service = 'taxi', tripType = 'one_way', totalHours = 0, weightKg = 0 } = await req.json()
     if (pickupLat == null || pickupLng == null) return withCors({ error: 'pickup required' }, 400)
 
     await connectDB()
@@ -279,7 +279,9 @@ export async function POST(req: NextRequest) {
       .map((p: any) => {
         const baseDist = 2 // free km in base
         const chargeableKm = Math.max(0, distance - baseDist)
-        let fare = (p.baseFare || 0) + chargeableKm * (p.perKm || 0) + duration * (p.perMin || 0)
+        // Delivery adds a weight charge (perKg × kg); other services ignore it
+        const weightCharge = service === 'delivery' ? (weightKg || 0) * (p.perKg || 0) : 0
+        let fare = (p.baseFare || 0) + chargeableKm * (p.perKm || 0) + duration * (p.perMin || 0) + weightCharge
         fare = Math.max(fare, p.minFare || 0)
         fare = Math.round(fare)
         const eta = nearestByType.get(p.vehicleTypeName)

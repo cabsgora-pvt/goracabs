@@ -122,10 +122,10 @@ class ApiService {
   // ── Ride engine ───────────────────────────────────────────
   static Future<Map<String, dynamic>> estimateFare({
     required double pickupLat, required double pickupLng,
-    double? dropLat, double? dropLng, String service = 'taxi',
+    double? dropLat, double? dropLng, String service = 'taxi', double weightKg = 0,
   }) => post('/fare/estimate', {
         'pickupLat': pickupLat, 'pickupLng': pickupLng,
-        'dropLat': dropLat, 'dropLng': dropLng, 'service': service,
+        'dropLat': dropLat, 'dropLng': dropLng, 'service': service, 'weightKg': weightKg,
       });
 
   static Future<Map<String, dynamic>> bookRide(Map<String, dynamic> data) =>

@@ -17,7 +17,7 @@ const TABS = [
 ]
 
 type VehicleType = { _id: string; name: string; imageUrl: string; services: string[]; baseFare: number; perKm: number; perMin: number; minFare: number }
-type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean; nightHaltCharge?: number; emptyReturnPercent?: number; perHour?: number }
+type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean; nightHaltCharge?: number; emptyReturnPercent?: number; perHour?: number; perKg?: number }
 type RentalPackage = { vehicleTypeId: string; vehicleTypeName: string; hours: number; km: number; basePrice: number; extraHourRate: number; extraKmRate: number; nightCharge: number; commissionPercent: number; isActive: boolean }
 
 export default function ZonePricingPage() {
@@ -75,6 +75,7 @@ export default function ZonePricingPage() {
             nightHaltCharge: 0,
             emptyReturnPercent: 0,
             perHour: 0,
+            perKg: 0,
           })
         })
       })
@@ -383,6 +384,17 @@ export default function ZonePricingPage() {
                   onChange={e => setEditForm({ ...editForm, perHour: +e.target.value })}
                   className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                 <p className="text-xs text-indigo-700 mt-1">Fare = Base + (total hours × this rate). e.g. ₹150/hr × 4 hr = ₹600 + base.</p>
+              </div>
+            )}
+            {/* Delivery: per-kg weight charge (base + km already above) */}
+            {editRow.service === 'delivery' && (
+              <div className="bg-teal-50 border border-teal-200 rounded-lg p-3">
+                <label htmlFor="p-perkg" className="block text-sm font-medium text-teal-800 mb-1">Per KG Rate (₹) — parcel weight charge</label>
+                <input id="p-perkg" type="number" step="5" min="0"
+                  value={editForm.perKg || 0}
+                  onChange={e => setEditForm({ ...editForm, perKg: +e.target.value })}
+                  className="w-full border border-teal-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                <p className="text-xs text-teal-700 mt-1">Fare = Base + (km × Per KM) + (weight × this). e.g. ₹40 base + 5km×₹6 + 3kg×₹10 = ₹100.</p>
               </div>
             )}
             {/* Outstation-only extras: only shown when editing an outstation pricing row */}

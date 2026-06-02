@@ -85,7 +85,8 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final res = await ApiService.estimateFare(
-        pickupLat: _pLat!, pickupLng: _pLng!, dropLat: _dLat, dropLng: _dLng, service: 'delivery');
+        pickupLat: _pLat!, pickupLng: _pLng!, dropLat: _dLat, dropLng: _dLng, service: 'delivery',
+        weightKg: double.tryParse(_weight.text) ?? 0);
       if (res['available'] != true || res['vehicles'] is! List) { setState(() { _loading = false; _error = (res['message'] ?? 'Delivery not available here').toString(); }); return; }
       setState(() {
         _vehicles = (res['vehicles'] as List).map((v) => Map<String, dynamic>.from(v as Map)).toList();
@@ -163,7 +164,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           const SizedBox(height: 16), _title('Parcel Details'),
           Wrap(spacing: 8, runSpacing: 8, children: _itemTypes.map(_chip).toList()),
           const SizedBox(height: 12),
-          _field('Weight (approx. kg)', _weight, Icons.fitness_center, num: true),
+          _field('Weight (approx. kg)', _weight, Icons.fitness_center, num: true, onChange: _loadFares),
 
           const SizedBox(height: 16), _title('Sender'),
           _field('Sender name', _senderName, Icons.person_outline),
@@ -324,10 +325,10 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         child: Text(t, style: TextStyle(color: sel ? Colors.white : Colors.black87, fontSize: 13, fontWeight: FontWeight.w600))));
   }
 
-  Widget _field(String hint, TextEditingController ctrl, IconData icon, {bool num = false, bool phone = false}) => Container(
+  Widget _field(String hint, TextEditingController ctrl, IconData icon, {bool num = false, bool phone = false, VoidCallback? onChange}) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
     child: Row(children: [Icon(icon, color: Colors.grey[600], size: 18), const SizedBox(width: 10),
-      Expanded(child: TextField(controller: ctrl, onChanged: (_) => setState(() {}),
+      Expanded(child: TextField(controller: ctrl, onChanged: (_) { setState(() {}); onChange?.call(); },
         keyboardType: num ? TextInputType.number : phone ? TextInputType.phone : TextInputType.text,
         decoration: InputDecoration(hintText: hint, border: InputBorder.none, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 12), hintStyle: TextStyle(color: Colors.grey[500], fontSize: 14)), style: const TextStyle(fontSize: 14)))]));
 
