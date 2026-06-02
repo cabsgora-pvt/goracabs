@@ -86,7 +86,7 @@ const RideSchema = new Schema({
   deliveryProofPhoto: String,                  // driver's proof-of-delivery photo URL
   deliverySignature: String,                   // receiver's signature image URL
   deliveredAt: Date,
-  scheduledAt: Date,                           // book-for-later delivery time
+  // scheduledAt already defined below (shared with other scheduled bookings)
   deliveryStops: { type: [{ address: String, lat: Number, lng: Number, receiverName: String, receiverPhone: String }], default: undefined },
   fare: Number,
   tip: { type: Number, default: 0 },
