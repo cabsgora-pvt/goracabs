@@ -180,6 +180,8 @@ export async function POST(req: NextRequest) {
       isFragile: !!b.isFragile,
       itemValue: b.itemValue || 0,
       codAmount: b.codAmount || 0,
+      scheduledAt: b.scheduledAt ? new Date(b.scheduledAt) : undefined,
+      deliveryStops: Array.isArray(b.deliveryStops) && b.deliveryStops.length ? b.deliveryStops : undefined,
     })
 
     // Find nearest online approved driver: same zone + vehicle type

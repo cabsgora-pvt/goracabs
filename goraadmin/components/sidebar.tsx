@@ -61,6 +61,7 @@ const navItems: NavItem[] = [
       { label: 'Rental', href: '/rides/rental', icon: Clock },
       { label: 'Hire a Driver', href: '/rides/hire', icon: UserCheck },
       { label: 'Delivery', href: '/rides/delivery', icon: Package },
+      { label: 'Live Deliveries', href: '/rides/delivery/live', icon: Map },
       { label: 'Scheduled', href: '/rides/scheduled', icon: CheckCircle },
       { label: 'Cancelled', href: '/rides/cancelled', icon: XCircle },
     ]

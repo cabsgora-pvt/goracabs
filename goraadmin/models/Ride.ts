@@ -84,7 +84,10 @@ const RideSchema = new Schema({
   itemValue: { type: Number, default: 0 },     // declared value (for insurance reference)
   codAmount: { type: Number, default: 0 },     // cash collected from receiver on delivery
   deliveryProofPhoto: String,                  // driver's proof-of-delivery photo URL
+  deliverySignature: String,                   // receiver's signature image URL
   deliveredAt: Date,
+  scheduledAt: Date,                           // book-for-later delivery time
+  deliveryStops: { type: [{ address: String, lat: Number, lng: Number, receiverName: String, receiverPhone: String }], default: undefined },
   fare: Number,
   tip: { type: Number, default: 0 },
   totalFare: Number,          // fare + tip

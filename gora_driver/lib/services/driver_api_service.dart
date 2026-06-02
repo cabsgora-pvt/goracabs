@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -60,6 +61,18 @@ class DriverApiService {
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     if (data['url'] != null) return AppConfig.imageUrl(data['url'] as String);
     return null;
+  }
+
+  // Upload raw bytes (used for signature PNG) → returns full url
+  static Future<String?> uploadBytes(Uint8List bytes, String filename) async {
+    try {
+      final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload'));
+      request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+      final res = await http.Response.fromStream(await request.send());
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      if (data['url'] != null) return AppConfig.imageUrl(data['url'] as String);
+      return null;
+    } catch (_) { return null; }
   }
 
   // Auth

@@ -28,6 +28,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   String _packageSize = 'S';
   bool _isFragile = false;
   bool _cod = false;
+  DateTime? _scheduledAt;   // null = deliver now
   final _itemValue = TextEditingController();
   final _codAmount = TextEditingController();
   final List<String> _photoUrls = [];   // relative urls of uploaded parcel photos
@@ -128,6 +129,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         'itemValue': double.tryParse(_itemValue.text) ?? 0,
         'codAmount': _cod ? (double.tryParse(_codAmount.text) ?? 0) : 0,
         'parcelPhotos': _photoUrls,
+        'scheduledAt': _scheduledAt?.toIso8601String(),
         'paymentMode': _cod ? 'cod' : 'cash',
       });
       if (res['ride'] != null) { _rideId = res['ride']['id']?.toString(); _pickupOtp = res['ride']['otp']?.toString(); _dropOtp = res['ride']['dropOtp']?.toString(); }
@@ -268,7 +270,10 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
       final status = (p['status'] ?? '').toString();
       final phase = (p['deliveryPhase'] ?? '').toString();
       final done = status == 'completed' || phase == 'delivered';
-      return Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(14),
+      final active = !done && (status == 'accepted' || status == 'arrived' || status == 'ongoing');
+      return GestureDetector(
+        onTap: active ? () => _trackLive(p) : null,
+        child: Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[200]!)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
@@ -283,10 +288,56 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           Text(incoming ? 'From ${p['senderName'] ?? 'Sender'} · ${p['itemType'] ?? 'Parcel'}' : '${p['itemType'] ?? 'Parcel'} → ${p['receiverName'] ?? ''}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
           Text('${p['pickupAddress'] ?? ''} → ${p['dropAddress'] ?? ''}', style: TextStyle(fontSize: 11, color: Colors.grey[600]), maxLines: 2, overflow: TextOverflow.ellipsis),
           if (p['driverName'] != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text('Driver: ${p['driverName']}', style: const TextStyle(fontSize: 11, color: Colors.grey))),
+          if (active) const Padding(padding: EdgeInsets.only(top: 6), child: Row(children: [Icon(Icons.my_location, size: 13, color: AppTheme.primaryBlue), SizedBox(width: 4),
+            Text('Tap to track live', style: TextStyle(fontSize: 11, color: AppTheme.primaryBlue, fontWeight: FontWeight.w600))])),
           if (done && !incoming) Align(alignment: Alignment.centerRight, child: TextButton.icon(
             onPressed: () => _reportIssue(p), icon: const Icon(Icons.report_problem, size: 14, color: Colors.orange),
             label: const Text('Report Issue', style: TextStyle(fontSize: 12, color: Colors.orange)))),
-        ]));
+        ])));
+  }
+
+  // Live tracking sheet for any parcel (works for receiver's incoming too — by rideId)
+  void _trackLive(Map<String, dynamic> p) {
+    final id = (p['_id'] ?? p['id'] ?? '').toString();
+    if (id.isEmpty) return;
+    final pLat = (p['pickupLat'] as num?)?.toDouble() ?? 0, pLng = (p['pickupLng'] as num?)?.toDouble() ?? 0;
+    final dLat = (p['dropLat'] as num?)?.toDouble() ?? 0, dLng = (p['dropLng'] as num?)?.toDouble() ?? 0;
+    LatLng? drv; double hd = 0; int? eta;
+    Timer? lt;
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
+        lt ??= Timer.periodic(const Duration(seconds: 5), (t) async {
+          try {
+            final res = await ApiService.getDriverLocation(id);
+            final dd = res['driver'] as Map<String, dynamic>?;
+            if (dd == null || dd['lat'] == null) return;
+            final la = (dd['lat'] as num).toDouble(), ln = (dd['lng'] as num).toDouble();
+            final toDrop = (p['deliveryPhase'] ?? '') == 'in_transit';
+            final dir = await ApiService.getDirections(originLat: la, originLng: ln, destLat: toDrop ? dLat : pLat, destLng: toDrop ? dLng : pLng);
+            drv = LatLng(la, ln); hd = (dd['heading'] as num?)?.toDouble() ?? 0; eta = (dir['durationMin'] as num?)?.toInt();
+            setS(() {});
+          } catch (_) {}
+        });
+        return Padding(padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 16 + MediaQuery.of(ctx).viewPadding.bottom),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [const Text('Live Tracking', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), const Spacer(),
+              IconButton(onPressed: () { lt?.cancel(); Navigator.pop(ctx); }, icon: const Icon(Icons.close))]),
+            ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(height: 220, child: GoogleMap(
+              initialCameraPosition: CameraPosition(target: drv ?? LatLng(pLat, pLng), zoom: 13),
+              markers: {
+                Marker(markerId: const MarkerId('p'), position: LatLng(pLat, pLng), icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen)),
+                Marker(markerId: const MarkerId('d'), position: LatLng(dLat, dLng), icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed)),
+                if (drv != null) Marker(markerId: const MarkerId('drv'), position: drv!, rotation: hd, flat: true, anchor: const Offset(0.5, 0.5), icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
+              },
+              zoomControlsEnabled: false, myLocationButtonEnabled: false))),
+            const SizedBox(height: 10),
+            if (eta != null) Text('Arriving in $eta min', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue))
+            else const Text('Locating driver...', style: TextStyle(fontSize: 13, color: Colors.grey)),
+            const SizedBox(height: 8),
+            if (p['driverName'] != null) Text('Driver: ${p['driverName']} ${p['driverPhone'] != null ? '· ${p['driverPhone']}' : ''}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          ]));
+      })).whenComplete(() => lt?.cancel());
   }
 
   // Insurance / damage claim → opens a prefilled support enquiry
@@ -346,6 +397,21 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
               decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[300]!)),
               child: _uploading ? const Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))) : const Icon(Icons.add_a_photo, color: AppTheme.primaryBlue, size: 28))),
           ])),
+
+          const SizedBox(height: 12),
+          // Schedule for later
+          GestureDetector(onTap: () async {
+            final d = await showDatePicker(context: context, initialDate: _scheduledAt ?? DateTime.now(), firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 30)));
+            if (d == null || !mounted) return;
+            final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_scheduledAt ?? DateTime.now()));
+            if (t == null) return;
+            setState(() => _scheduledAt = DateTime(d.year, d.month, d.day, t.hour, t.minute));
+          }, child: Container(padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
+            child: Row(children: [const Icon(Icons.schedule, size: 18, color: Colors.grey), const SizedBox(width: 10),
+              Expanded(child: Text(_scheduledAt == null ? 'Deliver now (tap to schedule for later)' : 'Scheduled: ${_scheduledAt!.day}/${_scheduledAt!.month} ${_scheduledAt!.hour}:${_scheduledAt!.minute.toString().padLeft(2, '0')}',
+                style: TextStyle(fontSize: 13, color: _scheduledAt == null ? Colors.grey[500] : Colors.black87, fontWeight: _scheduledAt == null ? FontWeight.normal : FontWeight.w600))),
+              if (_scheduledAt != null) GestureDetector(onTap: () => setState(() => _scheduledAt = null), child: const Icon(Icons.close, size: 16, color: Colors.grey))]))),
 
           const SizedBox(height: 16), _title('Sender'),
           _field('Sender name', _senderName, Icons.person_outline),

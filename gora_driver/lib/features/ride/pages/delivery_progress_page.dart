@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../config/app_config.dart';
 import '../../../core/widgets/app_widgets.dart';
@@ -22,8 +24,52 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
   bool _collected = false;
   bool _busy = false;
   String? _proofPhoto; // full url of captured proof
+  String? _signatureUrl;
   final _picker = ImagePicker();
   Timer? _ping;
+  final List<Offset?> _sigPoints = [];
+
+  // Open external Google Maps navigation to pickup (before collect) or drop (after)
+  Future<void> _navigate() async {
+    final r = widget.ride;
+    final lat = _collected ? r.dropLat : r.pickupLat;
+    final lng = _collected ? r.dropLng : r.pickupLng;
+    final uri = Uri.parse('google.navigation:q=$lat,$lng&mode=d');
+    final web = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving');
+    if (await canLaunchUrl(uri)) { await launchUrl(uri); }
+    else { await launchUrl(web, mode: LaunchMode.externalApplication); }
+  }
+
+  // Capture receiver signature via a simple draw pad, upload as PNG
+  Future<void> _captureSignature() async {
+    _sigPoints.clear();
+    final key = GlobalKey();
+    await showDialog(context: context, builder: (dctx) => StatefulBuilder(builder: (dctx, setS) => AlertDialog(
+      title: const Text('Receiver Signature'),
+      content: RepaintBoundary(key: key,
+        child: Container(width: 300, height: 200, color: Colors.grey[100],
+          child: GestureDetector(
+            onPanUpdate: (d) {
+              final box = key.currentContext!.findRenderObject() as RenderBox;
+              setS(() => _sigPoints.add(box.globalToLocal(d.globalPosition)));
+            },
+            onPanEnd: (_) => setS(() => _sigPoints.add(null)),
+            child: CustomPaint(painter: _SigPainter(_sigPoints), size: const Size(300, 200)),
+          ))),
+      actions: [
+        TextButton(onPressed: () => setS(() => _sigPoints.clear()), child: const Text('Clear')),
+        ElevatedButton(onPressed: () async {
+          final boundary = key.currentContext!.findRenderObject() as RenderRepaintBoundary;
+          final image = await boundary.toImage(pixelRatio: 2);
+          final bd = await image.toByteData(format: ui.ImageByteFormat.png);
+          Navigator.pop(dctx);
+          if (bd == null) return;
+          setState(() => _busy = true);
+          final url = await DriverApiService.uploadBytes(bd.buffer.asUint8List(), 'signature.png');
+          if (mounted) setState(() { _signatureUrl = url; _busy = false; });
+        }, child: const Text('Save')),
+      ])));
+  }
 
   @override
   void dispose() { _ping?.cancel(); super.dispose(); }
@@ -78,7 +124,7 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
       ]));
     if (otp == null || otp.isEmpty) return;
     setState(() => _busy = true);
-    final res = await DriverApiService.deliveryAction(widget.ride.id, {'action': 'deliver', 'dropOtp': otp, 'proofPhoto': _proofPhoto});
+    final res = await DriverApiService.deliveryAction(widget.ride.id, {'action': 'deliver', 'dropOtp': otp, 'proofPhoto': _proofPhoto, 'signature': _signatureUrl});
     if (!mounted) return;
     setState(() => _busy = false);
     if (res['error'] != null) {
@@ -92,7 +138,8 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
   Widget build(BuildContext context) {
     final r = widget.ride;
     return Scaffold(
-      appBar: blueAppBar('Parcel Delivery'),
+      appBar: AppBar(title: const Text('Parcel Delivery'), backgroundColor: AppColors.primary, foregroundColor: Colors.white,
+        actions: [IconButton(icon: const Icon(Icons.navigation), tooltip: 'Navigate', onPressed: _navigate)]),
       backgroundColor: AppColors.cardBg,
       body: ListView(padding: const EdgeInsets.all(16), children: [
         // COD banner
@@ -133,6 +180,12 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
             style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 48), side: BorderSide(color: _proofPhoto != null ? AppColors.green : AppColors.primary))),
           if (_proofPhoto != null) Padding(padding: const EdgeInsets.only(top: 8), child: ClipRRect(borderRadius: BorderRadius.circular(8),
             child: Image.network(_proofPhoto!, height: 120, width: double.infinity, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox()))),
+          const SizedBox(height: 8),
+          // Receiver signature (optional)
+          OutlinedButton.icon(onPressed: _busy ? null : _captureSignature,
+            icon: Icon(_signatureUrl != null ? Icons.check_circle : Icons.draw, color: _signatureUrl != null ? AppColors.green : AppColors.primary),
+            label: Text(_signatureUrl != null ? 'Signature captured' : 'Capture receiver signature (optional)', style: TextStyle(color: _signatureUrl != null ? AppColors.green : AppColors.primary)),
+            style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 46), side: BorderSide(color: _signatureUrl != null ? AppColors.green : AppColors.primary))),
           const SizedBox(height: 10),
           SizedBox(width: double.infinity, child: ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.green, foregroundColor: Colors.white, minimumSize: const Size(double.infinity, 52)),
@@ -159,4 +212,17 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
     child: Row(children: [Icon(i, size: 16, color: AppColors.textGrey), const SizedBox(width: 8),
       SizedBox(width: 60, child: Text(l, style: const TextStyle(fontSize: 12, color: AppColors.textGrey))),
       Expanded(child: Text(v, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textDark), maxLines: 2))]));
+}
+
+class _SigPainter extends CustomPainter {
+  final List<Offset?> points;
+  _SigPainter(this.points);
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()..color = Colors.black..strokeWidth = 2.5..strokeCap = StrokeCap.round;
+    for (int i = 0; i < points.length - 1; i++) {
+      if (points[i] != null && points[i + 1] != null) canvas.drawLine(points[i]!, points[i + 1]!, p);
+    }
+  }
+  @override bool shouldRepaint(_SigPainter old) => true;
 }
