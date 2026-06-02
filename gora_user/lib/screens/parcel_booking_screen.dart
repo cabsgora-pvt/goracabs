@@ -288,6 +288,15 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           Text(incoming ? 'From ${p['senderName'] ?? 'Sender'} · ${p['itemType'] ?? 'Parcel'}' : '${p['itemType'] ?? 'Parcel'} → ${p['receiverName'] ?? ''}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
           Text('${p['pickupAddress'] ?? ''} → ${p['dropAddress'] ?? ''}', style: TextStyle(fontSize: 11, color: Colors.grey[600]), maxLines: 2, overflow: TextOverflow.ellipsis),
           if (p['driverName'] != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text('Driver: ${p['driverName']}', style: const TextStyle(fontSize: 11, color: Colors.grey))),
+          // Receiver's delivery OTP — show it so they can hand it to the driver
+          if (incoming && !done && (p['dropOtp'] ?? '').toString().isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8),
+            child: Container(padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: const Color(0xFF1976D2).withOpacity(0.06), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFF1976D2).withOpacity(0.3))),
+              child: Row(children: [const Icon(Icons.lock_outline, size: 18, color: Color(0xFF1976D2)), const SizedBox(width: 8),
+                const Expanded(child: Text('Show this OTP to the driver to receive', style: TextStyle(fontSize: 11, color: Colors.black54))),
+                Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1976D2))),
+                  child: Text((p['dropOtp'] ?? '----').toString(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 3, color: Color(0xFF1976D2))))]))),
           if (active) const Padding(padding: EdgeInsets.only(top: 6), child: Row(children: [Icon(Icons.my_location, size: 13, color: AppTheme.primaryBlue), SizedBox(width: 4),
             Text('Tap to track live', style: TextStyle(fontSize: 11, color: AppTheme.primaryBlue, fontWeight: FontWeight.w600))])),
           if (done && !incoming) Align(alignment: Alignment.centerRight, child: TextButton.icon(
