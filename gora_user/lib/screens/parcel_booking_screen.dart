@@ -43,6 +43,10 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   String _deliveryPhase = 'pending';
   Timer? _poll;
   void Function(void Function())? _dialogSet;
+  // Send / Receive tabs
+  String _tab = 'Send';
+  List<Map<String, dynamic>> _myParcels = [];
+  bool _loadingParcels = false;
 
   @override
   void initState() { super.initState(); _initLocation(); }
@@ -153,6 +157,70 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
       backgroundColor: Colors.grey[50],
       appBar: AppBar(title: const Text('Gora Parcel', style: TextStyle(fontWeight: FontWeight.bold)), backgroundColor: Colors.white, foregroundColor: Colors.black87, elevation: 0),
       body: Column(children: [
+        // Send / Receive tabs
+        Container(color: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(children: [
+            Expanded(child: _tabBtn('Send', 'Send Parcel')),
+            const SizedBox(width: 12),
+            Expanded(child: _tabBtn('Receive', 'Track Parcel')),
+          ])),
+        Expanded(child: _tab == 'Send' ? _buildSend() : _buildReceive()),
+      ]),
+    );
+  }
+
+  Widget _tabBtn(String tab, String label) {
+    final sel = _tab == tab;
+    return GestureDetector(onTap: () { setState(() => _tab = tab); if (tab == 'Receive') _loadMyParcels(); },
+      child: Container(padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(color: sel ? AppTheme.primaryBlue : Colors.grey[100], borderRadius: BorderRadius.circular(10), border: Border.all(color: sel ? AppTheme.primaryBlue : Colors.grey[300]!)),
+        child: Center(child: Text(label, style: TextStyle(color: sel ? Colors.white : Colors.black87, fontWeight: FontWeight.bold, fontSize: 14)))));
+  }
+
+  Future<void> _loadMyParcels() async {
+    setState(() => _loadingParcels = true);
+    try {
+      final res = await ApiService.getMyRides();
+      final list = (res['rides'] as List?) ?? [];
+      setState(() {
+        _myParcels = list.where((r) => (r['service'] ?? '') == 'delivery').map<Map<String, dynamic>>((r) => Map<String, dynamic>.from(r as Map)).toList();
+        _loadingParcels = false;
+      });
+    } catch (_) { setState(() => _loadingParcels = false); }
+  }
+
+  Widget _buildReceive() {
+    if (_loadingParcels) return const Center(child: CircularProgressIndicator());
+    if (_myParcels.isEmpty) return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Icon(Icons.local_shipping, size: 64, color: Colors.grey[300]), const SizedBox(height: 12),
+      Text('No parcels yet', style: TextStyle(color: Colors.grey[500], fontSize: 15)),
+      const SizedBox(height: 4), Text('Your sent parcels appear here for tracking', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
+    ]));
+    return ListView(padding: const EdgeInsets.all(16), children: _myParcels.map((p) {
+      final status = (p['status'] ?? '').toString();
+      final phase = (p['deliveryPhase'] ?? '').toString();
+      final done = status == 'completed' || phase == 'delivered';
+      return Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[200]!)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: done ? Colors.green[50] : Colors.blue[50], borderRadius: BorderRadius.circular(6)),
+              child: Text(done ? 'DELIVERED' : (phase.isNotEmpty ? phase.toUpperCase() : status.toUpperCase()),
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: done ? Colors.green : AppTheme.primaryBlue))),
+            const Spacer(),
+            Text('₹${p['totalFare'] ?? p['fare'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
+          ]),
+          const SizedBox(height: 8),
+          Text('${p['itemType'] ?? 'Parcel'} → ${p['receiverName'] ?? ''}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+          Text('${p['pickupAddress'] ?? ''} → ${p['dropAddress'] ?? ''}', style: TextStyle(fontSize: 11, color: Colors.grey[600]), maxLines: 2, overflow: TextOverflow.ellipsis),
+          if (p['driverName'] != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text('Driver: ${p['driverName']}', style: const TextStyle(fontSize: 11, color: Colors.grey))),
+        ]));
+    }).toList());
+  }
+
+  Widget _buildSend() {
+    return Column(children: [
         Expanded(child: ListView(padding: const EdgeInsets.all(16), children: [
           _title('Delivery Route'),
           _locField(Icons.radio_button_checked, const Color(0xFF4CAF50), _pickupCtrl, 'Pickup location', pickup: true),
@@ -188,8 +256,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
             onPressed: _formValid ? _showConfirm : null,
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue, padding: const EdgeInsets.symmetric(vertical: 16), disabledBackgroundColor: Colors.grey[300]),
             child: const Text('Proceed to Book', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)))))),
-      ]),
-    );
+      ]);
   }
 
   void _showConfirm() {

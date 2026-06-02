@@ -10,7 +10,7 @@ const ALL_SERVICES = [
   { key: 'taxi',         label: 'Taxi / Cab Ride' },
   { key: 'rental',       label: 'Rental Package' },
   { key: 'outstation',   label: 'Outstation' },
-  { key: 'parcel',       label: 'Parcel Delivery' },
+  { key: 'delivery',     label: 'Parcel Delivery' },
   { key: 'hire_driver',  label: 'Hire a Driver' },
 ]
 
