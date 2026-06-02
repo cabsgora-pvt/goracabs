@@ -170,4 +170,16 @@ class ApiService {
       return null;
     }
   }
+
+  // Upload an image, returns the RELATIVE url (/uploads/..) for storing on a ride
+  static Future<String?> uploadImage(XFile xfile) async {
+    try {
+      final Uint8List bytes = await xfile.readAsBytes();
+      final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload'));
+      request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: xfile.name.isNotEmpty ? xfile.name : 'parcel.jpg'));
+      final res = await http.Response.fromStream(await request.send());
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      return data['url'] as String?;
+    } catch (_) { return null; }
+  }
 }

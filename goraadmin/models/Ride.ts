@@ -76,6 +76,12 @@ const RideSchema = new Schema({
   dropOtp: String,                // receiver shows this to driver to confirm handover
   // collected (sender OTP done) → in_transit → delivered
   deliveryPhase: { type: String, enum: ['pending', 'collected', 'in_transit', 'delivered'], default: 'pending' },
+  packageSize: { type: String, enum: ['S', 'M', 'L', ''], default: '' },
+  isFragile: { type: Boolean, default: false },
+  itemValue: { type: Number, default: 0 },     // declared value (for insurance reference)
+  codAmount: { type: Number, default: 0 },     // cash collected from receiver on delivery
+  deliveryProofPhoto: String,                  // driver's proof-of-delivery photo URL
+  deliveredAt: Date,
   fare: Number,
   tip: { type: Number, default: 0 },
   totalFare: Number,          // fare + tip

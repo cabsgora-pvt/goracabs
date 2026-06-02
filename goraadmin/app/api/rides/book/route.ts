@@ -176,6 +176,10 @@ export async function POST(req: NextRequest) {
       parcelPhotos: Array.isArray(b.parcelPhotos) ? b.parcelPhotos : [],
       dropOtp: service === 'delivery' ? dropOtp : undefined,
       deliveryPhase: service === 'delivery' ? 'pending' : undefined,
+      packageSize: b.packageSize || '',
+      isFragile: !!b.isFragile,
+      itemValue: b.itemValue || 0,
+      codAmount: b.codAmount || 0,
     })
 
     // Find nearest online approved driver: same zone + vehicle type

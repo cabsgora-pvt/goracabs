@@ -100,6 +100,8 @@ export async function GET(req: NextRequest) {
         senderName: r.senderName, senderPhone: r.senderPhone,
         receiverName: r.receiverName, receiverPhone: r.receiverPhone,
         itemType: r.itemType, weightKg: r.weightKg,
+        packageSize: r.packageSize, isFragile: r.isFragile,
+        codAmount: r.codAmount, parcelPhotos: r.parcelPhotos,
       }
     })
 

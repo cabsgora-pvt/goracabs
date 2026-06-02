@@ -103,6 +103,16 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
             'transmission': (r['transmission'] ?? '').toString(),
             'hireStartAt': (r['hireStartAt'] ?? '').toString(),
             'hireEndAt': (r['hireEndAt'] ?? '').toString(),
+            // Delivery extras
+            'senderName': (r['senderName'] ?? '').toString(),
+            'receiverName': (r['receiverName'] ?? '').toString(),
+            'itemType': (r['itemType'] ?? '').toString(),
+            'weightKg': (r['weightKg'] as num?)?.toDouble() ?? 0,
+            'packageSize': (r['packageSize'] ?? '').toString(),
+            'isFragile': (r['isFragile'] as bool?) ?? false,
+            'codAmount': (r['codAmount'] as num?)?.toInt() ?? 0,
+            'parcelPhotos': (r['parcelPhotos'] as List?) ?? [],
+            'deliveryProofPhoto': (r['deliveryProofPhoto'] ?? '').toString(),
           };
         }).toList();
         _loadingRides = false;

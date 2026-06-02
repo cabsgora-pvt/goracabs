@@ -126,6 +126,15 @@ class TripDetailScreen extends StatelessWidget {
       rows.add(_fareRow('Rate', '₹${_n(ride['hirePerHour'])}/hr'));
       final s = _fmtDt(ride['hireStartAt']?.toString() ?? ''), e = _fmtDt(ride['hireEndAt']?.toString() ?? '');
       if (s.isNotEmpty || e.isNotEmpty) rows.add(_fareRow('Schedule', '$s → $e'));
+    } else if (_service == 'delivery') {
+      rows.add(_fareRow('Item', (ride['itemType'] ?? 'Parcel').toString()));
+      if (_d(ride['weightKg']) > 0) rows.add(_fareRow('Weight', '${_d(ride['weightKg']).toStringAsFixed(0)} kg'));
+      if ((ride['packageSize'] ?? '').toString().isNotEmpty) rows.add(_fareRow('Size', ride['packageSize'].toString()));
+      rows.add(_fareRow('Sender', (ride['senderName'] ?? '').toString()));
+      rows.add(_fareRow('Receiver', (ride['receiverName'] ?? '').toString()));
+      if ((ride['isFragile'] as bool?) ?? false) rows.add(_fareRow('Handling', 'Fragile', color: Colors.orange));
+      if (_n(ride['codAmount']) > 0) rows.add(_fareRow('COD collected', '₹${_n(ride['codAmount'])}', color: Colors.orange));
+      rows.add(_fareRow('Distance', '${_d(ride['distance']).toStringAsFixed(1)} km'));
     } else {
       rows.add(_fareRow('Distance', '${_d(ride['distance']).toStringAsFixed(1)} km'));
     }
@@ -144,12 +153,14 @@ class TripDetailScreen extends StatelessWidget {
       case 'rental': return 'RENTAL · ${_n(ride['packageHours'])}hr';
       case 'outstation': return 'OUTSTATION · ${ride['tripType'] == 'round_trip' ? 'Round' : 'One Way'}';
       case 'hire_driver': return 'HIRE DRIVER · ${_n(ride['hireTotalHours'])}hr';
+      case 'delivery': return 'PARCEL · ${(ride['itemType'] ?? '').toString()}';
       default: return (ride['vehicle'] ?? 'TAXI').toString().toUpperCase();
     }
   }
   Color _serviceColor() => _service == 'outstation' ? Colors.orange
       : _service == 'rental' ? Colors.purple
-      : _service == 'hire_driver' ? Colors.indigo : AppTheme.primaryBlue;
+      : _service == 'hire_driver' ? Colors.indigo
+      : _service == 'delivery' ? Colors.teal : AppTheme.primaryBlue;
 
   String _fmtDt(String iso) {
     if (iso.isEmpty) return '';

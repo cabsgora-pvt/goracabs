@@ -34,6 +34,10 @@ class RideRequestModel {
   // Delivery extras
   final String senderName, senderPhone, receiverName, receiverPhone, itemType;
   final double weightKg;
+  final String packageSize;
+  final bool isFragile;
+  final double codAmount;
+  final List<String> parcelPhotos;
 
   const RideRequestModel({
     required this.id, required this.userName, required this.userPhone, required this.userRating,
@@ -54,6 +58,7 @@ class RideRequestModel {
     this.transmission = '',
     this.senderName = '', this.senderPhone = '', this.receiverName = '', this.receiverPhone = '', this.itemType = '',
     this.weightKg = 0,
+    this.packageSize = '', this.isFragile = false, this.codAmount = 0, this.parcelPhotos = const [],
   });
 }
 

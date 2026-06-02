@@ -25,6 +25,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       ride.deliveryPhase = 'delivered'
       ride.status = 'completed'
       ride.completedAt = new Date()
+      ride.deliveredAt = new Date()
+      if (b.proofPhoto) ride.deliveryProofPhoto = b.proofPhoto
     }
     await ride.save()
     return withCors({ success: true, deliveryPhase: ride.deliveryPhase, status: ride.status })

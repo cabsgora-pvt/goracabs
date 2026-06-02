@@ -220,6 +220,8 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
                     Text('PARCEL · ${r.itemType.isNotEmpty ? r.itemType : "Delivery"}', style: const TextStyle(color: Colors.teal, fontWeight: FontWeight.w800, fontSize: 12, letterSpacing: 0.5)),
                     const Spacer(),
                     if (r.weightKg > 0) _miniChip(Icons.fitness_center, '${r.weightKg.toStringAsFixed(0)}kg'),
+                    if (r.isFragile) ...[const SizedBox(width: 6), _miniChip(Icons.warning_amber, 'Fragile')],
+                    if (r.codAmount > 0) ...[const SizedBox(width: 6), _miniChip(Icons.payments, 'COD ₹${r.codAmount.toStringAsFixed(0)}')],
                   ]),
                   if (r.senderName.isNotEmpty || r.receiverName.isNotEmpty) ...[
                     const SizedBox(height: 6),
