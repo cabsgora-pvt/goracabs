@@ -6,6 +6,7 @@ import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 import '../providers/user_provider.dart';
 import '../services/api_service.dart';
+import 'active_ride_screen.dart';
 import 'welcome_screen.dart';
 import 'taxi_booking_screen.dart';
 import 'outstation_screen.dart';
@@ -35,6 +36,9 @@ class _HomeScreenState extends State<HomeScreen> {
   late PageController _promoController;
   Timer? _promoTimer;
   int _currentPromoPage = 0;
+  // Active ride guard — user can't book a new ride while one is in progress
+  Map<String, dynamic>? _activeRide;
+  Timer? _activeTimer;
 
   final List<Map<String, dynamic>> _services = [
     {'icon': 'assets/images/bike-bluebg.png', 'label': 'Bike ride', 'color': Color(0xFF2196F3), 'bgColor': Color(0xFFE3F2FD)},
@@ -68,6 +72,36 @@ class _HomeScreenState extends State<HomeScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<UserProvider>().loadProfile();
     });
+    _checkActiveRide();
+    // Re-check periodically so the banner clears when the ride completes/cancels
+    _activeTimer = Timer.periodic(const Duration(seconds: 8), (_) => _checkActiveRide());
+  }
+
+  // Finds any in-progress ride (pending/accepted/arrived/ongoing) for the user
+  Future<void> _checkActiveRide() async {
+    try {
+      final res = await ApiService.getMyRides();
+      final list = (res['rides'] as List?) ?? [];
+      const activeStatuses = ['pending', 'accepted', 'arrived', 'ongoing'];
+      final active = list.firstWhere(
+        (r) => activeStatuses.contains((r['status'] ?? '').toString()),
+        orElse: () => null,
+      );
+      if (!mounted) return;
+      setState(() => _activeRide = active == null ? null : Map<String, dynamic>.from(active as Map));
+    } catch (_) {}
+  }
+
+  // Returns true if a new booking is allowed; otherwise shows a blocker dialog
+  bool _canBook() {
+    if (_activeRide == null) return true;
+    showDialog(context: context, builder: (dctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('Ride in progress', style: TextStyle(fontWeight: FontWeight.bold)),
+      content: const Text('You already have an active ride. Please complete or cancel it before booking a new one.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('OK'))],
+    ));
+    return false;
   }
 
   void _startPromoTimer() {
@@ -91,6 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _promoTimer?.cancel();
+    _activeTimer?.cancel();
     _promoController.dispose();
     super.dispose();
   }
@@ -288,8 +323,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (_activeRide != null) _buildActiveRideBanner(),
                     const SizedBox(height: 24),
-                    
+
                     const Text('Popular Places', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
                     SizedBox(
@@ -535,9 +571,66 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildActiveRideBanner() {
+    final r = _activeRide!;
+    final status = (r['status'] ?? '').toString();
+    final svc = (r['service'] ?? 'taxi').toString();
+    final label = {
+      'pending': 'Finding your driver…',
+      'accepted': 'Driver on the way',
+      'arrived': 'Driver has arrived',
+      'ongoing': 'Trip in progress',
+    }[status] ?? 'Active ride';
+    final svcName = {'rental': 'Rental', 'outstation': 'Outstation', 'hire_driver': 'Hire Driver', 'delivery': 'Parcel'}[svc] ?? 'Ride';
+    // Service image asset + fallback icon
+    final vt = (r['vehicleType'] ?? '').toString().toLowerCase();
+    String svcAsset; IconData svcIcon;
+    if (svc == 'delivery') { svcAsset = 'assets/images/parcel-bluebg.png'; svcIcon = Icons.local_shipping; }
+    else if (svc == 'outstation') { svcAsset = 'assets/images/out-station-bluebg.png'; svcIcon = Icons.map; }
+    else if (svc == 'rental') { svcAsset = 'assets/images/rental-bluebg.png'; svcIcon = Icons.access_time_filled; }
+    else if (svc == 'hire_driver') { svcAsset = 'assets/images/hiredriver-bluebg.png'; svcIcon = Icons.person_pin_circle; }
+    else if (vt.contains('bike')) { svcAsset = 'assets/images/bike-bluebg.png'; svcIcon = Icons.two_wheeler; }
+    else if (vt.contains('auto')) { svcAsset = 'assets/images/auto-bluebg.png'; svcIcon = Icons.electric_rickshaw; }
+    else { svcAsset = 'assets/images/texi2-bluebg.png'; svcIcon = Icons.directions_car; }
+    final rideId = (r['_id'] ?? r['id'] ?? '').toString();
+    return GestureDetector(
+      onTap: rideId.isEmpty ? null : () async {
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveRideScreen(rideId: rideId)));
+        _checkActiveRide(); // refresh after returning (may have completed/cancelled)
+      },
+      child: Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [Color(0xFF1976D2), Color(0xFF2196F3)]),
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [BoxShadow(color: const Color(0xFF2196F3).withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Row(children: [
+        ClipRRect(borderRadius: BorderRadius.circular(12),
+          child: Image.asset(svcAsset, width: 48, height: 48, fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Container(width: 48, height: 48, alignment: Alignment.center,
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+              child: Icon(svcIcon, color: const Color(0xFF1976D2), size: 24)))),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('$svcName · $label', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+          const SizedBox(height: 2),
+          Text('${r['pickupAddress'] ?? ''} → ${r['dropAddress'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        ])),
+        Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+          child: const Text('Live', style: TextStyle(color: Color(0xFF1976D2), fontWeight: FontWeight.w800, fontSize: 12))),
+      ]),
+      ),
+    );
+  }
+
   Widget _buildServiceItem(Map<String, dynamic> s) {
     return GestureDetector(
       onTap: () {
+        if (!_canBook()) return; // block new booking while a ride is active
         if (s['label'] == 'Bike ride') {
           Navigator.push(
             context,
