@@ -788,9 +788,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                   ),
                 if (!_showFullTripMap)
                   DraggableScrollableSheet(
-                    initialChildSize: _showPickupConfirmation ? 0.18 : 0.4,
-                    minChildSize: _showPickupConfirmation ? 0.18 : 0.4,
-                    maxChildSize: _showPickupConfirmation ? 0.18 : 0.4,
+                    initialChildSize: _showPickupConfirmation ? 0.18 : 0.45,
+                    minChildSize: _showPickupConfirmation ? 0.18 : 0.35,
+                    maxChildSize: _showPickupConfirmation ? 0.30 : 0.88,  // drag up to see full vehicle list
                     builder: (context, scrollController) {
                       return Container(
                         decoration: const BoxDecoration(
