@@ -1,31 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'providers/user_provider.dart';
 import 'providers/theme_provider.dart';
-import 'screens/welcome_screen.dart';
-import 'screens/home_screen.dart';
+import 'screens/splash_screen.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final prefs = await SharedPreferences.getInstance();
-  final token = prefs.getString('user_token');
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => UserProvider()),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
       ],
-      child: GoraCabsApp(isLoggedIn: token != null && token.isNotEmpty),
+      child: const GoraCabsApp(),
     ),
   );
 }
 
 class GoraCabsApp extends StatelessWidget {
-  final bool isLoggedIn;
-  const GoraCabsApp({super.key, required this.isLoggedIn});
+  const GoraCabsApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +50,7 @@ class GoraCabsApp extends StatelessWidget {
           );
         });
       },
-      home: isLoggedIn ? const HomeScreen() : const WelcomeScreen(),
+      home: const SplashScreen(),
     );
   }
 }
