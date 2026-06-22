@@ -924,6 +924,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     
     return Scaffold(
       backgroundColor: Colors.white,
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -939,7 +940,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
       ),
       body: Column(
         children: [
-          Padding(
+          // Inputs + stops scroll so the keyboard never overflows them
+          Flexible(child: SingleChildScrollView(child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
@@ -1027,7 +1029,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                 ),
               ],
             ),
-          ),
+          ))),
           const Divider(height: 1),
           Expanded(
             child: ListView(
