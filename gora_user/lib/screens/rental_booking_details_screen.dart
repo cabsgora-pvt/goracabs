@@ -51,12 +51,10 @@ class RentalBookingDetailsScreen extends StatelessWidget {
         );
       },
       child: Scaffold(
-        backgroundColor: Colors.white,
         appBar: AppBar(
-          backgroundColor: Colors.white,
           elevation: 0,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.black),
+            icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface),
             onPressed: () {
               Navigator.pushAndRemoveUntil(
                 context,
@@ -65,10 +63,10 @@ class RentalBookingDetailsScreen extends StatelessWidget {
               );
             },
           ),
-          title: const Text(
+          title: Text(
             'Rental Booking Details',
             style: TextStyle(
-              color: Colors.black,
+              color: Theme.of(context).colorScheme.onSurface,
               fontSize: 18,
               fontWeight: FontWeight.bold,
             ),
@@ -103,7 +101,7 @@ class RentalBookingDetailsScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.grey[200]!),
                     boxShadow: [
@@ -149,10 +147,10 @@ class RentalBookingDetailsScreen extends StatelessWidget {
                               children: [
                                 Text(
                                   driverName!,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.black,
+                                    color: Theme.of(context).colorScheme.onSurface,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -183,13 +181,13 @@ class RentalBookingDetailsScreen extends StatelessWidget {
                             child: ElevatedButton.icon(
                               onPressed: () {},
                               icon: const Icon(Icons.call, color: Colors.green, size: 18),
-                              label: const Text(
+                              label: Text(
                                 'Call Driver',
-                                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
+                                style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 14),
                               ),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: Colors.black,
+                                backgroundColor: Theme.of(context).cardColor,
+                                foregroundColor: Theme.of(context).colorScheme.onSurface,
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
@@ -204,13 +202,13 @@ class RentalBookingDetailsScreen extends StatelessWidget {
                             child: ElevatedButton.icon(
                               onPressed: () {},
                               icon: const Icon(Icons.message, color: AppTheme.primaryBlue, size: 18),
-                              label: const Text(
+                              label: Text(
                                 'Message',
-                                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
+                                style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 14),
                               ),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: Colors.black,
+                                backgroundColor: Theme.of(context).cardColor,
+                                foregroundColor: Theme.of(context).colorScheme.onSurface,
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
@@ -233,7 +231,7 @@ class RentalBookingDetailsScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.grey[200]!),
                     boxShadow: [
@@ -285,10 +283,10 @@ class RentalBookingDetailsScreen extends StatelessWidget {
                               children: [
                                 Text(
                                   vehicleModel ?? 'Maruti Swift Dzire',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.black,
+                                    color: Theme.of(context).colorScheme.onSurface,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -341,7 +339,7 @@ class RentalBookingDetailsScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
@@ -429,7 +427,7 @@ class RentalBookingDetailsScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: Colors.grey[200]!),
                   boxShadow: [
@@ -451,11 +449,11 @@ class RentalBookingDetailsScreen extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    _buildConditionItem('Tolls and parking charges are extra'),
-                    _buildConditionItem('Fuel included in the package'),
-                    _buildConditionItem('Overtime charges ₹150 per hour beyond package duration'),
-                    _buildConditionItem('Night charges (11 PM - 6 AM) ₹200 extra'),
-                    _buildConditionItem('Driver allowance ₹200 per day for outstation'),
+                    _buildConditionItem(context, 'Tolls and parking charges are extra'),
+                    _buildConditionItem(context, 'Fuel included in the package'),
+                    _buildConditionItem(context, 'Overtime charges ₹150 per hour beyond package duration'),
+                    _buildConditionItem(context, 'Night charges (11 PM - 6 AM) ₹200 extra'),
+                    _buildConditionItem(context, 'Driver allowance ₹200 per day for outstation'),
                     const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -596,7 +594,7 @@ class RentalBookingDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildConditionItem(String text) {
+  Widget _buildConditionItem(BuildContext context, String text) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -606,7 +604,7 @@ class RentalBookingDetailsScreen extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(fontSize: 13, color: Colors.black87, height: 1.4),
+              style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface, height: 1.4),
             ),
           ),
         ],

@@ -53,12 +53,10 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
         );
       },
       child: Scaffold(
-        backgroundColor: Colors.white,
         appBar: AppBar(
-          backgroundColor: Colors.white,
           elevation: 0,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.black),
+            icon: const Icon(Icons.arrow_back),
             onPressed: () {
               Navigator.pushAndRemoveUntil(
                 context,
@@ -70,7 +68,6 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
           title: const Text(
             'Hire Driver Details',
             style: TextStyle(
-              color: Colors.black,
               fontSize: 18,
               fontWeight: FontWeight.bold,
             ),
@@ -105,7 +102,7 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.grey[200]!),
                     boxShadow: [
@@ -151,10 +148,10 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
                               children: [
                                 Text(
                                   driverName!,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.black,
+                                    color: Theme.of(context).colorScheme.onSurface,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -185,13 +182,13 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
                             child: ElevatedButton.icon(
                               onPressed: () {},
                               icon: const Icon(Icons.call, color: Colors.green, size: 18),
-                              label: const Text(
+                              label: Text(
                                 'Call Driver',
-                                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
+                                style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 14),
                               ),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: Colors.black,
+                                backgroundColor: Theme.of(context).cardColor,
+                                foregroundColor: Theme.of(context).colorScheme.onSurface,
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
@@ -206,13 +203,13 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
                             child: ElevatedButton.icon(
                               onPressed: () {},
                               icon: const Icon(Icons.message, color: AppTheme.primaryBlue, size: 18),
-                              label: const Text(
+                              label: Text(
                                 'Message',
-                                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
+                                style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 14),
                               ),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: Colors.black,
+                                backgroundColor: Theme.of(context).cardColor,
+                                foregroundColor: Theme.of(context).colorScheme.onSurface,
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
@@ -235,7 +232,7 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.grey[200]!),
                     boxShadow: [
@@ -287,10 +284,10 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
                               children: [
                                 Text(
                                   vehicleModel ?? 'Honda City',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.black,
+                                    color: Theme.of(context).colorScheme.onSurface,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -336,7 +333,7 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: [
                     BoxShadow(
@@ -354,23 +351,23 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 16),
-                    _buildDetailRow('Inquiry Id', inquiryId),
+                    _buildDetailRow(context, 'Inquiry Id', inquiryId),
                     const SizedBox(height: 12),
-                    _buildDetailRow('Pickup Location', pickupLocation),
+                    _buildDetailRow(context, 'Pickup Location', pickupLocation),
                     const SizedBox(height: 12),
-                    _buildDetailRow('Drop Location', dropLocation),
+                    _buildDetailRow(context, 'Drop Location', dropLocation),
                     const SizedBox(height: 12),
-                    _buildDetailRow('Car Type', carType),
+                    _buildDetailRow(context, 'Car Type', carType),
                     const SizedBox(height: 12),
-                    _buildDetailRow('Hire Mode', hireDuration),
+                    _buildDetailRow(context, 'Hire Mode', hireDuration),
                     const SizedBox(height: 12),
-                    _buildDetailRow('Package', package),
+                    _buildDetailRow(context, 'Package', package),
                     const SizedBox(height: 12),
-                    _buildDetailRow('Price', price),
+                    _buildDetailRow(context, 'Price', price),
                     const SizedBox(height: 12),
-                    _buildDetailRow('Start Date', tripStartDate),
+                    _buildDetailRow(context, 'Start Date', tripStartDate),
                     const SizedBox(height: 12),
-                    _buildDetailRow('Start Time', tripTime),
+                    _buildDetailRow(context, 'Start Time', tripTime),
                   ],
                 ),
               ),
@@ -378,7 +375,7 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: [
                     BoxShadow(
@@ -438,7 +435,7 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: [
                     BoxShadow(
@@ -475,11 +472,11 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    _buildBulletPoint('At 11pm ₹200 for night allowance'),
-                    _buildBulletPoint('Till 6am ₹200 for early morning charge'),
-                    _buildBulletPoint('Per hour overtime ₹100'),
-                    _buildBulletPoint('If you release the driver at 4 am then next day charges ₹1500 is applicable'),
-                    _buildBulletPoint('Food charges ₹200 per day'),
+                    _buildBulletPoint(context, 'At 11pm ₹200 for night allowance'),
+                    _buildBulletPoint(context, 'Till 6am ₹200 for early morning charge'),
+                    _buildBulletPoint(context, 'Per hour overtime ₹100'),
+                    _buildBulletPoint(context, 'If you release the driver at 4 am then next day charges ₹1500 is applicable'),
+                    _buildBulletPoint(context, 'Food charges ₹200 per day'),
                     const SizedBox(height: 16),
                     Center(
                       child: InkWell(
@@ -570,7 +567,7 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildBulletPoint(String text) {
+  Widget _buildBulletPoint(BuildContext context, String text) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -580,7 +577,7 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(fontSize: 13, color: Colors.black87, height: 1.4),
+              style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface, height: 1.4),
             ),
           ),
         ],
@@ -588,7 +585,7 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildDetailRow(String label, String value) {
+  Widget _buildDetailRow(BuildContext context, String label, String value) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -605,9 +602,9 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
-              color: Colors.black,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
         ),

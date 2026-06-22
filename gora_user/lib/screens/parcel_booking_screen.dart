@@ -209,11 +209,10 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   Widget build(BuildContext context) {
     if (_showMap) return _buildMapPicker();
     return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Gora Parcel', style: TextStyle(fontWeight: FontWeight.bold)), backgroundColor: Colors.white, foregroundColor: Colors.black87, elevation: 0),
+      appBar: AppBar(title: const Text('Gora Parcel', style: TextStyle(fontWeight: FontWeight.bold)), elevation: 0),
       body: Column(children: [
         // Send / Receive tabs
-        Container(color: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        Container(color: Theme.of(context).cardColor, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(children: [
             Expanded(child: _tabBtn('Send', 'Send Parcel')),
             const SizedBox(width: 12),
@@ -229,7 +228,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     return GestureDetector(onTap: () { setState(() => _tab = tab); if (tab == 'Receive') _loadMyParcels(); },
       child: Container(padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(color: sel ? AppTheme.primaryBlue : Colors.grey[100], borderRadius: BorderRadius.circular(10), border: Border.all(color: sel ? AppTheme.primaryBlue : Colors.grey[300]!)),
-        child: Center(child: Text(label, style: TextStyle(color: sel ? Colors.white : Colors.black87, fontWeight: FontWeight.bold, fontSize: 14)))));
+        child: Center(child: Text(label, style: TextStyle(color: sel ? Colors.white : Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 14)))));
   }
 
   List<Map<String, dynamic>> _incoming = [];
@@ -274,7 +273,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
       return GestureDetector(
         onTap: active ? () => _trackLive(p) : null,
         child: Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[200]!)),
+        decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[200]!)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -291,12 +290,12 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           // Receiver's delivery OTP — show it so they can hand it to the driver
           if (incoming && !done && (p['dropOtp'] ?? '').toString().isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8),
             child: Container(padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: const Color(0xFF1976D2).withOpacity(0.06), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFF1976D2).withOpacity(0.3))),
-              child: Row(children: [const Icon(Icons.lock_outline, size: 18, color: Color(0xFF1976D2)), const SizedBox(width: 8),
+              decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.06), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFF1C2656).withOpacity(0.3))),
+              child: Row(children: [const Icon(Icons.lock_outline, size: 18, color: Color(0xFF1C2656)), const SizedBox(width: 8),
                 const Expanded(child: Text('Show this OTP to the driver to receive', style: TextStyle(fontSize: 11, color: Colors.black54))),
                 Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1976D2))),
-                  child: Text((p['dropOtp'] ?? '----').toString(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 3, color: Color(0xFF1976D2))))]))),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1C2656))),
+                  child: Text((p['dropOtp'] ?? '----').toString(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 3, color: Color(0xFF1C2656))))]))),
           if (active) const Padding(padding: EdgeInsets.only(top: 6), child: Row(children: [Icon(Icons.my_location, size: 13, color: AppTheme.primaryBlue), SizedBox(width: 4),
             Text('Tap to track live', style: TextStyle(fontSize: 11, color: AppTheme.primaryBlue, fontWeight: FontWeight.w600))])),
           if (done && !incoming) Align(alignment: Alignment.centerRight, child: TextButton.icon(
@@ -313,7 +312,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     final dLat = (p['dropLat'] as num?)?.toDouble() ?? 0, dLng = (p['dropLng'] as num?)?.toDouble() ?? 0;
     LatLng? drv; double hd = 0; int? eta;
     Timer? lt;
-    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.white,
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
         lt ??= Timer.periodic(const Duration(seconds: 5), (t) async {
@@ -383,8 +382,8 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
             ...['S', 'M', 'L'].map((s) => Padding(padding: const EdgeInsets.only(right: 8), child: GestureDetector(
               onTap: () => setState(() => _packageSize = s),
               child: Container(width: 40, height: 36, alignment: Alignment.center,
-                decoration: BoxDecoration(color: _packageSize == s ? AppTheme.primaryBlue : Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: _packageSize == s ? AppTheme.primaryBlue : Colors.grey[300]!)),
-                child: Text(s, style: TextStyle(color: _packageSize == s ? Colors.white : Colors.black87, fontWeight: FontWeight.bold)))))),
+                decoration: BoxDecoration(color: _packageSize == s ? AppTheme.primaryBlue : Theme.of(context).cardColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: _packageSize == s ? AppTheme.primaryBlue : Colors.grey[300]!)),
+                child: Text(s, style: TextStyle(color: _packageSize == s ? Colors.white : Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)))))),
           ]),
           const SizedBox(height: 10),
           // Fragile + COD toggles
@@ -416,10 +415,10 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
             if (t == null) return;
             setState(() => _scheduledAt = DateTime(d.year, d.month, d.day, t.hour, t.minute));
           }, child: Container(padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
+            decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
             child: Row(children: [const Icon(Icons.schedule, size: 18, color: Colors.grey), const SizedBox(width: 10),
               Expanded(child: Text(_scheduledAt == null ? 'Deliver now (tap to schedule for later)' : 'Scheduled: ${_scheduledAt!.day}/${_scheduledAt!.month} ${_scheduledAt!.hour}:${_scheduledAt!.minute.toString().padLeft(2, '0')}',
-                style: TextStyle(fontSize: 13, color: _scheduledAt == null ? Colors.grey[500] : Colors.black87, fontWeight: _scheduledAt == null ? FontWeight.normal : FontWeight.w600))),
+                style: TextStyle(fontSize: 13, color: _scheduledAt == null ? Colors.grey[500] : Theme.of(context).colorScheme.onSurface, fontWeight: _scheduledAt == null ? FontWeight.normal : FontWeight.w600))),
               if (_scheduledAt != null) GestureDetector(onTap: () => setState(() => _scheduledAt = null), child: const Icon(Icons.close, size: 16, color: Colors.grey))]))),
 
           const SizedBox(height: 16), _title('Sender'),
@@ -439,7 +438,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           else ..._vehicles.map(_vehicleCard),
           const SizedBox(height: 16),
         ])),
-        Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, -2))]),
+        Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Theme.of(context).cardColor, boxShadow: [BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, -2))]),
           child: SafeArea(top: false, child: SizedBox(width: double.infinity, child: ElevatedButton(
             onPressed: _formValid ? _showConfirm : null,
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue, padding: const EdgeInsets.symmetric(vertical: 16), disabledBackgroundColor: Colors.grey[300]),
@@ -449,7 +448,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
 
   void _showConfirm() {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
-    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.white,
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => Padding(padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -484,7 +483,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
 
   void _cancelSearch(BuildContext sheetCtx) {
     const reasons = ['Taking too long', 'Booked by mistake', 'Plan changed', 'Wrong details', 'Other'];
-    showModalBottomSheet(context: context, backgroundColor: Colors.white,
+    showModalBottomSheet(context: context, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (rc) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
         const Padding(padding: EdgeInsets.all(16), child: Text('Why are you cancelling?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
@@ -500,7 +499,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   }
 
   void _showAssigned() {
-    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Colors.white,
+    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
         _dialogSet = setSheet;
@@ -562,10 +561,10 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   }
 
   Widget _buildMapPicker() {
-    return Scaffold(backgroundColor: Colors.white,
-      appBar: AppBar(backgroundColor: Colors.white, elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => setState(() => _showMap = false)),
-        title: Text(_pickingPickup ? 'Pick pickup' : 'Pick drop', style: const TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.w600)), centerTitle: true),
+    return Scaffold(
+      appBar: AppBar(elevation: 0,
+        leading: IconButton(icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface), onPressed: () => setState(() => _showMap = false)),
+        title: Text(_pickingPickup ? 'Pick pickup' : 'Pick drop', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 16, fontWeight: FontWeight.w600)), centerTitle: true),
       body: Stack(children: [
         GoogleMap(initialCameraPosition: CameraPosition(target: _center, zoom: 14),
           onMapCreated: (c) => _mapCtrl = c, onCameraMove: (p) => _center = p.target,
@@ -573,7 +572,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           myLocationEnabled: true, myLocationButtonEnabled: false, zoomControlsEnabled: false),
         const Center(child: Padding(padding: EdgeInsets.only(bottom: 40), child: Icon(Icons.location_on, color: Color(0xFFFF5252), size: 48))),
         Positioned(left: 0, right: 0, bottom: 0, child: Container(padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(20))),
           child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
             Text(_mapAddr.isEmpty ? 'Move map to set location' : _mapAddr, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
             const SizedBox(height: 12),
@@ -597,15 +596,15 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     child: Row(children: [Icon(Icons.info_outline, color: Colors.orange[700], size: 18), const SizedBox(width: 8), Expanded(child: Text(t, style: TextStyle(fontSize: 13, color: Colors.orange[800])))]));
 
   Widget _otpBox(String label, String otp) => Container(padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(color: const Color(0xFF1976D2).withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF1976D2).withOpacity(0.3))),
-    child: Row(children: [const Icon(Icons.lock_outline, color: Color(0xFF1976D2)), const SizedBox(width: 10),
+    decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF1C2656).withOpacity(0.3))),
+    child: Row(children: [const Icon(Icons.lock_outline, color: Color(0xFF1C2656)), const SizedBox(width: 10),
       Expanded(child: Text(label, style: const TextStyle(fontSize: 11, color: Colors.black54))),
       Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1976D2))),
-        child: Text(otp, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 3, color: Color(0xFF1976D2))))]));
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1C2656))),
+        child: Text(otp, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 3, color: Color(0xFF1C2656))))]));
 
   Widget _locField(IconData i, Color c, TextEditingController ctrl, String hint, {required bool pickup}) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
+    padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
     child: Row(children: [Icon(i, color: c, size: 18), const SizedBox(width: 10),
       Expanded(child: TextField(controller: ctrl, onChanged: (q) => _search(q, pickup: pickup),
         decoration: InputDecoration(hintText: hint, border: InputBorder.none, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 12), hintStyle: TextStyle(color: Colors.grey[500], fontSize: 14)), style: const TextStyle(fontSize: 14))),
@@ -621,12 +620,12 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     final sel = _itemType == t;
     return GestureDetector(onTap: () => setState(() => _itemType = t),
       child: Container(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(color: sel ? AppTheme.primaryBlue : Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: sel ? AppTheme.primaryBlue : Colors.grey[300]!)),
-        child: Text(t, style: TextStyle(color: sel ? Colors.white : Colors.black87, fontSize: 13, fontWeight: FontWeight.w600))));
+        decoration: BoxDecoration(color: sel ? AppTheme.primaryBlue : Theme.of(context).cardColor, borderRadius: BorderRadius.circular(20), border: Border.all(color: sel ? AppTheme.primaryBlue : Colors.grey[300]!)),
+        child: Text(t, style: TextStyle(color: sel ? Colors.white : Theme.of(context).colorScheme.onSurface, fontSize: 13, fontWeight: FontWeight.w600))));
   }
 
   Widget _field(String hint, TextEditingController ctrl, IconData icon, {bool num = false, bool phone = false, VoidCallback? onChange}) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
+    padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
     child: Row(children: [Icon(icon, color: Colors.grey[600], size: 18), const SizedBox(width: 10),
       Expanded(child: TextField(controller: ctrl, onChanged: (_) { setState(() {}); onChange?.call(); },
         keyboardType: num ? TextInputType.number : phone ? TextInputType.phone : TextInputType.text,
@@ -638,7 +637,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     final img = raw.isEmpty ? '' : AppConfig.imageUrl(raw);
     return GestureDetector(onTap: () => setState(() => _selectedVehicle = v['name'] as String?),
       child: Container(margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: sel ? AppTheme.primaryBlue : Colors.grey[200]!, width: sel ? 2 : 1)),
+        decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: sel ? AppTheme.primaryBlue : Colors.grey[200]!, width: sel ? 2 : 1)),
         child: Row(children: [
           SizedBox(width: 60, height: 44, child: img.isNotEmpty ? Image.network(img, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.local_shipping, color: AppTheme.primaryBlue, size: 34)) : const Icon(Icons.local_shipping, color: AppTheme.primaryBlue, size: 34)),
           const SizedBox(width: 14),
@@ -653,13 +652,13 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   Widget _toggleTile(String label, IconData icon, bool val, ValueChanged<bool> onChanged) => GestureDetector(
     onTap: () => onChanged(!val),
     child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(color: val ? AppTheme.primaryBlue.withOpacity(0.08) : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: val ? AppTheme.primaryBlue : Colors.grey[300]!)),
+      decoration: BoxDecoration(color: val ? AppTheme.primaryBlue.withOpacity(0.08) : Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: val ? AppTheme.primaryBlue : Colors.grey[300]!)),
       child: Row(children: [Icon(icon, size: 16, color: val ? AppTheme.primaryBlue : Colors.grey), const SizedBox(width: 6),
-        Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: val ? AppTheme.primaryBlue : Colors.black87)),
+        Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: val ? AppTheme.primaryBlue : Theme.of(context).colorScheme.onSurface)),
         const Spacer(), Icon(val ? Icons.check_circle : Icons.circle_outlined, size: 16, color: val ? AppTheme.primaryBlue : Colors.grey)])));
 
   Widget _row(String l, String v, {bool bold = false}) => Padding(padding: const EdgeInsets.symmetric(vertical: 5),
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
       Text(l, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w500)),
-      Text(v, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: bold ? const Color(0xFF1976D2) : null))]));
+      Text(v, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: bold ? const Color(0xFF1C2656) : null))]));
 }

@@ -27,11 +27,10 @@ class TripDetailScreen extends StatelessWidget {
     final carImgUrl = carImg.isEmpty ? '' : AppConfig.imageUrl(carImg);
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Trip Details', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white, elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => Navigator.pop(context)),
+        title: Text('Trip Details', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
+        elevation: 0,
+        leading: IconButton(icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface), onPressed: () => Navigator.pop(context)),
       ),
       body: ListView(children: [
         // Map
@@ -53,14 +52,14 @@ class TripDetailScreen extends StatelessWidget {
         ),
 
         // Service badge + status + date
-        _card(Row(children: [
+        _card(context, Row(children: [
           _badge(_serviceLabel(), _serviceColor()),
           const Spacer(),
           Text(ride['date']?.toString() ?? '', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
         ])),
 
         // Route
-        _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _card(context, Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _locRow(Icons.radio_button_checked, Colors.green, 'PICKUP', from),
           const Padding(padding: EdgeInsets.only(left: 9), child: SizedBox(height: 18, child: VerticalDivider(width: 2, thickness: 2))),
           _locRow(Icons.location_on, Colors.red, 'DROP', to),
@@ -68,7 +67,7 @@ class TripDetailScreen extends StatelessWidget {
 
         // Driver + car
         if (ride['driver'] != null && ride['driver'] != '—')
-          _card(Row(children: [
+          _card(context, Row(children: [
             CircleAvatar(radius: 26, backgroundColor: AppTheme.primaryBlue.withOpacity(0.1),
               backgroundImage: driverPic.isNotEmpty ? NetworkImage(driverPic) : null,
               child: driverPic.isEmpty ? Text((ride['driver'] as String).isNotEmpty ? (ride['driver'] as String)[0].toUpperCase() : 'D',
@@ -89,10 +88,10 @@ class TripDetailScreen extends StatelessWidget {
           ])),
 
         // Fare breakdown
-        _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _card(context, Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Fare Breakdown', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          ..._fareRows(),
+          ..._fareRows(context),
         ])),
 
         const SizedBox(height: 20),
@@ -101,48 +100,48 @@ class TripDetailScreen extends StatelessWidget {
   }
 
   // Service-specific fare rows
-  List<Widget> _fareRows() {
+  List<Widget> _fareRows(BuildContext context) {
     final rows = <Widget>[];
     final base = _n(ride['baseFare'] ?? ride['fare']);
-    rows.add(_fareRow('Base fare', '₹$base'));
+    rows.add(_fareRow(context, 'Base fare', '₹$base'));
 
     if (_service == 'rental') {
-      rows.add(_fareRow('Package', '${_n(ride['packageHours'])} hr / ${_n(ride['packageKm'])} km'));
+      rows.add(_fareRow(context, 'Package', '${_n(ride['packageHours'])} hr / ${_n(ride['packageKm'])} km'));
       if (_d(ride['actualHours']) > 0 || _d(ride['actualKm']) > 0)
-        rows.add(_fareRow('Used', '${_d(ride['actualHours']).toStringAsFixed(1)} hr / ${_d(ride['actualKm']).toStringAsFixed(1)} km'));
-      if (_n(ride['extraHoursCharge']) > 0) rows.add(_fareRow('Extra hours', '₹${_n(ride['extraHoursCharge'])}', color: Colors.orange));
-      if (_n(ride['extraKmCharge']) > 0) rows.add(_fareRow('Extra km', '₹${_n(ride['extraKmCharge'])}', color: Colors.orange));
-      if (_n(ride['nightChargeRental']) > 0) rows.add(_fareRow('Night charge', '₹${_n(ride['nightChargeRental'])}'));
+        rows.add(_fareRow(context, 'Used', '${_d(ride['actualHours']).toStringAsFixed(1)} hr / ${_d(ride['actualKm']).toStringAsFixed(1)} km'));
+      if (_n(ride['extraHoursCharge']) > 0) rows.add(_fareRow(context, 'Extra hours', '₹${_n(ride['extraHoursCharge'])}', color: Colors.orange));
+      if (_n(ride['extraKmCharge']) > 0) rows.add(_fareRow(context, 'Extra km', '₹${_n(ride['extraKmCharge'])}', color: Colors.orange));
+      if (_n(ride['nightChargeRental']) > 0) rows.add(_fareRow(context, 'Night charge', '₹${_n(ride['nightChargeRental'])}'));
     } else if (_service == 'outstation') {
-      rows.add(_fareRow('Trip type', ride['tripType'] == 'round_trip' ? 'Round Trip' : 'One Way'));
-      if (_n(ride['numPassengers']) > 0) rows.add(_fareRow('Passengers', '${_n(ride['numPassengers'])}'));
-      rows.add(_fareRow('Distance', '${_d(ride['distance']).toStringAsFixed(0)} km'));
-      if (_n(ride['nightHaltCharge']) > 0) rows.add(_fareRow('Night halt', '₹${_n(ride['nightHaltCharge'])}', color: Colors.orange));
-      if (_n(ride['emptyReturnCharge']) > 0) rows.add(_fareRow('Empty return', '₹${_n(ride['emptyReturnCharge'])}', color: Colors.orange));
-      if (_n(ride['tollCharge']) > 0) rows.add(_fareRow('Toll', '₹${_n(ride['tollCharge'])}'));
+      rows.add(_fareRow(context, 'Trip type', ride['tripType'] == 'round_trip' ? 'Round Trip' : 'One Way'));
+      if (_n(ride['numPassengers']) > 0) rows.add(_fareRow(context, 'Passengers', '${_n(ride['numPassengers'])}'));
+      rows.add(_fareRow(context, 'Distance', '${_d(ride['distance']).toStringAsFixed(0)} km'));
+      if (_n(ride['nightHaltCharge']) > 0) rows.add(_fareRow(context, 'Night halt', '₹${_n(ride['nightHaltCharge'])}', color: Colors.orange));
+      if (_n(ride['emptyReturnCharge']) > 0) rows.add(_fareRow(context, 'Empty return', '₹${_n(ride['emptyReturnCharge'])}', color: Colors.orange));
+      if (_n(ride['tollCharge']) > 0) rows.add(_fareRow(context, 'Toll', '₹${_n(ride['tollCharge'])}'));
     } else if (_service == 'hire_driver') {
-      rows.add(_fareRow('Transmission', ride['transmission'] == 'automatic' ? 'Automatic' : 'Manual'));
-      rows.add(_fareRow('Duration', '${_n(ride['hireTotalHours'])} hr'));
-      rows.add(_fareRow('Rate', '₹${_n(ride['hirePerHour'])}/hr'));
+      rows.add(_fareRow(context, 'Transmission', ride['transmission'] == 'automatic' ? 'Automatic' : 'Manual'));
+      rows.add(_fareRow(context, 'Duration', '${_n(ride['hireTotalHours'])} hr'));
+      rows.add(_fareRow(context, 'Rate', '₹${_n(ride['hirePerHour'])}/hr'));
       final s = _fmtDt(ride['hireStartAt']?.toString() ?? ''), e = _fmtDt(ride['hireEndAt']?.toString() ?? '');
-      if (s.isNotEmpty || e.isNotEmpty) rows.add(_fareRow('Schedule', '$s → $e'));
+      if (s.isNotEmpty || e.isNotEmpty) rows.add(_fareRow(context, 'Schedule', '$s → $e'));
     } else if (_service == 'delivery') {
-      rows.add(_fareRow('Item', (ride['itemType'] ?? 'Parcel').toString()));
-      if (_d(ride['weightKg']) > 0) rows.add(_fareRow('Weight', '${_d(ride['weightKg']).toStringAsFixed(0)} kg'));
-      if ((ride['packageSize'] ?? '').toString().isNotEmpty) rows.add(_fareRow('Size', ride['packageSize'].toString()));
-      rows.add(_fareRow('Sender', (ride['senderName'] ?? '').toString()));
-      rows.add(_fareRow('Receiver', (ride['receiverName'] ?? '').toString()));
-      if ((ride['isFragile'] as bool?) ?? false) rows.add(_fareRow('Handling', 'Fragile', color: Colors.orange));
-      if (_n(ride['codAmount']) > 0) rows.add(_fareRow('COD collected', '₹${_n(ride['codAmount'])}', color: Colors.orange));
-      rows.add(_fareRow('Distance', '${_d(ride['distance']).toStringAsFixed(1)} km'));
+      rows.add(_fareRow(context, 'Item', (ride['itemType'] ?? 'Parcel').toString()));
+      if (_d(ride['weightKg']) > 0) rows.add(_fareRow(context, 'Weight', '${_d(ride['weightKg']).toStringAsFixed(0)} kg'));
+      if ((ride['packageSize'] ?? '').toString().isNotEmpty) rows.add(_fareRow(context, 'Size', ride['packageSize'].toString()));
+      rows.add(_fareRow(context, 'Sender', (ride['senderName'] ?? '').toString()));
+      rows.add(_fareRow(context, 'Receiver', (ride['receiverName'] ?? '').toString()));
+      if ((ride['isFragile'] as bool?) ?? false) rows.add(_fareRow(context, 'Handling', 'Fragile', color: Colors.orange));
+      if (_n(ride['codAmount']) > 0) rows.add(_fareRow(context, 'COD collected', '₹${_n(ride['codAmount'])}', color: Colors.orange));
+      rows.add(_fareRow(context, 'Distance', '${_d(ride['distance']).toStringAsFixed(1)} km'));
     } else {
-      rows.add(_fareRow('Distance', '${_d(ride['distance']).toStringAsFixed(1)} km'));
+      rows.add(_fareRow(context, 'Distance', '${_d(ride['distance']).toStringAsFixed(1)} km'));
     }
 
-    if (_n(ride['tip']) > 0) rows.add(_fareRow('Tip', '₹${_n(ride['tip'])}', color: Colors.green));
+    if (_n(ride['tip']) > 0) rows.add(_fareRow(context, 'Tip', '₹${_n(ride['tip'])}', color: Colors.green));
     rows.add(const Divider(height: 20));
     final total = _n(ride['finalFare']) > 0 ? _n(ride['finalFare']) : _n(ride['total']);
-    rows.add(_fareRow('Total Paid', '₹$total', bold: true, color: AppTheme.primaryBlue));
+    rows.add(_fareRow(context, 'Total Paid', '₹$total', bold: true, color: AppTheme.primaryBlue));
     rows.add(const SizedBox(height: 4));
     rows.add(Text('Payment: ${(ride['paymentMode'] ?? 'Cash').toString().toUpperCase()}', style: TextStyle(fontSize: 11, color: Colors.grey[500])));
     return rows;
@@ -168,9 +167,9 @@ class TripDetailScreen extends StatelessWidget {
     catch (_) { return ''; }
   }
 
-  Widget _card(Widget child) => Container(
+  Widget _card(BuildContext context, Widget child) => Container(
     margin: const EdgeInsets.fromLTRB(16, 12, 16, 0), padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.grey[100]!)),
+    decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.grey[100]!)),
     child: child,
   );
   Widget _badge(String t, Color c) => Container(
@@ -185,11 +184,11 @@ class TripDetailScreen extends StatelessWidget {
       Text(addr, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
     ])),
   ]);
-  Widget _fareRow(String l, String v, {bool bold = false, Color? color}) => Padding(
+  Widget _fareRow(BuildContext context, String l, String v, {bool bold = false, Color? color}) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 5),
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      Text(l, style: TextStyle(fontSize: 13, fontWeight: bold ? FontWeight.w800 : FontWeight.w500, color: color ?? Colors.black87)),
-      Text(v, style: TextStyle(fontSize: 13, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: color ?? Colors.black87)),
+      Text(l, style: TextStyle(fontSize: 13, fontWeight: bold ? FontWeight.w800 : FontWeight.w500, color: color ?? Theme.of(context).colorScheme.onSurface)),
+      Text(v, style: TextStyle(fontSize: 13, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: color ?? Theme.of(context).colorScheme.onSurface)),
     ]),
   );
 }

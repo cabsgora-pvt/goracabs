@@ -38,12 +38,10 @@ class BookingInquiryScreen extends StatelessWidget {
         );
       },
       child: Scaffold(
-        backgroundColor: Colors.white,
         appBar: AppBar(
-          backgroundColor: Colors.white,
           elevation: 0,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.black),
+            icon: const Icon(Icons.arrow_back),
             onPressed: () {
               Navigator.pushAndRemoveUntil(
                 context,
@@ -55,7 +53,6 @@ class BookingInquiryScreen extends StatelessWidget {
           title: const Text(
             'Booking Details',
             style: TextStyle(
-              color: Colors.black,
               fontSize: 18,
               fontWeight: FontWeight.w500,
             ),
@@ -68,7 +65,7 @@ class BookingInquiryScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
@@ -80,23 +77,23 @@ class BookingInquiryScreen extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  _buildDetailRow('Inquiry Id', inquiryId),
+                  _buildDetailRow(context, 'Inquiry Id', inquiryId),
                   const SizedBox(height: 12),
-                  _buildDetailRow('Pickup Location', pickupLocation),
+                  _buildDetailRow(context, 'Pickup Location', pickupLocation),
                   const SizedBox(height: 12),
-                  _buildDetailRow('Drop Location', dropLocation),
+                  _buildDetailRow(context, 'Drop Location', dropLocation),
                   const SizedBox(height: 12),
-                  _buildDetailRow('Car type', carType),
+                  _buildDetailRow(context, 'Car type', carType),
                   const SizedBox(height: 12),
-                  _buildDetailRow('Trip Type', tripType),
+                  _buildDetailRow(context, 'Trip Type', tripType),
                   const SizedBox(height: 12),
-                  _buildDetailRow('Trip start date', tripStartDate),
+                  _buildDetailRow(context, 'Trip start date', tripStartDate),
                   if (tripType == 'Round Trip') ...[
                     const SizedBox(height: 12),
-                    _buildDetailRow('Trip end date', tripEndDate),
+                    _buildDetailRow(context, 'Trip end date', tripEndDate),
                   ],
                   const SizedBox(height: 12),
-                  _buildDetailRow('Trip time', tripTime),
+                  _buildDetailRow(context, 'Trip time', tripTime),
                 ],
               ),
             ),
@@ -104,7 +101,7 @@ class BookingInquiryScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
@@ -221,7 +218,7 @@ class BookingInquiryScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildDetailRow(String label, String value) {
+  Widget _buildDetailRow(BuildContext context, String label, String value) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -238,9 +235,9 @@ class BookingInquiryScreen extends StatelessWidget {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
-              color: Colors.black,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
           ),
         ),

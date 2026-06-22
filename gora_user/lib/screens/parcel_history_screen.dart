@@ -113,11 +113,8 @@ class _ParcelHistoryScreenState extends State<ParcelHistoryScreen> with SingleTi
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text('Parcel History', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
         elevation: 0,
         bottom: TabBar(
           controller: _tabController,
@@ -189,7 +186,7 @@ class _ParcelHistoryScreenState extends State<ParcelHistoryScreen> with SingleTi
             margin: const EdgeInsets.only(bottom: 16),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.grey[200]!),
               boxShadow: [
@@ -240,7 +237,7 @@ class _ParcelHistoryScreenState extends State<ParcelHistoryScreen> with SingleTi
                       children: [
                         const Icon(Icons.inventory_2_outlined, size: 16, color: Colors.grey),
                         const SizedBox(width: 8),
-                        Text(item['item'], style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                        Text(item['item'], style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface)),
                       ],
                     ),
                     Text(
@@ -265,7 +262,7 @@ class _ParcelHistoryScreenState extends State<ParcelHistoryScreen> with SingleTi
         Expanded(
           child: Text(
             location,
-            style: const TextStyle(fontSize: 13, color: Colors.black87),
+            style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

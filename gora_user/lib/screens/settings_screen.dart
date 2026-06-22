@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
+import '../providers/theme_provider.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -15,16 +17,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _locationServices = true;
   bool _shareData = false;
   String _language = 'English';
-  String _theme = 'Light';
 
   @override
   Widget build(BuildContext context) {
+    final themeProv = context.watch<ThemeProvider>();
+    final themeLabel = themeProv.mode == ThemeMode.dark
+        ? 'Dark'
+        : (themeProv.mode == ThemeMode.system ? 'System Default' : 'Light');
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text('Settings'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
         elevation: 0,
         centerTitle: false,
       ),
@@ -113,6 +115,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 24),
           const Text('App Preferences', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textGrey)),
           const SizedBox(height: 12),
+          // Quick dark mode switch
+          _buildSwitchTile(
+            themeProv.isDark ? Icons.dark_mode : Icons.light_mode,
+            'Dark Mode',
+            themeProv.isDark ? 'Dark theme is on' : 'Light theme is on',
+            themeProv.isDark,
+            (val) => context.read<ThemeProvider>().toggleDark(val),
+          ),
           _buildDropdownTile(
             Icons.language_outlined,
             'Language',
@@ -123,9 +133,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildDropdownTile(
             Icons.brightness_6_outlined,
             'Theme',
-            _theme,
+            themeLabel,
             ['Light', 'Dark', 'System Default'],
-            (val) => setState(() => _theme = val!),
+            (val) {
+              final m = val == 'Dark' ? ThemeMode.dark : (val == 'System Default' ? ThemeMode.system : ThemeMode.light);
+              context.read<ThemeProvider>().setMode(m);
+            },
           ),
           _buildSettingTile(
             Icons.payment_outlined,

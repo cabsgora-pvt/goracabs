@@ -67,7 +67,7 @@ class _BookingScreenState extends State<BookingScreen> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.1),
@@ -124,7 +124,7 @@ class _BookingScreenState extends State<BookingScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.grey[300]!),
         boxShadow: [
@@ -162,7 +162,7 @@ class _BookingScreenState extends State<BookingScreen> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: isSelected ? AppTheme.primaryBlue.withOpacity(0.08) : Colors.white,
+          color: isSelected ? AppTheme.primaryBlue.withOpacity(0.08) : Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: isSelected ? AppTheme.primaryBlue : Colors.grey[300]!, 
@@ -255,7 +255,7 @@ class DriverBiddingScreen extends StatelessWidget {
                 return Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: Colors.grey[300]!),
                     boxShadow: [
@@ -360,7 +360,7 @@ class TripTrackingScreen extends StatelessWidget {
                       IconButton(
                         onPressed: () => Navigator.pop(context),
                         icon: const Icon(Icons.arrow_back),
-                        style: IconButton.styleFrom(backgroundColor: Colors.white),
+                        style: IconButton.styleFrom(backgroundColor: Theme.of(context).cardColor),
                       ),
                       const Spacer(),
                       ElevatedButton.icon(
@@ -368,7 +368,7 @@ class TripTrackingScreen extends StatelessWidget {
                         icon: const Icon(Icons.share, size: 18),
                         label: const Text('Share Trip'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
+                          backgroundColor: Theme.of(context).cardColor,
                           foregroundColor: AppTheme.primaryBlue,
                         ),
                       ),
@@ -378,9 +378,9 @@ class TripTrackingScreen extends StatelessWidget {
                 const Spacer(),
                 Container(
                   padding: const EdgeInsets.all(20),
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).cardColor,
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
                   ),
                   child: Column(
                     children: [
@@ -586,7 +586,7 @@ class _ChatScreenState extends State<ChatScreen> {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.1),

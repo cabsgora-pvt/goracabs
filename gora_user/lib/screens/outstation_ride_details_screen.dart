@@ -61,12 +61,10 @@ class OutstationRideDetailsScreen extends StatelessWidget {
         );
       },
       child: Scaffold(
-        backgroundColor: Colors.white,
         appBar: AppBar(
-          backgroundColor: Colors.white,
           elevation: 0,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.black),
+            icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface),
             onPressed: () {
               Navigator.pushAndRemoveUntil(
                 context,
@@ -75,10 +73,10 @@ class OutstationRideDetailsScreen extends StatelessWidget {
               );
             },
           ),
-          title: const Text(
+          title: Text(
             'Outstation Trip Details',
             style: TextStyle(
-              color: Colors.black,
+              color: Theme.of(context).colorScheme.onSurface,
               fontSize: 18,
               fontWeight: FontWeight.bold,
             ),
@@ -113,7 +111,7 @@ class OutstationRideDetailsScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.grey[200]!),
                     boxShadow: [
@@ -159,10 +157,10 @@ class OutstationRideDetailsScreen extends StatelessWidget {
                               children: [
                                 Text(
                                   driverName!,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 18,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.black,
+                                    color: Theme.of(context).colorScheme.onSurface,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -193,13 +191,13 @@ class OutstationRideDetailsScreen extends StatelessWidget {
                             child: ElevatedButton.icon(
                               onPressed: () {},
                               icon: const Icon(Icons.call, color: Colors.green, size: 18),
-                              label: const Text(
+                              label: Text(
                                 'Call Driver',
-                                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
+                                style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 14),
                               ),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: Colors.black,
+                                backgroundColor: Theme.of(context).cardColor,
+                                foregroundColor: Theme.of(context).colorScheme.onSurface,
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
@@ -214,13 +212,13 @@ class OutstationRideDetailsScreen extends StatelessWidget {
                             child: ElevatedButton.icon(
                               onPressed: () {},
                               icon: const Icon(Icons.message, color: AppTheme.primaryBlue, size: 18),
-                              label: const Text(
+                              label: Text(
                                 'Message',
-                                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
+                                style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 14),
                               ),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: Colors.black,
+                                backgroundColor: Theme.of(context).cardColor,
+                                foregroundColor: Theme.of(context).colorScheme.onSurface,
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
@@ -243,7 +241,7 @@ class OutstationRideDetailsScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(color: Colors.grey[200]!),
                     boxShadow: [
@@ -295,10 +293,10 @@ class OutstationRideDetailsScreen extends StatelessWidget {
                               children: [
                                 Text(
                                   vehicleModel ?? 'Toyota Innova Crysta',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.black,
+                                    color: Theme.of(context).colorScheme.onSurface,
                                   ),
                                 ),
                                 const SizedBox(height: 4),
@@ -351,7 +349,7 @@ class OutstationRideDetailsScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
@@ -494,7 +492,7 @@ class OutstationRideDetailsScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.grey[50],
+                  color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.grey[200]!),
                 ),
@@ -587,13 +585,13 @@ class OutstationRideDetailsScreen extends StatelessWidget {
                 ),
                 child: Column(
                   children: [
-                    _buildInclusionItem(Icons.check_circle, 'Professional verified driver'),
+                    _buildInclusionItem(context, Icons.check_circle, 'Professional verified driver'),
                     const SizedBox(height: 8),
-                    _buildInclusionItem(Icons.check_circle, 'Fuel included in base fare'),
+                    _buildInclusionItem(context, Icons.check_circle, 'Fuel included in base fare'),
                     const SizedBox(height: 8),
-                    _buildInclusionItem(Icons.check_circle, 'AC vehicle with comfortable seats'),
+                    _buildInclusionItem(context, Icons.check_circle, 'AC vehicle with comfortable seats'),
                     const SizedBox(height: 8),
-                    _buildInclusionItem(Icons.check_circle, 'Live GPS tracking'),
+                    _buildInclusionItem(context, Icons.check_circle, 'Live GPS tracking'),
                   ],
                 ),
               ),
@@ -604,20 +602,20 @@ class OutstationRideDetailsScreen extends StatelessWidget {
               const Text('Additional Charges', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
               
-              if (tripType == 'One Way') ...[ 
-                _buildConditionItem(Icons.toll, 'Tolls and state taxi extra pay'),
+              if (tripType == 'One Way') ...[
+                _buildConditionItem(context, Icons.toll, 'Tolls and state taxi extra pay'),
                 const SizedBox(height: 8),
-                _buildConditionItem(Icons.local_parking, 'Parking charges extra'),
-              ] else ...[ 
-                _buildConditionItem(Icons.toll, 'Tolls and state taxi extra pay'),
+                _buildConditionItem(context, Icons.local_parking, 'Parking charges extra'),
+              ] else ...[
+                _buildConditionItem(context, Icons.toll, 'Tolls and state taxi extra pay'),
                 const SizedBox(height: 8),
-                _buildConditionItem(Icons.local_parking, 'Parking charges extra'),
+                _buildConditionItem(context, Icons.local_parking, 'Parking charges extra'),
                 const SizedBox(height: 8),
-                _buildConditionItem(Icons.route, 'Minimum per day 250km running'),
+                _buildConditionItem(context, Icons.route, 'Minimum per day 250km running'),
                 const SizedBox(height: 8),
-                _buildConditionItem(Icons.person, 'Driver allowance per 24 hours - ₹250'),
+                _buildConditionItem(context, Icons.person, 'Driver allowance per 24 hours - ₹250'),
                 const SizedBox(height: 8),
-                _buildConditionItem(Icons.nightlight, 'Night drive allowance - ₹250/night'),
+                _buildConditionItem(context, Icons.nightlight, 'Night drive allowance - ₹250/night'),
               ],
               
               const SizedBox(height: 16),
@@ -696,7 +694,7 @@ class OutstationRideDetailsScreen extends StatelessWidget {
     }
   }
 
-  Widget _buildInclusionItem(IconData icon, String text) {
+  Widget _buildInclusionItem(BuildContext context, IconData icon, String text) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -712,14 +710,14 @@ class OutstationRideDetailsScreen extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(fontSize: 14, color: Colors.black87),
+            style: TextStyle(fontSize: 14, color: Theme.of(context).colorScheme.onSurface),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildConditionItem(IconData icon, String text) {
+  Widget _buildConditionItem(BuildContext context, IconData icon, String text) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -735,7 +733,7 @@ class OutstationRideDetailsScreen extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(fontSize: 14, color: Colors.black87),
+            style: TextStyle(fontSize: 14, color: Theme.of(context).colorScheme.onSurface),
           ),
         ),
       ],

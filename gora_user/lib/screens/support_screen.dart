@@ -7,11 +7,8 @@ class SupportScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text('Help & Support'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
         elevation: 0,
         centerTitle: false,
       ),
@@ -51,11 +48,11 @@ class SupportScreen extends StatelessWidget {
           const SizedBox(height: 24),
           const Text('Contact Us', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          _buildContactCard(Icons.phone, 'Call Us', '+91 1800-123-4567'),
+          _buildContactCard(context, Icons.phone, 'Call Us', '+91 1800-123-4567'),
           const SizedBox(height: 10),
-          _buildContactCard(Icons.email, 'Email Us', 'support@goracabs.com'),
+          _buildContactCard(context, Icons.email, 'Email Us', 'support@goracabs.com'),
           const SizedBox(height: 10),
-          _buildContactCard(Icons.chat, 'Live Chat', 'Available 24/7'),
+          _buildContactCard(context, Icons.chat, 'Live Chat', 'Available 24/7'),
         ],
       ),
     );
@@ -120,11 +117,11 @@ class SupportScreen extends StatelessWidget {
     }).toList();
   }
 
-  Widget _buildContactCard(IconData icon, String title, String value) {
+  Widget _buildContactCard(BuildContext context, IconData icon, String title, String value) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.grey[100],
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
@@ -162,11 +159,8 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text('Create Support Ticket'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
         elevation: 0,
         centerTitle: false,
       ),
@@ -181,7 +175,7 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> {
               DropdownButtonFormField<String>(
                 value: _selectedCategory,
                 decoration: InputDecoration(
-                  fillColor: Colors.white,
+                  fillColor: Theme.of(context).cardColor,
                   filled: true,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -196,7 +190,7 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> {
               TextField(
                 controller: _subjectController,
                 decoration: InputDecoration(
-                  fillColor: Colors.white,
+                  fillColor: Theme.of(context).cardColor,
                   filled: true,
                   hintText: 'Brief description of issue',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -210,7 +204,7 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> {
                 controller: _descriptionController,
                 maxLines: 5,
                 decoration: InputDecoration(
-                  fillColor: Colors.white,
+                  fillColor: Theme.of(context).cardColor,
                   filled: true,
                   hintText: 'Provide detailed information',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
@@ -262,11 +256,8 @@ class MyTicketsScreen extends StatelessWidget {
     ];
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text('My Tickets'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
         elevation: 0,
         centerTitle: false,
       ),
@@ -274,7 +265,7 @@ class MyTicketsScreen extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         itemCount: tickets.length,
         separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemBuilder: (_, i) {
+        itemBuilder: (context, i) {
           final ticket = tickets[i];
           final statusColor = ticket['status'] == 'Open'
               ? Colors.orange
@@ -285,7 +276,7 @@ class MyTicketsScreen extends StatelessWidget {
           return Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.grey[300]!),
             ),
@@ -355,11 +346,8 @@ class _EnquiryScreenState extends State<EnquiryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text('Any Enquiry'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
         elevation: 0,
         centerTitle: false,
       ),
@@ -393,7 +381,7 @@ class _EnquiryScreenState extends State<EnquiryScreen> {
                 controller: _nameController,
                 decoration: InputDecoration(
                   labelText: 'Full Name',
-                  fillColor: Colors.white,
+                  fillColor: Theme.of(context).cardColor,
                   filled: true,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   prefixIcon: const Icon(Icons.person_outline),
@@ -405,7 +393,7 @@ class _EnquiryScreenState extends State<EnquiryScreen> {
                 keyboardType: TextInputType.emailAddress,
                 decoration: InputDecoration(
                   labelText: 'Email Address',
-                  fillColor: Colors.white,
+                  fillColor: Theme.of(context).cardColor,
                   filled: true,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   prefixIcon: const Icon(Icons.email_outlined),
@@ -417,7 +405,7 @@ class _EnquiryScreenState extends State<EnquiryScreen> {
                 keyboardType: TextInputType.phone,
                 decoration: InputDecoration(
                   labelText: 'Phone Number',
-                  fillColor: Colors.white,
+                  fillColor: Theme.of(context).cardColor,
                   filled: true,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   prefixIcon: const Icon(Icons.phone_outlined),
@@ -429,7 +417,7 @@ class _EnquiryScreenState extends State<EnquiryScreen> {
                 maxLines: 5,
                 decoration: InputDecoration(
                   labelText: 'Your Message',
-                  fillColor: Colors.white,
+                  fillColor: Theme.of(context).cardColor,
                   filled: true,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                   alignLabelWithHint: true,

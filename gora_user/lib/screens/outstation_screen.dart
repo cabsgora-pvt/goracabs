@@ -373,7 +373,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
         children: [
           if (!_locationConfirmed)
             Container(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               child: SafeArea(
                 bottom: false,
                 child: Column(
@@ -400,7 +400,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                 decoration: BoxDecoration(
-                                  color: Colors.white,
+                                  color: Theme.of(context).cardColor,
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(color: Colors.grey[300]!),
                                 ),
@@ -412,9 +412,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                             ? 'Current Location → Select Destination'
                                             : '${_fromController.text.isEmpty ? "Current Location" : _fromController.text} → ${_toController.text.isEmpty ? "Select Destination" : _toController.text}',
                                         style: TextStyle(
-                                          fontSize: 14, 
+                                          fontSize: 14,
                                           fontWeight: FontWeight.w500,
-                                          color: _fromController.text.isEmpty && _toController.text.isEmpty ? Colors.grey[600] : Colors.black87,
+                                          color: _fromController.text.isEmpty && _toController.text.isEmpty ? Colors.grey[600] : Theme.of(context).colorScheme.onSurface,
                                         ),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
@@ -484,7 +484,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                   _loadOutstationFares();
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Color(0xFF2196F3),
+                                  backgroundColor: Color(0xFF1C2656),
                                   padding: const EdgeInsets.symmetric(vertical: 12),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                 ),
@@ -543,7 +543,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                       Polyline(
                         polylineId: const PolylineId('route'),
                         points: _routePoints,
-                        color: const Color(0xFF1976D2),
+                        color: const Color(0xFF1C2656),
                         width: 5,
                       ),
                   },
@@ -557,10 +557,10 @@ class _OutstationScreenState extends State<OutstationScreen> {
                   maxChildSize: _locationConfirmed ? 0.85 : 0.15,
                   builder: (context, scrollController) {
                     return Container(
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                        boxShadow: [
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).cardColor,
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                        boxShadow: const [
                           BoxShadow(
                             color: Colors.black26,
                             blurRadius: 10,
@@ -656,14 +656,14 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                   if (_showTripDetails)
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                      decoration: BoxDecoration(color: Colors.grey[50], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey[200]!)),
+                                      decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey[200]!)),
                                       child: Row(children: [
                                         Icon(Icons.group, color: Colors.grey[600], size: 18),
                                         const SizedBox(width: 10),
                                         const Text('Passengers', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                                         const Spacer(),
                                         IconButton(
-                                          icon: const Icon(Icons.remove_circle_outline, color: Color(0xFF2196F3)),
+                                          icon: const Icon(Icons.remove_circle_outline, color: Color(0xFF1C2656)),
                                           padding: EdgeInsets.zero, constraints: const BoxConstraints(),
                                           onPressed: _numPassengers > 1 ? () => setState(() => _numPassengers--) : null,
                                         ),
@@ -671,7 +671,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                         Text('$_numPassengers', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                                         const SizedBox(width: 14),
                                         IconButton(
-                                          icon: const Icon(Icons.add_circle_outline, color: Color(0xFF2196F3)),
+                                          icon: const Icon(Icons.add_circle_outline, color: Color(0xFF1C2656)),
                                           padding: EdgeInsets.zero, constraints: const BoxConstraints(),
                                           onPressed: _numPassengers < 12 ? () => setState(() => _numPassengers++) : null,
                                         ),
@@ -743,7 +743,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                       margin: const EdgeInsets.only(bottom: 12),
                                       padding: const EdgeInsets.all(12),
                                       decoration: BoxDecoration(
-                                        color: Colors.grey[50],
+                                        color: Theme.of(context).cardColor,
                                         borderRadius: BorderRadius.circular(10),
                                         border: Border.all(color: Colors.grey[200]!),
                                       ),
@@ -761,9 +761,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                         ]),
                                         const Divider(height: 16),
                                         Row(children: [
-                                          const Icon(Icons.route, size: 13, color: Color(0xFF2196F3)),
+                                          const Icon(Icons.route, size: 13, color: Color(0xFF1C2656)),
                                           const SizedBox(width: 4),
-                                          Text('${_distanceKm.toStringAsFixed(0)} km', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF2196F3))),
+                                          Text('${_distanceKm.toStringAsFixed(0)} km', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF1C2656))),
                                           const SizedBox(width: 14),
                                           const Icon(Icons.access_time, size: 13, color: Colors.grey),
                                           const SizedBox(width: 4),
@@ -771,8 +771,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                           const Spacer(),
                                           Container(
                                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                            decoration: BoxDecoration(color: const Color(0xFF2196F3).withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
-                                            child: Text(_tripType, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF2196F3))),
+                                            decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.1), borderRadius: BorderRadius.circular(6)),
+                                            child: Text(_tripType, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF1C2656))),
                                           ),
                                         ]),
                                       ]),
@@ -784,7 +784,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                   if (_showVehicleSelection)
                                     const SizedBox(height: 20),
                                   if (_showVehicleSelection)
-                                    _buildTripConditions(),
+                                    _buildTripConditions(context),
                                   const SizedBox(height: 80),
                                 ],
                               ],
@@ -802,7 +802,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: Theme.of(context).cardColor,
                 boxShadow: [BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, -2))],
               ),
               child: SafeArea(
@@ -814,7 +814,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                       _showBookingConfirmationDialog();
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Color(0xFF2196F3),
+                      backgroundColor: Color(0xFF1C2656),
                       disabledBackgroundColor: Colors.grey[300],
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -853,15 +853,15 @@ class _OutstationScreenState extends State<OutstationScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: isSelected ? Color(0xFF2196F3) : Colors.white,
+          color: isSelected ? const Color(0xFF1C2656) : Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: isSelected ? Color(0xFF2196F3) : Colors.grey[300]!),
+          border: Border.all(color: isSelected ? const Color(0xFF1C2656) : Colors.grey[300]!),
         ),
         child: Center(
           child: Text(
             type,
             style: TextStyle(
-              color: isSelected ? Colors.white : Colors.black87,
+              color: isSelected ? Colors.white : Theme.of(context).colorScheme.onSurface,
               fontWeight: FontWeight.w600,
               fontSize: 14,
             ),
@@ -877,12 +877,11 @@ class _OutstationScreenState extends State<OutstationScreen> {
     final activeIsFrom = _fromController.text.trim().isEmpty || _toController.text.trim().isNotEmpty == false;
     final suggestions = activeIsFrom ? _fromSuggestions : _toSuggestions;
     return Scaffold(
-      backgroundColor: Colors.white,
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
-        backgroundColor: Colors.white, elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => Navigator.pop(context)),
-        title: const Text('Outstation', style: TextStyle(color: Colors.black, fontSize: 18, fontWeight: FontWeight.w600)),
+        elevation: 0,
+        leading: IconButton(icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface), onPressed: () => Navigator.pop(context)),
+        title: Text('Outstation', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 18, fontWeight: FontWeight.w600)),
         centerTitle: true,
       ),
       body: Column(children: [
@@ -922,10 +921,10 @@ class _OutstationScreenState extends State<OutstationScreen> {
                   contentPadding: EdgeInsets.zero,
                   leading: Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: const Color(0xFF2196F3).withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-                    child: const Icon(Icons.my_location, color: Color(0xFF2196F3), size: 20),
+                    decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                    child: const Icon(Icons.my_location, color: Color(0xFF1C2656), size: 20),
                   ),
-                  title: const Text('Use my current location', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF2196F3))),
+                  title: const Text('Use my current location', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1C2656))),
                   subtitle: const Text('Fetch GPS and fill From', style: TextStyle(fontSize: 11, color: Colors.grey)),
                   onTap: _initCurrentLocation,
                 ),
@@ -953,7 +952,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
         ),
         Container(
           padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
+          decoration: BoxDecoration(color: Theme.of(context).cardColor, boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
           child: SafeArea(top: false, child: SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -977,7 +976,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                 });
                 _loadOutstationFares();
               },
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
               child: const Text('Confirm Location', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w600)),
             ),
           )),
@@ -1002,12 +1001,11 @@ class _OutstationScreenState extends State<OutstationScreen> {
   // Full-screen map with a fixed center pin; reverse-geocode on camera idle
   Widget _buildOutstationMapPicker() {
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white, elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => setState(() => _showMapPicker = false)),
+        elevation: 0,
+        leading: IconButton(icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface), onPressed: () => setState(() => _showMapPicker = false)),
         title: Text(_pickingFrom ? 'Pick From location' : 'Pick To location',
-            style: const TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.w600)),
+            style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 16, fontWeight: FontWeight.w600)),
         centerTitle: true,
       ),
       body: Stack(children: [
@@ -1029,20 +1027,20 @@ class _OutstationScreenState extends State<OutstationScreen> {
         const Center(child: Padding(padding: EdgeInsets.only(bottom: 40), child: Icon(Icons.location_on, color: Color(0xFFFF5252), size: 48))),
         // GPS button
         Positioned(bottom: 180, right: 16, child: FloatingActionButton(
-          mini: true, backgroundColor: Colors.white,
+          mini: true, backgroundColor: Theme.of(context).cardColor,
           onPressed: () async {
             final pos = await LocationService.getCurrentLocation();
             if (pos == null) return;
             final ll = LatLng(pos.latitude, pos.longitude);
             _pickerMapController?.animateCamera(CameraUpdate.newLatLngZoom(ll, 14));
           },
-          child: const Icon(Icons.my_location, color: Color(0xFF2196F3)),
+          child: const Icon(Icons.my_location, color: Color(0xFF1C2656)),
         )),
         // Bottom card: address preview + Confirm
         Positioned(left: 0, right: 0, bottom: 0, child: Container(
           padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-            boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
+          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
           child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
             Row(children: [
               Icon(_pickingFrom ? Icons.radio_button_checked : Icons.location_on,
@@ -1071,7 +1069,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                   _showMapPicker = false;
                 });
               },
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
               child: const Text('Confirm Location', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
             )),
           ])),
@@ -1085,7 +1083,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.grey[200]!),
       ),
@@ -1116,7 +1114,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.grey[200]!),
       ),
@@ -1168,7 +1166,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.grey[200]!),
       ),
@@ -1237,10 +1235,10 @@ class _OutstationScreenState extends State<OutstationScreen> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isSelected ? Color(0xFF2196F3).withOpacity(0.05) : Colors.white,
+          color: isSelected ? const Color(0xFF1C2656).withOpacity(0.05) : Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? Color(0xFF2196F3) : Colors.grey[300]!,
+            color: isSelected ? const Color(0xFF1C2656) : Colors.grey[300]!,
             width: isSelected ? 2 : 1
           ),
         ),
@@ -1251,9 +1249,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
                 width: 60, height: 50,
                 child: (v['networkImage'] as String?)?.isNotEmpty == true
                     ? Image.network(v['networkImage'] as String, fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => Icon(v['icon'], color: const Color(0xFF2196F3), size: 40))
+                        errorBuilder: (_, __, ___) => Icon(v['icon'], color: const Color(0xFF1C2656), size: 40))
                     : Image.asset(v['image'] as String? ?? 'assets/images/economy.png', fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => Icon(v['icon'], color: const Color(0xFF2196F3), size: 40)),
+                        errorBuilder: (_, __, ___) => Icon(v['icon'], color: const Color(0xFF1C2656), size: 40)),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -1263,7 +1261,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                     Text(v['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     const SizedBox(height: 4),
                     Text('${v['type']} • ${v['capacity']} seats', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                    if (km > 0) Text('${km.toStringAsFixed(0)} km • ${hrs >= 1 ? "${hrs.toStringAsFixed(0)} hr" : "$hrs hr"}', style: const TextStyle(fontSize: 11, color: Color(0xFF2196F3), fontWeight: FontWeight.w600)),
+                    if (km > 0) Text('${km.toStringAsFixed(0)} km • ${hrs >= 1 ? "${hrs.toStringAsFixed(0)} hr" : "$hrs hr"}', style: const TextStyle(fontSize: 11, color: Color(0xFF1C2656), fontWeight: FontWeight.w600)),
                   ],
                 ),
               ),
@@ -1273,32 +1271,32 @@ class _OutstationScreenState extends State<OutstationScreen> {
           // Dynamic charge breakdown — always shown for every vehicle
           if (km > 0) ...[
             const Divider(height: 18),
-            _bkRow('Base fare', '₹${base.toStringAsFixed(0)}'),
-            _bkRow('Distance (${km.toStringAsFixed(0)} km × ₹${perKm.toStringAsFixed(0)}/km)', '₹${kmCharge.toStringAsFixed(0)}'),
-            if (perHour > 0) _bkRow('Time (${hrs.toStringAsFixed(0)} hr × ₹${perHour.toStringAsFixed(0)}/hr)', '₹${hourCharge.toStringAsFixed(0)}'),
-            if (nightHalt > 0) _bkRow('Night halt', '₹${nightHalt.toStringAsFixed(0)}', color: Colors.orange),
-            if (emptyReturn > 0) _bkRow('Empty return', '₹${emptyReturn.toStringAsFixed(0)}', color: Colors.orange),
+            _bkRow(context, 'Base fare', '₹${base.toStringAsFixed(0)}'),
+            _bkRow(context, 'Distance (${km.toStringAsFixed(0)} km × ₹${perKm.toStringAsFixed(0)}/km)', '₹${kmCharge.toStringAsFixed(0)}'),
+            if (perHour > 0) _bkRow(context, 'Time (${hrs.toStringAsFixed(0)} hr × ₹${perHour.toStringAsFixed(0)}/hr)', '₹${hourCharge.toStringAsFixed(0)}'),
+            if (nightHalt > 0) _bkRow(context, 'Night halt', '₹${nightHalt.toStringAsFixed(0)}', color: Colors.orange),
+            if (emptyReturn > 0) _bkRow(context, 'Empty return', '₹${emptyReturn.toStringAsFixed(0)}', color: Colors.orange),
             const Divider(height: 14),
-            _bkRow('Total', currentPrice.toString(), bold: true),
+            _bkRow(context, 'Total', currentPrice.toString(), bold: true),
           ],
         ]),
       ),
     );
   }
 
-  Widget _bkRow(String l, String v, {bool bold = false, Color? color}) => Padding(
+  Widget _bkRow(BuildContext context, String l, String v, {bool bold = false, Color? color}) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 3),
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      Text(l, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w400, color: color ?? Colors.black87)),
-      Text(v, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: color ?? (bold ? const Color(0xFF1976D2) : Colors.black87))),
+      Text(l, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w400, color: color ?? Theme.of(context).colorScheme.onSurface)),
+      Text(v, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: color ?? (bold ? const Color(0xFF1C2656) : Theme.of(context).colorScheme.onSurface))),
     ]),
   );
 
-  Widget _buildTripConditions() {
+  Widget _buildTripConditions(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey[300]!),
         boxShadow: [
@@ -1317,10 +1315,10 @@ class _OutstationScreenState extends State<OutstationScreen> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Color(0xFF2196F3).withOpacity(0.1),
+                  color: Color(0xFF1C2656).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.info_outline, color: Color(0xFF2196F3), size: 20),
+                child: const Icon(Icons.info_outline, color: Color(0xFF1C2656), size: 20),
               ),
               const SizedBox(width: 8),
               Text(
@@ -1437,9 +1435,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
         return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.only(
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(20),
               topRight: Radius.circular(20),
             ),
@@ -1452,7 +1450,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.grey[50],
+                  color: Theme.of(context).cardColor,
                   borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(20),
                     topRight: Radius.circular(20),
@@ -1460,7 +1458,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.location_on, color: Color(0xFF2196F3)),
+                    const Icon(Icons.location_on, color: Color(0xFF1C2656)),
                     const SizedBox(width: 8),
                     Text(
                       '$_tripType Trip',
@@ -1601,7 +1599,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.grey[50],
+                          color: Theme.of(context).cardColor,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Colors.grey[200]!),
                         ),
@@ -1627,7 +1625,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                     ],
                                   ),
                                 ),
-                                Text(currentPrice, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2196F3))),
+                                Text(currentPrice, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1C2656))),
                               ],
                             ),
                             const Divider(height: 24),
@@ -1695,13 +1693,13 @@ class _OutstationScreenState extends State<OutstationScreen> {
                         ),
                         child: Column(
                           children: [
-                            _buildDialogConditionItem(Icons.check_circle, 'Professional verified driver'),
+                            _buildDialogConditionItem(context, Icons.check_circle, 'Professional verified driver'),
                             const SizedBox(height: 8),
-                            _buildDialogConditionItem(Icons.check_circle, 'Fuel included in base fare'),
+                            _buildDialogConditionItem(context, Icons.check_circle, 'Fuel included in base fare'),
                             const SizedBox(height: 8),
-                            _buildDialogConditionItem(Icons.check_circle, 'AC vehicle with comfortable seats'),
+                            _buildDialogConditionItem(context, Icons.check_circle, 'AC vehicle with comfortable seats'),
                             const SizedBox(height: 8),
-                            _buildDialogConditionItem(Icons.check_circle, 'Live GPS tracking'),
+                            _buildDialogConditionItem(context, Icons.check_circle, 'Live GPS tracking'),
                           ],
                         ),
                       ),
@@ -1713,19 +1711,19 @@ class _OutstationScreenState extends State<OutstationScreen> {
                       const SizedBox(height: 12),
                       
                       if (_tripType == 'One Way') ...[
-                        _buildDialogConditionItem(Icons.toll, 'Tolls and state taxi extra pay'),
+                        _buildDialogConditionItem(context, Icons.toll, 'Tolls and state taxi extra pay'),
                         const SizedBox(height: 8),
-                        _buildDialogConditionItem(Icons.local_parking, 'Parking charges extra'),
+                        _buildDialogConditionItem(context, Icons.local_parking, 'Parking charges extra'),
                       ] else ...[
-                        _buildDialogConditionItem(Icons.toll, 'Tolls and state taxi extra pay'),
+                        _buildDialogConditionItem(context, Icons.toll, 'Tolls and state taxi extra pay'),
                         const SizedBox(height: 8),
-                        _buildDialogConditionItem(Icons.local_parking, 'Parking charges extra'),
+                        _buildDialogConditionItem(context, Icons.local_parking, 'Parking charges extra'),
                         const SizedBox(height: 8),
-                        _buildDialogConditionItem(Icons.route, 'Minimum per day 250km running'),
+                        _buildDialogConditionItem(context, Icons.route, 'Minimum per day 250km running'),
                         const SizedBox(height: 8),
-                        _buildDialogConditionItem(Icons.person, 'Driver allowance per 24 hours - ₹250'),
+                        _buildDialogConditionItem(context, Icons.person, 'Driver allowance per 24 hours - ₹250'),
                         const SizedBox(height: 8),
-                        _buildDialogConditionItem(Icons.nightlight, 'Night drive allowance - ₹250/night'),
+                        _buildDialogConditionItem(context, Icons.nightlight, 'Night drive allowance - ₹250/night'),
                       ],
                       
                       const SizedBox(height: 16),
@@ -1762,7 +1760,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.1),
@@ -1779,7 +1777,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                       _showFindingDriverDialog();
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2196F3),
+                      backgroundColor: const Color(0xFF1C2656),
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
@@ -1797,7 +1795,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
     );
   }
 
-  Widget _buildDialogConditionItem(IconData icon, String text) {
+  Widget _buildDialogConditionItem(BuildContext context, IconData icon, String text) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1813,7 +1811,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(fontSize: 14, color: Colors.black87),
+            style: TextStyle(fontSize: 14, color: Theme.of(context).colorScheme.onSurface),
           ),
         ),
       ],
@@ -1822,7 +1820,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
 
   void _cancelSearch(BuildContext sheetCtx) {
     const reasons = ['Taking too long', 'Booked by mistake', 'Plan changed', 'Found another ride', 'Other'];
-    showModalBottomSheet(context: context, backgroundColor: Colors.white,
+    showModalBottomSheet(context: context, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (rc) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
         const Padding(padding: EdgeInsets.all(16), child: Text('Why are you cancelling?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
@@ -1875,14 +1873,14 @@ class _OutstationScreenState extends State<OutstationScreen> {
 
         return Container(
           padding: const EdgeInsets.all(20),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2196F3))),
+              const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1C2656))),
               const SizedBox(height: 16),
               const Text('Finding your Outstation Pilot', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
@@ -1913,28 +1911,28 @@ class _OutstationScreenState extends State<OutstationScreen> {
       builder: (BuildContext context) {
         return Container(
           padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(context).viewPadding.bottom),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -2))],
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -2))],
           ),
           child: SingleChildScrollView(child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
-              const Text('Pilot Assigned for Outstation', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
+              Text('Pilot Assigned for Outstation', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
               const SizedBox(height: 12),
               // Prominent OTP/PIN box — driver asks for this to start the ride
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [const Color(0xFF1976D2).withOpacity(0.08), const Color(0xFF1976D2).withOpacity(0.02)]),
+                  gradient: LinearGradient(colors: [const Color(0xFF1C2656).withOpacity(0.08), const Color(0xFF1C2656).withOpacity(0.02)]),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF1976D2).withOpacity(0.3)),
+                  border: Border.all(color: const Color(0xFF1C2656).withOpacity(0.3)),
                 ),
                 child: Row(children: [
-                  const Icon(Icons.lock_outline, color: Color(0xFF1976D2), size: 22),
+                  const Icon(Icons.lock_outline, color: Color(0xFF1C2656), size: 22),
                   const SizedBox(width: 10),
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     const Text('Share OTP with pilot', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600, letterSpacing: 0.3)),
@@ -1943,15 +1941,15 @@ class _OutstationScreenState extends State<OutstationScreen> {
                   ])),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1976D2))),
-                    child: Text(_rideOtp ?? '----', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4, color: Color(0xFF1976D2))),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1C2656))),
+                    child: Text(_rideOtp ?? '----', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4, color: Color(0xFF1C2656))),
                   ),
                 ]),
               ),
               const SizedBox(height: 14),
               Container(
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey[200]!), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))]),
+                decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey[200]!), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))]),
                 child: Row(
                   children: [
                     Container(
@@ -1972,7 +1970,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                     ),
                     const SizedBox(width: 12),
                     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(_driverName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                      Text(_driverName, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
                       const SizedBox(height: 4),
                       Row(children: [
                         const Icon(Icons.star, color: Colors.amber, size: 16),
@@ -1986,7 +1984,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                       ),
                     ])),
                     SizedBox(width: 70, height: 50, child: _driverVehicleImageUrl.isNotEmpty
-                        ? Image.network(_driverVehicleImageUrl, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.directions_car, color: Color(0xFF2196F3), size: 40))
+                        ? Image.network(_driverVehicleImageUrl, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.directions_car, color: Color(0xFF1C2656), size: 40))
                         : Image.asset(_vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => {'image':'assets/images/economy.png'})['image'] as String, fit: BoxFit.contain)),
                   ],
                 ),
@@ -1997,11 +1995,11 @@ class _OutstationScreenState extends State<OutstationScreen> {
                 Row(children: [
                   if (_driverYearsActive > 0) Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(color: const Color(0xFF1976D2).withOpacity(0.08), borderRadius: BorderRadius.circular(20)),
+                    decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.08), borderRadius: BorderRadius.circular(20)),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.workspace_premium, color: Color(0xFF1976D2), size: 14),
+                      const Icon(Icons.workspace_premium, color: Color(0xFF1C2656), size: 14),
                       const SizedBox(width: 4),
-                      Text('${_driverYearsActive}+ yr exp', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF1976D2))),
+                      Text('${_driverYearsActive}+ yr exp', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF1C2656))),
                     ]),
                   ),
                   if (_driverTotalRides > 0) ...[
@@ -2052,8 +2050,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
                       if (_driverPhone.isEmpty) return;
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Driver: $_driverName • $_driverPhone')));
                     },
-                    icon: const Icon(Icons.call, color: Colors.green), label: const Text('Call', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2),
+                    icon: const Icon(Icons.call, color: Colors.green), label: Text('Call', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).cardColor, foregroundColor: Theme.of(context).colorScheme.onSurface, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2),
                   )),
                   const SizedBox(width: 12),
                   Expanded(child: ElevatedButton.icon(
@@ -2062,8 +2060,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
                         Share.share('I\'m on a Gora outstation trip — follow me: ${AppConfig.serverBaseUrl}/track/$_rideId');
                       }
                     },
-                    icon: const Icon(Icons.share, color: Color(0xFF2196F3)), label: const Text('Share', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2),
+                    icon: const Icon(Icons.share, color: Color(0xFF1C2656)), label: Text('Share', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).cardColor, foregroundColor: Theme.of(context).colorScheme.onSurface, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2),
                   )),
                 ],
               ),
@@ -2104,7 +2102,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                     );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2196F3),
+                    backgroundColor: const Color(0xFF1C2656),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
@@ -2132,7 +2130,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
           builder: (context, setDialogState) {
             return Container(
               padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+              decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2142,9 +2140,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
                   const SizedBox(height: 8),
                   const Text('Please select a reason for cancellation', style: TextStyle(fontSize: 14, color: Colors.grey)),
                   const SizedBox(height: 20),
-                  ...reasons.map((reason) => RadioListTile<String>(title: Text(reason, style: const TextStyle(fontSize: 15)), value: reason, groupValue: selectedReason, activeColor: const Color(0xFF2196F3), contentPadding: EdgeInsets.zero, onChanged: (value) => setDialogState(() => selectedReason = value))),
+                  ...reasons.map((reason) => RadioListTile<String>(title: Text(reason, style: const TextStyle(fontSize: 15)), value: reason, groupValue: selectedReason, activeColor: const Color(0xFF1C2656), contentPadding: EdgeInsets.zero, onChanged: (value) => setDialogState(() => selectedReason = value))),
                   const SizedBox(height: 24),
-                  SizedBox(width: double.infinity, child: ElevatedButton(onPressed: selectedReason == null ? null : () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const HomeScreen()), (route) => false), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Confirm Cancellation', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)))),
+                  SizedBox(width: double.infinity, child: ElevatedButton(onPressed: selectedReason == null ? null : () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const HomeScreen()), (route) => false), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Confirm Cancellation', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)))),
                   const SizedBox(height: 12),
                   Center(child: TextButton(onPressed: () => Navigator.pop(context), child: const Text('Back', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)))),
                 ],
@@ -2165,7 +2163,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
       builder: (BuildContext context) {
         return Container(
           padding: const EdgeInsets.all(24),
-          decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -2175,7 +2173,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
               const SizedBox(height: 8),
               const Text('Your outstation trip has been completed successfully.', style: TextStyle(fontSize: 14, color: Colors.grey), textAlign: TextAlign.center),
               const SizedBox(height: 24),
-              SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (context) => RatingScreen(driverName: 'Rahul Sharma', vehicleName: _selectedVehicle!, selectedTip: 0))); }, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Rate Your Experience', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)))),
+              SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (context) => RatingScreen(driverName: 'Rahul Sharma', vehicleName: _selectedVehicle!, selectedTip: 0))); }, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Rate Your Experience', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)))),
             ],
           ),
         );

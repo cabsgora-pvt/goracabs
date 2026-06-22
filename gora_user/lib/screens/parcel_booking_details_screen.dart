@@ -52,7 +52,6 @@ class ParcelBookingDetailsScreen extends StatelessWidget {
         );
       },
       child: Scaffold(
-        backgroundColor: Colors.white,
         body: SafeArea(
           child: Column(
             children: [
@@ -62,7 +61,7 @@ class ParcelBookingDetailsScreen extends StatelessWidget {
                 child: Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Colors.black),
+                      icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface),
                       onPressed: () {
                         Navigator.pushAndRemoveUntil(
                           context,
@@ -71,10 +70,10 @@ class ParcelBookingDetailsScreen extends StatelessWidget {
                         );
                       },
                     ),
-                    const Text(
+                    Text(
                       'Booking Confirmed',
                       style: TextStyle(
-                        color: Colors.black,
+                        color: Theme.of(context).colorScheme.onSurface,
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                       ),
@@ -133,7 +132,7 @@ class ParcelBookingDetailsScreen extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: Theme.of(context).cardColor,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: Colors.grey[200]!),
                             boxShadow: [
@@ -179,10 +178,10 @@ class ParcelBookingDetailsScreen extends StatelessWidget {
                                       children: [
                                         Text(
                                           driverName!,
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontSize: 18,
                                             fontWeight: FontWeight.bold,
-                                            color: Colors.black,
+                                            color: Theme.of(context).colorScheme.onSurface,
                                           ),
                                         ),
                                         const SizedBox(height: 4),
@@ -213,13 +212,13 @@ class ParcelBookingDetailsScreen extends StatelessWidget {
                                     child: ElevatedButton.icon(
                                       onPressed: () {},
                                       icon: const Icon(Icons.call, color: Colors.green, size: 18),
-                                      label: const Text(
+                                      label: Text(
                                         'Call Driver',
-                                        style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
+                                        style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 14),
                                       ),
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.white,
-                                        foregroundColor: Colors.black,
+                                        backgroundColor: Theme.of(context).cardColor,
+                                        foregroundColor: Theme.of(context).colorScheme.onSurface,
                                         padding: const EdgeInsets.symmetric(vertical: 12),
                                         shape: RoundedRectangleBorder(
                                           borderRadius: BorderRadius.circular(12),
@@ -234,13 +233,13 @@ class ParcelBookingDetailsScreen extends StatelessWidget {
                                     child: ElevatedButton.icon(
                                       onPressed: () {},
                                       icon: const Icon(Icons.message, color: AppTheme.primaryBlue, size: 18),
-                                      label: const Text(
+                                      label: Text(
                                         'Message',
-                                        style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
+                                        style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 14),
                                       ),
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.white,
-                                        foregroundColor: Colors.black,
+                                        backgroundColor: Theme.of(context).cardColor,
+                                        foregroundColor: Theme.of(context).colorScheme.onSurface,
                                         padding: const EdgeInsets.symmetric(vertical: 12),
                                         shape: RoundedRectangleBorder(
                                           borderRadius: BorderRadius.circular(12),
@@ -263,7 +262,7 @@ class ParcelBookingDetailsScreen extends StatelessWidget {
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: Theme.of(context).cardColor,
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: Colors.grey[200]!),
                             boxShadow: [
@@ -315,10 +314,10 @@ class ParcelBookingDetailsScreen extends StatelessWidget {
                                       children: [
                                         Text(
                                           vehicleModel ?? 'Hero Splendor',
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                             fontSize: 16,
                                             fontWeight: FontWeight.bold,
-                                            color: Colors.black,
+                                            color: Theme.of(context).colorScheme.onSurface,
                                           ),
                                         ),
                                         const SizedBox(height: 4),
@@ -366,7 +365,7 @@ class ParcelBookingDetailsScreen extends StatelessWidget {
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.grey[50],
+                          color: Theme.of(context).cardColor,
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(color: Colors.grey[200]!),
                         ),
@@ -388,17 +387,17 @@ class ParcelBookingDetailsScreen extends StatelessWidget {
                       const SizedBox(height: 16),
                       Row(
                         children: [
-                          Expanded(child: _buildInfoCard('Type', itemType, Icons.inventory_2_outlined)),
+                          Expanded(child: _buildInfoCard(context, 'Type', itemType, Icons.inventory_2_outlined)),
                           const SizedBox(width: 12),
-                          Expanded(child: _buildInfoCard('Weight', '$weight kg', Icons.fitness_center_outlined)),
+                          Expanded(child: _buildInfoCard(context, 'Weight', '$weight kg', Icons.fitness_center_outlined)),
                         ],
                       ),
                       const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(child: _buildInfoCard('Vehicle', vehicle, Icons.local_shipping_outlined)),
+                          Expanded(child: _buildInfoCard(context, 'Vehicle', vehicle, Icons.local_shipping_outlined)),
                           const SizedBox(width: 12),
-                          Expanded(child: _buildInfoCard('Receiver', receiverName, Icons.person_outline)),
+                          Expanded(child: _buildInfoCard(context, 'Receiver', receiverName, Icons.person_outline)),
                         ],
                       ),
                       const SizedBox(height: 24),
@@ -458,7 +457,7 @@ class ParcelBookingDetailsScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(24),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                   boxShadow: [BoxShadow(color: Colors.black.withAlpha(5), blurRadius: 10, offset: const Offset(0, -5))],
                 ),
                 child: SafeArea(
@@ -531,11 +530,11 @@ class ParcelBookingDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildInfoCard(String label, String value, IconData icon) {
+  Widget _buildInfoCard(BuildContext context, String label, String value, IconData icon) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey[200]!),
       ),

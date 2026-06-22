@@ -58,7 +58,6 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
       body: Stack(
         children: [
           Positioned.fill(
@@ -101,9 +100,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       const Spacer(flex: 1),
                       Container(
                         width: double.infinity,
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardColor,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
                         ),
                         padding: const EdgeInsets.fromLTRB(24, 28, 24, 40),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -113,14 +112,14 @@ class _LoginScreenState extends State<LoginScreen> {
                             controller: _phoneController,
                             keyboardType: TextInputType.phone,
                             maxLength: 10,
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               hintText: 'Enter your phone number',
                               counterText: '',
                               prefixIcon: Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 12),
-                                child: Text('+91', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                child: Text('+91', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 16)),
                               ),
-                              prefixIconConstraints: BoxConstraints(minWidth: 0, minHeight: 0),
+                              prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
                             ),
                           ),
                           const SizedBox(height: 8),

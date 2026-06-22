@@ -8,11 +8,8 @@ class OffersScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text('Offers & Promos'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
         elevation: 0,
         centerTitle: false,
       ),
@@ -21,7 +18,7 @@ class OffersScreen extends StatelessWidget {
         child: Column(
           children: [
             Container(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               child: const TabBar(
                 labelColor: AppTheme.primaryBlue,
                 unselectedLabelColor: AppTheme.textGrey,
@@ -249,7 +246,7 @@ class OffersScreen extends StatelessWidget {
               return Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.grey[300]!),
                 ),
@@ -345,7 +342,7 @@ class OffersScreen extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Column(
@@ -397,7 +394,7 @@ class OffersScreen extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.grey[300]!),
             ),

@@ -141,7 +141,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) {
         final size = MediaQuery.of(ctx).size;
@@ -192,7 +192,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
               ),
               Container(
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: Colors.grey[50], border: Border(top: BorderSide(color: Colors.grey[200]!))),
+                decoration: BoxDecoration(color: Theme.of(context).cardColor, border: Border(top: BorderSide(color: Colors.grey[200]!))),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(children: [const Icon(Icons.radio_button_checked, size: 14, color: Colors.green), const SizedBox(width: 8), Expanded(child: Text(ride['from']?.toString() ?? '', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)))]),
                   const SizedBox(height: 6),
@@ -216,13 +216,12 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Trip Details', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
+        title: Text('Trip Details', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
         elevation: 0,
         automaticallyImplyLeading: true,
         leading: IconButton(
           onPressed: () => Navigator.pop(context),
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface),
         ),
         centerTitle: false,
       ),
@@ -270,7 +269,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
   Widget _buildExpandableSection(String title, IconData icon, bool isExpanded, VoidCallback onTap, Widget content) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey[300]!),
       ),
@@ -346,7 +345,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -514,7 +513,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -600,7 +599,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -687,7 +686,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(

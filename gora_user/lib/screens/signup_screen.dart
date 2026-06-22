@@ -169,7 +169,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       Expanded(
                         child: SingleChildScrollView(
                           controller: scrollController,
-                          child: const Text(
+                          child: Text(
                             'Last updated: January 2025\n\n'
                             '1. Information We Collect\n'
                             'We collect information you provide directly to us, such as your name, phone number, email address, city, and ID proof when you create an account.\n\n'
@@ -185,7 +185,7 @@ class _SignupScreenState extends State<SignupScreen> {
                             'You have the right to access, update, or delete your personal information at any time through the app settings or by contacting our support team.\n\n'
                             '7. Contact Us\n'
                             'If you have any questions about this Privacy Policy, please contact us at support@goracabs.com.',
-                            style: TextStyle(fontSize: 14, height: 1.6, color: Colors.black87),
+                            style: TextStyle(fontSize: 14, height: 1.6, color: Theme.of(context).colorScheme.onSurface),
                           ),
                         ),
                       ),
@@ -242,7 +242,6 @@ class _SignupScreenState extends State<SignupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
       body: Stack(
         children: [
           // Background Image
@@ -272,7 +271,7 @@ class _SignupScreenState extends State<SignupScreen> {
                 Align(
                   alignment: Alignment.centerLeft,
                   child: IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.black),
+                    icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ),
@@ -318,9 +317,9 @@ class _SignupScreenState extends State<SignupScreen> {
                         // White card
                         Container(
                           width: double.infinity,
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).cardColor,
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
                           ),
                           padding: const EdgeInsets.fromLTRB(24, 28, 24, 40),
                           child: Column(
@@ -360,7 +359,7 @@ class _SignupScreenState extends State<SignupScreen> {
                                     Container(
                                       constraints: const BoxConstraints(maxHeight: 200),
                                       decoration: BoxDecoration(
-                                        color: Colors.white,
+                                        color: Theme.of(context).cardColor,
                                         borderRadius: BorderRadius.circular(12),
                                         boxShadow: [BoxShadow(color: Colors.black.withAlpha(30), blurRadius: 8, offset: const Offset(0, 4))],
                                       ),
@@ -412,7 +411,7 @@ class _SignupScreenState extends State<SignupScreen> {
                                   decoration: BoxDecoration(
                                     border: Border.all(color: Colors.grey[300]!),
                                     borderRadius: BorderRadius.circular(12),
-                                    color: Colors.grey[50],
+                                    color: Theme.of(context).cardColor,
                                   ),
                                   child: _idPhotoBytes == null
                                       ? Column(
@@ -445,7 +444,7 @@ class _SignupScreenState extends State<SignupScreen> {
                                       onTap: _showPrivacyPolicy,
                                       child: RichText(
                                         text: TextSpan(
-                                          style: const TextStyle(color: Colors.black87, fontSize: 13),
+                                          style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 13),
                                           children: [
                                             const TextSpan(text: 'I agree to the '),
                                             TextSpan(
@@ -510,15 +509,15 @@ class _SignupScreenState extends State<SignupScreen> {
       controller: controller,
       keyboardType: keyboardType,
       readOnly: readOnly,
-      style: TextStyle(color: readOnly ? Colors.grey[700] : Colors.black),
+      style: TextStyle(color: readOnly ? Colors.grey[700] : Theme.of(context).colorScheme.onSurface),
       decoration: InputDecoration(
         hintText: hint,
         filled: readOnly,
-        fillColor: readOnly ? Colors.grey[100] : null,
+        fillColor: readOnly ? Theme.of(context).cardColor : null,
         prefixIcon: showPrefix
             ? Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text('+91', style: TextStyle(color: readOnly ? Colors.grey[600] : Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
+                child: Text('+91', style: TextStyle(color: readOnly ? Colors.grey[600] : Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 16)),
               )
             : Icon(icon),
         prefixIconConstraints: showPrefix ? const BoxConstraints(minWidth: 0, minHeight: 0) : null,

@@ -165,8 +165,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   Widget build(BuildContext context) {
     if (_showMap) return _buildMapPicker();
     return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: AppBar(title: const Text('Hire a Driver'), backgroundColor: Colors.white, foregroundColor: Colors.black87, elevation: 1),
+      appBar: AppBar(title: const Text('Hire a Driver'), elevation: 1),
       body: Column(children: [
         Expanded(child: ListView(padding: const EdgeInsets.all(16), children: [
           _section('Pickup & Drop'),
@@ -185,7 +184,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
           ]),
           if (_totalHours > 0) Padding(padding: const EdgeInsets.only(top: 8),
             child: Text('Total: $_totalHours hour${_totalHours > 1 ? 's' : ''} — driver paid for this duration',
-              style: const TextStyle(fontSize: 13, color: Color(0xFF2196F3), fontWeight: FontWeight.w600))),
+              style: const TextStyle(fontSize: 13, color: Color(0xFF1C2656), fontWeight: FontWeight.w600))),
 
           const SizedBox(height: 16),
           _section('Trip Type'),
@@ -233,17 +232,17 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, -2))]),
+      decoration: BoxDecoration(color: Theme.of(context).cardColor, boxShadow: [BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, -2))]),
       child: SafeArea(top: false, child: SizedBox(width: double.infinity, child: ElevatedButton(
         onPressed: ready ? _showConfirm : null,
-        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(vertical: 16), disabledBackgroundColor: Colors.grey[300]),
+        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 16), disabledBackgroundColor: Colors.grey[300]),
         child: Text(ready ? 'Book Driver · ₹${v['fare'] ?? ''}' : 'Select time & vehicle', style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w600)),
       ))),
     );
   }
 
   void _showConfirm() {
-    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.white,
+    showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) {
         final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
@@ -260,7 +259,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
             const SizedBox(height: 18),
             SizedBox(width: double.infinity, child: ElevatedButton(
               onPressed: () { Navigator.pop(ctx); _showFinding(); },
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(vertical: 14)),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14)),
               child: const Text('Confirm & Find Driver', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
             )),
           ]));
@@ -272,7 +271,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
       builder: (ctx) {
         () async { await _book(); _startPolling(); }();
         return Container(padding: const EdgeInsets.all(28), child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(Color(0xFF2196F3))),
+          const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(Color(0xFF1C2656))),
           const SizedBox(height: 16), const Text('Finding your driver', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8), const Text('Connecting you with a nearby pilot', style: TextStyle(fontSize: 13, color: Colors.grey)),
           const SizedBox(height: 20),
@@ -286,7 +285,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   // Cancel while searching — pick a reason then cancel the ride
   void _cancelSearch(BuildContext sheetCtx) {
     const reasons = ['Taking too long', 'Booked by mistake', 'Plan changed', 'Found another ride', 'Other'];
-    showModalBottomSheet(context: context, backgroundColor: Colors.white,
+    showModalBottomSheet(context: context, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (rc) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
         const Padding(padding: EdgeInsets.all(16), child: Text('Why are you cancelling?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
@@ -309,7 +308,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
       child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
         Text(l, style: TextStyle(fontSize: 14, fontWeight: b ? FontWeight.w800 : FontWeight.w500, color: c)),
         Text(v, style: TextStyle(fontSize: 14, fontWeight: b ? FontWeight.w800 : FontWeight.w600, color: c))]));
-    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Colors.white,
+    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => Padding(padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -321,17 +320,17 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
           r('Base', '₹$base'),
           if (extra > 0) r('Overtime (${ride['hireExtraHours'] ?? 0}hr)', '₹$extra', c: Colors.orange),
           const Divider(),
-          r('Total', '₹$total', b: true, c: const Color(0xFF1976D2)),
+          r('Total', '₹$total', b: true, c: const Color(0xFF1C2656)),
           const SizedBox(height: 18),
           SizedBox(width: double.infinity, child: ElevatedButton(
             onPressed: () { Navigator.pop(ctx); Navigator.push(context, MaterialPageRoute(builder: (_) => RatingScreen(driverName: _driverName, vehicleName: _selectedVehicle ?? 'Hire', selectedTip: 0, rideId: _rideId))); },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1976D2), padding: const EdgeInsets.symmetric(vertical: 14)),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14)),
             child: const Text('Rate your trip', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)))),
         ])));
   }
 
   void _showAssigned() {
-    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Colors.white,
+    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
         _dialogSet = setSheet;
@@ -342,28 +341,28 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
           const SizedBox(height: 12),
           if (inProgress) ...[
             Container(padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: _hirePhase == 'overtime' ? Colors.orange[50] : const Color(0xFF1976D2).withOpacity(0.06),
-                borderRadius: BorderRadius.circular(12), border: Border.all(color: _hirePhase == 'overtime' ? Colors.orange : const Color(0xFF1976D2).withOpacity(0.3))),
+              decoration: BoxDecoration(color: _hirePhase == 'overtime' ? Colors.orange[50] : const Color(0xFF1C2656).withOpacity(0.06),
+                borderRadius: BorderRadius.circular(12), border: Border.all(color: _hirePhase == 'overtime' ? Colors.orange : const Color(0xFF1C2656).withOpacity(0.3))),
               child: Column(children: [
-                Text('${_hireActual.toStringAsFixed(1)} hr', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: _hirePhase == 'overtime' ? Colors.orange[800] : const Color(0xFF1976D2))),
+                Text('${_hireActual.toStringAsFixed(1)} hr', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: _hirePhase == 'overtime' ? Colors.orange[800] : const Color(0xFF1C2656))),
                 Text('of $_hireBooked hr booked', style: const TextStyle(fontSize: 11, color: Colors.grey)),
                 if (_hirePhase == 'overtime') const Padding(padding: EdgeInsets.only(top: 6), child: Text('⚠ Overtime — extra hours billed', style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.w600))),
               ])),
             const SizedBox(height: 12),
           ],
           Container(padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: const Color(0xFF1976D2).withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF1976D2).withOpacity(0.3))),
-            child: Row(children: [const Icon(Icons.lock_outline, color: Color(0xFF1976D2)), const SizedBox(width: 10),
+            decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF1C2656).withOpacity(0.3))),
+            child: Row(children: [const Icon(Icons.lock_outline, color: Color(0xFF1C2656)), const SizedBox(width: 10),
               const Expanded(child: Text('Share PIN with driver to start', style: TextStyle(fontSize: 12, color: Colors.black54))),
               Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1976D2))),
-                child: Text(_rideOtp ?? '----', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4, color: Color(0xFF1976D2)))),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1C2656))),
+                child: Text(_rideOtp ?? '----', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4, color: Color(0xFF1C2656)))),
             ])),
           const SizedBox(height: 14),
           Row(children: [
-            CircleAvatar(radius: 26, backgroundColor: const Color(0xFF2196F3).withOpacity(0.1),
+            CircleAvatar(radius: 26, backgroundColor: const Color(0xFF1C2656).withOpacity(0.1),
               backgroundImage: _driverPic.isNotEmpty ? NetworkImage(_driverPic) : null,
-              child: _driverPic.isEmpty ? Text(_driverName.isNotEmpty ? _driverName[0].toUpperCase() : 'D', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF2196F3))) : null),
+              child: _driverPic.isEmpty ? Text(_driverName.isNotEmpty ? _driverName[0].toUpperCase() : 'D', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1C2656))) : null),
             const SizedBox(width: 12),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(_driverName, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
@@ -386,10 +385,10 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
 
   // ── Map picker ──
   Widget _buildMapPicker() {
-    return Scaffold(backgroundColor: Colors.white,
-      appBar: AppBar(backgroundColor: Colors.white, elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => setState(() => _showMap = false)),
-        title: Text(_pickingPickup ? 'Pick pickup' : 'Pick drop', style: const TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.w600)), centerTitle: true),
+    return Scaffold(
+      appBar: AppBar(elevation: 0,
+        leading: IconButton(icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface), onPressed: () => setState(() => _showMap = false)),
+        title: Text(_pickingPickup ? 'Pick pickup' : 'Pick drop', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 16, fontWeight: FontWeight.w600)), centerTitle: true),
       body: Stack(children: [
         GoogleMap(initialCameraPosition: CameraPosition(target: _center, zoom: 14),
           onMapCreated: (c) => _mapCtrl = c, onCameraMove: (p) => _center = p.target,
@@ -397,7 +396,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
           myLocationEnabled: true, myLocationButtonEnabled: false, zoomControlsEnabled: false),
         const Center(child: Padding(padding: EdgeInsets.only(bottom: 40), child: Icon(Icons.location_on, color: Color(0xFFFF5252), size: 48))),
         Positioned(left: 0, right: 0, bottom: 0, child: Container(padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(20))),
           child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
             Text(_mapAddr.isEmpty ? 'Move map to set location' : _mapAddr, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
             const SizedBox(height: 12),
@@ -410,7 +409,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
                 });
                 if (_pickingPickup && _totalHours > 0) _loadFares();
               },
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(vertical: 14)),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14)),
               child: const Text('Confirm Location', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)))),
           ]))))]));
   }
@@ -421,7 +420,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     child: Row(children: [Icon(Icons.info_outline, color: Colors.orange[700], size: 18), const SizedBox(width: 8), Expanded(child: Text(t, style: TextStyle(fontSize: 13, color: Colors.orange[800])))]));
 
   Widget _locField(IconData i, Color c, TextEditingController ctrl, String hint, {required bool pickup}) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
+    padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
     child: Row(children: [Icon(i, color: c, size: 18), const SizedBox(width: 10),
       Expanded(child: TextField(controller: ctrl, onChanged: (q) => _search(q, pickup: pickup),
         decoration: InputDecoration(hintText: hint, border: InputBorder.none, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 12), hintStyle: TextStyle(color: Colors.grey[500], fontSize: 14)), style: const TextStyle(fontSize: 14))),
@@ -442,16 +441,16 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     final sel = _transmission == val;
     return GestureDetector(onTap: () => setState(() => _transmission = val),
       child: Container(padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(color: sel ? const Color(0xFF2196F3) : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: sel ? const Color(0xFF2196F3) : Colors.grey[300]!)),
-        child: Center(child: Text(label, style: TextStyle(color: sel ? Colors.white : Colors.black87, fontWeight: FontWeight.w600, fontSize: 14)))));
+        decoration: BoxDecoration(color: sel ? const Color(0xFF1C2656) : Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: sel ? const Color(0xFF1C2656) : Colors.grey[300]!)),
+        child: Center(child: Text(label, style: TextStyle(color: sel ? Colors.white : Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w600, fontSize: 14)))));
   }
 
   Widget _tripChoice(String label, String val) {
     final sel = _tripType == val;
     return GestureDetector(onTap: () { setState(() => _tripType = val); if (_totalHours > 0) _loadFares(); },
       child: Container(padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(color: sel ? const Color(0xFF2196F3) : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: sel ? const Color(0xFF2196F3) : Colors.grey[300]!)),
-        child: Center(child: Text(label, style: TextStyle(color: sel ? Colors.white : Colors.black87, fontWeight: FontWeight.w600, fontSize: 14)))));
+        decoration: BoxDecoration(color: sel ? const Color(0xFF1C2656) : Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: sel ? const Color(0xFF1C2656) : Colors.grey[300]!)),
+        child: Center(child: Text(label, style: TextStyle(color: sel ? Colors.white : Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w600, fontSize: 14)))));
   }
 
   Widget _vehicleCard(Map<String, dynamic> v) {
@@ -464,17 +463,17 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     final num retCharge = (bk['returnCharge'] as num?) ?? 0;
     return GestureDetector(onTap: () => setState(() => _selectedVehicle = v['name'] as String?),
       child: Container(margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: sel ? const Color(0xFF2196F3) : Colors.grey[200]!, width: sel ? 2 : 1)),
+        decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: sel ? const Color(0xFF1C2656) : Colors.grey[200]!, width: sel ? 2 : 1)),
         child: Column(children: [
           Row(children: [
-            SizedBox(width: 60, height: 44, child: img.isNotEmpty ? Image.network(img, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.directions_car, color: Color(0xFF2196F3), size: 36)) : const Icon(Icons.directions_car, color: Color(0xFF2196F3), size: 36)),
+            SizedBox(width: 60, height: 44, child: img.isNotEmpty ? Image.network(img, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.directions_car, color: Color(0xFF1C2656), size: 36)) : const Icon(Icons.directions_car, color: Color(0xFF1C2656), size: 36)),
             const SizedBox(width: 14),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(v['name']?.toString() ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
               Text('₹${v['perHour'] ?? 0}/hr × $_totalHours hr', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
               if (v['etaMin'] != null) Text('Driver ~${v['etaMin']} min away', style: const TextStyle(fontSize: 11, color: Color(0xFF4CAF50))),
             ])),
-            Text('₹${v['fare'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Color(0xFF2196F3))),
+            Text('₹${v['fare'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Color(0xFF1C2656))),
           ]),
           // Always-visible charge breakdown
           if (base > 0 || hourCharge > 0) ...[
@@ -490,11 +489,11 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
 
   Widget _bk(String l, String v, {bool bold = false, Color? color}) => Padding(padding: const EdgeInsets.symmetric(vertical: 3),
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      Text(l, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w400, color: color ?? Colors.black87)),
-      Text(v, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: color ?? (bold ? const Color(0xFF1976D2) : Colors.black87)))]));
+      Text(l, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w400, color: color ?? Theme.of(context).colorScheme.onSurface)),
+      Text(v, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: color ?? (bold ? const Color(0xFF1C2656) : Theme.of(context).colorScheme.onSurface)))]));
 
   Widget _row(String l, String v, {bool bold = false}) => Padding(padding: const EdgeInsets.symmetric(vertical: 5),
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
       Text(l, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w500)),
-      Text(v, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: bold ? const Color(0xFF1976D2) : null))]));
+      Text(v, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: bold ? const Color(0xFF1C2656) : null))]));
 }

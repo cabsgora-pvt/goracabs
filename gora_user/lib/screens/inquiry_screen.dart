@@ -52,7 +52,7 @@ class _InquiryScreenState extends State<InquiryScreen> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
-              primary: Color(0xFF2196F3),
+              primary: Color(0xFF1C2656),
             ),
           ),
           child: child!,
@@ -72,7 +72,7 @@ class _InquiryScreenState extends State<InquiryScreen> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
-              primary: Color(0xFF2196F3),
+              primary: Color(0xFF1C2656),
             ),
           ),
           child: child!,
@@ -87,18 +87,16 @@ class _InquiryScreenState extends State<InquiryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Color(0xFF2196F3)),
+          icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
+        title: Text(
           'Gora Cabs',
           style: TextStyle(
-            color: Color(0xFF2196F3),
+            color: Theme.of(context).colorScheme.onSurface,
             fontSize: 20,
             fontWeight: FontWeight.bold,
           ),
@@ -148,7 +146,7 @@ class _InquiryScreenState extends State<InquiryScreen> {
                     }
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2196F3),
+                    backgroundColor: const Color(0xFF1C2656),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8),
@@ -192,7 +190,7 @@ class _InquiryScreenState extends State<InquiryScreen> {
               borderSide: BorderSide(color: Colors.grey, width: 0.5),
             ),
             focusedBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: Color(0xFF2196F3), width: 1),
+              borderSide: BorderSide(color: Color(0xFF1C2656), width: 1),
             ),
             isDense: true,
             contentPadding: EdgeInsets.symmetric(vertical: 8),
@@ -233,7 +231,7 @@ class _InquiryScreenState extends State<InquiryScreen> {
               borderSide: BorderSide(color: Colors.grey, width: 0.5),
             ),
             focusedBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: Color(0xFF2196F3), width: 1),
+              borderSide: BorderSide(color: Color(0xFF1C2656), width: 1),
             ),
             isDense: true,
             contentPadding: EdgeInsets.symmetric(vertical: 8),

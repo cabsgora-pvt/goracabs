@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  // Clean transparent modern colors
-  static const Color primaryBlue = Color(0xFF2196F3);
-  static const Color lightBlue = Color(0xFF64B5F6);
-  static const Color deepBlue = Color(0xFF1976D2);
+  // Brand navy
+  static const Color primaryBlue = Color(0xFF1C2656);
+  static const Color lightBlue = Color(0xFF3A4A8C);
+  static const Color deepBlue = Color(0xFF10162E);
   static const Color accentTeal = Color(0xFF00BCD4);
   static const Color softPurple = Color(0xFF9C27B0);
   
@@ -175,7 +175,71 @@ class AppTheme {
       ),
     );
   }
-  
+
+  // ── Dark theme ──────────────────────────────────────────────────
+  static const Color darkBg      = Color(0xFF0E1220); // app background
+  static const Color darkSurface = Color(0xFF1A2138); // cards / sheets
+  static const Color darkPrimary = Color(0xFF5A6CB8); // brand navy lightened for contrast on dark
+
+  static ThemeData get darkTheme {
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      colorScheme: const ColorScheme.dark(
+        primary: darkPrimary,
+        onPrimary: Colors.white,
+        surface: darkSurface,
+        onSurface: Colors.white,
+        background: darkBg,
+        onBackground: Colors.white,
+        secondary: accentTeal,
+        onSecondary: Colors.black,
+      ),
+      scaffoldBackgroundColor: darkBg,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: darkSurface,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        centerTitle: true,
+        titleTextStyle: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+        iconTheme: IconThemeData(color: Colors.white),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: darkPrimary,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 32),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+      ),
+      cardTheme: CardThemeData(
+        color: darkSurface,
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: darkSurface,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Colors.white.withOpacity(0.15))),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Colors.white.withOpacity(0.15))),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: darkPrimary, width: 2)),
+        hintStyle: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 15),
+      ),
+      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+        backgroundColor: darkSurface,
+        selectedItemColor: darkPrimary,
+        unselectedItemColor: Colors.white54,
+        type: BottomNavigationBarType.fixed,
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: darkPrimary,
+        foregroundColor: Colors.white,
+      ),
+      dialogTheme: const DialogThemeData(backgroundColor: darkSurface),
+      bottomSheetTheme: const BottomSheetThemeData(backgroundColor: darkSurface),
+    );
+  }
+
   // Helper methods for gradients
   static BoxDecoration primaryGradientDecoration({
     double borderRadius = 16,

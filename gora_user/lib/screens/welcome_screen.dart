@@ -35,7 +35,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
       body: Stack(
         children: [
           // Background Image with Opacity Gradient
@@ -90,13 +89,13 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Title Text
-                      const Text(
+                      Text(
                         'Explore new ways to travel with Gora Cabs',
                         style: TextStyle(
                           fontSize: 16, // Increased from 16 to 18
                           fontWeight: FontWeight.bold,
-                          color: Colors.black,
-                          shadows: [
+                          color: Theme.of(context).colorScheme.onSurface,
+                          shadows: const [
                             Shadow(
                               color: Colors.white70,
                               offset: Offset(0, 1),
@@ -141,14 +140,14 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
                       const SizedBox(height: 20),
                       
                       // Footer Text
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 10),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
                         child: Text(
                           'By continuing, you agree that you have read and accept our T&Cs and Privacy Policy',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.black87,
+                            color: Theme.of(context).colorScheme.onSurface,
                             fontWeight: FontWeight.w500,
                             height: 1.4,
                           ),

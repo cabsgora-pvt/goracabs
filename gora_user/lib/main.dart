@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'providers/user_provider.dart';
+import 'providers/theme_provider.dart';
 import 'screens/welcome_screen.dart';
 import 'screens/home_screen.dart';
 import 'theme/app_theme.dart';
@@ -12,8 +13,11 @@ void main() async {
   final prefs = await SharedPreferences.getInstance();
   final token = prefs.getString('user_token');
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => UserProvider(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => UserProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+      ],
       child: GoraCabsApp(isLoggedIn: token != null && token.isNotEmpty),
     ),
   );
@@ -25,10 +29,13 @@ class GoraCabsApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final themeMode = context.watch<ThemeProvider>().mode;
     return MaterialApp(
       title: 'Gora Cabs',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: themeMode,
       // Global back handler: any back press from an inner screen
       // pops the stack all the way to home. From home → exits app.
       builder: (context, child) {

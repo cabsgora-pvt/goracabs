@@ -238,7 +238,7 @@ class _RentalScreenState extends State<RentalScreen> {
         Text(v, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: c)),
       ]),
     );
-    showModalBottomSheet(context: this.context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Colors.white,
+    showModalBottomSheet(context: this.context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Theme.of(this.context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => Padding(
         padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
@@ -253,12 +253,12 @@ class _RentalScreenState extends State<RentalScreen> {
           if (exKm > 0) row('Extra km', '₹$exKm', c: Colors.orange),
           if (night > 0) row('Night charge', '₹$night'),
           const Divider(),
-          row('Total', '₹$total', bold: true, c: const Color(0xFF1976D2)),
+          row('Total', '₹$total', bold: true, c: const Color(0xFF1C2656)),
           const SizedBox(height: 18),
           SizedBox(width: double.infinity, child: ElevatedButton(
             onPressed: () { Navigator.pop(ctx); Navigator.of(this.context).push(MaterialPageRoute(builder: (_) => RatingScreen(
               driverName: _driverName, vehicleName: _selectedVehicle ?? 'Rental', selectedTip: 0, rideId: _rideId))); },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1976D2), padding: const EdgeInsets.symmetric(vertical: 14)),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14)),
             child: const Text('Rate your trip', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
           )),
         ]),
@@ -304,7 +304,7 @@ class _RentalScreenState extends State<RentalScreen> {
         'distance': '${_scaledKm(p)} km',
         'price': '₹${_scaledPrice(p)}',
         'icon': Icons.schedule,
-        'color': const Color(0xFF2196F3),
+        'color': const Color(0xFF1C2656),
       };
     }
     return {
@@ -312,12 +312,12 @@ class _RentalScreenState extends State<RentalScreen> {
       'distance': '${_selectedHours * 10} km',
       'price': '₹—',
       'icon': Icons.schedule,
-      'color': const Color(0xFF2196F3),
+      'color': const Color(0xFF1C2656),
     };
   }
 
   final List<Map<String, dynamic>> _vehicles = [
-    {'name': 'Economy', 'type': 'Comfortable', 'pricePerHour': 200, 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF2196F3), 'image': 'assets/images/economy.png'},
+    {'name': 'Economy', 'type': 'Comfortable', 'pricePerHour': 200, 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF1C2656), 'image': 'assets/images/economy.png'},
     {'name': 'SUV', 'type': 'Premium', 'pricePerHour': 250, 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF4CAF50), 'image': 'assets/images/texi.png'},
     {'name': 'Sedan', 'type': 'Spacious', 'pricePerHour': 300, 'capacity': '6', 'icon': Icons.airport_shuttle, 'color': Color(0xFF9C27B0), 'image': 'assets/images/texi2.png'},
     {'name': 'Premium', 'type': 'Luxury', 'pricePerHour': 400, 'capacity': '4', 'icon': Icons.car_rental, 'color': Color(0xFF795548), 'image': 'assets/images/texi3.png'},
@@ -329,11 +329,9 @@ class _RentalScreenState extends State<RentalScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Rental Package'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
         elevation: 1,
-        titleTextStyle: const TextStyle(
-          color: Colors.black87,
+        titleTextStyle: TextStyle(
+          color: Theme.of(context).colorScheme.onSurface,
           fontSize: 18,
           fontWeight: FontWeight.w600,
         ),
@@ -349,7 +347,7 @@ class _RentalScreenState extends State<RentalScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: Theme.of(context).cardColor,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.grey[200]!),
                     ),
@@ -486,7 +484,7 @@ class _RentalScreenState extends State<RentalScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: Theme.of(context).cardColor,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.grey[200]!),
                     ),
@@ -509,7 +507,7 @@ class _RentalScreenState extends State<RentalScreen> {
                               child: Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(color: Colors.grey[100], shape: BoxShape.circle),
-                                child: const Icon(Icons.remove, size: 20, color: Color(0xFF2196F3)),
+                                child: const Icon(Icons.remove, size: 20, color: Color(0xFF1C2656)),
                               ),
                             ),
                             Padding(
@@ -526,7 +524,7 @@ class _RentalScreenState extends State<RentalScreen> {
                               child: Container(
                                 padding: const EdgeInsets.all(8),
                                 decoration: BoxDecoration(color: Colors.grey[100], shape: BoxShape.circle),
-                                child: const Icon(Icons.add, size: 20, color: Color(0xFF2196F3)),
+                                child: const Icon(Icons.add, size: 20, color: Color(0xFF1C2656)),
                               ),
                             ),
                           ],
@@ -565,7 +563,7 @@ class _RentalScreenState extends State<RentalScreen> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: Theme.of(context).cardColor,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: Colors.grey[300]!),
                       boxShadow: [
@@ -611,7 +609,7 @@ class _RentalScreenState extends State<RentalScreen> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               boxShadow: [BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, -2))],
             ),
             child: ElevatedButton(
@@ -619,7 +617,7 @@ class _RentalScreenState extends State<RentalScreen> {
                 _showBookingConfirmationDialog();
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: Color(0xFF2196F3),
+                backgroundColor: Color(0xFF1C2656),
                 minimumSize: const Size(double.infinity, 50),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
@@ -650,11 +648,10 @@ class _RentalScreenState extends State<RentalScreen> {
   // Full-screen draggable-pin map picker for pickup/drop
   Widget _buildMapPicker() {
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white, elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.black), onPressed: () => setState(() => _showMapPicker = false)),
-        title: Text(_pickingPickup ? 'Pick pickup location' : 'Pick drop location', style: const TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.w600)),
+        elevation: 0,
+        leading: IconButton(icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface), onPressed: () => setState(() => _showMapPicker = false)),
+        title: Text(_pickingPickup ? 'Pick pickup location' : 'Pick drop location', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 16, fontWeight: FontWeight.w600)),
         centerTitle: true,
       ),
       body: Stack(children: [
@@ -671,17 +668,17 @@ class _RentalScreenState extends State<RentalScreen> {
         ),
         const Center(child: Padding(padding: EdgeInsets.only(bottom: 40), child: Icon(Icons.location_on, color: Color(0xFFFF5252), size: 48))),
         Positioned(bottom: 180, right: 16, child: FloatingActionButton(
-          mini: true, backgroundColor: Colors.white,
+          mini: true, backgroundColor: Theme.of(context).cardColor,
           onPressed: () async {
             final pos = await LocationService.getCurrentLocation();
             if (pos == null) return;
             _pickerMapController?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 15));
           },
-          child: const Icon(Icons.my_location, color: Color(0xFF2196F3)),
+          child: const Icon(Icons.my_location, color: Color(0xFF1C2656)),
         )),
         Positioned(left: 0, right: 0, bottom: 0, child: Container(
           padding: const EdgeInsets.all(16),
-          decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(20)), boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
+          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(20)), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
           child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
             Row(children: [
               Icon(_pickingPickup ? Icons.radio_button_checked : Icons.location_on, color: _pickingPickup ? const Color(0xFF4CAF50) : const Color(0xFFFF5252), size: 18),
@@ -701,7 +698,7 @@ class _RentalScreenState extends State<RentalScreen> {
                 });
                 if (_pickingPickup) _loadPackages();
               },
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
               child: const Text('Confirm Location', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
             )),
           ])),
@@ -727,14 +724,14 @@ class _RentalScreenState extends State<RentalScreen> {
     final cap = matchPkg['capacity'] ?? 4;
     final raw = (matchPkg['imageUrl'] as String?) ?? '';
     final imgUrl = raw.isEmpty ? '' : AppConfig.imageUrl(raw);
-    const accent = Color(0xFF2196F3);
+    const accent = Color(0xFF1C2656);
 
     return GestureDetector(
       onTap: () => setState(() { _selectedVehicle = vehicleName; _pickPackageForVehicle(vehicleName); }),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: isSelected ? accent : Colors.grey[200]!, width: isSelected ? 2 : 1),
           boxShadow: isSelected ? [BoxShadow(color: accent.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 4))] : [],
@@ -778,7 +775,7 @@ class _RentalScreenState extends State<RentalScreen> {
   void _showBookingConfirmationDialog() {
     final packageData = _getPackageData();
     final vehicleData = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle,
-        orElse: () => {'name': _selectedVehicle, 'pricePerHour': 0, 'image': 'assets/images/economy.png', 'type': '', 'capacity': '4', 'icon': Icons.directions_car, 'color': const Color(0xFF2196F3)});
+        orElse: () => {'name': _selectedVehicle, 'pricePerHour': 0, 'image': 'assets/images/economy.png', 'type': '', 'capacity': '4', 'icon': Icons.directions_car, 'color': const Color(0xFF1C2656)});
 
     showModalBottomSheet(
       context: context,
@@ -786,9 +783,9 @@ class _RentalScreenState extends State<RentalScreen> {
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
         return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.only(
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(20),
               topRight: Radius.circular(20),
             ),
@@ -801,7 +798,7 @@ class _RentalScreenState extends State<RentalScreen> {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.grey[50],
+                  color: Theme.of(context).cardColor,
                   borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(20),
                     topRight: Radius.circular(20),
@@ -809,7 +806,7 @@ class _RentalScreenState extends State<RentalScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.directions_car, color: Color(0xFF2196F3)),
+                    const Icon(Icons.directions_car, color: Color(0xFF1C2656)),
                     const SizedBox(width: 8),
                     const Text(
                       'Rental Package',
@@ -889,7 +886,7 @@ class _RentalScreenState extends State<RentalScreen> {
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.grey[50],
+                          color: Theme.of(context).cardColor,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Colors.grey[200]!),
                         ),
@@ -922,7 +919,7 @@ class _RentalScreenState extends State<RentalScreen> {
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.grey[50],
+                          color: Theme.of(context).cardColor,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Colors.grey[200]!),
                         ),
@@ -1059,7 +1056,7 @@ class _RentalScreenState extends State<RentalScreen> {
               Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.1),
@@ -1076,7 +1073,7 @@ class _RentalScreenState extends State<RentalScreen> {
                       _showFindingDriverDialog();
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2196F3),
+                      backgroundColor: const Color(0xFF1C2656),
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
@@ -1096,7 +1093,7 @@ class _RentalScreenState extends State<RentalScreen> {
 
   void _cancelSearch(BuildContext sheetCtx) {
     const reasons = ['Taking too long', 'Booked by mistake', 'Plan changed', 'Found another ride', 'Other'];
-    showModalBottomSheet(context: context, backgroundColor: Colors.white,
+    showModalBottomSheet(context: context, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (rc) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
         const Padding(padding: EdgeInsets.all(16), child: Text('Why are you cancelling?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
@@ -1139,14 +1136,14 @@ class _RentalScreenState extends State<RentalScreen> {
 
         return Container(
           padding: const EdgeInsets.all(20),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2196F3))),
+              const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1C2656))),
               const SizedBox(height: 16),
               const Text('Finding your Pilot', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
@@ -1181,36 +1178,36 @@ class _RentalScreenState extends State<RentalScreen> {
         final overLimit = _liveHours > _pkgHrs || _liveKm > _pkgKm;
         return Container(
           padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(context).viewPadding.bottom),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -2))],
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -2))],
           ),
           child: SingleChildScrollView(child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
-              Text(inProgress ? 'Rental in Progress' : 'Pilot Assigned for Rental', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black)),
+              Text(inProgress ? 'Rental in Progress' : 'Pilot Assigned for Rental', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
               const SizedBox(height: 12),
               // Live counter once the rental has started
               if (inProgress) ...[
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: overLimit ? Colors.orange[50] : const Color(0xFF1976D2).withOpacity(0.06),
+                    color: overLimit ? Colors.orange[50] : const Color(0xFF1C2656).withOpacity(0.06),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: overLimit ? Colors.orange : const Color(0xFF1976D2).withOpacity(0.3)),
+                    border: Border.all(color: overLimit ? Colors.orange : const Color(0xFF1C2656).withOpacity(0.3)),
                   ),
                   child: Column(children: [
                     Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
                       Column(children: [
-                        Text('${_liveHours.toStringAsFixed(1)} hr', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: overLimit ? Colors.orange[800] : const Color(0xFF1976D2))),
+                        Text('${_liveHours.toStringAsFixed(1)} hr', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: overLimit ? Colors.orange[800] : const Color(0xFF1C2656))),
                         Text('of $_pkgHrs hr', style: const TextStyle(fontSize: 11, color: Colors.grey)),
                       ]),
                       Container(width: 1, height: 36, color: Colors.grey[300]),
                       Column(children: [
-                        Text('${_liveKm.toStringAsFixed(1)} km', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: overLimit ? Colors.orange[800] : const Color(0xFF1976D2))),
+                        Text('${_liveKm.toStringAsFixed(1)} km', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: overLimit ? Colors.orange[800] : const Color(0xFF1C2656))),
                         Text('of $_pkgKm km', style: const TextStyle(fontSize: 11, color: Colors.grey)),
                       ]),
                     ]),
@@ -1225,22 +1222,22 @@ class _RentalScreenState extends State<RentalScreen> {
               // OTP box — driver asks for this to start
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(color: const Color(0xFF1976D2).withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF1976D2).withOpacity(0.3))),
+                decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF1C2656).withOpacity(0.3))),
                 child: Row(children: [
-                  const Icon(Icons.lock_outline, color: Color(0xFF1976D2), size: 22),
+                  const Icon(Icons.lock_outline, color: Color(0xFF1C2656), size: 22),
                   const SizedBox(width: 10),
                   const Expanded(child: Text('Share this PIN with the pilot to start', style: TextStyle(fontSize: 12, color: Colors.black54))),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1976D2))),
-                    child: Text(_rideOtp ?? '----', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4, color: Color(0xFF1976D2))),
+                    decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1C2656))),
+                    child: Text(_rideOtp ?? '----', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4, color: Color(0xFF1C2656))),
                   ),
                 ]),
               ),
               const SizedBox(height: 14),
               Container(
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey[200]!), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))]),
+                decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey[200]!), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))]),
                 child: Row(
                   children: [
                     Container(
@@ -1252,7 +1249,7 @@ class _RentalScreenState extends State<RentalScreen> {
                     ),
                     const SizedBox(width: 12),
                     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(_driverName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black)),
+                      Text(_driverName, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
                       const SizedBox(height: 4),
                       Row(children: [
                         const Icon(Icons.star, color: Colors.amber, size: 16), const SizedBox(width: 4),
@@ -1268,9 +1265,9 @@ class _RentalScreenState extends State<RentalScreen> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Expanded(child: ElevatedButton.icon(onPressed: () {}, icon: const Icon(Icons.call, color: Colors.green), label: const Text('Call', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2))),
+                  Expanded(child: ElevatedButton.icon(onPressed: () {}, icon: const Icon(Icons.call, color: Colors.green), label: Text('Call', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).cardColor, foregroundColor: Theme.of(context).colorScheme.onSurface, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2))),
                   const SizedBox(width: 12),
-                  Expanded(child: ElevatedButton.icon(onPressed: () {}, icon: const Icon(Icons.message, color: Color(0xFF2196F3)), label: const Text('Message', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2))),
+                  Expanded(child: ElevatedButton.icon(onPressed: () {}, icon: const Icon(Icons.message, color: Color(0xFF1C2656)), label: Text('Message', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).cardColor, foregroundColor: Theme.of(context).colorScheme.onSurface, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2))),
                 ],
               ),
               const SizedBox(height: 16),
@@ -1303,7 +1300,7 @@ class _RentalScreenState extends State<RentalScreen> {
                     );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2196F3),
+                    backgroundColor: const Color(0xFF1C2656),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
@@ -1333,7 +1330,7 @@ class _RentalScreenState extends State<RentalScreen> {
           builder: (context, setDialogState) {
             return Container(
               padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+              decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1343,9 +1340,9 @@ class _RentalScreenState extends State<RentalScreen> {
                   const SizedBox(height: 8),
                   const Text('Please select a reason for cancellation', style: TextStyle(fontSize: 14, color: Colors.grey)),
                   const SizedBox(height: 20),
-                  ...reasons.map((reason) => RadioListTile<String>(title: Text(reason, style: const TextStyle(fontSize: 15)), value: reason, groupValue: selectedReason, activeColor: const Color(0xFF2196F3), contentPadding: EdgeInsets.zero, onChanged: (value) => setDialogState(() => selectedReason = value))),
+                  ...reasons.map((reason) => RadioListTile<String>(title: Text(reason, style: const TextStyle(fontSize: 15)), value: reason, groupValue: selectedReason, activeColor: const Color(0xFF1C2656), contentPadding: EdgeInsets.zero, onChanged: (value) => setDialogState(() => selectedReason = value))),
                   const SizedBox(height: 24),
-                  SizedBox(width: double.infinity, child: ElevatedButton(onPressed: selectedReason == null ? null : () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const HomeScreen()), (route) => false), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Confirm Cancellation', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)))),
+                  SizedBox(width: double.infinity, child: ElevatedButton(onPressed: selectedReason == null ? null : () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const HomeScreen()), (route) => false), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Confirm Cancellation', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)))),
                   const SizedBox(height: 12),
                   Center(child: TextButton(onPressed: () => Navigator.pop(context), child: const Text('Back', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)))),
                 ],
@@ -1366,7 +1363,7 @@ class _RentalScreenState extends State<RentalScreen> {
       builder: (BuildContext context) {
         return Container(
           padding: const EdgeInsets.all(24),
-          decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -1376,7 +1373,7 @@ class _RentalScreenState extends State<RentalScreen> {
               const SizedBox(height: 8),
               const Text('Your rental service has been completed successfully.', style: TextStyle(fontSize: 14, color: Colors.grey), textAlign: TextAlign.center),
               const SizedBox(height: 24),
-              SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (context) => RatingScreen(driverName: 'Vikram Singh', vehicleName: _selectedVehicle!, selectedTip: 0))); }, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Rate Your Experience', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)))),
+              SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (context) => RatingScreen(driverName: 'Vikram Singh', vehicleName: _selectedVehicle!, selectedTip: 0))); }, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Rate Your Experience', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)))),
             ],
           ),
         );
@@ -1435,12 +1432,12 @@ class _RentalScreenState extends State<RentalScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              const Text(
+              Text(
                 'Booking Successful!',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: Colors.black87,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -1490,7 +1487,7 @@ class _RentalScreenState extends State<RentalScreen> {
                   );
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2196F3),
+                  backgroundColor: const Color(0xFF1C2656),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),

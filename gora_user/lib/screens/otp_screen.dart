@@ -78,7 +78,6 @@ class _OtpScreenState extends State<OtpScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
       body: Stack(
         children: [
           Positioned.fill(
@@ -106,9 +105,9 @@ class _OtpScreenState extends State<OtpScreen> {
                       const Spacer(),
                       Container(
                         width: double.infinity,
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardColor,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
                         ),
                         padding: const EdgeInsets.fromLTRB(24, 28, 24, 40),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

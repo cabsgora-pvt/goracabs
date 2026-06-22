@@ -83,7 +83,7 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
         children: [
           if (!_locationConfirmed)
             Container(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               child: SafeArea(
                 bottom: false,
                 child: Column(
@@ -110,7 +110,7 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                 decoration: BoxDecoration(
-                                  color: Colors.white,
+                                  color: Theme.of(context).cardColor,
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(color: Colors.grey[300]!),
                                 ),
@@ -169,7 +169,7 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                                   }
                                 },
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Color(0xFF2196F3),
+                                  backgroundColor: Color(0xFF1C2656),
                                   padding: const EdgeInsets.symmetric(vertical: 12),
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                 ),
@@ -393,13 +393,13 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                       child: Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
-                          color: Colors.white,
+                          color: Theme.of(context).cardColor,
                           shape: BoxShape.circle,
-                          boxShadow: [
+                          boxShadow: const [
                             BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2)),
                           ],
                         ),
-                        child: const Icon(Icons.arrow_back, color: Colors.black87, size: 24),
+                        child: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface, size: 24),
                       ),
                     ),
                   ),
@@ -412,15 +412,15 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                         FloatingActionButton.small(
                           heroTag: 'support_btn_map_prime',
                           onPressed: () {},
-                          backgroundColor: Colors.white,
-                          child: const Icon(Icons.support_agent, color: Colors.black87),
+                          backgroundColor: Theme.of(context).cardColor,
+                          child: Icon(Icons.support_agent, color: Theme.of(context).colorScheme.onSurface),
                         ),
                         const SizedBox(height: 12),
                         FloatingActionButton.small(
                           heroTag: 'share_btn_map_prime',
                           onPressed: () {},
-                          backgroundColor: Colors.white,
-                          child: const Icon(Icons.share, color: Colors.black87),
+                          backgroundColor: Theme.of(context).cardColor,
+                          child: Icon(Icons.share, color: Theme.of(context).colorScheme.onSurface),
                         ),
                       ],
                     ),
@@ -432,10 +432,10 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                     maxChildSize: _showPickupConfirmation ? 0.85 : 0.4,
                     builder: (context, scrollController) {
                       return Container(
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                          boxShadow: [
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).cardColor,
+                          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                          boxShadow: const [
                             BoxShadow(
                               color: Colors.black26,
                               blurRadius: 10,
@@ -585,7 +585,7 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: Theme.of(context).cardColor,
                 boxShadow: [BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, -2))],
               ),
               child: SafeArea(
@@ -607,7 +607,7 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                       }
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2196F3),
+                      backgroundColor: const Color(0xFF1C2656),
                       disabledBackgroundColor: Colors.grey[300],
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -667,10 +667,10 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isSelected ? (v['color'] as Color).withOpacity(0.05) : Colors.white,
+          color: isSelected ? (v['color'] as Color).withOpacity(0.05) : Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? (v['color'] as Color) : Colors.grey[300]!, 
+            color: isSelected ? (v['color'] as Color) : Colors.grey[300]!,
             width: isSelected ? 2 : 1
           ),
         ),
@@ -766,15 +766,15 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
 
         return Container(
           padding: const EdgeInsets.all(20),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               const CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2196F3)),
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1C2656)),
               ),
               const SizedBox(height: 16),
               const Text(
@@ -918,10 +918,10 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
 
         return Container(
           padding: const EdgeInsets.all(20),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            boxShadow: [
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            boxShadow: const [
               BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -2)),
             ],
           ),
@@ -940,9 +940,9 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                   ),
                 ),
               ),
-              const Text(
+              Text(
                 'Your ride is on the way',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
               ),
               const SizedBox(height: 12),
               Row(
@@ -956,9 +956,9 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.grey[300]!),
                     ),
-                    child: const Text(
+                    child: Text(
                       '4829',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2, color: Colors.black),
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2, color: Theme.of(context).colorScheme.onSurface),
                     ),
                   ),
                 ],
@@ -970,20 +970,20 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 child: Row(
                   children: [
-                    const Icon(Icons.access_time_filled, color: Color(0xFF2196F3), size: 18),
+                    const Icon(Icons.access_time_filled, color: Color(0xFF1C2656), size: 18),
                     const SizedBox(width: 8),
-                    const Text(
+                    Text(
                       'Arriving in 4 mins',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black),
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
                     ),
                     const SizedBox(width: 12),
                     Container(width: 1, height: 15, color: Colors.grey[300]),
                     const SizedBox(width: 12),
                     const Icon(Icons.location_on, color: Colors.green, size: 18),
                     const SizedBox(width: 8),
-                    const Text(
+                    Text(
                       '1.2 km away',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black),
+                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
                     ),
                   ],
                 ),
@@ -993,7 +993,7 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: Colors.grey[200]!),
                   boxShadow: [
@@ -1015,24 +1015,24 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             'Rajesh Kumar',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black),
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
                           ),
-                          SizedBox(height: 4),
-                          Row(
+                          const SizedBox(height: 4),
+                          const Row(
                             children: [
                               Icon(Icons.star, color: Colors.amber, size: 16),
                               SizedBox(width: 4),
                               Text('4.9 (1.2k+ rides)', style: TextStyle(fontSize: 13, color: Colors.grey)),
                             ],
                           ),
-                          SizedBox(height: 4),
-                          Text(
+                          const SizedBox(height: 4),
+                          const Text(
                             'White Swift Dzire • DL 01 AB 1234',
                             style: TextStyle(fontSize: 11, color: Colors.grey),
                           ),
@@ -1064,10 +1064,10 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                     child: ElevatedButton.icon(
                       onPressed: () {},
                       icon: const Icon(Icons.call, color: Colors.green),
-                      label: const Text('Call', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                      label: Text('Call', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.black,
+                        backgroundColor: Theme.of(context).cardColor,
+                        foregroundColor: Theme.of(context).colorScheme.onSurface,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -1081,11 +1081,11 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                   Expanded(
                     child: ElevatedButton.icon(
                       onPressed: () {},
-                      icon: const Icon(Icons.message, color: Color(0xFF2196F3)),
-                      label: const Text('Message', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                      icon: const Icon(Icons.message, color: Color(0xFF1C2656)),
+                      label: Text('Message', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.black,
+                        backgroundColor: Theme.of(context).cardColor,
+                        foregroundColor: Theme.of(context).colorScheme.onSurface,
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -1138,9 +1138,9 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
           builder: (context, setDialogState) {
             return Container(
               padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardColor,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1171,7 +1171,7 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                     title: Text(reason, style: const TextStyle(fontSize: 15)),
                     value: reason,
                     groupValue: selectedReason,
-                    activeColor: const Color(0xFF2196F3),
+                    activeColor: const Color(0xFF1C2656),
                     contentPadding: EdgeInsets.zero,
                     onChanged: (value) {
                       setDialogState(() {
@@ -1191,7 +1191,7 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                         );
                       },
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2196F3),
+                        backgroundColor: const Color(0xFF1C2656),
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
@@ -1226,9 +1226,9 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
       builder: (BuildContext context) {
         return Container(
           padding: const EdgeInsets.all(24),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1263,7 +1263,7 @@ class _PrimeRideScreenState extends State<PrimeRideScreen> {
                     );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2196F3),
+                    backgroundColor: const Color(0xFF1C2656),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),

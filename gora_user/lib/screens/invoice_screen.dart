@@ -30,19 +30,17 @@ class InvoiceScreen extends StatelessWidget {
     final double finalTotal = total + cgst + sgst;
 
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('Invoice', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        title: Text('Invoice', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
             onPressed: () {},
-            icon: const Icon(Icons.share_outlined, color: Colors.black),
+            icon: Icon(Icons.share_outlined, color: Theme.of(context).colorScheme.onSurface),
           ),
         ],
       ),
@@ -168,7 +166,7 @@ class InvoiceScreen extends StatelessWidget {
                   );
                 },
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2196F3),
+                  backgroundColor: const Color(0xFF1C2656),
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),

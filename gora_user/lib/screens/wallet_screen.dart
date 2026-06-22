@@ -7,11 +7,8 @@ class WalletScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text('My Wallet'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
         elevation: 0,
         centerTitle: false,
       ),
@@ -22,7 +19,7 @@ class WalletScreen extends StatelessWidget {
             margin: const EdgeInsets.all(16),
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: Theme.of(context).cardColor,
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
@@ -36,7 +33,7 @@ class WalletScreen extends StatelessWidget {
               children: [
                 const Text('Available Balance', style: TextStyle(color: Colors.grey, fontSize: 14)),
                 const SizedBox(height: 8),
-                const Text('₹1,250.00', style: TextStyle(color: Colors.black87, fontSize: 36, fontWeight: FontWeight.bold)),
+                Text('₹1,250.00', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 36, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -101,7 +98,7 @@ class WalletScreen extends StatelessWidget {
                     child: TabBarView(
                       children: [
                         _buildTransactionList(),
-                        _buildOffersList(),
+                        _buildOffersList(context),
                       ],
                     ),
                   ),
@@ -159,7 +156,7 @@ class WalletScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildOffersList() {
+  Widget _buildOffersList(BuildContext context) {
     final offers = [
       {'title': 'Get 20% Cashback', 'desc': 'Add ₹500 or more to wallet', 'code': 'WALLET20'},
       {'title': 'Flat ₹100 Off', 'desc': 'On your next 3 rides', 'code': 'RIDE100'},
@@ -203,7 +200,7 @@ class WalletScreen extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: Theme.of(context).cardColor,
                         borderRadius: BorderRadius.circular(6),
                         border: Border.all(color: AppTheme.primaryBlue, style: BorderStyle.solid, width: 1),
                       ),
@@ -280,11 +277,11 @@ class _AddMoneySheetState extends State<AddMoneySheet> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                     decoration: BoxDecoration(
-                      color: isSelected ? AppTheme.primaryBlue : Colors.grey[100],
+                      color: isSelected ? AppTheme.primaryBlue : Theme.of(context).cardColor,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: isSelected ? AppTheme.primaryBlue : Colors.grey[300]!),
                     ),
-                    child: Text('₹$amt', style: TextStyle(color: isSelected ? Colors.white : Colors.black, fontWeight: FontWeight.w600)),
+                    child: Text('₹$amt', style: TextStyle(color: isSelected ? Colors.white : Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w600)),
                   ),
                 );
               }).toList(),
@@ -313,7 +310,7 @@ class _AddMoneySheetState extends State<AddMoneySheet> {
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: isSelected ? AppTheme.primaryBlue.withAlpha(20) : Colors.grey[50],
+                    color: isSelected ? AppTheme.primaryBlue.withAlpha(20) : Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: isSelected ? AppTheme.primaryBlue : Colors.grey[300]!),
                   ),

@@ -14,12 +14,12 @@ class ServiceSelectionScreen extends StatelessWidget {
   const ServiceSelectionScreen({super.key});
 
   final List<Map<String, dynamic>> _services = const [
-    {'icon': 'assets/images/bike.png', 'label': 'Bike ride', 'color': Color(0xFF2196F3), 'bgColor': Color(0xFFE3F2FD)},
+    {'icon': 'assets/images/bike.png', 'label': 'Bike ride', 'color': Color(0xFF1C2656), 'bgColor': Color(0xFFE3F2FD)},
     {'icon': 'assets/images/auto.jpg', 'label': 'Auto ride', 'color': Color(0xFF4CAF50), 'bgColor': Color(0xFFE8F5E9)},
-    {'icon': 'assets/images/texi.png', 'label': 'Cab ride', 'color': Color(0xFF2196F3), 'bgColor': Color(0xFFE3F2FD)},
+    {'icon': 'assets/images/texi.png', 'label': 'Cab ride', 'color': Color(0xFF1C2656), 'bgColor': Color(0xFFE3F2FD)},
     {'icon': 'assets/images/rental.png', 'label': 'Rentals', 'color': Color(0xFFFF9800), 'bgColor': Color(0xFFFFF3E0)},
     {'icon': 'assets/images/out-station.png', 'label': 'Outstation', 'color': Color(0xFF4CAF50), 'bgColor': Color(0xFFE8F5E9)},
-    {'icon': 'assets/images/parcel.jpg', 'label': 'Parcel', 'color': Color(0xFF2196F3), 'bgColor': Color(0xFFE3F2FD)},
+    {'icon': 'assets/images/parcel.jpg', 'label': 'Parcel', 'color': Color(0xFF1C2656), 'bgColor': Color(0xFFE3F2FD)},
     {'icon': 'assets/images/hiredriver.png', 'label': 'Hire driver', 'color': Color(0xFF9C27B0), 'bgColor': Color(0xFFF3E5F5)},
     {'icon': 'assets/images/texi2.png', 'label': 'Mini Ride', 'color': Color(0xFFFF9800), 'bgColor': Color(0xFFFFF3E0)},
     {'icon': 'assets/images/texi3.png', 'label': 'Prime Ride', 'color': Color(0xFF9C27B0), 'bgColor': Color(0xFFF3E5F5)},
@@ -36,7 +36,7 @@ class ServiceSelectionScreen extends StatelessWidget {
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
-        foregroundColor: Colors.black,
+        foregroundColor: Theme.of(context).colorScheme.onSurface,
       ),
       body: ListView.builder(
         padding: const EdgeInsets.all(20),
@@ -107,7 +107,7 @@ class ServiceSelectionScreen extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(

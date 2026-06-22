@@ -91,7 +91,7 @@ class _RatingScreenState extends State<RatingScreen> {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFF2196F3), width: 1.5),
+                    borderSide: const BorderSide(color: Color(0xFF1C2656), width: 1.5),
                   ),
                 ),
               ),
@@ -117,7 +117,7 @@ class _RatingScreenState extends State<RatingScreen> {
                     );
                   },
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2196F3),
+                    backgroundColor: const Color(0xFF1C2656),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),

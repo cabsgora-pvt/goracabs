@@ -97,11 +97,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final displayName = u.name.isNotEmpty ? u.name : (u.phone.isNotEmpty ? '+91 ${u.phone}' : '');
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
       appBar: AppBar(
         title: const Text('My Profile'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
         elevation: 0,
         actions: [
           if (u.loading)
@@ -143,7 +140,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               margin: const EdgeInsets.all(20),
               padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: Theme.of(context).cardColor,
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [BoxShadow(color: Colors.black.withAlpha(13), blurRadius: 10, offset: const Offset(0, 4))],
               ),
@@ -183,7 +180,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const SizedBox(height: 14),
                 Text(
                   u.name.isNotEmpty ? u.name : (u.loading ? 'Loading...' : 'Tap edit to add name'),
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
                 ),
                 if (u.phone.isNotEmpty)
                   Padding(
@@ -253,7 +250,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         prefixIcon: Icon(icon, color: AppTheme.primaryBlue),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         filled: true,
-        fillColor: editable ? Colors.white : Colors.grey[100],
+        fillColor: editable ? Theme.of(context).cardColor : Colors.grey[100],
       ),
     );
   }

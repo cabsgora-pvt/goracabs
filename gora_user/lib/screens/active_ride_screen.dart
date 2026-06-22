@@ -99,7 +99,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Row(children: [Icon(svcIcon, size: 20), const SizedBox(width: 8), const Text('Your Ride')]),
-        backgroundColor: Colors.white, foregroundColor: Colors.black87, elevation: 1),
+        elevation: 1),
       body: Column(children: [
         SizedBox(height: 280, child: GoogleMap(
           initialCameraPosition: CameraPosition(target: _driverLatLng ?? LatLng(pLat, pLng), zoom: 13),
@@ -118,13 +118,13 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
           ]),
           const SizedBox(height: 12),
           if (otp.isNotEmpty && status != 'ongoing') Container(padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: const Color(0xFF1976D2).withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF1976D2).withOpacity(0.3))),
-            child: Row(children: [const Icon(Icons.lock_outline, color: Color(0xFF1976D2)), const SizedBox(width: 10),
+            decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF1C2656).withOpacity(0.3))),
+            child: Row(children: [const Icon(Icons.lock_outline, color: Color(0xFF1C2656)), const SizedBox(width: 10),
               const Expanded(child: Text('Share PIN with driver to start', style: TextStyle(fontSize: 12, color: Colors.black54))),
-              Text(otp, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4, color: Color(0xFF1976D2)))])),
+              Text(otp, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4, color: Color(0xFF1C2656)))])),
           const SizedBox(height: 12),
           if (dr != null) Container(padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.grey[200]!)),
+            decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.grey[200]!)),
             child: Row(children: [
               CircleAvatar(radius: 26, backgroundColor: AppTheme.primaryBlue.withOpacity(0.1),
                 backgroundImage: pic.isNotEmpty ? NetworkImage(AppConfig.imageUrl(pic)) : null,
@@ -144,7 +144,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
         if (status != 'completed' && status != 'cancelled')
           Container(
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 10, offset: const Offset(0, -2))]),
+            decoration: BoxDecoration(color: Theme.of(context).cardColor, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 10, offset: const Offset(0, -2))]),
             child: SafeArea(top: false, child: SizedBox(width: double.infinity, child: ElevatedButton.icon(
               onPressed: _cancel,
               icon: const Icon(Icons.close, color: Colors.white),
