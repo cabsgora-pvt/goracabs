@@ -1799,6 +1799,23 @@ class _OutstationScreenState extends State<OutstationScreen> {
     );
   }
 
+  void _cancelSearch(BuildContext sheetCtx) {
+    const reasons = ['Taking too long', 'Booked by mistake', 'Plan changed', 'Found another ride', 'Other'];
+    showModalBottomSheet(context: context, backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (rc) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Padding(padding: EdgeInsets.all(16), child: Text('Why are you cancelling?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+        ...reasons.map((r) => ListTile(title: Text(r), onTap: () async {
+          Navigator.pop(rc);
+          _pollTimer?.cancel();
+          if (_rideId != null) await ApiService.cancelRide(_rideId!, r);
+          if (mounted && Navigator.canPop(sheetCtx)) Navigator.pop(sheetCtx);
+          if (mounted) Navigator.pop(context);
+        })),
+        const SizedBox(height: 8),
+      ])));
+  }
+
   void _showFindingDriverDialog() {
     setState(() {
       _isSearching = true;
@@ -1841,15 +1858,18 @@ class _OutstationScreenState extends State<OutstationScreen> {
             color: Colors.white,
             borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
           ),
-          child: const Column(
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2196F3))),
-              SizedBox(height: 16),
-              Text('Finding your Outstation Pilot', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              SizedBox(height: 8),
-              Text('Please wait while we connect you with a nearby pilot for your outstation trip.', style: TextStyle(fontSize: 14, color: Colors.grey), textAlign: TextAlign.center),
-              SizedBox(height: 20),
+              const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2196F3))),
+              const SizedBox(height: 16),
+              const Text('Finding your Outstation Pilot', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              const Text('Please wait while we connect you with a nearby pilot for your outstation trip.', style: TextStyle(fontSize: 14, color: Colors.grey), textAlign: TextAlign.center),
+              const SizedBox(height: 20),
+              SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: () => _cancelSearch(context),
+                icon: const Icon(Icons.close, color: Colors.red), label: const Text('Cancel Trip', style: TextStyle(color: Colors.red)),
+                style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 46), side: const BorderSide(color: Colors.red)))),
             ],
           ),
         );

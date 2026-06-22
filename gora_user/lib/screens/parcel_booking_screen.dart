@@ -470,12 +470,33 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   void _showFinding() {
     showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, builder: (ctx) {
       () async { await _book(); _startPolling(); }();
-      return Container(padding: const EdgeInsets.all(28), child: const Column(mainAxisSize: MainAxisSize.min, children: [
-        CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(AppTheme.primaryBlue)),
-        SizedBox(height: 16), Text('Finding delivery partner', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        SizedBox(height: 8), Text('Connecting you with a nearby rider', style: TextStyle(fontSize: 13, color: Colors.grey)),
+      return Container(padding: const EdgeInsets.all(28), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(AppTheme.primaryBlue)),
+        const SizedBox(height: 16), const Text('Finding delivery partner', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8), const Text('Connecting you with a nearby rider', style: TextStyle(fontSize: 13, color: Colors.grey)),
+        const SizedBox(height: 20),
+        SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: () => _cancelSearch(ctx),
+          icon: const Icon(Icons.close, color: Colors.red), label: const Text('Cancel', style: TextStyle(color: Colors.red)),
+          style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 46), side: const BorderSide(color: Colors.red)))),
       ]));
     });
+  }
+
+  void _cancelSearch(BuildContext sheetCtx) {
+    const reasons = ['Taking too long', 'Booked by mistake', 'Plan changed', 'Wrong details', 'Other'];
+    showModalBottomSheet(context: context, backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (rc) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Padding(padding: EdgeInsets.all(16), child: Text('Why are you cancelling?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+        ...reasons.map((r) => ListTile(title: Text(r), onTap: () async {
+          Navigator.pop(rc);
+          _poll?.cancel();
+          if (_rideId != null) await ApiService.cancelRide(_rideId!, r);
+          if (mounted && Navigator.canPop(sheetCtx)) Navigator.pop(sheetCtx);
+          if (mounted) Navigator.pop(context);
+        })),
+        const SizedBox(height: 8),
+      ])));
   }
 
   void _showAssigned() {
