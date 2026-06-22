@@ -169,6 +169,8 @@ export async function POST(req: NextRequest) {
       hireTotalHours: b.hireTotalHours || 0,
       hirePerHour: b.hirePerHour || 0,
       transmission: b.transmission || '',
+      // Multi-stop (in-city)
+      stops: Array.isArray(b.stops) && b.stops.length ? b.stops.map((s: any) => ({ address: s.address, lat: s.lat, lng: s.lng })) : undefined,
       // Delivery fields
       senderName: b.senderName, senderPhone: b.senderPhone,
       receiverName: b.receiverName, receiverPhone: b.receiverPhone,

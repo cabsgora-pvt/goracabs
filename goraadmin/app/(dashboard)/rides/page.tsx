@@ -102,7 +102,12 @@ export default function RidesPage() {
                     <tr key={r._id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-gray-800">{r.riderName || '—'}</td>
                       <td className="px-4 py-3 text-gray-600">{r.driverName || '—'}</td>
-                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">{r.pickupAddress} → {r.dropAddress}</td>
+                      <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
+                        {r.pickupAddress}
+                        {Array.isArray(r.stops) && r.stops.length > 0 && <span className="text-orange-600"> → +{r.stops.length} stop{r.stops.length > 1 ? 's' : ''}</span>}
+                        {' → '}{r.dropAddress}
+                        {r.waitingChargeTotal > 0 && <span className="text-purple-600"> · wait ₹{r.waitingChargeTotal}</span>}
+                      </td>
                       <td className="px-4 py-3 text-gray-600 capitalize">{r.service}</td>
                       <td className="px-4 py-3 font-semibold text-gray-800">₹{r.fare}</td>
                       <td className="px-4 py-3 text-gray-500 text-xs capitalize">{r.paymentMode}</td>

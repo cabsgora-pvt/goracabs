@@ -80,6 +80,7 @@ export async function GET(req: NextRequest) {
         paymentMode: r.paymentMode,
         routePolyline: r.routePolyline,
         createdAt: r.createdAt,
+        stops: r.stops,
         // Outstation extras (null for taxi rides — driver UI hides outstation chip)
         service: r.service,
         tripType: r.tripType,

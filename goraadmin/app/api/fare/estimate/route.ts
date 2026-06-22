@@ -32,7 +32,7 @@ async function fetchDirections(originLat: number, originLng: number, destLat: nu
 // → returns zone + list of vehicles with calculated fare + real ETA (nearest driver) per vehicle type
 export async function POST(req: NextRequest) {
   try {
-    const { pickupLat, pickupLng, dropLat, dropLng, service = 'taxi', tripType = 'one_way', totalHours = 0, weightKg = 0 } = await req.json()
+    const { pickupLat, pickupLng, dropLat, dropLng, service = 'taxi', tripType = 'one_way', totalHours = 0, weightKg = 0, stops = [] } = await req.json()
     if (pickupLat == null || pickupLng == null) return withCors({ error: 'pickup required' }, 400)
 
     await connectDB()
@@ -239,11 +239,19 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Distance & time (Haversine — replaced by Directions API at booking time)
+    // Distance & time (Haversine — replaced by Directions API at booking time).
+    // With multi-stops: sum each leg pickup→stop1→stop2→…→drop.
     let distance = 5, duration = 15
     if (dropLat != null && dropLng != null) {
-      distance = +distanceKm({ lat: pickupLat, lng: pickupLng }, { lat: dropLat, lng: dropLng }).toFixed(1)
-      duration = Math.round(distance * 3) // ~3 min/km estimate
+      const pts: Array<{ lat: number; lng: number }> = [{ lat: pickupLat, lng: pickupLng }]
+      for (const s of (Array.isArray(stops) ? stops : [])) {
+        if (s?.lat != null && s?.lng != null) pts.push({ lat: s.lat, lng: s.lng })
+      }
+      pts.push({ lat: dropLat, lng: dropLng })
+      let total = 0
+      for (let i = 0; i < pts.length - 1; i++) total += distanceKm(pts[i], pts[i + 1])
+      distance = +total.toFixed(1)
+      duration = Math.round(distance * 3)
     }
 
     // Load all approved+online drivers in this zone (one query, then bucket by vehicle type)

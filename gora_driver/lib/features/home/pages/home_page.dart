@@ -327,6 +327,7 @@ class _RidePollerState extends State<_RidePoller> {
         packageSize: (r['packageSize'] ?? '').toString(), isFragile: (r['isFragile'] as bool?) ?? false,
         codAmount: (r['codAmount'] as num?)?.toDouble() ?? 0,
         parcelPhotos: ((r['parcelPhotos'] as List?) ?? []).map((e) => e.toString()).toList(),
+        stops: ((r['stops'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList(),
       );
       if (!mounted) return;
       _navigating = true;

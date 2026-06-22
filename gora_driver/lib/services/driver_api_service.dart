@@ -179,4 +179,8 @@ class DriverApiService {
   // Delivery actions: collected / deliver (with dropOtp)
   static Future<Map<String, dynamic>> deliveryAction(String rideId, Map<String, dynamic> body) =>
       post('/rides/$rideId/delivery', body, auth: true);
+
+  // Multi-stop actions: reached / resume
+  static Future<Map<String, dynamic>> stopAction(String rideId, Map<String, dynamic> body) =>
+      post('/rides/$rideId/stop', body, auth: true);
 }

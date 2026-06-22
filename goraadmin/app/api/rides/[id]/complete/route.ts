@@ -27,8 +27,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       }
     }
 
-    // Use totalFare (fare + tip) as the base if present
-    const fare = ride.totalFare != null ? ride.totalFare : (ride.fare || 0)
+    // Use totalFare (fare + tip) as the base if present, plus any multi-stop waiting charge
+    const waiting = ride.waitingChargeTotal || 0
+    const fare = (ride.totalFare != null ? ride.totalFare : (ride.fare || 0)) + waiting
+    if (waiting > 0) ride.totalFare = fare   // persist the waiting-inclusive total
     const commission = Math.round((fare * commissionPercent) / 100)  // admin profit
     const driverEarning = fare - commission
 

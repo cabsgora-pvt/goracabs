@@ -15,6 +15,11 @@ const RideSchema = new Schema({
   service: { type: String, enum: ['taxi', 'rental', 'outstation', 'delivery', 'hire_driver'], default: 'taxi' },
   vehicleType: String,
   status: { type: String, enum: ['pending', 'accepted', 'arrived', 'ongoing', 'completed', 'cancelled'], default: 'pending' },
+  // ── Multi-stop (in-city A→B→C) ──
+  stops: { type: [{ address: String, lat: Number, lng: Number, reachedAt: Date, waitStartedAt: Date, waitMinutes: { type: Number, default: 0 }, done: { type: Boolean, default: false } }], default: undefined },
+  currentStopIndex: { type: Number, default: 0 },     // which stop the driver is heading to / waiting at
+  isWaitingAtStop: { type: Boolean, default: false },
+  waitingChargeTotal: { type: Number, default: 0 },   // accumulated wait charge across stops
   // ── Outstation-only fields (ignored by taxi/rental/delivery) ──
   tripType: { type: String, enum: ['one_way', 'round_trip'], default: 'one_way' },
   cityFrom: String,

@@ -19,6 +19,9 @@ class OnRidePage extends StatelessWidget {
   // Tracks outstation phase locally (UI-only — backend update via DriverApiService.updatePhase)
   static final ValueNotifier<String> _outstationPhase = ValueNotifier<String>('enroute');
   static final ValueNotifier<bool> _nightHaltConfirmed = ValueNotifier<bool>(false);
+  // Multi-stop progress: current stop index + waiting flag
+  static final ValueNotifier<int> _stopIndex = ValueNotifier<int>(0);
+  static final ValueNotifier<bool> _waitingAtStop = ValueNotifier<bool>(false);
 
   @override
   Widget build(BuildContext context) {
@@ -132,9 +135,43 @@ class OnRidePage extends StatelessWidget {
                       const SizedBox(height: 12),
                       // Location
                       _locationRow(Icons.radio_button_checked, AppColors.green, started ? 'From' : 'Pickup', r.pickupAddress),
+                      // Multi-stop list (A → stops → drop)
+                      if (r.stops.isNotEmpty) ...r.stops.asMap().entries.map((e) => Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: _locationRow(Icons.trip_origin, AppColors.orange, 'Stop ${e.key + 1}', (e.value['address'] ?? '').toString()))),
                       const SizedBox(height: 8),
                       _locationRow(Icons.location_on, AppColors.red, 'Drop', r.dropAddress),
                       const SizedBox(height: 20),
+                      // Multi-stop progress controls (only while ride is ongoing)
+                      if (started && r.stops.isNotEmpty)
+                        ValueListenableBuilder<int>(valueListenable: _stopIndex, builder: (_, idx, __) =>
+                          ValueListenableBuilder<bool>(valueListenable: _waitingAtStop, builder: (_, waiting, __) {
+                            if (idx >= r.stops.length) return const SizedBox.shrink();
+                            final stopName = (r.stops[idx]['address'] ?? 'Stop ${idx + 1}').toString();
+                            return Padding(padding: const EdgeInsets.only(bottom: 12), child: Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(color: AppColors.orange.withOpacity(0.08), borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.orange.withOpacity(0.4))),
+                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                Text('Next: Stop ${idx + 1} of ${r.stops.length}', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.orange, fontSize: 12)),
+                                Text(stopName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 10),
+                                if (!waiting)
+                                  PrimaryButton(label: '📍 Reached Stop ${idx + 1}', onTap: () async {
+                                    await DriverApiService.stopAction(r.id, {'action': 'reached', 'index': idx});
+                                    _waitingAtStop.value = true;
+                                  })
+                                else Column(children: [
+                                  const Text('⏳ Waiting — customer doing their work', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                                  const SizedBox(height: 8),
+                                  PrimaryButton(label: '▶ Resume / Next', onTap: () async {
+                                    await DriverApiService.stopAction(r.id, {'action': 'resume', 'index': idx});
+                                    _waitingAtStop.value = false;
+                                    _stopIndex.value = idx + 1;
+                                  }),
+                                ]),
+                              ]),
+                            ));
+                          })),
                       // Action button
                       if (state is RideLoading)
                         const AppLoader()
@@ -203,6 +240,7 @@ class OnRidePage extends StatelessWidget {
                                 onPressed: () {
                                   _outstationPhase.value = 'enroute';  // reset for next ride
                                   _nightHaltConfirmed.value = false;
+                                  _stopIndex.value = 0; _waitingAtStop.value = false;
                                   _confirmEndRide(context, bloc);
                                 },
                                 child: const Text('🏁 End Ride', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),

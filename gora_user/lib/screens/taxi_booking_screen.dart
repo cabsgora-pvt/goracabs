@@ -48,6 +48,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   LatLng _myLocation = const LatLng(28.6139, 77.2090);
   GoogleMapController? _mapController;
   List<TextEditingController> _stopControllers = [];
+  final List<LatLng?> _stopLatLng = [];   // resolved coords per stop (parallel to controllers)
 
   // ── Live ride state (wired to backend) ──────────────────────
   String? _rideId;
@@ -484,10 +485,30 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   }
 
   // Book the ride against the backend (keeps UI; only sends real data)
+  // Resolve each non-empty stop text to {address, lat, lng} (geocode if coords missing)
+  Future<List<Map<String, dynamic>>> _resolveStops() async {
+    final out = <Map<String, dynamic>>[];
+    for (int i = 0; i < _stopControllers.length; i++) {
+      final txt = _stopControllers[i].text.trim();
+      if (txt.isEmpty) continue;
+      LatLng? ll = i < _stopLatLng.length ? _stopLatLng[i] : null;
+      if (ll == null) {
+        final results = await ApiService.placesAutocomplete(txt);
+        if (results.isNotEmpty) {
+          final d = await ApiService.placeDetails(results.first['placeId'] as String? ?? '');
+          if (d != null && d['lat'] != null) ll = LatLng((d['lat'] as num).toDouble(), (d['lng'] as num).toDouble());
+        }
+      }
+      if (ll != null) out.add({'address': txt, 'lat': ll.latitude, 'lng': ll.longitude});
+    }
+    return out;
+  }
+
   Future<void> _bookRide() async {
     final selectedVehicleData = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
     final basePrice = int.tryParse((selectedVehicleData['price'] as String).replaceAll('₹', '')) ?? 0;
     final tip = _selectedTip ?? 0;
+    final stops = await _resolveStops();
     try {
       final res = await ApiService.bookRide({
         'pickupAddress': _pickupController.text,
@@ -502,6 +523,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         'tip': tip,
         'distance': _rideDistance,
         'duration': _rideDuration,
+        'stops': stops,
         'paymentMode': 'cash',
       });
       if (res['ride'] != null) {
@@ -990,7 +1012,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                       TextButton.icon(
                         onPressed: () {
                           setState(() {
-                            _stopControllers.add(TextEditingController(text: 'Add stop ${_stopControllers.length + 1}'));
+                            _stopControllers.add(TextEditingController());
+                            _stopLatLng.add(null);
                           });
                         },
                         icon: const Icon(Icons.add_circle_outline, color: Color(0xFF2196F3), size: 20),
@@ -1396,8 +1419,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
           Expanded(
             child: TextField(
               controller: controller,
+              onChanged: (_) { if (index < _stopLatLng.length) _stopLatLng[index] = null; }, // typed → re-geocode at booking
               decoration: InputDecoration(
-                hintText: 'Add stop ${index + 1}',
+                hintText: 'Add stop ${index + 1} (address)',
                 border: InputBorder.none,
                 isDense: true,
                 contentPadding: const EdgeInsets.symmetric(vertical: 10),
@@ -1411,6 +1435,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
               setState(() {
                 controller.dispose();
                 _stopControllers.removeAt(index);
+                if (index < _stopLatLng.length) _stopLatLng.removeAt(index);
               });
             },
             child: Container(

@@ -38,6 +38,8 @@ class RideRequestModel {
   final bool isFragile;
   final double codAmount;
   final List<String> parcelPhotos;
+  // Multi-stop (in-city A→B→C)
+  final List<Map<String, dynamic>> stops;
 
   const RideRequestModel({
     required this.id, required this.userName, required this.userPhone, required this.userRating,
@@ -59,6 +61,7 @@ class RideRequestModel {
     this.senderName = '', this.senderPhone = '', this.receiverName = '', this.receiverPhone = '', this.itemType = '',
     this.weightKg = 0,
     this.packageSize = '', this.isFragile = false, this.codAmount = 0, this.parcelPhotos = const [],
+    this.stops = const [],
   });
 }
 
