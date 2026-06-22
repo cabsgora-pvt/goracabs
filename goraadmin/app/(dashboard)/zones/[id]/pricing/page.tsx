@@ -17,7 +17,7 @@ const TABS = [
 ]
 
 type VehicleType = { _id: string; name: string; imageUrl: string; services: string[]; baseFare: number; perKm: number; perMin: number; minFare: number }
-type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean; nightHaltCharge?: number; emptyReturnPercent?: number; perHour?: number; perKg?: number; outPerHour?: number; rtBaseFare?: number; rtPerKm?: number; rtPerHour?: number }
+type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean; nightHaltCharge?: number; emptyReturnPercent?: number; perHour?: number; perKg?: number; outPerHour?: number; rtBaseFare?: number; rtPerKm?: number; rtPerHour?: number; hireReturnCharge?: number }
 type RentalPackage = { vehicleTypeId: string; vehicleTypeName: string; hours: number; km: number; basePrice: number; extraHourRate: number; extraKmRate: number; nightCharge: number; commissionPercent: number; isActive: boolean }
 // extra outstation fields tacked onto PricingRow: outPerHour, rtBaseFare, rtPerKm, rtPerHour
 
@@ -81,6 +81,7 @@ export default function ZonePricingPage() {
             rtBaseFare: 0,
             rtPerKm: 0,
             rtPerHour: 0,
+            hireReturnCharge: 0,
           })
         })
       })
@@ -389,6 +390,14 @@ export default function ZonePricingPage() {
                   onChange={e => setEditForm({ ...editForm, perHour: +e.target.value })}
                   className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                 <p className="text-xs text-indigo-700 mt-1">Fare = Base + (total hours × this rate). e.g. ₹150/hr × 4 hr = ₹600 + base.</p>
+                <div className="mt-3">
+                  <label htmlFor="p-hireret" className="block text-sm font-medium text-indigo-800 mb-1">One-Way Return Charge (₹) — driver's return</label>
+                  <input id="p-hireret" type="number" step="10" min="0"
+                    value={editForm.hireReturnCharge || 0}
+                    onChange={e => setEditForm({ ...editForm, hireReturnCharge: +e.target.value })}
+                    className="w-full border border-indigo-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <p className="text-xs text-indigo-700 mt-1">Added only for One-Way trips (driver returns alone). Round-trip = ₹0.</p>
+                </div>
               </div>
             )}
             {/* Delivery: per-kg weight charge (base + km already above) */}

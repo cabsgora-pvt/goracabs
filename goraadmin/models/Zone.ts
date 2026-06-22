@@ -7,6 +7,7 @@ const PricingSchema = new Schema({
   perKm: Number,
   perMin: Number,
   perHour: { type: Number, default: 0 },   // used by hire-a-driver pricing
+  hireReturnCharge: { type: Number, default: 0 }, // one-way: flat ₹ for driver's return journey
   perKg: { type: Number, default: 0 },      // used by delivery pricing (₹ per kg of parcel weight)
   minFare: Number,
   commissionPercent: { type: Number, default: 20 },

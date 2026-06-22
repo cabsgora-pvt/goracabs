@@ -65,19 +65,26 @@ export async function POST(req: NextRequest) {
       // Vehicle images + capacity by type name
       const vtsH: any[] = await VehicleType.find({ isActive: true }).select('name imageUrl capacity').lean()
       const vtMapH = new Map<string, any>(vtsH.map(v => [v.name, v]))
+      const isHireRT = tripType === 'round_trip'
       const vehicles = hirePricing.map((p: any) => {
         const perHour = p.perHour || 0
-        const fare = Math.max(p.minFare || 0, Math.round((p.baseFare || 0) + hours * perHour))
+        const base = p.baseFare || 0
+        const hourCharge = Math.round(hours * perHour)
+        // One-way → add driver's return charge; round trip → driver returns with customer (no extra)
+        const returnCharge = isHireRT ? 0 : (p.hireReturnCharge || 0)
+        let fare = base + hourCharge + returnCharge
+        fare = Math.max(p.minFare || 0, Math.round(fare))
         const km = nearH.get(p.vehicleTypeName)
         const vt = vtMapH.get(p.vehicleTypeName)
         return {
           vehicleTypeId: p.vehicleTypeId, name: p.vehicleTypeName,
           imageUrl: vt?.imageUrl || '', capacity: vt?.capacity || 4,
-          fare, perHour, baseFare: p.baseFare || 0, commissionPercent: p.commissionPercent ?? 20,
+          fare, perHour, baseFare: base, returnCharge, commissionPercent: p.commissionPercent ?? 20,
+          breakdown: { base, perHour, hours, hourCharge, returnCharge, tripType, total: fare },
           etaMin: km != null ? Math.max(1, Math.min(30, Math.round(km * 2))) : null,
         }
       })
-      return withCors({ available: true, zone: { id: zoneH._id, name: zoneH.name }, service: 'hire_driver', totalHours: hours, vehicles })
+      return withCors({ available: true, zone: { id: zoneH._id, name: zoneH.name }, service: 'hire_driver', totalHours: hours, tripType, vehicles })
     }
 
     // ── Outstation: city-to-city, no zone restriction, use Directions API + outstation pricing ──

@@ -20,6 +20,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   double? _pickupLat, _pickupLng, _dropLat, _dropLng;
   DateTime? _startAt, _endAt;
   String _transmission = 'manual';
+  String _tripType = 'one_way';   // one_way | round_trip
   String? _selectedVehicle;
   List<Map<String, dynamic>> _vehicles = [];
   bool _loading = false;
@@ -87,7 +88,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final res = await ApiService.post('/fare/estimate', {
-        'pickupLat': _pickupLat, 'pickupLng': _pickupLng, 'service': 'hire_driver', 'totalHours': _totalHours,
+        'pickupLat': _pickupLat, 'pickupLng': _pickupLng, 'service': 'hire_driver', 'totalHours': _totalHours, 'tripType': _tripType,
       });
       if (res['available'] != true) { setState(() { _loading = false; _error = (res['message'] ?? 'Not available').toString(); }); return; }
       setState(() {
@@ -108,6 +109,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
         'service': 'hire_driver', 'vehicleType': _selectedVehicle,
         'fare': v['fare'] ?? 0, 'hirePerHour': v['perHour'] ?? 0,
         'hireTotalHours': _totalHours, 'transmission': _transmission,
+        'tripType': _tripType,
         'hireStartAt': _startAt?.toIso8601String(), 'hireEndAt': _endAt?.toIso8601String(),
         'paymentMode': 'cash',
       });
@@ -184,6 +186,27 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
           if (_totalHours > 0) Padding(padding: const EdgeInsets.only(top: 8),
             child: Text('Total: $_totalHours hour${_totalHours > 1 ? 's' : ''} — driver paid for this duration',
               style: const TextStyle(fontSize: 13, color: Color(0xFF2196F3), fontWeight: FontWeight.w600))),
+
+          const SizedBox(height: 16),
+          _section('Trip Type'),
+          Row(children: [
+            Expanded(child: _tripChoice('One Way', 'one_way')),
+            const SizedBox(width: 10),
+            Expanded(child: _tripChoice('Round Trip', 'round_trip')),
+          ]),
+          Padding(padding: const EdgeInsets.only(top: 8),
+            child: Container(padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: (_tripType == 'one_way' ? Colors.orange : Colors.green).withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8)),
+              child: Row(children: [
+                Icon(_tripType == 'one_way' ? Icons.info_outline : Icons.check_circle, size: 16, color: _tripType == 'one_way' ? Colors.orange : Colors.green),
+                const SizedBox(width: 8),
+                Expanded(child: Text(
+                  _tripType == 'one_way'
+                    ? 'One Way: you also pay the driver\'s return charge from the drop location.'
+                    : 'Round Trip: driver returns with you — no extra return charge.',
+                  style: TextStyle(fontSize: 11, color: _tripType == 'one_way' ? Colors.orange[800] : Colors.green[800], fontWeight: FontWeight.w600))),
+              ]))),
 
           const SizedBox(height: 16),
           _section('Car Transmission'),
@@ -423,24 +446,52 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
         child: Center(child: Text(label, style: TextStyle(color: sel ? Colors.white : Colors.black87, fontWeight: FontWeight.w600, fontSize: 14)))));
   }
 
+  Widget _tripChoice(String label, String val) {
+    final sel = _tripType == val;
+    return GestureDetector(onTap: () { setState(() => _tripType = val); if (_totalHours > 0) _loadFares(); },
+      child: Container(padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(color: sel ? const Color(0xFF2196F3) : Colors.white, borderRadius: BorderRadius.circular(10), border: Border.all(color: sel ? const Color(0xFF2196F3) : Colors.grey[300]!)),
+        child: Center(child: Text(label, style: TextStyle(color: sel ? Colors.white : Colors.black87, fontWeight: FontWeight.w600, fontSize: 14)))));
+  }
+
   Widget _vehicleCard(Map<String, dynamic> v) {
     final sel = _selectedVehicle == v['name'];
     final raw = (v['imageUrl'] as String?) ?? '';
     final img = raw.isEmpty ? '' : AppConfig.imageUrl(raw);
+    final bk = v['breakdown'] as Map? ?? {};
+    final num base = (bk['base'] as num?) ?? 0;
+    final num hourCharge = (bk['hourCharge'] as num?) ?? 0;
+    final num retCharge = (bk['returnCharge'] as num?) ?? 0;
     return GestureDetector(onTap: () => setState(() => _selectedVehicle = v['name'] as String?),
       child: Container(margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: sel ? const Color(0xFF2196F3) : Colors.grey[200]!, width: sel ? 2 : 1)),
-        child: Row(children: [
-          SizedBox(width: 60, height: 44, child: img.isNotEmpty ? Image.network(img, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.directions_car, color: Color(0xFF2196F3), size: 36)) : const Icon(Icons.directions_car, color: Color(0xFF2196F3), size: 36)),
-          const SizedBox(width: 14),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(v['name']?.toString() ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            Text('₹${v['perHour'] ?? 0}/hr × $_totalHours hr', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-            if (v['etaMin'] != null) Text('Driver ~${v['etaMin']} min away', style: const TextStyle(fontSize: 11, color: Color(0xFF4CAF50))),
-          ])),
-          Text('₹${v['fare'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Color(0xFF2196F3))),
+        child: Column(children: [
+          Row(children: [
+            SizedBox(width: 60, height: 44, child: img.isNotEmpty ? Image.network(img, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.directions_car, color: Color(0xFF2196F3), size: 36)) : const Icon(Icons.directions_car, color: Color(0xFF2196F3), size: 36)),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(v['name']?.toString() ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+              Text('₹${v['perHour'] ?? 0}/hr × $_totalHours hr', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              if (v['etaMin'] != null) Text('Driver ~${v['etaMin']} min away', style: const TextStyle(fontSize: 11, color: Color(0xFF4CAF50))),
+            ])),
+            Text('₹${v['fare'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Color(0xFF2196F3))),
+          ]),
+          // Always-visible charge breakdown
+          if (base > 0 || hourCharge > 0) ...[
+            const Divider(height: 16),
+            _bk('Base fare', '₹${base.toStringAsFixed(0)}'),
+            _bk('Driver time ($_totalHours hr × ₹${v['perHour'] ?? 0})', '₹${hourCharge.toStringAsFixed(0)}'),
+            if (retCharge > 0) _bk('Driver return (one-way)', '₹${retCharge.toStringAsFixed(0)}', color: Colors.orange),
+            const Divider(height: 12),
+            _bk('Total', '₹${v['fare'] ?? 0}', bold: true),
+          ],
         ])));
   }
+
+  Widget _bk(String l, String v, {bool bold = false, Color? color}) => Padding(padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+      Text(l, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w400, color: color ?? Colors.black87)),
+      Text(v, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: color ?? (bold ? const Color(0xFF1976D2) : Colors.black87)))]));
 
   Widget _row(String l, String v, {bool bold = false}) => Padding(padding: const EdgeInsets.symmetric(vertical: 5),
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
