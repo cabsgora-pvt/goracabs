@@ -253,6 +253,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
             'image': raw.isEmpty ? 'assets/images/economy.png' : '__network__',
             'networkImage': raw.isEmpty ? '' : AppConfig.imageUrl(raw),
             'breakdown': bk ?? {},
+            'owBreakdown': ow['breakdown'] ?? {},
+            'rtBreakdown': rt?['breakdown'] ?? {},
             'extras': ow['extras'] ?? 0,
           };
         }).toList();
@@ -1217,7 +1219,18 @@ class _OutstationScreenState extends State<OutstationScreen> {
   Widget _buildVehicleCard(Map<String, dynamic> v) {
     final isSelected = _selectedVehicle == v['name'];
     final currentPrice = _tripType == 'One Way' ? v['oneWayPrice'] : v['roundTripPrice'];
-    
+    // Pick the breakdown for the current trip type
+    final Map bk = (_tripType == 'Round Trip' ? v['rtBreakdown'] : v['owBreakdown']) as Map? ?? {};
+    final num km = (bk['totalKm'] as num?) ?? 0;
+    final num hrs = (bk['totalHrs'] as num?) ?? 0;
+    final num base = (bk['base'] as num?) ?? 0;
+    final num perKm = (bk['perKm'] as num?) ?? 0;
+    final num perHour = (bk['perHour'] as num?) ?? 0;
+    final num kmCharge = (bk['kmCharge'] as num?) ?? 0;
+    final num hourCharge = (bk['hourCharge'] as num?) ?? 0;
+    final num nightHalt = (bk['nightHalt'] as num?) ?? 0;
+    final num emptyReturn = (bk['emptyReturn'] as num?) ?? 0;
+
     return GestureDetector(
       onTap: () => setState(() => _selectedVehicle = v['name']),
       child: Container(
@@ -1227,51 +1240,59 @@ class _OutstationScreenState extends State<OutstationScreen> {
           color: isSelected ? Color(0xFF2196F3).withOpacity(0.05) : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? Color(0xFF2196F3) : Colors.grey[300]!, 
+            color: isSelected ? Color(0xFF2196F3) : Colors.grey[300]!,
             width: isSelected ? 2 : 1
           ),
         ),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 60, height: 50,
-              child: (v['networkImage'] as String?)?.isNotEmpty == true
-                  ? Image.network(v['networkImage'] as String, fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => Icon(v['icon'], color: const Color(0xFF2196F3), size: 40))
-                  : Image.asset(v['image'] as String? ?? 'assets/images/economy.png', fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => Icon(v['icon'], color: const Color(0xFF2196F3), size: 40)),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(v['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  const SizedBox(height: 4),
-                  Text('${v['type']} • ${v['capacity']} seats', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                ],
+        child: Column(children: [
+          Row(
+            children: [
+              SizedBox(
+                width: 60, height: 50,
+                child: (v['networkImage'] as String?)?.isNotEmpty == true
+                    ? Image.network(v['networkImage'] as String, fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => Icon(v['icon'], color: const Color(0xFF2196F3), size: 40))
+                    : Image.asset(v['image'] as String? ?? 'assets/images/economy.png', fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => Icon(v['icon'], color: const Color(0xFF2196F3), size: 40)),
               ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(currentPrice, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF4CAF50))),
-                const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Color(0xFF4CAF50).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text('Available', style: const TextStyle(fontSize: 10, color: Color(0xFF4CAF50), fontWeight: FontWeight.w600)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(v['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 4),
+                    Text('${v['type']} • ${v['capacity']} seats', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    if (km > 0) Text('${km.toStringAsFixed(0)} km • ${hrs >= 1 ? "${hrs.toStringAsFixed(0)} hr" : "$hrs hr"}', style: const TextStyle(fontSize: 11, color: Color(0xFF2196F3), fontWeight: FontWeight.w600)),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              Text(currentPrice, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Color(0xFF4CAF50))),
+            ],
+          ),
+          // Dynamic charge breakdown — always shown for every vehicle
+          if (km > 0) ...[
+            const Divider(height: 18),
+            _bkRow('Base fare', '₹${base.toStringAsFixed(0)}'),
+            _bkRow('Distance (${km.toStringAsFixed(0)} km × ₹${perKm.toStringAsFixed(0)}/km)', '₹${kmCharge.toStringAsFixed(0)}'),
+            if (perHour > 0) _bkRow('Time (${hrs.toStringAsFixed(0)} hr × ₹${perHour.toStringAsFixed(0)}/hr)', '₹${hourCharge.toStringAsFixed(0)}'),
+            if (nightHalt > 0) _bkRow('Night halt', '₹${nightHalt.toStringAsFixed(0)}', color: Colors.orange),
+            if (emptyReturn > 0) _bkRow('Empty return', '₹${emptyReturn.toStringAsFixed(0)}', color: Colors.orange),
+            const Divider(height: 14),
+            _bkRow('Total', currentPrice.toString(), bold: true),
           ],
-        ),
+        ]),
       ),
     );
   }
+
+  Widget _bkRow(String l, String v, {bool bold = false, Color? color}) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+      Text(l, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w400, color: color ?? Colors.black87)),
+      Text(v, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: color ?? (bold ? const Color(0xFF1976D2) : Colors.black87))),
+    ]),
+  );
 
   Widget _buildTripConditions() {
     return Container(

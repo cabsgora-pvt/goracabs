@@ -138,40 +138,43 @@ export async function POST(req: NextRequest) {
       const pricingByName = new Map<string, any>()
       for (const p of outstationPricing) pricingByName.set(p.vehicleTypeName, p)
 
+      const isRT = tripType === 'round_trip'
+      const totalHrs = +(totalMin / 60).toFixed(1)
+
       const vehicles = vts.map(v => {
         const p = pricingByName.get(v.name)
-        const baseFare = p?.baseFare ?? v.baseFare ?? 0
-        const perKm    = p?.perKm    ?? v.perKm    ?? 0
-        const perMin   = p?.perMin   ?? v.perMin   ?? 0
-        const minFare  = p?.minFare  ?? v.minFare  ?? 0
+        const owBase = p?.baseFare ?? v.baseFare ?? 0
+        const owPerKm = p?.perKm ?? v.perKm ?? 0
+        const owPerHour = p?.outPerHour ?? 0
+        // Round-trip rates fall back to one-way rates if admin left them 0
+        const base   = isRT ? (p?.rtBaseFare || owBase) : owBase
+        const perKm  = isRT ? (p?.rtPerKm   || owPerKm) : owPerKm
+        const perHour= isRT ? (p?.rtPerHour || owPerHour) : owPerHour
+        const minFare  = p?.minFare ?? v.minFare ?? 0
         const commission = p?.commissionPercent ?? 20
-        const nightHaltCharge   = p?.nightHaltCharge    ?? 0
-        const emptyReturnPercent= p?.emptyReturnPercent ?? 0
+        const nightHaltCharge    = p?.nightHaltCharge    ?? 0
+        const emptyReturnPercent = p?.emptyReturnPercent ?? 0
 
-        let subtotal = baseFare + totalKm * perKm + totalMin * perMin
+        const kmCharge = Math.round(totalKm * perKm)
+        const hourCharge = Math.round(totalHrs * perHour)
+        let subtotal = base + kmCharge + hourCharge
         let extras = 0
-        const breakdown: any = {}
-        // Empty-return surcharge (only one-way trips)
-        if (tripType !== 'round_trip' && emptyReturnPercent > 0) {
-          const er = Math.round((subtotal * emptyReturnPercent) / 100)
-          extras += er
-          breakdown.emptyReturn = er
+        // Itemised breakdown shown in the app vehicle card
+        const breakdown: any = {
+          totalKm, totalHrs, base, perKm, perHour, kmCharge, hourCharge, tripType,
         }
-        // Night-halt charge (round trip — assume 1 night per 8 hours of travel beyond same-day)
-        if (tripType === 'round_trip' && nightHaltCharge > 0) {
-          // Round-trip totalMin already x2; if > 8 hours each way, charge per overnight stop
-          const oneWayHours = oneWayMin / 60
-          const nights = oneWayHours >= 6 ? 1 : 0 // simple heuristic — admin can tweak in future
-          if (nights > 0) {
-            const nh = nightHaltCharge * nights
-            extras += nh
-            breakdown.nightHalt = nh
-            breakdown.nights = nights
-          }
+        if (!isRT && emptyReturnPercent > 0) {
+          const er = Math.round((subtotal * emptyReturnPercent) / 100)
+          extras += er; breakdown.emptyReturn = er
+        }
+        if (isRT && nightHaltCharge > 0) {
+          const nights = (oneWayMin / 60) >= 6 ? 1 : 0
+          if (nights > 0) { const nh = nightHaltCharge * nights; extras += nh; breakdown.nightHalt = nh; breakdown.nights = nights }
         }
 
         let fare = Math.round(subtotal + extras)
         fare = Math.max(fare, minFare)
+        breakdown.total = fare
         const eta = nearestByType.get(v.name)
         return {
           vehicleTypeId: v._id,
@@ -179,7 +182,7 @@ export async function POST(req: NextRequest) {
           imageUrl: v.imageUrl || '',
           capacity: v.capacity,
           fare,
-          baseFare, perKm, perMin,
+          baseFare: base, perKm, perHour,
           commissionPercent: commission,
           nightHaltCharge, emptyReturnPercent,
           extras, breakdown,

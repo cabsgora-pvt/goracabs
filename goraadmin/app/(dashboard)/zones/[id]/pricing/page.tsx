@@ -17,8 +17,9 @@ const TABS = [
 ]
 
 type VehicleType = { _id: string; name: string; imageUrl: string; services: string[]; baseFare: number; perKm: number; perMin: number; minFare: number }
-type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean; nightHaltCharge?: number; emptyReturnPercent?: number; perHour?: number; perKg?: number }
+type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean; nightHaltCharge?: number; emptyReturnPercent?: number; perHour?: number; perKg?: number; outPerHour?: number; rtBaseFare?: number; rtPerKm?: number; rtPerHour?: number }
 type RentalPackage = { vehicleTypeId: string; vehicleTypeName: string; hours: number; km: number; basePrice: number; extraHourRate: number; extraKmRate: number; nightCharge: number; commissionPercent: number; isActive: boolean }
+// extra outstation fields tacked onto PricingRow: outPerHour, rtBaseFare, rtPerKm, rtPerHour
 
 export default function ZonePricingPage() {
   const { id } = useParams()
@@ -76,6 +77,10 @@ export default function ZonePricingPage() {
             emptyReturnPercent: 0,
             perHour: 0,
             perKg: 0,
+            outPerHour: 0,
+            rtBaseFare: 0,
+            rtPerKm: 0,
+            rtPerHour: 0,
           })
         })
       })
@@ -400,7 +405,36 @@ export default function ZonePricingPage() {
             {/* Outstation-only extras: only shown when editing an outstation pricing row */}
             {editRow.service === 'outstation' && (
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 space-y-3">
-                <p className="text-sm font-semibold text-orange-800">Outstation Extras</p>
+                <p className="text-sm font-semibold text-orange-800">Outstation Pricing</p>
+                <p className="text-xs text-orange-600">Base Fare + Per KM above are the <b>One-Way</b> rates. Set the hour charge + Round-Trip rates here.</p>
+                <div>
+                  <label htmlFor="p-owhr" className="block text-xs font-medium text-orange-800 mb-1">One-Way · Per Hour (₹) — time charge</label>
+                  <input id="p-owhr" type="number" step="5" min="0"
+                    value={editForm.outPerHour || 0}
+                    onChange={e => setEditForm({ ...editForm, outPerHour: +e.target.value })}
+                    className="w-full border border-orange-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                </div>
+                <div className="grid grid-cols-3 gap-2 pt-1 border-t border-orange-200">
+                  <div>
+                    <label htmlFor="p-rtbase" className="block text-[10px] font-medium text-orange-800 mb-1">Round-Trip Base ₹</label>
+                    <input id="p-rtbase" type="number" step="10" min="0" value={editForm.rtBaseFare || 0}
+                      onChange={e => setEditForm({ ...editForm, rtBaseFare: +e.target.value })}
+                      className="w-full border border-orange-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  </div>
+                  <div>
+                    <label htmlFor="p-rtkm" className="block text-[10px] font-medium text-orange-800 mb-1">RT Per KM ₹</label>
+                    <input id="p-rtkm" type="number" step="1" min="0" value={editForm.rtPerKm || 0}
+                      onChange={e => setEditForm({ ...editForm, rtPerKm: +e.target.value })}
+                      className="w-full border border-orange-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  </div>
+                  <div>
+                    <label htmlFor="p-rthr" className="block text-[10px] font-medium text-orange-800 mb-1">RT Per Hr ₹</label>
+                    <input id="p-rthr" type="number" step="5" min="0" value={editForm.rtPerHour || 0}
+                      onChange={e => setEditForm({ ...editForm, rtPerHour: +e.target.value })}
+                      className="w-full border border-orange-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  </div>
+                </div>
+                <p className="text-[11px] text-orange-600">Round-Trip rates blank/0 → falls back to One-Way rates × distance(×2).</p>
                 <div>
                   <label htmlFor="p-night" className="block text-xs font-medium text-orange-800 mb-1">Night Halt (₹ per night) — round trip only</label>
                   <input id="p-night" type="number" step="50" min="0"

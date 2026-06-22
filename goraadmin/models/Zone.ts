@@ -14,6 +14,11 @@ const PricingSchema = new Schema({
   // Outstation-only extras (ignored for taxi / rental / delivery)
   nightHaltCharge:   { type: Number, default: 0 }, // ₹ per night (round-trip only)
   emptyReturnPercent:{ type: Number, default: 0 }, // % of one-way fare added back for one-way (driver returns empty)
+  // Outstation per-hour (time) charge + separate round-trip rates (fall back to one-way if 0)
+  outPerHour:  { type: Number, default: 0 },  // ₹ per hour of travel (one way)
+  rtBaseFare:  { type: Number, default: 0 },  // round-trip base fare
+  rtPerKm:     { type: Number, default: 0 },  // round-trip per km
+  rtPerHour:   { type: Number, default: 0 },  // round-trip per hour
 })
 // Rental packages — multiple per vehicle per zone (e.g. Economy 4hr/40km, Economy 8hr/80km)
 const RentalPackageSchema = new Schema({
