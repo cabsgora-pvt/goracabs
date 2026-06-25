@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 import '../providers/user_provider.dart';
@@ -39,6 +41,10 @@ class _HomeScreenState extends State<HomeScreen> {
   // Active ride guard — user can't book a new ride while one is in progress
   Map<String, dynamic>? _activeRide;
   Timer? _activeTimer;
+  // Current location for the home mini-map + chip
+  LatLng? _currentLatLng;
+  String _currentAddress = 'Locating…';
+  GoogleMapController? _homeMapCtrl;
 
   final List<Map<String, dynamic>> _services = [
     {'icon': 'assets/images/bike-bluebg.png', 'label': 'Bike ride', 'color': Color(0xFF1C2656), 'bgColor': Color(0xFFE3F2FD)},
@@ -75,6 +81,22 @@ class _HomeScreenState extends State<HomeScreen> {
     _checkActiveRide();
     // Re-check periodically so the banner clears when the ride completes/cancels
     _activeTimer = Timer.periodic(const Duration(seconds: 8), (_) => _checkActiveRide());
+    _fetchCurrentLocation();
+  }
+
+  Future<void> _fetchCurrentLocation() async {
+    try {
+      LocationPermission perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
+      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return;
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high, timeLimit: const Duration(seconds: 10));
+      if (!mounted) return;
+      setState(() => _currentLatLng = LatLng(pos.latitude, pos.longitude));
+      _homeMapCtrl?.animateCamera(CameraUpdate.newLatLng(_currentLatLng!));
+      // Reverse-geocode for the chip label
+      final addr = await ApiService.reverseGeocode(pos.latitude, pos.longitude);
+      if (mounted && addr.isNotEmpty) setState(() => _currentAddress = addr);
+    } catch (_) {}
   }
 
   // Finds any in-progress ride (pending/accepted/arrived/ongoing) for the user
@@ -127,6 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _promoTimer?.cancel();
     _activeTimer?.cancel();
     _promoController.dispose();
+    _homeMapCtrl?.dispose();
     super.dispose();
   }
 
@@ -314,30 +337,29 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             
-            const SizedBox(height: 16),
-            
+            const SizedBox(height: 14),
+
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (_activeRide != null) _buildActiveRideBanner(),
-                    const SizedBox(height: 24),
+                    if (_activeRide != null) ...[
+                      _buildActiveRideBanner(),
+                      const SizedBox(height: 16),
+                    ],
 
-                    const Text('Popular Places', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: 140,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _popularLocations.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 12),
-                        itemBuilder: (_, i) => _buildPopularCard(_popularLocations[i]),
-                      ),
-                    ),
-                    
-                    const SizedBox(height: 24),
+                    // Mini map with the user's current location
+                    _buildHomeMap(),
+                    const SizedBox(height: 18),
+
+                    // Recent / saved locations (last 3) → tap goes to normal ride
+                    const Text('Recent locations', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    ..._popularLocations.map((l) => _buildRecentTile(l)),
+
+                    const SizedBox(height: 20),
 
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -350,14 +372,15 @@ class _HomeScreenState extends State<HomeScreen> {
                       ],
                     ),
                     const SizedBox(height: 14),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: _services.take(4).map((s) => _buildServiceItem(s)).toList(),
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: _services.skip(4).take(4).map((s) => _buildServiceItem(s)).toList(),
+                    // Services — single horizontal scrolling line (Ola-style)
+                    SizedBox(
+                      height: 96,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _services.length,
+                        separatorBuilder: (_, __) => const SizedBox(width: 14),
+                        itemBuilder: (_, i) => _buildServiceItem(_services[i]),
+                      ),
                     ),
 
                     const SizedBox(height: 24),
@@ -626,6 +649,81 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Mini map showing the user's current location (tap → start a ride)
+  Widget _buildHomeMap() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Stack(children: [
+        SizedBox(
+          height: 170,
+          child: GoogleMap(
+            // Rebuild the lite map once we know the real location so it recenters
+            key: ValueKey(_currentLatLng?.toString() ?? 'home-map'),
+            initialCameraPosition: CameraPosition(
+              target: _currentLatLng ?? const LatLng(26.2389, 73.0243), // Jodhpur fallback
+              zoom: 15,
+            ),
+            onMapCreated: (c) => _homeMapCtrl = c,
+            myLocationEnabled: true,
+            myLocationButtonEnabled: false,
+            zoomControlsEnabled: false,
+            liteModeEnabled: true, // lightweight non-interactive map for the home card
+            markers: _currentLatLng == null ? {} : {
+              Marker(markerId: const MarkerId('me'), position: _currentLatLng!),
+            },
+          ),
+        ),
+        // Current-location chip (Ola-style)
+        Positioned(
+          left: 10, top: 10, right: 10,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(20),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 6)]),
+            child: Row(children: [
+              const Icon(Icons.my_location, size: 16, color: AppTheme.primaryBlue),
+              const SizedBox(width: 8),
+              Expanded(child: Text(_currentAddress, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600))),
+            ]),
+          ),
+        ),
+        // Tap layer → open ride booking
+        Positioned.fill(child: Material(color: Colors.transparent, child: InkWell(
+          onTap: () {
+            if (!_canBook()) return;
+            Navigator.push(context, MaterialPageRoute(builder: (_) => TaxiBookingScreen(fromLocation: 'Current Location', hideLocationInputs: false)));
+          },
+        ))),
+      ]),
+    );
+  }
+
+  // Recent location tile (Ola-style pin + chevron) → opens normal ride to that drop
+  Widget _buildRecentTile(Map<String, String> l) {
+    return InkWell(
+      onTap: () {
+        if (!_canBook()) return;
+        Navigator.push(context, MaterialPageRoute(builder: (_) => TaxiBookingScreen(
+          fromLocation: 'Current Location', hideLocationInputs: false)));
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(children: [
+          Container(width: 38, height: 38, decoration: BoxDecoration(color: AppTheme.primaryBlue.withOpacity(0.08), shape: BoxShape.circle),
+            child: const Icon(Icons.location_on_outlined, size: 20, color: AppTheme.primaryBlue)),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(l['name'] ?? '', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 2),
+            Text(l['address'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          ])),
+          Icon(Icons.chevron_right, color: Colors.grey[400]),
+        ]),
+      ),
+    );
+  }
+
   Widget _buildServiceItem(Map<String, dynamic> s) {
     return GestureDetector(
       onTap: () {
@@ -705,7 +803,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 : Icon(s['icon'] as IconData, color: s['color'] as Color, size: 32),
           ),
           const SizedBox(height: 8),
-          Text(s['label'] as String, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.onSurface)),
+          SizedBox(
+            width: 72,
+            child: Text(s['label'] as String, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.onSurface)),
+          ),
         ],
       ),
     );
