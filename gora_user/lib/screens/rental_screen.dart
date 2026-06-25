@@ -10,6 +10,7 @@ import 'home_screen.dart';
 import 'rating_screen.dart';
 import 'rental_booking_details_screen.dart';
 import '../widgets/payment_coupon_bar.dart';
+import '../widgets/finding_driver_view.dart';
 
 class RentalScreen extends StatefulWidget {
   const RentalScreen({super.key});
@@ -1140,6 +1141,7 @@ class _RentalScreenState extends State<RentalScreen> {
       context: context,
       isDismissible: false,
       enableDrag: false,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
         // Book the rental then poll for driver assignment
@@ -1157,25 +1159,20 @@ class _RentalScreenState extends State<RentalScreen> {
           });
         }();
 
-        return Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1C2656))),
-              const SizedBox(height: 16),
-              const Text('Finding your Pilot', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('Please wait while we connect you with a nearby pilot for your rental.', style: TextStyle(fontSize: 14, color: Colors.grey), textAlign: TextAlign.center),
-              const SizedBox(height: 20),
-              SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: () => _cancelSearch(context),
-                icon: const Icon(Icons.close, color: Colors.red), label: const Text('Cancel Rental', style: TextStyle(color: Colors.red)),
-                style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 46), side: const BorderSide(color: Colors.red)))),
-            ],
+        return SizedBox(
+          height: MediaQuery.of(context).size.height,
+          child: FindingDriverView(
+            pickupLat: _pickupLat ?? _pickerCenter.latitude,
+            pickupLng: _pickupLng ?? _pickerCenter.longitude,
+            dropLat: _dropLat,
+            dropLng: _dropLng,
+            pickupAddress: _pickupController.text,
+            dropAddress: _dropController.text,
+            fareText: _selectedPackage != null ? '₹${(_scaledPrice(_selectedPackage!) - _couponDiscount).clamp(0, _scaledPrice(_selectedPackage!))}' : null,
+            serviceLabel: 'Rental',
+            serviceIcon: Icons.timer,
+            etaMin: (_selectedPackage?['etaMin'] as num?)?.toInt(),
+            onCancel: () => _cancelSearch(context),
           ),
         );
       },

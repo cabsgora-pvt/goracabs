@@ -8,6 +8,7 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../utils/polyline_utils.dart';
 import '../widgets/payment_coupon_bar.dart';
+import '../widgets/finding_driver_view.dart';
 import 'booking_screen.dart';
 import 'home_screen.dart';
 import 'outstation_screen.dart';
@@ -1853,13 +1854,15 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
 
   void _showFinalWaitingDialog() {
     final selectedVehicleData = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
-    final basePrice = int.parse(selectedVehicleData['price'].replaceAll('₹', ''));
-    final totalPrice = _selectedTip != null ? basePrice + _selectedTip! : basePrice;
-    
+    // Selected vehicle's ETA in minutes (e.g. '4 min' -> 4), null if unavailable.
+    final etaMatch = RegExp(r'\d+').firstMatch('${selectedVehicleData['eta'] ?? ''}');
+    final int? etaMin = etaMatch != null ? int.tryParse(etaMatch.group(0)!) : null;
+
     showModalBottomSheet(
       context: context,
       isDismissible: false,
       enableDrag: false,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
         // Poll backend: while pending keep searching; when accepted show driver
@@ -1874,123 +1877,29 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
           }
         });
 
-        return Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1C2656)),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Please Wait',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _selectedTip != null 
-                    ? 'Tip added! Finding your driver...'
-                    : 'Finding your driver...',
-                style: const TextStyle(fontSize: 14, color: Colors.grey),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.green[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green[200]!),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Base Fare:',
-                          style: TextStyle(fontSize: 14),
-                        ),
-                        Text(
-                          selectedVehicleData['price'],
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                        ),
-                      ],
-                    ),
-                    if (_selectedTip != null) ...[
-                      const SizedBox(height: 4),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Tip:',
-                            style: TextStyle(fontSize: 14),
-                          ),
-                          Text(
-                            '+₹$_selectedTip',
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.green),
-                          ),
-                        ],
-                      ),
-                      const Divider(height: 12),
-                    ],
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Total Fare:',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          '₹$totalPrice',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.green),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => _showCancelReasonDialog(),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: Colors.red),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: const Text(
-                        'Cancel Booking',
-                        style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey[400],
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: const Text(
-                        'Searching...',
-                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-            ],
+        // Full-screen Ola-style finding view. Presented via the same
+        // showModalBottomSheet so the accept handler's Navigator.pop still
+        // dismisses it. Cancel reuses the existing reason flow.
+        return SizedBox(
+          height: MediaQuery.of(context).size.height,
+          child: FindingDriverView(
+            pickupLat: _myLocation.latitude,
+            pickupLng: _myLocation.longitude,
+            dropLat: _selectedMapLocation.latitude,
+            dropLng: _selectedMapLocation.longitude,
+            pickupAddress: _pickupController.text,
+            dropAddress: _dropController.text,
+            fareText: () {
+              final sel = _vehicles.where((v) => v['name'] == _selectedVehicle);
+              if (sel.isEmpty) return null;
+              final n = int.tryParse((sel.first['price'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+              final f = (n - _couponDiscount).clamp(0, n);
+              return '₹$f';
+            }(),
+            serviceLabel: 'Finding your ride',
+            serviceIcon: Icons.local_taxi,
+            etaMin: etaMin,
+            onCancel: () => _showCancelReasonDialog(),
           ),
         );
       },

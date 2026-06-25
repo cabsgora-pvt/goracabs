@@ -5,6 +5,7 @@ import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../widgets/payment_coupon_bar.dart';
+import '../widgets/finding_driver_view.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
 
@@ -281,19 +282,24 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   }
 
   void _showFinding() {
-    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false,
-      builder: (ctx) {
-        () async { await _book(); _startPolling(); }();
-        return Container(padding: const EdgeInsets.all(28), child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(Color(0xFF1C2656))),
-          const SizedBox(height: 16), const Text('Finding your driver', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8), const Text('Connecting you with a nearby pilot', style: TextStyle(fontSize: 13, color: Colors.grey)),
-          const SizedBox(height: 20),
-          SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: () => _cancelSearch(ctx),
-            icon: const Icon(Icons.close, color: Colors.red), label: const Text('Cancel Ride', style: TextStyle(color: Colors.red)),
-            style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 46), side: const BorderSide(color: Colors.red)))),
-        ]));
-      });
+    final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
+    final int? eta = (v['etaMin'] as num?)?.toInt();
+    Navigator.push(context, MaterialPageRoute(builder: (ctx) {
+      () async { await _book(); _startPolling(); }();
+      return FindingDriverView(
+        pickupLat: _pickupLat!,
+        pickupLng: _pickupLng!,
+        dropLat: _dropLat ?? _pickupLat,
+        dropLng: _dropLng ?? _pickupLng,
+        pickupAddress: _pickupCtrl.text,
+        dropAddress: _dropCtrl.text,
+        fareText: '₹${(((v['fare'] as num?) ?? 0) - _couponDiscount).clamp(0, ((v['fare'] as num?) ?? 0))}',
+        serviceLabel: 'Hire Driver',
+        serviceIcon: Icons.person_pin_circle,
+        etaMin: eta,
+        onCancel: () => _cancelSearch(ctx),
+      );
+    }));
   }
 
   // Cancel while searching — pick a reason then cancel the ride

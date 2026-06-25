@@ -12,6 +12,7 @@ import 'rating_screen.dart';
 import 'booking_screen.dart';
 import 'booking_inquiry_screen.dart';
 import 'outstation_ride_details_screen.dart';
+import '../widgets/finding_driver_view.dart';
 
 class OutstationScreen extends StatefulWidget {
   const OutstationScreen({super.key});
@@ -2261,10 +2262,18 @@ class _OutstationScreenState extends State<OutstationScreen> {
       _isSearching = true;
     });
 
+    // Selected vehicle's ETA, if reachable
+    int? etaMin;
+    if (_selectedVehicle != null) {
+      final sel = _vehicles.where((v) => v['name'] == _selectedVehicle);
+      if (sel.isNotEmpty) etaMin = (sel.first['etaMin'] as num?)?.toInt();
+    }
+
     showModalBottomSheet(
       context: context,
       isDismissible: false,
       enableDrag: false,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
         // Actually book the outstation ride then poll backend for driver assignment + completion
@@ -2292,25 +2301,26 @@ class _OutstationScreenState extends State<OutstationScreen> {
           });
         }();
 
-        return Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1C2656))),
-              const SizedBox(height: 16),
-              const Text('Finding your Outstation Pilot', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('Please wait while we connect you with a nearby pilot for your outstation trip.', style: TextStyle(fontSize: 14, color: Colors.grey), textAlign: TextAlign.center),
-              const SizedBox(height: 20),
-              SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: () => _cancelSearch(context),
-                icon: const Icon(Icons.close, color: Colors.red), label: const Text('Cancel Trip', style: TextStyle(color: Colors.red)),
-                style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 46), side: const BorderSide(color: Colors.red)))),
-            ],
+        // Full-screen Ola-style finding-driver view; takes the whole sheet so the
+        // map + radar fill the screen. Polling above still pops this sheet on accept.
+        return SizedBox(
+          height: MediaQuery.of(context).size.height,
+          child: FindingDriverView(
+            pickupLat: _fromLat!,
+            pickupLng: _fromLng!,
+            dropLat: _toLat,
+            dropLng: _toLng,
+            pickupAddress: _fromController.text,
+            dropAddress: _toController.text,
+            fareText: () {
+              final sel = _vehicles.where((v) => v['name'] == _selectedVehicle);
+              if (sel.isEmpty) return null;
+              return (_tripType == 'One Way' ? sel.first['oneWayPrice'] : sel.first['roundTripPrice'])?.toString();
+            }(),
+            serviceLabel: 'Outstation',
+            serviceIcon: Icons.map,
+            etaMin: etaMin,
+            onCancel: () => _cancelSearch(context),
           ),
         );
       },

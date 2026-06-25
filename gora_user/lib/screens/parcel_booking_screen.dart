@@ -8,6 +8,7 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/payment_coupon_bar.dart';
+import '../widgets/finding_driver_view.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
 
@@ -481,17 +482,19 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   }
 
   void _showFinding() {
-    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, builder: (ctx) {
+    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true,
+      backgroundColor: Colors.transparent, builder: (ctx) {
       () async { await _book(); _startPolling(); }();
-      return Container(padding: const EdgeInsets.all(28), child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(AppTheme.primaryBlue)),
-        const SizedBox(height: 16), const Text('Finding delivery partner', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 8), const Text('Connecting you with a nearby rider', style: TextStyle(fontSize: 13, color: Colors.grey)),
-        const SizedBox(height: 20),
-        SizedBox(width: double.infinity, child: OutlinedButton.icon(onPressed: () => _cancelSearch(ctx),
-          icon: const Icon(Icons.close, color: Colors.red), label: const Text('Cancel', style: TextStyle(color: Colors.red)),
-          style: OutlinedButton.styleFrom(minimumSize: const Size(double.infinity, 46), side: const BorderSide(color: Colors.red)))),
-      ]));
+      final etaMin = (_vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {})['etaMin'] as num?)?.toInt();
+      final pv = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
+      return SizedBox(height: MediaQuery.of(ctx).size.height, child: FindingDriverView(
+        pickupLat: _pLat ?? 0, pickupLng: _pLng ?? 0,
+        dropLat: _dLat, dropLng: _dLng,
+        pickupAddress: _pickupCtrl.text, dropAddress: _dropCtrl.text,
+        fareText: pv['fare'] != null ? '₹${(((pv['fare'] as num?) ?? 0) - _couponDiscount).clamp(0, ((pv['fare'] as num?) ?? 0))}' : null,
+        serviceLabel: 'Parcel', serviceIcon: Icons.local_shipping, etaMin: etaMin,
+        onCancel: () => _cancelSearch(ctx),
+      ));
     });
   }
 
