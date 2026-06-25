@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
@@ -74,6 +75,48 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
       ]));
   }
 
+  // Share live trip details (driver + live location link) with anyone
+  void _shareTrip(Map<String, dynamic> r) {
+    final dr = r['driver'] as Map<String, dynamic>?;
+    final name = (dr?['name'] ?? r['driverName'] ?? 'Driver').toString();
+    final veh = [dr?['vehicleModel'], dr?['vehicleNumber']].where((s) => (s as String?)?.isNotEmpty == true).join(' ');
+    final phone = (r['driverPhone'] ?? dr?['phone'] ?? '').toString();
+    final otp = (r['otp'] ?? '').toString();
+    String loc = '';
+    if (_driverLatLng != null) {
+      loc = '\nLive location: https://www.google.com/maps/search/?api=1&query=${_driverLatLng!.latitude},${_driverLatLng!.longitude}';
+    }
+    final msg = 'I\'m on a Gora ride 🚖\n'
+        'Driver: $name${veh.isNotEmpty ? ' ($veh)' : ''}\n'
+        '${phone.isNotEmpty ? 'Driver phone: $phone\n' : ''}'
+        'From: ${r['pickupAddress'] ?? ''}\nTo: ${r['dropAddress'] ?? ''}'
+        '${otp.isNotEmpty ? '\nOTP: $otp' : ''}'
+        '$loc';
+    Share.share(msg, subject: 'Track my Gora ride');
+  }
+
+  // Emergency: share live location to contacts + show emergency number
+  void _sos(Map<String, dynamic> r) {
+    showDialog(context: context, builder: (dctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Row(children: const [Icon(Icons.sos, color: Colors.red), SizedBox(width: 8), Text('Emergency')]),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Emergency helpline: 112', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8),
+        const Text('Share your live ride location with family/police immediately.', style: TextStyle(fontSize: 13)),
+      ]),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Close')),
+        ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+          onPressed: () { Navigator.pop(dctx); _shareTrip(r); },
+          icon: const Icon(Icons.share_location, color: Colors.white, size: 18),
+          label: const Text('Share live location', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     final r = _ride;
@@ -99,7 +142,11 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Row(children: [Icon(svcIcon, size: 20), const SizedBox(width: 8), const Text('Your Ride')]),
-        elevation: 1),
+        elevation: 1,
+        actions: [
+          IconButton(tooltip: 'Share trip', onPressed: () => _shareTrip(r), icon: const Icon(Icons.share)),
+          IconButton(tooltip: 'SOS', onPressed: () => _sos(r), icon: const Icon(Icons.sos, color: Colors.red)),
+        ]),
       body: Column(children: [
         SizedBox(height: 280, child: GoogleMap(
           initialCameraPosition: CameraPosition(target: _driverLatLng ?? LatLng(pLat, pLng), zoom: 13),

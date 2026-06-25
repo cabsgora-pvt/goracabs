@@ -54,6 +54,13 @@ class _OutstationScreenState extends State<OutstationScreen> {
   int _numPassengers = 2;
   final List<TextEditingController> _stopControllers = [];
   final List<Map<String, dynamic>> _stops = []; // {address, lat, lng}
+  // Ola-style category filter for the cab list
+  String _vehCategory = 'All'; // All | Mini | Sedan | SUV
+  // Ola-style: payment mode + coupon + insurance add-on
+  String _paymentMode = 'cash'; // cash | online | advance
+  String _couponCode = '';
+  int _couponDiscount = 0;
+  String _bookingFor = 'Myself'; // Myself | Someone else
   // Map-picker state (for choosing From/To by dragging a pin)
   bool _showMapPicker = false;
   bool _pickingFrom = true; // which field the picker is currently filling
@@ -174,6 +181,144 @@ class _OutstationScreenState extends State<OutstationScreen> {
     });
   }
 
+  // Payment method chooser (Ola-style bottom sheet)
+  Future<String?> _pickPayment() {
+    Widget tile(String mode, IconData ic, String label, String sub) => ListTile(
+      leading: Icon(ic, color: const Color(0xFF1C2656)),
+      title: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+      subtitle: Text(sub, style: const TextStyle(fontSize: 11)),
+      trailing: _paymentMode == mode ? const Icon(Icons.check_circle, color: Color(0xFF1C2656)) : null,
+      onTap: () => Navigator.pop(context, mode),
+    );
+    return showModalBottomSheet<String>(
+      context: context, backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Padding(padding: EdgeInsets.all(8), child: Text('Payment method', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
+        tile('cash', Icons.payments_outlined, 'Cash', 'Pay the driver directly'),
+        tile('online', Icons.account_balance_wallet_outlined, 'Online', 'UPI / card / wallet'),
+        tile('advance', Icons.lock_clock, 'Pay 20% advance', 'Rest on trip completion'),
+      ])),
+    );
+  }
+
+  // "Who's travelling" chooser
+  Future<String?> _pickBookingFor() {
+    Widget tile(String who, IconData ic) => ListTile(
+      leading: Icon(ic, color: const Color(0xFF1C2656)),
+      title: Text(who, style: const TextStyle(fontWeight: FontWeight.w700)),
+      trailing: _bookingFor == who ? const Icon(Icons.check_circle, color: Color(0xFF1C2656)) : null,
+      onTap: () => Navigator.pop(context, who),
+    );
+    return showModalBottomSheet<String>(
+      context: context, backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Padding(padding: EdgeInsets.all(8), child: Text('Who\'s travelling?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
+        tile('Myself', Icons.person),
+        tile('Someone else', Icons.people_alt_outlined),
+      ])),
+    );
+  }
+
+  // Coupon dialog
+  Future<void> _pickCoupon(Map selectedVehicleData) async {
+    final ctrl = TextEditingController(text: _couponCode);
+    await showDialog(context: context, builder: (dctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('Apply coupon'),
+      content: TextField(controller: ctrl, textCapitalization: TextCapitalization.characters,
+        decoration: InputDecoration(hintText: 'e.g. FLAT100, GORA10', prefixIcon: const Icon(Icons.local_offer_outlined),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
+      actions: [
+        TextButton(onPressed: () { _couponCode = ''; _couponDiscount = 0; Navigator.pop(dctx); }, child: const Text('Remove')),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656)),
+          onPressed: () {
+            _couponCode = ctrl.text.trim().toUpperCase();
+            int d = 0;
+            if (_couponCode == 'FLAT100') d = 100;
+            else if (_couponCode == 'GORA10') {
+              final f = (_tripType == 'One Way' ? selectedVehicleData['oneWayFare'] : selectedVehicleData['roundTripFare']) as num? ?? 0;
+              d = (f * 0.10).round();
+            }
+            _couponDiscount = d;
+            Navigator.pop(dctx);
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(d > 0 ? 'Coupon applied: −₹$d' : 'Invalid coupon')));
+          },
+          child: const Text('Apply', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    ));
+  }
+
+  // Ola-style red ▸ arrow rule row
+  Widget _ruleArrowRow(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Padding(padding: EdgeInsets.only(top: 2), child: Icon(Icons.play_arrow, size: 14, color: Color(0xFFFF5252))),
+      const SizedBox(width: 10),
+      Expanded(child: Text(text, style: TextStyle(fontSize: 13.5, height: 1.35, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.75)))),
+    ]),
+  );
+
+  // Grey • bullet terms row
+  Widget _termBulletRow(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(padding: const EdgeInsets.only(top: 5, left: 2, right: 10), child: Container(width: 5, height: 5, decoration: BoxDecoration(color: Colors.grey[500], shape: BoxShape.circle))),
+      Expanded(child: Text(text, style: TextStyle(fontSize: 13.5, height: 1.35, color: Colors.grey[600]))),
+    ]),
+  );
+
+  String _fmtTime(DateTime d) {
+    final h = d.hour == 0 ? 12 : (d.hour > 12 ? d.hour - 12 : d.hour);
+    final m = d.minute.toString().padLeft(2, '0');
+    final ap = d.hour >= 12 ? 'PM' : 'AM';
+    return '$h:$m $ap';
+  }
+
+  // Ola-style "add city" — search a place, append it as an intermediate stop, refresh fares.
+  Future<void> _addStopCity() async {
+    final ctrl = TextEditingController();
+    List<Map<String, dynamic>> sugg = [];
+    Timer? deb;
+    await showModalBottomSheet(
+      context: context, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) => Padding(
+        padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: MediaQuery.of(ctx).viewInsets.bottom + 16),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Add a city / stop', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 12),
+          TextField(controller: ctrl, autofocus: true,
+            decoration: InputDecoration(hintText: 'Search city or place', prefixIcon: const Icon(Icons.search),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+            onChanged: (q) {
+              deb?.cancel();
+              if (q.trim().length < 2) { setSheet(() => sugg = []); return; }
+              deb = Timer(const Duration(milliseconds: 350), () async {
+                final r = await ApiService.placesAutocomplete(q);
+                setSheet(() => sugg = r);
+              });
+            }),
+          const SizedBox(height: 8),
+          ...sugg.take(5).map((s) => ListTile(
+            dense: true, leading: const Icon(Icons.location_on_outlined, color: Color(0xFFFF9800)),
+            title: Text(s['description'] as String? ?? '', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
+            onTap: () async {
+              final d = await ApiService.placeDetails(s['placeId'] as String? ?? '');
+              if (d == null) return;
+              _stops.add({'address': d['address'] ?? s['description'], 'lat': (d['lat'] as num).toDouble(), 'lng': (d['lng'] as num).toDouble()});
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+          )),
+        ]),
+      )),
+    );
+    if (mounted) { setState(() {}); _loadOutstationFares(); }
+  }
+
   Future<void> _selectSuggestion(Map<String, dynamic> s, {required bool isFrom}) async {
     final desc = s['description'] as String? ?? '';
     final details = await ApiService.placeDetails(s['placeId'] as String? ?? '');
@@ -198,16 +343,19 @@ class _OutstationScreenState extends State<OutstationScreen> {
     if (_fromLat == null || _fromLng == null || _toLat == null || _toLng == null) return;
     setState(() => _loadingFares = true);
 
+    // Stops payload for multi-city (fare sums the legs pickup → stops → drop)
+    final stopsPayload = _stops.map((s) => {'lat': s['lat'], 'lng': s['lng']}).toList();
     // Fetch both one-way and round-trip in parallel so user can switch trip type freely
     final oneWayF = ApiService.estimateFare(
       pickupLat: _fromLat!, pickupLng: _fromLng!,
       dropLat: _toLat!, dropLng: _toLng!,
-      service: 'outstation',
+      service: 'outstation', stops: stopsPayload,
     );
     final roundF = ApiService.post('/fare/estimate', {
       'pickupLat': _fromLat, 'pickupLng': _fromLng,
       'dropLat': _toLat, 'dropLng': _toLng,
       'service': 'outstation', 'tripType': 'round_trip',
+      if (stopsPayload.isNotEmpty) 'stops': stopsPayload,
     });
 
     try {
@@ -256,6 +404,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
             'owBreakdown': ow['breakdown'] ?? {},
             'rtBreakdown': rt?['breakdown'] ?? {},
             'extras': ow['extras'] ?? 0,
+            'etaMin': ow['etaMin'],
+            'cat': cap >= 6 ? 'SUV' : (cap >= 4 ? 'Sedan' : 'Mini'),
           };
         }).toList();
         _loadingFares = false;
@@ -271,7 +421,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
     if (_fromLat == null || _toLat == null || _selectedVehicle == null) return;
     final isRoundTrip = _tripType == 'Round Trip';
     final selVehicle = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
-    final fare = isRoundTrip ? selVehicle['roundTripFare'] : selVehicle['oneWayFare'];
+    final rawFare = (isRoundTrip ? selVehicle['roundTripFare'] : selVehicle['oneWayFare']) as num? ?? 0;
+    final fare = (rawFare - _couponDiscount).clamp(0, rawFare);
 
     try {
       final res = await ApiService.bookRide({
@@ -293,7 +444,10 @@ class _OutstationScreenState extends State<OutstationScreen> {
         'multiStops': _stops,
         'nightHaltCharge': (selVehicle['breakdown'] as Map?)?['nightHalt'] ?? 0,
         'emptyReturnCharge': (selVehicle['breakdown'] as Map?)?['emptyReturn'] ?? 0,
-        'paymentMode': 'cash',
+        'paymentMode': _paymentMode,
+        'couponCode': _couponCode,
+        'couponDiscount': _couponDiscount,
+        'bookingFor': _bookingFor,
       });
       if (res['ride'] != null) {
         _rideId = res['ride']['id']?.toString();
@@ -454,6 +608,26 @@ class _OutstationScreenState extends State<OutstationScreen> {
                               ),
                             ),
                             _buildLocationInput(Icons.location_on, _toController, Color(0xFFFF5252), 'To (Destination)'),
+                            // Multi-city stops (Ola-style "add city")
+                            ..._stops.asMap().entries.map((e) => Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Row(children: [
+                                const Icon(Icons.adjust, size: 18, color: Color(0xFFFF9800)),
+                                const SizedBox(width: 10),
+                                Expanded(child: Text(e.value['address'] as String? ?? 'Stop', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+                                InkWell(onTap: () { setState(() => _stops.removeAt(e.key)); _loadOutstationFares(); },
+                                  child: const Icon(Icons.close, size: 18, color: Colors.red)),
+                              ]),
+                            )),
+                            const SizedBox(height: 8),
+                            InkWell(
+                              onTap: _addStopCity,
+                              child: Row(children: const [
+                                Icon(Icons.add_circle_outline, size: 18, color: Color(0xFF1C2656)),
+                                SizedBox(width: 8),
+                                Text('Add city / stop', style: TextStyle(fontSize: 13, color: Color(0xFF1C2656), fontWeight: FontWeight.w700)),
+                              ]),
+                            ),
                             const SizedBox(height: 12),
                             SizedBox(
                               width: double.infinity,
@@ -777,9 +951,39 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                         ]),
                                       ]),
                                     ),
+                                  // Ola-style horizontal category chips
+                                  if (_showVehicleSelection && _vehicles.isNotEmpty)
+                                    SizedBox(
+                                      height: 38,
+                                      child: ListView(
+                                        scrollDirection: Axis.horizontal,
+                                        children: () {
+                                          final cats = ['All', ...{for (final v in _vehicles) v['cat'] as String}];
+                                          return cats.map((c) {
+                                            final sel = _vehCategory == c;
+                                            return Padding(
+                                              padding: const EdgeInsets.only(right: 8),
+                                              child: ChoiceChip(
+                                                label: Text(c, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: sel ? Colors.white : null)),
+                                                selected: sel,
+                                                showCheckmark: false,
+                                                selectedColor: const Color(0xFF1C2656),
+                                                backgroundColor: Theme.of(context).cardColor,
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide(color: sel ? const Color(0xFF1C2656) : Colors.grey[300]!)),
+                                                onSelected: (_) => setState(() => _vehCategory = c),
+                                              ),
+                                            );
+                                          }).toList();
+                                        }(),
+                                      ),
+                                    ),
+                                  if (_showVehicleSelection && _vehicles.isNotEmpty)
+                                    const SizedBox(height: 12),
                                   if (_showVehicleSelection)
                                     Column(
-                                      children: _vehicles.map((v) => _buildVehicleCard(v)).toList(),
+                                      children: _vehicles
+                                          .where((v) => _vehCategory == 'All' || v['cat'] == _vehCategory)
+                                          .map((v) => _buildVehicleCard(v)).toList(),
                                     ),
                                   if (_showVehicleSelection)
                                     const SizedBox(height: 20),
@@ -851,22 +1055,23 @@ class _OutstationScreenState extends State<OutstationScreen> {
         }
       }),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF1C2656) : Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: isSelected ? const Color(0xFF1C2656) : Colors.grey[300]!),
+          color: Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: isSelected ? const Color(0xFF1C2656) : Colors.grey[300]!, width: isSelected ? 2 : 1),
         ),
-        child: Center(
-          child: Text(
-            type,
-            style: TextStyle(
-              color: isSelected ? Colors.white : Theme.of(context).colorScheme.onSurface,
-              fontWeight: FontWeight.w600,
-              fontSize: 14,
-            ),
-          ),
-        ),
+        child: Row(children: [
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(type == 'One Way' ? 'One-way' : 'Round trip',
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5)),
+            const SizedBox(height: 2),
+            Text(type == 'One Way' ? 'Get dropped off' : 'Keep the car till return',
+              style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+          ])),
+          Icon(isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+            size: 20, color: isSelected ? const Color(0xFF1C2656) : Colors.grey[400]),
+        ]),
       ),
     );
   }
@@ -1219,70 +1424,196 @@ class _OutstationScreenState extends State<OutstationScreen> {
     final currentPrice = _tripType == 'One Way' ? v['oneWayPrice'] : v['roundTripPrice'];
     // Pick the breakdown for the current trip type
     final Map bk = (_tripType == 'Round Trip' ? v['rtBreakdown'] : v['owBreakdown']) as Map? ?? {};
-    final num km = (bk['totalKm'] as num?) ?? 0;
-    final num hrs = (bk['totalHrs'] as num?) ?? 0;
-    final num base = (bk['base'] as num?) ?? 0;
     final num perKm = (bk['perKm'] as num?) ?? 0;
-    final num perHour = (bk['perHour'] as num?) ?? 0;
-    final num kmCharge = (bk['kmCharge'] as num?) ?? 0;
-    final num hourCharge = (bk['hourCharge'] as num?) ?? 0;
-    final num nightHalt = (bk['nightHalt'] as num?) ?? 0;
-    final num emptyReturn = (bk['emptyReturn'] as num?) ?? 0;
 
-    return GestureDetector(
-      onTap: () => setState(() => _selectedVehicle = v['name']),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF1C2656).withOpacity(0.05) : Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? const Color(0xFF1C2656) : Colors.grey[300]!,
-            width: isSelected ? 2 : 1
+    final navy = const Color(0xFF1C2656);
+    final img = (v['networkImage'] as String?) ?? '';
+    final cat = (v['cat'] as String?) ?? 'Sedan';
+    final tagline = cat == 'SUV' ? 'Spacious, premium cars' : (cat == 'Mini' ? 'Comfy, economical cars' : 'Top sedans');
+    // Round trip → show the per-km rate; one-way → show the total fare (Ola behaviour)
+    final priceLabel = _tripType == 'Round Trip' ? '₹${perKm.toStringAsFixed(0)}/km' : currentPrice.toString();
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: isSelected ? navy : Colors.grey.withOpacity(0.2), width: isSelected ? 2 : 1),
+        boxShadow: isSelected ? [BoxShadow(color: navy.withOpacity(0.10), blurRadius: 12, offset: const Offset(0, 5))] : null,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => setState(() => _selectedVehicle = v['name']),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+              // Photo with green accent corner (Ola)
+              Stack(children: [
+                Container(width: 72, height: 52, decoration: BoxDecoration(color: const Color(0xFF8BC34A).withOpacity(0.25), borderRadius: BorderRadius.circular(10))),
+                Positioned.fill(child: Padding(padding: const EdgeInsets.all(4), child: img.isNotEmpty
+                    ? Image.network(img, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(v['icon'], color: navy, size: 32))
+                    : Image.asset(v['image'] as String? ?? 'assets/images/economy.png', fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(v['icon'], color: navy, size: 32)))),
+              ]),
+              const SizedBox(width: 14),
+              // Name + tagline
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(v['name'], style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                const SizedBox(height: 3),
+                Text(tagline, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              ])),
+              const SizedBox(width: 6),
+              // ⓘ details + price
+              InkWell(
+                onTap: () => _showCabDetailSheet(v, bk),
+                customBorder: const CircleBorder(),
+                child: Padding(padding: const EdgeInsets.all(4), child: Icon(Icons.info_outline, size: 18, color: Colors.grey[500])),
+              ),
+              const SizedBox(width: 4),
+              Text(priceLabel, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: navy)),
+              if (isSelected) Padding(padding: const EdgeInsets.only(left: 6), child: Icon(Icons.check_circle, size: 18, color: navy)),
+            ]),
           ),
         ),
-        child: Column(children: [
-          Row(
-            children: [
-              SizedBox(
-                width: 60, height: 50,
-                child: (v['networkImage'] as String?)?.isNotEmpty == true
-                    ? Image.network(v['networkImage'] as String, fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => Icon(v['icon'], color: const Color(0xFF1C2656), size: 40))
-                    : Image.asset(v['image'] as String? ?? 'assets/images/economy.png', fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => Icon(v['icon'], color: const Color(0xFF1C2656), size: 40)),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(v['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    const SizedBox(height: 4),
-                    Text('${v['type']} • ${v['capacity']} seats', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                    if (km > 0) Text('${km.toStringAsFixed(0)} km • ${hrs >= 1 ? "${hrs.toStringAsFixed(0)} hr" : "$hrs hr"}', style: const TextStyle(fontSize: 11, color: Color(0xFF1C2656), fontWeight: FontWeight.w600)),
-                  ],
-                ),
-              ),
-              Text(currentPrice, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Color(0xFF4CAF50))),
-            ],
-          ),
-          // Dynamic charge breakdown — always shown for every vehicle
-          if (km > 0) ...[
-            const Divider(height: 18),
-            _bkRow(context, 'Base fare', '₹${base.toStringAsFixed(0)}'),
-            _bkRow(context, 'Distance (${km.toStringAsFixed(0)} km × ₹${perKm.toStringAsFixed(0)}/km)', '₹${kmCharge.toStringAsFixed(0)}'),
-            if (perHour > 0) _bkRow(context, 'Time (${hrs.toStringAsFixed(0)} hr × ₹${perHour.toStringAsFixed(0)}/hr)', '₹${hourCharge.toStringAsFixed(0)}'),
-            if (nightHalt > 0) _bkRow(context, 'Night halt', '₹${nightHalt.toStringAsFixed(0)}', color: Colors.orange),
-            if (emptyReturn > 0) _bkRow(context, 'Empty return', '₹${emptyReturn.toStringAsFixed(0)}', color: Colors.orange),
-            const Divider(height: 14),
-            _bkRow(context, 'Total', currentPrice.toString(), bold: true),
-          ],
+      ),
+    );
+  }
+
+  // Ola-style cab detail sheet — fleet, features, fare breakdown, inclusions
+  void _showCabDetailSheet(Map<String, dynamic> v, Map bk) {
+    final navy = const Color(0xFF1C2656);
+    final currentPrice = _tripType == 'One Way' ? v['oneWayPrice'] : v['roundTripPrice'];
+    final num base = (bk['base'] as num?) ?? 0;
+    final num km = (bk['totalKm'] as num?) ?? 0;
+    final num perKm = (bk['perKm'] as num?) ?? 0;
+    final num kmCharge = (bk['kmCharge'] as num?) ?? 0;
+    final num hrs = (bk['totalHrs'] as num?) ?? 0;
+    final num perHour = (bk['perHour'] as num?) ?? 0;
+    final num hourCharge = (bk['hourCharge'] as num?) ?? 0;
+    final num driverAllowance = (bk['driverAllowance'] as num?) ?? 0;
+    final num nightHalt = (bk['nightHalt'] as num?) ?? 0;
+    final num gst = (bk['gst'] as num?) ?? 0;
+    final num gstPercent = (bk['gstPercent'] as num?) ?? 0;
+    final img = (v['networkImage'] as String?) ?? '';
+    final cap = int.tryParse('${v['capacity']}') ?? 4;
+    final fleet = cap >= 6 ? 'Ertiga, Innova, Marazzo or similar' : (cap >= 4 ? 'Swift Dzire, Etios, Aura or similar' : 'WagonR, Celerio or similar');
+    showModalBottomSheet(
+      context: context, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.7, minChildSize: 0.5, maxChildSize: 0.92, expand: false,
+        builder: (ctx, sc) => ListView(controller: sc, padding: const EdgeInsets.all(20), children: [
+          Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
+          const SizedBox(height: 14),
+          Row(children: [
+            Container(width: 100, height: 70, decoration: BoxDecoration(color: navy.withOpacity(0.05), borderRadius: BorderRadius.circular(12)), padding: const EdgeInsets.all(6),
+              child: img.isNotEmpty ? Image.network(img, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(v['icon'], color: navy, size: 40)) : Image.asset(v['image'] as String? ?? 'assets/images/economy.png', fit: BoxFit.contain)),
+            const SizedBox(width: 14),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(v['name'], style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20)),
+              const SizedBox(height: 4),
+              Text('$cap seats • AC • Outstation', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            ])),
+            Text(currentPrice.toString(), style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: navy)),
+          ]),
+          const SizedBox(height: 16),
+          // Feature icons row
+          Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+            _featBig(Icons.ac_unit, 'Comfy ride'),
+            _featBig(Icons.account_balance_wallet_outlined, 'Pocket-friendly'),
+            _featBig(Icons.verified_user_outlined, 'Verified driver'),
+          ]),
+          const SizedBox(height: 16),
+          // Our fleet
+          Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: navy.withOpacity(0.04), borderRadius: BorderRadius.circular(12)),
+            child: Row(children: [
+              const Icon(Icons.directions_car, color: Color(0xFF1C2656), size: 20),
+              const SizedBox(width: 10),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('Our fleet', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+                Text(fleet, style: TextStyle(fontSize: 11.5, color: Colors.grey[600])),
+              ])),
+            ])),
+          const SizedBox(height: 18),
+          const Text('Fare breakup', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 8),
+          _bkRow(context, 'Base fare', '₹${base.toStringAsFixed(0)}'),
+          _bkRow(context, 'Distance (${km.toStringAsFixed(0)} km × ₹${perKm.toStringAsFixed(0)}/km)', '₹${kmCharge.toStringAsFixed(0)}'),
+          if (perHour > 0) _bkRow(context, 'Time (${hrs.toStringAsFixed(0)} hr × ₹${perHour.toStringAsFixed(0)}/hr)', '₹${hourCharge.toStringAsFixed(0)}'),
+          if (driverAllowance > 0) _bkRow(context, 'Driver allowance', '₹${driverAllowance.toStringAsFixed(0)}'),
+          if (nightHalt > 0) _bkRow(context, 'Night halt', '₹${nightHalt.toStringAsFixed(0)}', color: Colors.orange),
+          if (gst > 0) _bkRow(context, 'GST (${gstPercent.toStringAsFixed(0)}%)', '₹${gst.toStringAsFixed(0)}'),
+          Container(height: 1, color: Colors.grey.withOpacity(0.15), margin: const EdgeInsets.symmetric(vertical: 8)),
+          _bkRow(context, 'Estimated total', currentPrice.toString(), bold: true),
+          const SizedBox(height: 6),
+          TextButton.icon(onPressed: () { Navigator.pop(ctx); _showInclusionsSheet(bk); },
+            icon: const Icon(Icons.info_outline, size: 16), label: const Text('View inclusions & exclusions')),
+          const SizedBox(height: 6),
+          SizedBox(width: double.infinity, child: ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(backgroundColor: navy, padding: const EdgeInsets.symmetric(vertical: 15), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+            child: const Text('Done', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)))),
         ]),
       ),
     );
   }
+
+  Widget _featBig(IconData ic, String label) => Column(children: [
+    Container(width: 46, height: 46, decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.07), shape: BoxShape.circle),
+      child: Icon(ic, color: const Color(0xFF1C2656), size: 22)),
+    const SizedBox(height: 6),
+    Text(label, style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700)),
+  ]);
+
+  // Ola-style inclusions & exclusions bottom sheet
+  void _showInclusionsSheet(Map bk) {
+    final num kmLimit = (bk['kmLimit'] as num?) ?? 0;
+    final num extraKmRate = (bk['extraKmRate'] as num?) ?? 0;
+    final num driverAllowance = (bk['driverAllowance'] as num?) ?? 0;
+    final num gstPercent = (bk['gstPercent'] as num?) ?? 0;
+    final num nightHalt = (bk['nightHalt'] as num?) ?? 0;
+    showModalBottomSheet(
+      context: context, backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
+          const SizedBox(height: 16),
+          const Text('Fare Inclusions', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Color(0xFF4CAF50))),
+          const SizedBox(height: 10),
+          _incRow(true, kmLimit > 0 ? '${kmLimit.toStringAsFixed(0)} km included in fare' : 'Distance-based fare'),
+          _incRow(true, 'Base fare + per-km + driving time'),
+          if (driverAllowance > 0) _incRow(true, 'Driver allowance (₹${driverAllowance.toStringAsFixed(0)})'),
+          if (nightHalt > 0) _incRow(true, 'Night halt charge included'),
+          _incRow(true, 'Pickup & drop at your chosen points'),
+          const SizedBox(height: 18),
+          const Text('Exclusions (pay extra)', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Colors.orange)),
+          const SizedBox(height: 10),
+          if (extraKmRate > 0) _incRow(false, 'Extra distance beyond limit — ₹${extraKmRate.toStringAsFixed(0)}/km'),
+          _incRow(false, 'Toll, parking & state permit charges'),
+          if (gstPercent == 0) _incRow(false, 'GST as applicable'),
+          _incRow(false, 'Any waiting beyond free time'),
+          const SizedBox(height: 20),
+          SizedBox(width: double.infinity, child: ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14)),
+            child: const Text('Got it', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)))),
+        ]),
+      ),
+    );
+  }
+
+  Widget _incRow(bool included, String text) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 5),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Icon(included ? Icons.check_circle : Icons.cancel, size: 18, color: included ? Colors.green : Colors.orange),
+      const SizedBox(width: 10),
+      Expanded(child: Text(text, style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface))),
+    ]),
+  );
 
   Widget _bkRow(BuildContext context, String l, String v, {bool bold = false, Color? color}) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 3),
@@ -1428,7 +1759,29 @@ class _OutstationScreenState extends State<OutstationScreen> {
   void _showBookingConfirmationDialog() {
     final selectedVehicleData = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
     final currentPrice = _tripType == 'One Way' ? selectedVehicleData['oneWayPrice'] : selectedVehicleData['roundTripPrice'];
-    
+    // Fare breakdown for the chosen trip type → drives the Ola breakup + rules
+    final Map cbk = (_tripType == 'Round Trip' ? selectedVehicleData['rtBreakdown'] : selectedVehicleData['owBreakdown']) as Map? ?? {};
+    final num cBase = (cbk['base'] as num?) ?? 0;
+    final num cPerKm = (cbk['perKm'] as num?) ?? 0;
+    final num cKmCharge = (cbk['kmCharge'] as num?) ?? 0;
+    final num cPerHour = (cbk['perHour'] as num?) ?? 0;
+    final num cHourCharge = (cbk['hourCharge'] as num?) ?? 0;
+    final num cDriverAllow = (cbk['driverAllowance'] as num?) ?? 0;
+    final num cNightHalt = (cbk['nightHalt'] as num?) ?? 0;
+    final num cExtraKm = (cbk['extraKmRate'] as num?) ?? 0;
+    final num cGst = (cbk['gst'] as num?) ?? 0;
+    final num cGstPct = (cbk['gstPercent'] as num?) ?? 0;
+    final String cityTo = _toController.text.split(',').first.trim();
+    // Dynamic Rules & Restrictions (all values come from admin zone pricing)
+    final List<String> rules = [
+      'Excludes toll costs, parking, permits and state tax',
+      if (cPerHour > 0) '₹${cPerHour.toStringAsFixed(0)}/hr will be charged for additional hours',
+      if (cExtraKm > 0) '₹${cExtraKm.toStringAsFixed(0)}/km will be charged for extra km',
+      if (cDriverAllow > 0) 'Driver allowance per 24 hours - ₹${cDriverAllow.toStringAsFixed(0)}',
+      if (cNightHalt > 0) 'Night time allowance (11:00 PM - 06:00 AM) - ₹${cNightHalt.toStringAsFixed(0)}/night',
+      'Extra fare may apply if you don\'t end trip at ${cityTo.isEmpty ? "drop city" : cityTo}',
+    ];
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1678,79 +2031,90 @@ class _OutstationScreenState extends State<OutstationScreen> {
                         ),
                       ),
                       
-                      const SizedBox(height: 24),
-                      
-                      // Inclusions
-                      const Text('What\'s Included', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 22),
+
+                      // ── Estimated fare + breakup (Ola-style) ──
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          const Text('Estimated fare', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          Text('${_distanceKm.toStringAsFixed(0)} km, ${_durationMin >= 60 ? "${_durationMin ~/ 60} hour" : "$_durationMin min"}', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                        ]),
+                        Text(currentPrice, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Color(0xFF1C2656))),
+                      ]),
                       const SizedBox(height: 12),
-                      
                       Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.green.withOpacity(0.2)),
-                        ),
-                        child: Column(
-                          children: [
-                            _buildDialogConditionItem(context, Icons.check_circle, 'Professional verified driver'),
-                            const SizedBox(height: 8),
-                            _buildDialogConditionItem(context, Icons.check_circle, 'Fuel included in base fare'),
-                            const SizedBox(height: 8),
-                            _buildDialogConditionItem(context, Icons.check_circle, 'AC vehicle with comfortable seats'),
-                            const SizedBox(height: 8),
-                            _buildDialogConditionItem(context, Icons.check_circle, 'Live GPS tracking'),
-                          ],
-                        ),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(color: Colors.grey.withOpacity(0.06), borderRadius: BorderRadius.circular(12)),
+                        child: Column(children: [
+                          _bkRow(context, 'Base fare', '₹${cBase.toStringAsFixed(0)}'),
+                          _bkRow(context, 'Fare for ${_distanceKm.toStringAsFixed(0)} km @ ₹${cPerKm.toStringAsFixed(0)}/km', '₹${cKmCharge.toStringAsFixed(0)}'),
+                          if (cPerHour > 0) _bkRow(context, 'Driving time', '₹${cHourCharge.toStringAsFixed(0)}'),
+                          if (cDriverAllow > 0) _bkRow(context, 'Driver allowance', '₹${cDriverAllow.toStringAsFixed(0)}'),
+                          if (cNightHalt > 0) _bkRow(context, 'Night time allowance', '₹${cNightHalt.toStringAsFixed(0)}'),
+                          _bkRow(context, 'Taxes', cGst > 0 ? '₹${cGst.toStringAsFixed(0)} (${cGstPct.toStringAsFixed(0)}%)' : '₹0'),
+                        ]),
                       ),
-                      
-                      const SizedBox(height: 16),
-                      
-                      // Conditions
-                      const Text('Additional Charges', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+
+                      const SizedBox(height: 22),
+                      // ── Rules & Restrictions (red arrows, dynamic from admin) ──
+                      const Text('Rules & Restrictions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 12),
-                      
-                      if (_tripType == 'One Way') ...[
-                        _buildDialogConditionItem(context, Icons.toll, 'Tolls and state taxi extra pay'),
-                        const SizedBox(height: 8),
-                        _buildDialogConditionItem(context, Icons.local_parking, 'Parking charges extra'),
-                      ] else ...[
-                        _buildDialogConditionItem(context, Icons.toll, 'Tolls and state taxi extra pay'),
-                        const SizedBox(height: 8),
-                        _buildDialogConditionItem(context, Icons.local_parking, 'Parking charges extra'),
-                        const SizedBox(height: 8),
-                        _buildDialogConditionItem(context, Icons.route, 'Minimum per day 250km running'),
-                        const SizedBox(height: 8),
-                        _buildDialogConditionItem(context, Icons.person, 'Driver allowance per 24 hours - ₹250'),
-                        const SizedBox(height: 8),
-                        _buildDialogConditionItem(context, Icons.nightlight, 'Night drive allowance - ₹250/night'),
-                      ],
-                      
+                      ...rules.map((r) => _ruleArrowRow(r)),
+
+                      const SizedBox(height: 20),
+                      // ── Terms and Conditions (grey bullets) ──
+                      const Text('Terms and Conditions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 12),
+                      ...rules.map((r) => _termBulletRow(r)),
+
                       const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.orange.withOpacity(0.3)),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.payment, color: Colors.orange, size: 20),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Customer - pay the driver directly',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.orange[800],
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      // Estimated arrival at destination
+                      if (_departureDateTime != null && _durationMin > 0)
+                        Row(children: [
+                          const Icon(Icons.schedule, size: 18, color: Color(0xFF1C2656)),
+                          const SizedBox(width: 8),
+                          Text('Reach destination by ~${_fmtTime(_departureDateTime!.add(Duration(minutes: _durationMin)))}',
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                        ]),
+                      const SizedBox(height: 14),
+                      // Compact Ola-style "Cash · Coupon · Mode" row
+                      StatefulBuilder(builder: (context, setSheet) {
+                        final payLabel = _paymentMode == 'online' ? 'Online' : (_paymentMode == 'advance' ? '20% adv' : 'Cash');
+                        final payIcon = _paymentMode == 'online' ? Icons.account_balance_wallet_outlined : (_paymentMode == 'advance' ? Icons.lock_clock : Icons.payments_outlined);
+                        Widget item(IconData ic, String label, VoidCallback onTap, {Color? c}) => Expanded(child: InkWell(
+                          onTap: onTap,
+                          child: Padding(padding: const EdgeInsets.symmetric(vertical: 8),
+                            child: Column(children: [
+                              Icon(ic, size: 19, color: c ?? const Color(0xFF1C2656)),
+                              const SizedBox(height: 4),
+                              Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: c)),
+                            ])),
+                        ));
+                        Widget div() => Container(width: 1, height: 30, color: Colors.grey.withOpacity(0.2));
+                        return Container(
+                          decoration: BoxDecoration(
+                            color: Theme.of(context).cardColor,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.withOpacity(0.22)),
+                          ),
+                          child: Row(children: [
+                            item(payIcon, payLabel, () async {
+                              final m = await _pickPayment();
+                              if (m != null) setSheet(() => _paymentMode = m);
+                            }),
+                            div(),
+                            item(Icons.local_offer_outlined, _couponDiscount > 0 ? '−₹$_couponDiscount' : 'Coupon', () async {
+                              await _pickCoupon(selectedVehicleData);
+                              setSheet(() {});
+                            }, c: _couponDiscount > 0 ? Colors.green[700] : null),
+                            div(),
+                            item(Icons.person_outline, _bookingFor, () async {
+                              final who = await _pickBookingFor();
+                              if (who != null) setSheet(() => _bookingFor = who);
+                            }),
+                          ]),
+                        );
+                      }),
                     ],
                   ),
                 ),

@@ -91,16 +91,19 @@ export async function POST(req: NextRequest) {
     if (service === 'outstation') {
       if (dropLat == null || dropLng == null) return withCors({ error: 'drop required for outstation' }, 400)
 
-      // Road distance + duration via Google Directions (fallback to Haversine + 1.3 multiplier if API fails)
+      // Road distance + duration via Google Directions. If multi-city stops are
+      // provided, sum the legs (pickup → stop1 → … → drop) like Ola does.
       let oneWayKm = 0, oneWayMin = 0
-      const dir = await fetchDirections(pickupLat, pickupLng, dropLat, dropLng)
-      if (dir) {
-        oneWayKm = dir.distanceKm
-        oneWayMin = dir.durationMin
-      } else {
-        oneWayKm = +(distanceKm({ lat: pickupLat, lng: pickupLng }, { lat: dropLat, lng: dropLng }) * 1.3).toFixed(1)
-        oneWayMin = Math.round(oneWayKm)
+      const stopPts: any[] = Array.isArray(stops) ? stops.filter((s: any) => s && s.lat != null && s.lng != null) : []
+      const legPoints = [{ lat: pickupLat, lng: pickupLng }, ...stopPts.map((s: any) => ({ lat: +s.lat, lng: +s.lng })), { lat: dropLat, lng: dropLng }]
+      for (let i = 0; i < legPoints.length - 1; i++) {
+        const a = legPoints[i], b = legPoints[i + 1]
+        const dir = await fetchDirections(a.lat, a.lng, b.lat, b.lng)
+        if (dir) { oneWayKm += dir.distanceKm; oneWayMin += dir.durationMin }
+        else { const hk = +(distanceKm(a, b) * 1.3).toFixed(1); oneWayKm += hk; oneWayMin += Math.round(hk) }
       }
+      oneWayKm = +oneWayKm.toFixed(1)
+      oneWayMin = Math.round(oneWayMin)
       const totalKm = tripType === 'round_trip' ? +(oneWayKm * 2).toFixed(1) : oneWayKm
       const totalMin = tripType === 'round_trip' ? oneWayMin * 2 : oneWayMin
 
@@ -161,6 +164,13 @@ export async function POST(req: NextRequest) {
         const commission = p?.commissionPercent ?? 20
         const nightHaltCharge    = p?.nightHaltCharge    ?? 0
         const emptyReturnPercent = p?.emptyReturnPercent ?? 0
+        // Ola-style inclusions
+        const kmLimitPerDay   = p?.kmLimitPerDay   ?? 0
+        const extraKmRate     = p?.extraKmRate     ?? 0
+        const driverAllowance = p?.driverAllowance ?? 0
+        const gstPercent      = p?.gstPercent      ?? 0
+        // Estimate days: round trip spanning >10h of driving → 2 days, else 1
+        const days = isRT ? Math.max(1, Math.ceil((oneWayMin / 60) / 8)) : 1
 
         const kmCharge = Math.round(totalKm * perKm)
         const hourCharge = Math.round(totalHrs * perHour)
@@ -169,6 +179,7 @@ export async function POST(req: NextRequest) {
         // Itemised breakdown shown in the app vehicle card
         const breakdown: any = {
           totalKm, totalHrs, base, perKm, perHour, kmCharge, hourCharge, tripType,
+          kmLimit: kmLimitPerDay * days, extraKmRate, days,
         }
         if (!isRT && emptyReturnPercent > 0) {
           const er = Math.round((subtotal * emptyReturnPercent) / 100)
@@ -178,9 +189,13 @@ export async function POST(req: NextRequest) {
           const nights = (oneWayMin / 60) >= 6 ? 1 : 0
           if (nights > 0) { const nh = nightHaltCharge * nights; extras += nh; breakdown.nightHalt = nh; breakdown.nights = nights }
         }
+        if (driverAllowance > 0) { const da = driverAllowance * days; extras += da; breakdown.driverAllowance = da }
 
-        let fare = Math.round(subtotal + extras)
-        fare = Math.max(fare, minFare)
+        let preGst = Math.round(subtotal + extras)
+        preGst = Math.max(preGst, minFare)
+        let gst = 0
+        if (gstPercent > 0) { gst = Math.round((preGst * gstPercent) / 100); breakdown.gst = gst; breakdown.gstPercent = gstPercent }
+        const fare = preGst + gst
         breakdown.total = fare
         const eta = nearestByType.get(v.name)
         return {
@@ -192,6 +207,7 @@ export async function POST(req: NextRequest) {
           baseFare: base, perKm, perHour,
           commissionPercent: commission,
           nightHaltCharge, emptyReturnPercent,
+          kmLimitPerDay: kmLimitPerDay * days, extraKmRate, driverAllowance: driverAllowance * days, gstPercent,
           extras, breakdown,
           etaMin: eta ? eta.min : null,
           driverDistanceKm: eta ? eta.km : null,

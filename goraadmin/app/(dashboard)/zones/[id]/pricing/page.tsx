@@ -17,7 +17,7 @@ const TABS = [
 ]
 
 type VehicleType = { _id: string; name: string; imageUrl: string; services: string[]; baseFare: number; perKm: number; perMin: number; minFare: number }
-type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean; nightHaltCharge?: number; emptyReturnPercent?: number; perHour?: number; perKg?: number; outPerHour?: number; rtBaseFare?: number; rtPerKm?: number; rtPerHour?: number; hireReturnCharge?: number }
+type PricingRow  = { vehicleTypeId: string; vehicleTypeName: string; service: string; baseFare: number; perKm: number; perMin: number; minFare: number; commissionPercent: number; isActive: boolean; nightHaltCharge?: number; emptyReturnPercent?: number; perHour?: number; perKg?: number; outPerHour?: number; rtBaseFare?: number; rtPerKm?: number; rtPerHour?: number; hireReturnCharge?: number; kmLimitPerDay?: number; extraKmRate?: number; driverAllowance?: number; gstPercent?: number }
 type RentalPackage = { vehicleTypeId: string; vehicleTypeName: string; hours: number; km: number; basePrice: number; extraHourRate: number; extraKmRate: number; nightCharge: number; commissionPercent: number; isActive: boolean }
 // extra outstation fields tacked onto PricingRow: outPerHour, rtBaseFare, rtPerKm, rtPerHour
 
@@ -82,6 +82,10 @@ export default function ZonePricingPage() {
             rtPerKm: 0,
             rtPerHour: 0,
             hireReturnCharge: 0,
+            kmLimitPerDay: 0,
+            extraKmRate: 0,
+            driverAllowance: 0,
+            gstPercent: 0,
           })
         })
       })
@@ -444,6 +448,34 @@ export default function ZonePricingPage() {
                   </div>
                 </div>
                 <p className="text-[11px] text-orange-600">Round-Trip rates blank/0 → falls back to One-Way rates × distance(×2).</p>
+                {/* Ola-style inclusions */}
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-orange-200">
+                  <div>
+                    <label htmlFor="p-kmlimit" className="block text-[10px] font-medium text-orange-800 mb-1">KM Limit / day</label>
+                    <input id="p-kmlimit" type="number" step="10" min="0" value={editForm.kmLimitPerDay || 0}
+                      onChange={e => setEditForm({ ...editForm, kmLimitPerDay: +e.target.value })}
+                      className="w-full border border-orange-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  </div>
+                  <div>
+                    <label htmlFor="p-extrakm" className="block text-[10px] font-medium text-orange-800 mb-1">Extra KM ₹</label>
+                    <input id="p-extrakm" type="number" step="1" min="0" value={editForm.extraKmRate || 0}
+                      onChange={e => setEditForm({ ...editForm, extraKmRate: +e.target.value })}
+                      className="w-full border border-orange-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  </div>
+                  <div>
+                    <label htmlFor="p-allow" className="block text-[10px] font-medium text-orange-800 mb-1">Driver Allowance ₹/day</label>
+                    <input id="p-allow" type="number" step="50" min="0" value={editForm.driverAllowance || 0}
+                      onChange={e => setEditForm({ ...editForm, driverAllowance: +e.target.value })}
+                      className="w-full border border-orange-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  </div>
+                  <div>
+                    <label htmlFor="p-gst" className="block text-[10px] font-medium text-orange-800 mb-1">GST %</label>
+                    <input id="p-gst" type="number" step="1" min="0" max="28" value={editForm.gstPercent || 0}
+                      onChange={e => setEditForm({ ...editForm, gstPercent: +e.target.value })}
+                      className="w-full border border-orange-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500" />
+                  </div>
+                </div>
+                <p className="text-[11px] text-orange-600">KM Limit + Extra-KM + Allowance + GST show in the app inclusions sheet (Ola-style).</p>
                 <div>
                   <label htmlFor="p-night" className="block text-xs font-medium text-orange-800 mb-1">Night Halt (₹ per night) — round trip only</label>
                   <input id="p-night" type="number" step="50" min="0"

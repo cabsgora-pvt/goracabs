@@ -123,11 +123,12 @@ class ApiService {
   static Future<Map<String, dynamic>> estimateFare({
     required double pickupLat, required double pickupLng,
     double? dropLat, double? dropLng, String service = 'taxi', double weightKg = 0,
-    double totalHours = 0, String tripType = 'one_way',
+    double totalHours = 0, String tripType = 'one_way', List<Map<String, dynamic>>? stops,
   }) => post('/fare/estimate', {
         'pickupLat': pickupLat, 'pickupLng': pickupLng,
         'dropLat': dropLat, 'dropLng': dropLng, 'service': service, 'weightKg': weightKg,
         'totalHours': totalHours, 'tripType': tripType,
+        if (stops != null && stops.isNotEmpty) 'stops': stops,
       });
 
   static Future<Map<String, dynamic>> bookRide(Map<String, dynamic> data) =>

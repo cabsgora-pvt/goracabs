@@ -20,6 +20,11 @@ const PricingSchema = new Schema({
   rtBaseFare:  { type: Number, default: 0 },  // round-trip base fare
   rtPerKm:     { type: Number, default: 0 },  // round-trip per km
   rtPerHour:   { type: Number, default: 0 },  // round-trip per hour
+  // Ola-style outstation inclusions
+  kmLimitPerDay:  { type: Number, default: 0 }, // included km per day (0 = unlimited / not shown)
+  extraKmRate:    { type: Number, default: 0 }, // ₹ per km beyond the included limit
+  driverAllowance:{ type: Number, default: 0 }, // ₹ per day driver bata
+  gstPercent:     { type: Number, default: 0 }, // GST % applied on fare
 })
 // Rental packages — multiple per vehicle per zone (e.g. Economy 4hr/40km, Economy 8hr/80km)
 const RentalPackageSchema = new Schema({
