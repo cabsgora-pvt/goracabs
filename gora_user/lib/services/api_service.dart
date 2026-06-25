@@ -101,6 +101,10 @@ class ApiService {
     return _appConfigCache!;
   }
 
+  // ── Wallet ───────────────────────────────────────────────
+  static Future<Map<String, dynamic>> getWallet() => get('/wallet');
+  static Future<Map<String, dynamic>> addMoney(num amount) => post('/wallet', {'amount': amount}, auth: true);
+
   // ── Auth ──────────────────────────────────────────────────
   static Future<Map<String, dynamic>> sendOtp(String phone) =>
       post('/auth/user/send-otp', {'phone': phone});

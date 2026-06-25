@@ -15,13 +15,39 @@ export default function UserDetailPage() {
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [imgModal, setImgModal] = useState<string | null>(null)
+  // Wallet
+  const [wTxns, setWTxns] = useState<any[]>([])
+  const [wAmount, setWAmount] = useState('')
+  const [wType, setWType] = useState<'credit' | 'debit'>('credit')
+  const [wNote, setWNote] = useState('')
+  const [wBusy, setWBusy] = useState(false)
+
+  const loadWallet = () => fetch(`/api/wallet/admin?userId=${id}`).then(r => r.json())
+    .then(d => { if (d.balance != null) { setUser((u: any) => u ? { ...u, walletBalance: d.balance } : u); setWTxns(d.transactions || []) } }).catch(() => {})
 
   useEffect(() => {
     fetch(`/api/users/${id}`)
       .then(r => r.json())
       .then(d => { setUser(d.user); setRecentRides(d.recentRides || []); setLoading(false) })
       .catch(() => setLoading(false))
+    loadWallet()
   }, [id])
+
+  const adjustWallet = async () => {
+    const amt = Math.round(Number(wAmount) || 0)
+    if (amt <= 0) { setToast({ msg: 'Enter a valid amount', type: 'error' }); return }
+    setWBusy(true)
+    try {
+      const res = await fetch('/api/wallet/admin', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: id, amount: amt, type: wType, note: wNote }),
+      })
+      const d = await res.json()
+      if (res.ok) { setWAmount(''); setWNote(''); await loadWallet(); setToast({ msg: `Wallet ${wType === 'credit' ? 'credited' : 'debited'} ₹${amt}`, type: 'success' }) }
+      else setToast({ msg: d.error || 'Failed', type: 'error' })
+    } catch { setToast({ msg: 'Failed', type: 'error' }) }
+    setWBusy(false)
+  }
 
   const totalSpent = recentRides.reduce((s: number, r: any) => s + (r.status === 'completed' ? (r.fare || 0) : 0), 0)
 
@@ -209,6 +235,56 @@ export default function UserDetailPage() {
                     {recentRides.length === 0 && (
                       <tr><td colSpan={6} className="text-center text-gray-400 py-8">No rides yet</td></tr>
                     )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* ── Wallet ── */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-gray-800 flex items-center gap-2"><Wallet className="w-4 h-4 text-purple-600" /> Wallet</h3>
+                <span className="text-lg font-bold text-purple-700">₹{user.walletBalance || 0}</span>
+              </div>
+
+              {/* Adjust balance */}
+              <div className="bg-gray-50 rounded-lg p-3 mb-4">
+                <p className="text-xs font-semibold text-gray-600 mb-2">Adjust balance (with note)</p>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <select aria-label="Adjustment type" title="Adjustment type" value={wType} onChange={e => setWType(e.target.value as any)} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm">
+                    <option value="credit">Add (+)</option>
+                    <option value="debit">Deduct (−)</option>
+                  </select>
+                  <input type="number" min="1" placeholder="Amount ₹" value={wAmount} onChange={e => setWAmount(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm w-28" />
+                  <input type="text" placeholder="Note (e.g. refund for ride)" value={wNote} onChange={e => setWNote(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm flex-1 min-w-[160px]" />
+                  <button type="button" onClick={adjustWallet} disabled={wBusy}
+                    className="bg-[#1C2656] text-white px-4 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-50">{wBusy ? '…' : 'Apply'}</button>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-2">Note shown to the user inside their wallet transactions.</p>
+              </div>
+
+              {/* Transactions */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-gray-100">
+                    {['Type', 'Amount', 'Note', 'Source', 'Balance', 'Date'].map(h => (
+                      <th key={h} className="text-left text-xs text-gray-500 font-semibold pb-2">{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {wTxns.map((t: any) => (
+                      <tr key={t._id} className="hover:bg-gray-50">
+                        <td className="py-2"><span className={t.type === 'credit' ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>{t.type === 'credit' ? 'Credit' : 'Debit'}</span></td>
+                        <td className="py-2 font-medium">{t.type === 'credit' ? '+' : '−'}₹{t.amount}</td>
+                        <td className="py-2 text-gray-600 max-w-[180px] truncate">{t.note}</td>
+                        <td className="py-2 text-gray-500 capitalize">{t.source}</td>
+                        <td className="py-2 text-gray-500">₹{t.balanceAfter}</td>
+                        <td className="py-2 text-gray-500 text-xs">{t.createdAt ? new Date(t.createdAt).toLocaleDateString() : '—'}</td>
+                      </tr>
+                    ))}
+                    {wTxns.length === 0 && (<tr><td colSpan={6} className="text-center text-gray-400 py-6">No transactions yet</td></tr>)}
                   </tbody>
                 </table>
               </div>
