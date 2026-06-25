@@ -271,6 +271,68 @@ class _OutstationScreenState extends State<OutstationScreen> {
     ]),
   );
 
+  String _fmtDateShort(DateTime d) {
+    const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return '${d.day} ${m[d.month - 1]}, ${_fmtTime(d)}';
+  }
+
+  // Ola-style "Schedule trip" drawer (separate sheet) — Leave on / Return by
+  Future<void> _showScheduleDrawer() async {
+    await showModalBottomSheet(
+      context: context, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        Widget pickRow(String label, DateTime? dt, bool isReturn) => InkWell(
+          onTap: () async {
+            final date = await showDatePicker(context: ctx, initialDate: dt ?? DateTime.now(),
+              firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 365)));
+            if (date == null) return;
+            final time = await showTimePicker(context: ctx, initialTime: TimeOfDay.fromDateTime(dt ?? DateTime.now()));
+            if (time == null) return;
+            final picked = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+            setSheet(() {
+              if (isReturn) { _returnDateTime = picked; _returnDateController.text = '${picked.day}/${picked.month}/${picked.year}'; _returnTimeController.text = time.format(ctx); }
+              else { _departureDateTime = picked; _departureDateController.text = '${picked.day}/${picked.month}/${picked.year}'; _departureTimeController.text = time.format(ctx); }
+            });
+            setState(() {});
+          },
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[300]!)),
+            child: Row(children: [
+              const Icon(Icons.event, size: 20, color: Color(0xFF1C2656)),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600], fontWeight: FontWeight.w600)),
+                const SizedBox(height: 2),
+                Text(dt != null ? _fmtDateShort(dt) : 'Select date & time', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+              ])),
+              const Icon(Icons.chevron_right, color: Colors.grey),
+            ]),
+          ),
+        );
+        final isRT = _tripType == 'Round Trip';
+        return Padding(
+          padding: EdgeInsets.only(left: 20, right: 20, top: 18, bottom: MediaQuery.of(ctx).viewInsets.bottom + 20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
+            const SizedBox(height: 16),
+            Text(isRT ? 'Schedule round trip' : 'Schedule trip', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 16),
+            pickRow('Leave on', _departureDateTime, false),
+            if (isRT) pickRow('Return by', _returnDateTime, true),
+            const SizedBox(height: 6),
+            SizedBox(width: double.infinity, child: ElevatedButton(
+              onPressed: () { if (mounted && _fromLat != null && _toLat != null) _loadOutstationFares(); Navigator.pop(ctx); },
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 15), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              child: const Text('Confirm', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 16)))),
+          ]),
+        );
+      }),
+    );
+  }
+
   String _fmtTime(DateTime d) {
     final h = d.hour == 0 ? 12 : (d.hour > 12 ? d.hour - 12 : d.hour);
     final m = d.minute.toString().padLeft(2, '0');
@@ -770,6 +832,34 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                     style: TextStyle(fontSize: 14, color: Colors.grey),
                                   ),
                                 ] else ...[
+                                  // Location section at the TOP (Ola-style green/red dots)
+                                  Container(
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[200]!)),
+                                    child: Column(children: [
+                                      Row(children: [
+                                        const Icon(Icons.radio_button_checked, size: 14, color: Color(0xFF4CAF50)),
+                                        const SizedBox(width: 10),
+                                        Expanded(child: Text(_fromController.text.isEmpty ? 'Pickup' : _fromController.text, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+                                      ]),
+                                      Padding(padding: const EdgeInsets.only(left: 6), child: Row(children: [
+                                        Container(width: 2, height: 16, color: Colors.grey[300]),
+                                      ])),
+                                      Row(children: [
+                                        const Icon(Icons.location_on, size: 14, color: Color(0xFFFF5252)),
+                                        const SizedBox(width: 10),
+                                        Expanded(child: Text(_toController.text.isEmpty ? 'Destination' : _toController.text, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
+                                      ]),
+                                    ]),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  // Trip type cards
+                                  Row(children: [
+                                    Expanded(child: _buildTripTypeButton('One Way')),
+                                    const SizedBox(width: 12),
+                                    Expanded(child: _buildTripTypeButton('Round Trip')),
+                                  ]),
+                                  const SizedBox(height: 6),
                                   GestureDetector(
                                     onTap: () => setState(() => _showTripDetails = !_showTripDetails),
                                     child: Container(
@@ -788,68 +878,29 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                   ),
                                   if (_showTripDetails)
                                     const SizedBox(height: 8),
+                                  // "Booking for … SELECT" — opens the schedule drawer (Ola-style)
                                   if (_showTripDetails)
-                                    Row(
-                                      children: [
-                                        Expanded(child: _buildTripTypeButton('One Way')),
-                                        const SizedBox(width: 12),
-                                        Expanded(child: _buildTripTypeButton('Round Trip')),
-                                      ],
-                                    ),
-                                  if (_showTripDetails)
-                                    const SizedBox(height: 16),
-                                  if (_showTripDetails)
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: _buildDateInput(_departureDateController, 'Departure Date', Icons.calendar_today),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: _buildTimeInput(_departureTimeController, 'Time', Icons.access_time),
-                                        ),
-                                      ],
-                                    ),
-                                  if (_showTripDetails && _tripType == 'Round Trip')
-                                    const SizedBox(height: 12),
-                                  if (_showTripDetails && _tripType == 'Round Trip')
-                                    Row(
-                                      children: [
-                                        Expanded(
-                                          child: _buildDateInput(_returnDateController, 'Return Date', Icons.calendar_today),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Expanded(
-                                          child: _buildTimeInput(_returnTimeController, 'Time', Icons.access_time),
-                                        ),
-                                      ],
-                                    ),
-                                  if (_showTripDetails)
-                                    const SizedBox(height: 12),
-                                  // Passengers picker — affects vehicle suitability (3 vs 6 seats)
-                                  if (_showTripDetails)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                      decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.grey[200]!)),
-                                      child: Row(children: [
-                                        Icon(Icons.group, color: Colors.grey[600], size: 18),
-                                        const SizedBox(width: 10),
-                                        const Text('Passengers', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                                        const Spacer(),
-                                        IconButton(
-                                          icon: const Icon(Icons.remove_circle_outline, color: Color(0xFF1C2656)),
-                                          padding: EdgeInsets.zero, constraints: const BoxConstraints(),
-                                          onPressed: _numPassengers > 1 ? () => setState(() => _numPassengers--) : null,
-                                        ),
-                                        const SizedBox(width: 14),
-                                        Text('$_numPassengers', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-                                        const SizedBox(width: 14),
-                                        IconButton(
-                                          icon: const Icon(Icons.add_circle_outline, color: Color(0xFF1C2656)),
-                                          padding: EdgeInsets.zero, constraints: const BoxConstraints(),
-                                          onPressed: _numPassengers < 12 ? () => setState(() => _numPassengers++) : null,
-                                        ),
-                                      ]),
+                                    InkWell(
+                                      onTap: _showScheduleDrawer,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                                        decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[300]!)),
+                                        child: Row(children: [
+                                          const Icon(Icons.event, size: 18, color: Color(0xFF1C2656)),
+                                          const SizedBox(width: 10),
+                                          Expanded(child: RichText(text: TextSpan(
+                                            style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface),
+                                            children: [
+                                              const TextSpan(text: 'Booking for  '),
+                                              TextSpan(
+                                                text: _departureDateTime != null
+                                                  ? '${_fmtDateShort(_departureDateTime!)}${_tripType == 'Round Trip' && _returnDateTime != null ? '  —  ${_fmtDateShort(_returnDateTime!)}' : ''}'
+                                                  : 'now',
+                                                style: const TextStyle(color: Color(0xFF1C2656), fontWeight: FontWeight.w800)),
+                                            ]))),
+                                          const Text('SELECT', style: TextStyle(fontSize: 12, color: Color(0xFF1C2656), fontWeight: FontWeight.w900)),
+                                        ]),
+                                      ),
                                     ),
                                   if (_showTripDetails && _departureDateTime != null && _durationMin > 0)
                                     Padding(padding: const EdgeInsets.only(top: 10), child: Container(
@@ -1043,17 +1094,23 @@ class _OutstationScreenState extends State<OutstationScreen> {
   Widget _buildTripTypeButton(String type) {
     final isSelected = _tripType == type;
     return GestureDetector(
-      onTap: () => setState(() {
-        _tripType = type;
-        if (type == 'One Way') {
-          _returnDateController.clear();
-          _returnTimeController.clear();
-        }
-        // Auto-expand vehicle selection after trip details are set
-        if (!_showVehicleSelection && (_departureDateController.text.isNotEmpty || type == 'One Way')) {
-          _showVehicleSelection = true;
-        }
-      }),
+      onTap: () {
+        setState(() {
+          _tripType = type;
+          if (type == 'One Way') {
+            _returnDateController.clear();
+            _returnTimeController.clear();
+            _returnDateTime = null;
+          }
+          // Auto-expand vehicle selection after trip details are set
+          if (!_showVehicleSelection && (_departureDateController.text.isNotEmpty || type == 'One Way')) {
+            _showVehicleSelection = true;
+          }
+        });
+        // Selecting a trip type opens the schedule drawer (Ola behaviour),
+        // so the user picks Leave on / Return by right away.
+        WidgetsBinding.instance.addPostFrameCallback((_) => _showScheduleDrawer());
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
         decoration: BoxDecoration(
