@@ -90,6 +90,17 @@ class ApiService {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  // ── App config (admin-managed content) ───────────────────
+  static Map<String, dynamic>? _appConfigCache;
+  static Future<Map<String, dynamic>> getAppConfig({bool force = false}) async {
+    if (_appConfigCache != null && !force) return _appConfigCache!;
+    try {
+      final res = await get('/app-config?app=user');
+      _appConfigCache = (res['config'] as Map?)?.cast<String, dynamic>() ?? {};
+    } catch (_) { _appConfigCache = {}; }
+    return _appConfigCache!;
+  }
+
   // ── Auth ──────────────────────────────────────────────────
   static Future<Map<String, dynamic>> sendOtp(String phone) =>
       post('/auth/user/send-otp', {'phone': phone});

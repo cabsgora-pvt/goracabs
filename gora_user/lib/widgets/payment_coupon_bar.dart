@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import '../services/api_service.dart';
 
 // Reusable Ola-style "Cash · Coupon" bottom row used across all booking screens.
-// UI-only: it picks a payment mode (cash/online/advance) and applies a front-end
-// coupon (FLAT100 / GORA10), reporting back via [onChanged]. No backend needed.
+// Picks a payment mode (cash/online/advance) and applies an admin-managed coupon,
+// reporting back via [onChanged].
 class PaymentCouponBar extends StatefulWidget {
   final num baseFare; // used to compute percentage coupons
   final void Function(String paymentMode, String couponCode, int couponDiscount) onChanged;
@@ -19,6 +20,27 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
   int _couponDiscount = 0;
 
   void _notify() => widget.onChanged(_paymentMode, _couponCode, _couponDiscount);
+
+  // Validate a code against admin-managed coupons; returns discount (₹), 0 if invalid.
+  static Future<int> _validateCoupon(String code, num fare) async {
+    if (code.isEmpty) return 0;
+    final cfg = await ApiService.getAppConfig();
+    final coupons = (cfg['coupons'] as List?) ?? [];
+    for (final c in coupons) {
+      if ((c['code'] ?? '').toString().toUpperCase() != code) continue;
+      if (c['isActive'] == false) return 0;
+      if ((c['minFare'] ?? 0) is num && fare < (c['minFare'] as num)) return 0;
+      final val = (c['value'] as num?) ?? 0;
+      if ((c['discountType'] ?? 'flat') == 'percent') {
+        var d = (fare * val / 100).round();
+        final cap = (c['maxDiscount'] as num?)?.toInt() ?? 0;
+        if (cap > 0 && d > cap) d = cap;
+        return d;
+      }
+      return val.round();
+    }
+    return 0;
+  }
 
   Future<void> _pickPayment() async {
     Widget tile(String mode, IconData ic, String label, String sub) => ListTile(
@@ -53,15 +75,13 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
         TextButton(onPressed: () { setState(() { _couponCode = ''; _couponDiscount = 0; }); _notify(); Navigator.pop(dctx); }, child: const Text('Remove')),
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: widget.accent),
-          onPressed: () {
+          onPressed: () async {
             final code = ctrl.text.trim().toUpperCase();
-            int d = 0;
-            if (code == 'FLAT100') d = 100;
-            else if (code == 'GORA10') d = (widget.baseFare * 0.10).round();
+            final d = await _validateCoupon(code, widget.baseFare);
             setState(() { _couponCode = code; _couponDiscount = d; });
             _notify();
-            Navigator.pop(dctx);
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(d > 0 ? 'Coupon applied: −₹$d' : 'Invalid coupon')));
+            if (dctx.mounted) Navigator.pop(dctx);
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(d > 0 ? 'Coupon applied: −₹$d' : 'Invalid coupon')));
           },
           child: const Text('Apply', style: TextStyle(color: Colors.white)),
         ),

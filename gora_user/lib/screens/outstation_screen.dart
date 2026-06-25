@@ -235,22 +235,38 @@ class _OutstationScreenState extends State<OutstationScreen> {
         TextButton(onPressed: () { _couponCode = ''; _couponDiscount = 0; Navigator.pop(dctx); }, child: const Text('Remove')),
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656)),
-          onPressed: () {
+          onPressed: () async {
             _couponCode = ctrl.text.trim().toUpperCase();
-            int d = 0;
-            if (_couponCode == 'FLAT100') d = 100;
-            else if (_couponCode == 'GORA10') {
-              final f = (_tripType == 'One Way' ? selectedVehicleData['oneWayFare'] : selectedVehicleData['roundTripFare']) as num? ?? 0;
-              d = (f * 0.10).round();
-            }
+            final f = (_tripType == 'One Way' ? selectedVehicleData['oneWayFare'] : selectedVehicleData['roundTripFare']) as num? ?? 0;
+            final d = await _validateOutstationCoupon(_couponCode, f);
             _couponDiscount = d;
-            Navigator.pop(dctx);
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(d > 0 ? 'Coupon applied: −₹$d' : 'Invalid coupon')));
+            if (dctx.mounted) Navigator.pop(dctx);
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(d > 0 ? 'Coupon applied: −₹$d' : 'Invalid coupon')));
           },
           child: const Text('Apply', style: TextStyle(color: Colors.white)),
         ),
       ],
     ));
+  }
+
+  // Validate against admin-managed coupons (returns ₹ discount, 0 if invalid)
+  Future<int> _validateOutstationCoupon(String code, num fare) async {
+    if (code.isEmpty) return 0;
+    final cfg = await ApiService.getAppConfig();
+    for (final c in (cfg['coupons'] as List?) ?? []) {
+      if ((c['code'] ?? '').toString().toUpperCase() != code) continue;
+      if (c['isActive'] == false) return 0;
+      if ((c['minFare'] ?? 0) is num && fare < (c['minFare'] as num)) return 0;
+      final val = (c['value'] as num?) ?? 0;
+      if ((c['discountType'] ?? 'flat') == 'percent') {
+        var d = (fare * val / 100).round();
+        final cap = (c['maxDiscount'] as num?)?.toInt() ?? 0;
+        if (cap > 0 && d > cap) d = cap;
+        return d;
+      }
+      return val.round();
+    }
+    return 0;
   }
 
   // Ola-style red ▸ arrow rule row

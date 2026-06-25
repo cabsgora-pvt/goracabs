@@ -7,7 +7,7 @@ import {
   MessageSquare, Bell, Image, Gift, ChevronDown, ChevronRight,
   LogOut, Truck, FileText, Shield, HelpCircle, AlertCircle,
   CheckCircle, XCircle, Clock, DollarSign, Wallet, TrendingUp,
-  Menu, X, User, Package, Zap, UserCheck, MapPin
+  Menu, X, User, Package, Zap, UserCheck, MapPin, Smartphone
 } from 'lucide-react'
 
 interface NavItem {
@@ -89,6 +89,7 @@ const navItems: NavItem[] = [
   {
     label: 'Settings', icon: Settings,
     children: [
+      { label: 'User App', href: '/settings/user-app', icon: Smartphone },
       { label: 'General', href: '/settings/general', icon: Settings },
       { label: 'Payment', href: '/settings/payment', icon: CreditCard },
       { label: 'Maps', href: '/settings/maps', icon: Map },

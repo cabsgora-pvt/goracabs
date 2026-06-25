@@ -1,9 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
+import '../services/api_service.dart';
 
-class OffersScreen extends StatelessWidget {
+class OffersScreen extends StatefulWidget {
   const OffersScreen({super.key});
+
+  @override
+  State<OffersScreen> createState() => _OffersScreenState();
+}
+
+class _OffersScreenState extends State<OffersScreen> {
+  Map<String, dynamic>? _cfg;
+
+  @override
+  void initState() {
+    super.initState();
+    ApiService.getAppConfig().then((c) {
+      if (mounted) setState(() => _cfg = c);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,7 +62,7 @@ class OffersScreen extends StatelessWidget {
   }
 
   Widget _buildActiveOffers(BuildContext context) {
-    final offers = [
+    final fallbackOffers = [
       {
         'title': '50% OFF on First Ride',
         'desc': 'Get flat 50% discount on your first ride with Gora Cabs',
@@ -89,6 +105,38 @@ class OffersScreen extends StatelessWidget {
       },
     ];
 
+    // Build offers from admin config when available, else fall back.
+    final cfgOffers = (_cfg?['offers'] as List?)
+            ?.where((o) => o is Map && o['isActive'] != false)
+            .toList() ??
+        const [];
+
+    final List<Map<String, dynamic>> offers;
+    if (cfgOffers.isNotEmpty) {
+      const palette = [
+        '0xFF0052CC',
+        '0xFFE65100',
+        '0xFF2E7D32',
+        '0xFF6A1B9A',
+        '0xFFD84315',
+      ];
+      offers = [];
+      for (var i = 0; i < cfgOffers.length; i++) {
+        final o = cfgOffers[i] as Map;
+        offers.add({
+          'title': (o['title'] ?? '').toString(),
+          'desc': (o['desc'] ?? '').toString(),
+          'imageUrl': (o['imageUrl'] ?? '').toString(),
+          'code': (o['code'] ?? '').toString(),
+          'validity': (o['validity'] ?? '').toString(),
+          'color': palette[i % palette.length],
+          'icon': Icons.local_offer,
+        });
+      }
+    } else {
+      offers = fallbackOffers;
+    }
+
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: offers.length,
@@ -96,6 +144,9 @@ class OffersScreen extends StatelessWidget {
       itemBuilder: (_, i) {
         final offer = offers[i];
         final color = Color(int.parse(offer['color'] as String));
+        final code = (offer['code'] as String?) ?? '';
+        final validity = (offer['validity'] as String?) ?? '';
+        final imageUrl = (offer['imageUrl'] as String?) ?? '';
         return Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -139,51 +190,67 @@ class OffersScreen extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if (imageUrl.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.network(
+                          imageUrl,
+                          height: 120,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (ctx, err, stack) => const SizedBox.shrink(),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     Text(
                       offer['desc'] as String,
                       style: TextStyle(color: Colors.white.withAlpha(230), fontSize: 14),
                     ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
+                    if (code.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Text(
+                                  code,
+                                  style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                                const SizedBox(width: 8),
+                                GestureDetector(
+                                  onTap: () {
+                                    Clipboard.setData(ClipboardData(text: code));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Code $code copied!')),
+                                    );
+                                  },
+                                  child: Icon(Icons.copy, size: 16, color: color),
+                                ),
+                              ],
+                            ),
                           ),
-                          child: Row(
-                            children: [
-                              Text(
-                                offer['code'] as String,
-                                style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14),
-                              ),
-                              const SizedBox(width: 8),
-                              GestureDetector(
-                                onTap: () {
-                                  Clipboard.setData(ClipboardData(text: offer['code'] as String));
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Code ${offer['code']} copied!')),
-                                  );
-                                },
-                                child: Icon(Icons.copy, size: 16, color: color),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Spacer(),
-                        Text(
-                          offer['validity'] as String,
-                          style: TextStyle(color: Colors.white.withAlpha(200), fontSize: 11),
-                        ),
-                      ],
-                    ),
+                          const Spacer(),
+                          if (validity.isNotEmpty)
+                            Text(
+                              validity,
+                              style: TextStyle(color: Colors.white.withAlpha(200), fontSize: 11),
+                            ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     ElevatedButton(
                       onPressed: () {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Offer ${offer['code']} applied!')),
+                          SnackBar(content: Text(code.isNotEmpty ? 'Offer $code applied!' : 'Offer applied!')),
                         );
                       },
                       style: ElevatedButton.styleFrom(
@@ -205,13 +272,33 @@ class OffersScreen extends StatelessWidget {
   }
 
   Widget _buildPromoCodes(BuildContext context) {
-    final promoCodes = [
+    final fallbackPromoCodes = [
       {'code': 'GORA50', 'desc': '50% off up to ₹100', 'type': 'Ride'},
       {'code': 'NEWUSER', 'desc': 'Flat ₹150 off on first ride', 'type': 'Ride'},
       {'code': 'SAVE20', 'desc': '20% off up to ₹50', 'type': 'Ride'},
       {'code': 'WALLET200', 'desc': '₹200 cashback on wallet recharge', 'type': 'Wallet'},
       {'code': 'DELIVERY50', 'desc': 'Free delivery on orders above ₹200', 'type': 'Delivery'},
     ];
+
+    // Build promo codes from admin config when available, else fall back.
+    final cfgCoupons = (_cfg?['coupons'] as List?)
+            ?.where((c) => c is Map && c['isActive'] != false)
+            .toList() ??
+        const [];
+
+    final List<Map<String, String>> promoCodes;
+    if (cfgCoupons.isNotEmpty) {
+      promoCodes = cfgCoupons.map<Map<String, String>>((c) {
+        final m = c as Map;
+        return {
+          'code': (m['code'] ?? '').toString(),
+          'desc': (m['desc'] ?? '').toString(),
+          'type': (m['service'] ?? 'Ride').toString(),
+        };
+      }).toList();
+    } else {
+      promoCodes = fallbackPromoCodes;
+    }
 
     return Column(
       children: [
@@ -310,6 +397,12 @@ class OffersScreen extends StatelessWidget {
   }
 
   Widget _buildReferral(BuildContext context) {
+    final referral = (_cfg?['referral'] as Map?) ?? const {};
+    final rewardAmount = (referral['rewardAmount'] as num?) ?? 100;
+    final rewardText = '₹${rewardAmount % 1 == 0 ? rewardAmount.toInt() : rewardAmount}';
+    final referralMessage = (referral['message'] as String?)?.trim().isNotEmpty == true
+        ? referral['message'] as String
+        : 'Invite your friends and earn $rewardText for each successful referral';
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -334,7 +427,7 @@ class OffersScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Invite your friends and earn ₹100 for each successful referral',
+                  referralMessage,
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white.withAlpha(230), fontSize: 14),
                 ),
@@ -424,7 +517,7 @@ class OffersScreen extends StatelessWidget {
           const SizedBox(height: 12),
           _buildHowItWorksStep('3', 'Friend completes ride', 'They take their first ride'),
           const SizedBox(height: 12),
-          _buildHowItWorksStep('4', 'You both earn', 'Get ₹100 in your wallet'),
+          _buildHowItWorksStep('4', 'You both earn', 'Get $rewardText in your wallet'),
           const SizedBox(height: 24),
           Container(
             padding: const EdgeInsets.all(16),

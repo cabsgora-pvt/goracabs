@@ -1,11 +1,32 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import '../services/api_service.dart';
 
-class SupportScreen extends StatelessWidget {
+class SupportScreen extends StatefulWidget {
   const SupportScreen({super.key});
 
   @override
+  State<SupportScreen> createState() => _SupportScreenState();
+}
+
+class _SupportScreenState extends State<SupportScreen> {
+  Map<String, dynamic>? _cfg;
+
+  @override
+  void initState() {
+    super.initState();
+    ApiService.getAppConfig().then((c) {
+      if (mounted) setState(() => _cfg = c);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final support = _cfg?['support'] as Map<String, dynamic>?;
+    final phone = _str(support?['phone']) ?? '+91 1800-123-4567';
+    final email = _str(support?['email']) ?? 'support@goracabs.com';
+    final whatsapp = _str(support?['whatsapp']);
+    final address = _str(support?['address']);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Help & Support'),
@@ -48,11 +69,19 @@ class SupportScreen extends StatelessWidget {
           const SizedBox(height: 24),
           const Text('Contact Us', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          _buildContactCard(context, Icons.phone, 'Call Us', '+91 1800-123-4567'),
+          _buildContactCard(context, Icons.phone, 'Call Us', phone),
           const SizedBox(height: 10),
-          _buildContactCard(context, Icons.email, 'Email Us', 'support@goracabs.com'),
+          _buildContactCard(context, Icons.email, 'Email Us', email),
+          if (whatsapp != null) ...[
+            const SizedBox(height: 10),
+            _buildContactCard(context, Icons.chat, 'WhatsApp', whatsapp),
+          ],
+          if (address != null) ...[
+            const SizedBox(height: 10),
+            _buildContactCard(context, Icons.location_on, 'Visit Us', address),
+          ],
           const SizedBox(height: 10),
-          _buildContactCard(context, Icons.chat, 'Live Chat', 'Available 24/7'),
+          _buildContactCard(context, Icons.chat_bubble, 'Live Chat', 'Available 24/7'),
         ],
       ),
     );
@@ -96,13 +125,30 @@ class SupportScreen extends StatelessWidget {
     );
   }
 
+  static String? _str(dynamic v) {
+    if (v == null) return null;
+    final s = v.toString().trim();
+    return s.isEmpty ? null : s;
+  }
+
   List<Widget> _buildFAQs() {
-    final faqs = [
+    const fallbackFaqs = [
       {'q': 'How do I cancel a ride?', 'a': 'You can cancel a ride from the trip tracking screen before the driver arrives.'},
       {'q': 'What is the cancellation policy?', 'a': 'Free cancellation within 2 minutes of booking. After that, cancellation charges apply.'},
       {'q': 'How do I add money to wallet?', 'a': 'Go to Wallet section and tap on Add Money. Choose amount and payment method.'},
       {'q': 'How does driver bidding work?', 'a': 'Multiple drivers can bid for your ride with their own prices. You can choose the best offer.'},
     ];
+
+    List<Map<String, String>> faqs = const [];
+    final cfgFaqs = _cfg?['faqs'];
+    if (cfgFaqs is List && cfgFaqs.isNotEmpty) {
+      faqs = cfgFaqs
+          .whereType<Map>()
+          .map((f) => {'q': _str(f['q']) ?? '', 'a': _str(f['a']) ?? ''})
+          .where((f) => f['q']!.isNotEmpty)
+          .toList();
+    }
+    if (faqs.isEmpty) faqs = fallbackFaqs;
 
     return faqs.map((faq) {
       return ExpansionTile(

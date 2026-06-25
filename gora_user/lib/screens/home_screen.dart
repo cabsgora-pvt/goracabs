@@ -45,6 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
   LatLng? _currentLatLng;
   String _currentAddress = 'Locating…';
   GoogleMapController? _homeMapCtrl;
+  // Admin-managed app config (banners / places / whyChooseUs)
+  Map<String, dynamic>? _cfg;
 
   final List<Map<String, dynamic>> _services = [
     {'icon': 'assets/images/bike-bluebg.png', 'label': 'Bike ride', 'color': Color(0xFF1C2656), 'bgColor': Color(0xFFE3F2FD)},
@@ -82,6 +84,37 @@ class _HomeScreenState extends State<HomeScreen> {
     // Re-check periodically so the banner clears when the ride completes/cancels
     _activeTimer = Timer.periodic(const Duration(seconds: 8), (_) => _checkActiveRide());
     _fetchCurrentLocation();
+    ApiService.getAppConfig().then((c) {
+      if (mounted) setState(() => _cfg = c);
+    });
+  }
+
+  // Parse '#RRGGBB' (or '0xFF...') hex strings into a Color, defensively.
+  Color _parseHexColor(String? hex, Color fallback) {
+    if (hex == null || hex.isEmpty) return fallback;
+    var h = hex.trim();
+    if (h.startsWith('#')) h = h.substring(1);
+    if (h.startsWith('0x') || h.startsWith('0X')) h = h.substring(2);
+    if (h.length == 6) h = 'FF$h';
+    final v = int.tryParse(h, radix: 16);
+    return v == null ? fallback : Color(v);
+  }
+
+  IconData _iconForKey(String? key) {
+    switch (key) {
+      case 'shield':
+        return Icons.verified_user;
+      case 'clock':
+        return Icons.access_time;
+      case 'star':
+        return Icons.star;
+      case 'money':
+        return Icons.savings;
+      case 'support':
+        return Icons.support_agent;
+      default:
+        return Icons.check_circle;
+    }
   }
 
   Future<void> _fetchCurrentLocation() async {
@@ -128,7 +161,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _startPromoTimer() {
     _promoTimer = Timer.periodic(const Duration(seconds: 3), (Timer timer) {
-      if (_currentPromoPage < _promos.length - 1) {
+      if (_currentPromoPage < _banners().length - 1) {
         _currentPromoPage++;
       } else {
         _currentPromoPage = 0;
@@ -357,7 +390,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     // Recent / saved locations (last 3) → tap goes to normal ride
                     const Text('Recent locations', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
-                    ..._popularLocations.map((l) => _buildRecentTile(l)),
+                    ..._recentLocations().map((l) => _buildRecentTile(l)),
 
                     const SizedBox(height: 20),
 
@@ -387,51 +420,28 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     const Text('Featured Ads', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
-                    SizedBox(
-                      height: 160,
-                      child: PageView.builder(
-                        controller: _promoController,
-                        itemCount: _promos.length,
-                        onPageChanged: (int page) {
-                          setState(() {
-                            _currentPromoPage = page;
-                          });
-                        },
-                        itemBuilder: (_, i) => _buildPromoBanner(_promos[i]),
-                      ),
-                    ),
+                    Builder(builder: (_) {
+                      final banners = _banners();
+                      return SizedBox(
+                        height: 160,
+                        child: PageView.builder(
+                          controller: _promoController,
+                          itemCount: banners.length,
+                          onPageChanged: (int page) {
+                            setState(() {
+                              _currentPromoPage = page;
+                            });
+                          },
+                          itemBuilder: (_, i) => _buildPromoBanner(banners[i]),
+                        ),
+                      );
+                    }),
                     const SizedBox(height: 20),
                     
                     // Why Choose Us Section
                     const Text('Why Choose Gora Cabs?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
-                    _buildFeatureCard(
-                      icon: Icons.verified_user,
-                      title: 'Safe & Secure',
-                      description: 'All drivers are verified and background checked',
-                      color: Colors.green,
-                    ),
-                    const SizedBox(height: 12),
-                    _buildFeatureCard(
-                      icon: Icons.access_time,
-                      title: '24/7 Available',
-                      description: 'Book rides anytime, anywhere across India',
-                      color: Colors.blue,
-                    ),
-                    const SizedBox(height: 12),
-                    _buildFeatureCard(
-                      icon: Icons.payments,
-                      title: 'Best Prices',
-                      description: 'Affordable rates with no hidden charges',
-                      color: Colors.orange,
-                    ),
-                    const SizedBox(height: 12),
-                    _buildFeatureCard(
-                      icon: Icons.support_agent,
-                      title: 'Customer Support',
-                      description: 'Dedicated support team to help you 24/7',
-                      color: Colors.purple,
-                    ),
+                    ..._whyChooseUs(),
                     const SizedBox(height: 20),
                     
                     // Footer section
@@ -699,6 +709,20 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Recent locations source: admin config `places` when available, else hardcoded fallback.
+  List<Map<String, String>> _recentLocations() {
+    final places = _cfg?['places'];
+    if (places is List && places.isNotEmpty) {
+      return places.whereType<Map>().map((p) {
+        return {
+          'name': (p['name'] ?? '').toString(),
+          'address': (p['address'] ?? '').toString(),
+        };
+      }).toList();
+    }
+    return _popularLocations;
+  }
+
   // Recent location tile (Ola-style pin + chevron) → opens normal ride to that drop
   Widget _buildRecentTile(Map<String, String> l) {
     return InkWell(
@@ -813,8 +837,30 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // Featured Ads source: admin config `banners` (active only) when available, else hardcoded `_promos`.
+  // Returns a normalized list with keys: title, sub, color (hex/0x string), icon, imageUrl.
+  List<Map<String, String>> _banners() {
+    final banners = _cfg?['banners'];
+    if (banners is List) {
+      final active = banners
+          .whereType<Map>()
+          .where((b) => b['isActive'] != false)
+          .map((b) => {
+                'title': (b['title'] ?? '').toString(),
+                'sub': (b['subtitle'] ?? '').toString(),
+                'color': (b['color'] ?? '').toString(),
+                'imageUrl': (b['imageUrl'] ?? '').toString(),
+                'icon': '',
+              })
+          .toList();
+      if (active.isNotEmpty) return active;
+    }
+    return _promos;
+  }
+
   Widget _buildPromoBanner(Map<String, String> promo) {
-    final color = Color(int.parse(promo['color']!));
+    final color = _parseHexColor(promo['color'], AppTheme.primaryBlue);
+    final imageUrl = promo['imageUrl'] ?? '';
     IconData adIcon = Icons.local_offer;
     if (promo['icon'] == 'security') adIcon = Icons.security;
     if (promo['icon'] == 'directions_car') adIcon = Icons.directions_car;
@@ -842,18 +888,37 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              adIcon,
-              color: color,
-              size: 28,
-            ),
-          ),
+          imageUrl.isNotEmpty
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    imageUrl,
+                    width: 56,
+                    height: 56,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: color.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(adIcon, color: color, size: 28),
+                    ),
+                  ),
+                )
+              : Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    adIcon,
+                    color: color,
+                    size: 28,
+                  ),
+                ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -862,7 +927,7 @@ class _HomeScreenState extends State<HomeScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  promo['title']!,
+                  promo['title'] ?? '',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -873,7 +938,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  promo['sub']!,
+                  promo['sub'] ?? '',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -904,6 +969,57 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+  }
+
+  // "Why Choose Us" cards: admin config `whyChooseUs` when non-empty, else hardcoded fallback.
+  List<Widget> _whyChooseUs() {
+    final items = _cfg?['whyChooseUs'];
+    if (items is List && items.isNotEmpty) {
+      const palette = [Colors.green, Colors.blue, Colors.orange, Colors.purple];
+      final maps = items.whereType<Map>().toList();
+      final cards = <Widget>[];
+      for (var i = 0; i < maps.length; i++) {
+        final m = maps[i];
+        if (cards.isNotEmpty) cards.add(const SizedBox(height: 12));
+        cards.add(_buildFeatureCard(
+          icon: _iconForKey((m['icon'] ?? '').toString()),
+          title: (m['title'] ?? '').toString(),
+          description: (m['desc'] ?? '').toString(),
+          color: palette[i % palette.length],
+        ));
+      }
+      if (cards.isNotEmpty) return cards;
+    }
+    // Fallback: original hardcoded cards
+    return [
+      _buildFeatureCard(
+        icon: Icons.verified_user,
+        title: 'Safe & Secure',
+        description: 'All drivers are verified and background checked',
+        color: Colors.green,
+      ),
+      const SizedBox(height: 12),
+      _buildFeatureCard(
+        icon: Icons.access_time,
+        title: '24/7 Available',
+        description: 'Book rides anytime, anywhere across India',
+        color: Colors.blue,
+      ),
+      const SizedBox(height: 12),
+      _buildFeatureCard(
+        icon: Icons.payments,
+        title: 'Best Prices',
+        description: 'Affordable rates with no hidden charges',
+        color: Colors.orange,
+      ),
+      const SizedBox(height: 12),
+      _buildFeatureCard(
+        icon: Icons.support_agent,
+        title: 'Customer Support',
+        description: 'Dedicated support team to help you 24/7',
+        color: Colors.purple,
+      ),
+    ];
   }
 
   Widget _buildFeatureCard({
