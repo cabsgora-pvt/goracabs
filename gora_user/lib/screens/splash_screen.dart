@@ -19,8 +19,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   late final Animation<double> _scale;
   late final Animation<double> _fade;
 
-  static const Color _navy = Color(0xFF1C2656);
-  static const Color _bg = Colors.white;
+  static const Color _bg = Color(0xFF010920); // matches the splash artwork background
 
   @override
   void initState() {
@@ -62,7 +61,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             opacity: _fade,
             child: ScaleTransition(
               scale: _scale,
-              child: Image.asset('assets/images/splash.png', fit: BoxFit.contain),
+              child: Image.asset('assets/images/splashscreen.png', fit: BoxFit.contain),
             ),
           ),
           // Loading indicator pinned near the bottom
@@ -72,7 +71,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               children: const [
                 SizedBox(
                   width: 26, height: 26,
-                  child: CircularProgressIndicator(strokeWidth: 2.4, valueColor: AlwaysStoppedAnimation(_navy)),
+                  child: CircularProgressIndicator(strokeWidth: 2.4, valueColor: AlwaysStoppedAnimation(Colors.white)),
                 ),
               ],
             ),

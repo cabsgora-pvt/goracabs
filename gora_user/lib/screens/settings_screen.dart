@@ -11,19 +11,9 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _pushNotifications = true;
-  bool _emailNotifications = false;
-  bool _smsNotifications = true;
-  bool _locationServices = true;
-  bool _shareData = false;
-  String _language = 'English';
-
   @override
   Widget build(BuildContext context) {
     final themeProv = context.watch<ThemeProvider>();
-    final themeLabel = themeProv.mode == ThemeMode.dark
-        ? 'Dark'
-        : (themeProv.mode == ThemeMode.system ? 'System Default' : 'Light');
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
@@ -33,73 +23,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text('Account Settings', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textGrey)),
+          const Text('App Preferences', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textGrey)),
           const SizedBox(height: 12),
-          _buildSettingTile(
-            Icons.person_outline,
-            'Edit Profile',
-            'Update your personal information',
-            () {},
+          // Quick dark mode switch
+          _buildSwitchTile(
+            themeProv.isDark ? Icons.dark_mode : Icons.light_mode,
+            'Dark Mode',
+            themeProv.isDark ? 'Dark theme is on' : 'Light theme is on',
+            themeProv.isDark,
+            (val) => context.read<ThemeProvider>().toggleDark(val),
           ),
           _buildSettingTile(
-            Icons.lock_outline,
-            'Change Password',
-            'Update your password',
-            () => _showChangePasswordDialog(),
-          ),
-          _buildSettingTile(
-            Icons.phone_outlined,
-            'Change Phone Number',
-            'Update your mobile number',
-            () {},
-          ),
-          _buildSettingTile(
-            Icons.email_outlined,
-            'Change Email',
-            'Update your email address',
-            () {},
+            Icons.contacts_outlined,
+            'Emergency Contacts',
+            'Manage SOS contacts',
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmergencyContactsScreen())),
           ),
           const SizedBox(height: 24),
-          const Text('Notifications', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textGrey)),
+          const Text('Legal', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textGrey)),
           const SizedBox(height: 12),
-          _buildSwitchTile(
-            Icons.notifications_outlined,
-            'Push Notifications',
-            'Receive ride updates and offers',
-            _pushNotifications,
-            (val) => setState(() => _pushNotifications = val),
-          ),
-          _buildSwitchTile(
-            Icons.email_outlined,
-            'Email Notifications',
-            'Receive updates via email',
-            _emailNotifications,
-            (val) => setState(() => _emailNotifications = val),
-          ),
-          _buildSwitchTile(
-            Icons.sms_outlined,
-            'SMS Notifications',
-            'Receive SMS alerts',
-            _smsNotifications,
-            (val) => setState(() => _smsNotifications = val),
-          ),
-          const SizedBox(height: 24),
-          const Text('Privacy & Security', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textGrey)),
-          const SizedBox(height: 12),
-          _buildSwitchTile(
-            Icons.location_on_outlined,
-            'Location Services',
-            'Allow app to access your location',
-            _locationServices,
-            (val) => setState(() => _locationServices = val),
-          ),
-          _buildSwitchTile(
-            Icons.analytics_outlined,
-            'Share Usage Data',
-            'Help improve app experience',
-            _shareData,
-            (val) => setState(() => _shareData = val),
-          ),
           _buildSettingTile(
             Icons.shield_outlined,
             'Privacy Policy',
@@ -111,46 +53,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'Terms & Conditions',
             'Read terms of service',
             () {},
-          ),
-          const SizedBox(height: 24),
-          const Text('App Preferences', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textGrey)),
-          const SizedBox(height: 12),
-          // Quick dark mode switch
-          _buildSwitchTile(
-            themeProv.isDark ? Icons.dark_mode : Icons.light_mode,
-            'Dark Mode',
-            themeProv.isDark ? 'Dark theme is on' : 'Light theme is on',
-            themeProv.isDark,
-            (val) => context.read<ThemeProvider>().toggleDark(val),
-          ),
-          _buildDropdownTile(
-            Icons.language_outlined,
-            'Language',
-            _language,
-            ['English', 'Hindi', 'Tamil', 'Telugu', 'Bengali'],
-            (val) => setState(() => _language = val!),
-          ),
-          _buildDropdownTile(
-            Icons.brightness_6_outlined,
-            'Theme',
-            themeLabel,
-            ['Light', 'Dark', 'System Default'],
-            (val) {
-              final m = val == 'Dark' ? ThemeMode.dark : (val == 'System Default' ? ThemeMode.system : ThemeMode.light);
-              context.read<ThemeProvider>().setMode(m);
-            },
-          ),
-          _buildSettingTile(
-            Icons.payment_outlined,
-            'Payment Methods',
-            'Manage saved payment methods',
-            () {},
-          ),
-          _buildSettingTile(
-            Icons.contacts_outlined,
-            'Emergency Contacts',
-            'Manage SOS contacts',
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmergencyContactsScreen())),
           ),
           const SizedBox(height: 24),
           const Text('About', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textGrey)),
@@ -220,76 +122,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         value: value,
         onChanged: onChanged,
         activeColor: AppTheme.primaryBlue,
-      ),
-    );
-  }
-
-  Widget _buildDropdownTile(IconData icon, String title, String value, List<String> items, Function(String?) onChanged) {
-    return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: AppTheme.primaryBlue.withAlpha(20),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(icon, color: AppTheme.primaryBlue, size: 22),
-      ),
-      title: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-      trailing: DropdownButton<String>(
-        value: value,
-        underline: const SizedBox(),
-        items: items.map((item) => DropdownMenuItem(value: item, child: Text(item))).toList(),
-        onChanged: onChanged,
-      ),
-    );
-  }
-
-  void _showChangePasswordDialog() {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Change Password'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: 'Current Password',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: 'New Password',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: 'Confirm New Password',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Password changed successfully')),
-              );
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue),
-            child: const Text('Change', style: TextStyle(color: Colors.white)),
-          ),
-        ],
       ),
     );
   }

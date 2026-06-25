@@ -63,21 +63,21 @@ flutter_launcher_icons:
   android: true
   ios: true
   remove_alpha_ios: true
-  image_path: "assets/images/applogo.png"
+  image_path: "assets/images/logo.png"
   min_sdk_android: 21
-  adaptive_icon_background: "#FFFFFF"
-  adaptive_icon_foreground: "assets/images/applogo.png"
+  adaptive_icon_background: "#020820"
+  adaptive_icon_foreground: "assets/images/logo.png"
 
 # Splash screen (run: dart run flutter_native_splash:create)
-# Uses splash.png (RGB conversion of splash.jpg). applogo is only the app icon.
+# Background matches the splash artwork's own dark-navy so it blends seamlessly.
 flutter_native_splash:
-  color: "#FFFFFF"
-  image: assets/images/splash.png
+  color: "#010920"
+  image: assets/images/splashscreen.png
   android_gravity: center
   ios_content_mode: center
   android_12:
-    color: "#FFFFFF"
-    image: assets/images/splash.png
+    color: "#010920"
+    image: assets/images/splashscreen.png
   fullscreen: true
 
 # For information on the generic Dart part of this file, see the
