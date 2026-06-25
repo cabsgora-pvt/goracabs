@@ -7,6 +7,7 @@ import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/payment_coupon_bar.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
 
@@ -28,6 +29,9 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   String _packageSize = 'S';
   bool _isFragile = false;
   bool _cod = false;
+  String _paymentMode = 'cash';
+  String _couponCode = '';
+  int _couponDiscount = 0;
   DateTime? _scheduledAt;   // null = deliver now
   final _itemValue = TextEditingController();
   final _codAmount = TextEditingController();
@@ -117,11 +121,12 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
 
   Future<void> _book() async {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
+    final num fare = (v['fare'] as num?) ?? 0;
     try {
       final res = await ApiService.bookRide({
         'pickupAddress': _pickupCtrl.text, 'dropAddress': _dropCtrl.text,
         'pickupLat': _pLat, 'pickupLng': _pLng, 'dropLat': _dLat ?? _pLat, 'dropLng': _dLng ?? _pLng,
-        'service': 'delivery', 'vehicleType': _selectedVehicle, 'fare': v['fare'] ?? 0,
+        'service': 'delivery', 'vehicleType': _selectedVehicle, 'fare': (fare - _couponDiscount).clamp(0, fare),
         'senderName': _senderName.text, 'senderPhone': _senderPhone.text,
         'receiverName': _receiverName.text, 'receiverPhone': _receiverPhone.text,
         'itemType': _itemType, 'weightKg': double.tryParse(_weight.text) ?? 0,
@@ -130,7 +135,9 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         'codAmount': _cod ? (double.tryParse(_codAmount.text) ?? 0) : 0,
         'parcelPhotos': _photoUrls,
         'scheduledAt': _scheduledAt?.toIso8601String(),
-        'paymentMode': _cod ? 'cod' : 'cash',
+        'paymentMode': _cod ? 'cod' : _paymentMode,
+        'couponCode': _couponCode,
+        'couponDiscount': _couponDiscount,
       });
       if (res['ride'] != null) { _rideId = res['ride']['id']?.toString(); _pickupOtp = res['ride']['otp']?.toString(); _dropOtp = res['ride']['dropOtp']?.toString(); }
     } catch (_) {}
@@ -439,10 +446,17 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           const SizedBox(height: 16),
         ])),
         Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Theme.of(context).cardColor, boxShadow: [BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, -2))]),
-          child: SafeArea(top: false, child: SizedBox(width: double.infinity, child: ElevatedButton(
+          child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
+            PaymentCouponBar(
+              baseFare: (_vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {})['fare'] as num?) ?? 0,
+              onChanged: (pm, cc, cd) => setState(() { _paymentMode = pm; _couponCode = cc; _couponDiscount = cd; }),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(width: double.infinity, child: ElevatedButton(
             onPressed: _formValid ? _showConfirm : null,
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue, padding: const EdgeInsets.symmetric(vertical: 16), disabledBackgroundColor: Colors.grey[300]),
-            child: const Text('Proceed to Book', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)))))),
+            child: const Text('Proceed to Book', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)))),
+          ]))),
       ]);
   }
 

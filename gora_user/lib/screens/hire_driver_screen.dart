@@ -4,6 +4,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../widgets/payment_coupon_bar.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
 
@@ -21,6 +22,9 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   DateTime? _startAt, _endAt;
   String _transmission = 'manual';
   String _tripType = 'one_way';   // one_way | round_trip
+  String _paymentMode = 'cash';
+  String _couponCode = '';
+  int _couponDiscount = 0;
   String? _selectedVehicle;
   List<Map<String, dynamic>> _vehicles = [];
   bool _loading = false;
@@ -101,17 +105,20 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
 
   Future<void> _book() async {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
+    final num fare = (v['fare'] as num?) ?? 0;
     try {
       final res = await ApiService.bookRide({
         'pickupAddress': _pickupCtrl.text, 'dropAddress': _dropCtrl.text,
         'pickupLat': _pickupLat, 'pickupLng': _pickupLng,
         'dropLat': _dropLat ?? _pickupLat, 'dropLng': _dropLng ?? _pickupLng,
         'service': 'hire_driver', 'vehicleType': _selectedVehicle,
-        'fare': v['fare'] ?? 0, 'hirePerHour': v['perHour'] ?? 0,
+        'fare': (fare - _couponDiscount).clamp(0, fare), 'hirePerHour': v['perHour'] ?? 0,
         'hireTotalHours': _totalHours, 'transmission': _transmission,
         'tripType': _tripType,
         'hireStartAt': _startAt?.toIso8601String(), 'hireEndAt': _endAt?.toIso8601String(),
-        'paymentMode': 'cash',
+        'paymentMode': _paymentMode,
+        'couponCode': _couponCode,
+        'couponDiscount': _couponDiscount,
       });
       if (res['ride'] != null) { _rideId = res['ride']['id']?.toString(); _rideOtp = res['ride']['otp']?.toString(); }
     } catch (_) {}
@@ -233,11 +240,18 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: Theme.of(context).cardColor, boxShadow: [BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, -2))]),
-      child: SafeArea(top: false, child: SizedBox(width: double.infinity, child: ElevatedButton(
+      child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
+        PaymentCouponBar(
+          baseFare: (v['fare'] as num?) ?? 0,
+          onChanged: (pm, cc, cd) => setState(() { _paymentMode = pm; _couponCode = cc; _couponDiscount = cd; }),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(width: double.infinity, child: ElevatedButton(
         onPressed: ready ? _showConfirm : null,
         style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 16), disabledBackgroundColor: Colors.grey[300]),
         child: Text(ready ? 'Book Driver · ₹${v['fare'] ?? ''}' : 'Select time & vehicle', style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w600)),
-      ))),
+      )),
+      ])),
     );
   }
 

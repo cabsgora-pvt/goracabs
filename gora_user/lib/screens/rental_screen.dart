@@ -9,6 +9,7 @@ import 'ride_history_screen.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
 import 'rental_booking_details_screen.dart';
+import '../widgets/payment_coupon_bar.dart';
 
 class RentalScreen extends StatefulWidget {
   const RentalScreen({super.key});
@@ -45,6 +46,11 @@ class _RentalScreenState extends State<RentalScreen> {
   // Packages grouped by vehicle name → list of {hours, km, basePrice, extraHourRate, extraKmRate, commissionPercent, etaMin}
   Map<String, List<Map<String, dynamic>>> _packagesByVehicle = {};
   Map<String, dynamic>? _selectedPackage; // the chosen package map
+
+  // ── Payment + coupon (UI-only) ──
+  String _paymentMode = 'cash';
+  String _couponCode = '';
+  int _couponDiscount = 0;
 
   // Live ride state
   String? _rideId;
@@ -162,6 +168,7 @@ class _RentalScreenState extends State<RentalScreen> {
       startAt = DateTime(_selectedDate!.year, _selectedDate!.month, _selectedDate!.day, t.hour, t.minute);
     }
     try {
+      final fare = _scaledPrice(p);         // hours × per-hour rate
       final res = await ApiService.bookRide({
         'pickupAddress': _pickupController.text,
         'dropAddress': _dropController.text,
@@ -170,13 +177,15 @@ class _RentalScreenState extends State<RentalScreen> {
         'dropLat': _dropLat ?? _pickupLat, 'dropLng': _dropLng ?? _pickupLng,
         'service': 'rental',
         'vehicleType': _selectedVehicle,
-        'fare': _scaledPrice(p),            // hours × per-hour rate
+        'fare': (fare - _couponDiscount).clamp(0, fare), // apply coupon, never negative
         'packageHours': _selectedHours,     // the hours the user actually picked
         'packageKm': _scaledKm(p),          // scaled included km
         'extraHourRate': p['extraHourRate'] ?? _hourlyRate(p),
         'extraKmRate': p['extraKmRate'] ?? 0,
         'departureAt': startAt?.toIso8601String(),
-        'paymentMode': 'cash',
+        'paymentMode': _paymentMode,
+        'couponCode': _couponCode,
+        'couponDiscount': _couponDiscount,
       });
       if (res['ride'] != null) {
         _rideId = res['ride']['id']?.toString();
@@ -612,21 +621,35 @@ class _RentalScreenState extends State<RentalScreen> {
               color: Theme.of(context).cardColor,
               boxShadow: [BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, -2))],
             ),
-            child: ElevatedButton(
-              onPressed: _selectedVehicle == null ? null : () {
-                _showBookingConfirmationDialog();
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Color(0xFF1C2656),
-                minimumSize: const Size(double.infinity, 50),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: Text(
-                _selectedVehicle == null 
-                    ? 'Select Vehicle' 
-                    : 'Book Package',
-                style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w600),
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                PaymentCouponBar(
+                  baseFare: _selectedPackage != null ? _scaledPrice(_selectedPackage!) : 0,
+                  onChanged: (pm, cc, cd) => setState(() {
+                    _paymentMode = pm;
+                    _couponCode = cc;
+                    _couponDiscount = cd;
+                  }),
+                ),
+                const SizedBox(height: 12),
+                ElevatedButton(
+                  onPressed: _selectedVehicle == null ? null : () {
+                    _showBookingConfirmationDialog();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFF1C2656),
+                    minimumSize: const Size(double.infinity, 50),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text(
+                    _selectedVehicle == null
+                        ? 'Select Vehicle'
+                        : 'Book Package',
+                    style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

@@ -7,6 +7,7 @@ import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../utils/polyline_utils.dart';
+import '../widgets/payment_coupon_bar.dart';
 import 'booking_screen.dart';
 import 'home_screen.dart';
 import 'outstation_screen.dart';
@@ -32,6 +33,10 @@ class TaxiBookingScreen extends StatefulWidget {
 
 class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   String? _selectedVehicle;
+  // ── Ola-style payment + coupon selection (UI only) ──
+  String _paymentMode = 'cash';
+  String _couponCode = '';
+  int _couponDiscount = 0;
   final _pickupController = TextEditingController();
   final _dropController = TextEditingController();
   bool _showLocationInputs = false;
@@ -519,12 +524,14 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         'dropLng': _selectedMapLocation.longitude,
         'service': 'taxi',
         'vehicleType': _selectedVehicle,
-        'fare': basePrice,
+        'fare': (basePrice - _couponDiscount).clamp(0, basePrice),
         'tip': tip,
         'distance': _rideDistance,
         'duration': _rideDuration,
         'stops': stops,
-        'paymentMode': 'cash',
+        'paymentMode': _paymentMode,
+        'couponCode': _couponCode,
+        'couponDiscount': _couponDiscount,
       });
       if (res['ride'] != null) {
         final r = res['ride'] as Map<String, dynamic>;
@@ -1779,6 +1786,20 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                         ),
                       );
                     }).toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  PaymentCouponBar(
+                    baseFare: int.tryParse(
+                            (selectedVehicleData['price'] as String).replaceAll('₹', '')) ??
+                        0,
+                    onChanged: (pm, cc, cd) {
+                      setDialogState(() {});
+                      setState(() {
+                        _paymentMode = pm;
+                        _couponCode = cc;
+                        _couponDiscount = cd;
+                      });
+                    },
                   ),
                   const SizedBox(height: 20),
                   Row(
