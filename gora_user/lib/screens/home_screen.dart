@@ -213,59 +213,73 @@ class _HomeScreenState extends State<HomeScreen> {
       case 0:
         return _buildHomePage();
       case 1:
-        return const ServiceSelectionScreen();
-      case 2:
         return const RideHistoryScreen();
-      case 3:
+      case 2:
         return _buildProfilePage();
       default:
         return _buildHomePage();
     }
   }
 
+  // Custom bottom nav: 3 tabs with a sliding coloured capsule behind the active one.
   Widget _buildBottomNavBar() {
+    const items = [
+      (Icons.home_rounded, 'Home'),
+      (Icons.receipt_long_rounded, 'Trips'),
+      (Icons.person_rounded, 'Profile'),
+    ];
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final capsule = dark ? const Color(0xFF5A6CB8) : const Color(0xFF1C2656);
+    final inactive = dark ? Colors.white60 : Colors.grey[500]!;
     return Container(
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withAlpha(20),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          )
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 12, offset: const Offset(0, -2))],
       ),
-      child: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        type: BottomNavigationBarType.fixed,
-        selectedItemColor: AppTheme.primaryBlue,
-        unselectedItemColor: Colors.grey,
-        selectedFontSize: 12,
-        unselectedFontSize: 12,
-        elevation: 0,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.grid_view_outlined),
-            activeIcon: Icon(Icons.grid_view),
-            label: 'Services',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.history),
-            activeIcon: Icon(Icons.history),
-            label: 'Trip Details',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+          child: LayoutBuilder(builder: (context, constraints) {
+            final itemW = constraints.maxWidth / items.length;
+            const h = 46.0;
+            return SizedBox(
+              height: h,
+              child: Stack(alignment: Alignment.center, children: [
+                // Sliding capsule (slightly inset from item edges)
+                AnimatedAlign(
+                  duration: const Duration(milliseconds: 280),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment(items.length == 1 ? 0 : (_currentIndex / (items.length - 1)) * 2 - 1, 0),
+                  child: Container(
+                    width: itemW - 12,
+                    height: h,
+                    decoration: BoxDecoration(color: capsule, borderRadius: BorderRadius.circular(h / 2)),
+                  ),
+                ),
+                // Tab items
+                Row(children: List.generate(items.length, (i) {
+                  final sel = _currentIndex == i;
+                  return Expanded(child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => setState(() => _currentIndex = i),
+                    child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      Icon(items[i].$1, size: 21, color: sel ? Colors.white : inactive),
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOut,
+                        child: sel
+                          ? Padding(padding: const EdgeInsets.only(left: 7),
+                              child: Text(items[i].$2, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 12.5)))
+                          : const SizedBox.shrink(),
+                      ),
+                    ]),
+                  ));
+                })),
+              ]),
+            );
+          }),
+        ),
       ),
     );
   }
@@ -399,7 +413,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         const Text('Our Services', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                         GestureDetector(
-                          onTap: () => setState(() => _currentIndex = 1),
+                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ServiceSelectionScreen())),
                           child: const Text('View All', style: TextStyle(fontSize: 14, color: AppTheme.primaryBlue, fontWeight: FontWeight.w600)),
                         ),
                       ],
