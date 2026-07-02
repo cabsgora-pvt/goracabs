@@ -28,6 +28,13 @@ const DriverSchema = new Schema({
   totalRides: { type: Number, default: 0 },
   totalEarnings: { type: Number, default: 0 },
   walletBalance: { type: Number, default: 0 },
+  // ── Subscription (Rapido-style pass; overrides ride commission while active) ──
+  subscriptionActive: { type: Boolean, default: false },
+  subscriptionPlanId: { type: Schema.Types.ObjectId, ref: 'SubscriptionPlan' },
+  subscriptionPlanName: { type: String, default: '' },
+  subscriptionStartedAt: Date,
+  subscriptionExpiresAt: Date,
+  subscriptionCommissionPercent: { type: Number, default: 0 }, // commission while subscribed (usually 0)
   documents: [DocumentSchema],
   fcmToken: String,
   currentLat: Number,

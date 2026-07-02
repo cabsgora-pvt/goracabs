@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
 import Ride from '@/models/Ride'
+import DriverSubscription from '@/models/DriverSubscription'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -9,7 +10,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const driver = await Driver.findById(params.id).lean()
     if (!driver) return NextResponse.json({ error: 'Driver not found' }, { status: 404 })
     const recentRides = await Ride.find({ driverId: params.id }).sort({ createdAt: -1 }).limit(10).lean()
-    return NextResponse.json({ driver, recentRides })
+    const subscriptions = await DriverSubscription.find({ driverId: params.id }).sort({ createdAt: -1 }).limit(10).lean()
+    return NextResponse.json({ driver, recentRides, subscriptions })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

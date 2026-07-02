@@ -8,7 +8,7 @@ import { Toast } from '@/components/ui/toast'
 import {
   ArrowLeft, Phone, Car, Star, TrendingUp, DollarSign,
   CheckCircle, XCircle, Mail, MapPin, CreditCard, FileText,
-  Trash2, Ban,
+  Trash2, Ban, CalendarClock,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -16,6 +16,7 @@ export default function DriverDetailPage() {
   const { id } = useParams()
   const [driver, setDriver] = useState<any>(null)
   const [recentRides, setRecentRides] = useState<any[]>([])
+  const [subs, setSubs] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [rejectModal, setRejectModal] = useState(false)
@@ -26,7 +27,7 @@ export default function DriverDetailPage() {
   const fetchDriver = () => {
     fetch(`/api/drivers/${id}`)
       .then(r => r.json())
-      .then(d => { setDriver(d.driver); setRecentRides(d.recentRides || []); setLoading(false) })
+      .then(d => { setDriver(d.driver); setRecentRides(d.recentRides || []); setSubs(d.subscriptions || []); setLoading(false) })
       .catch(() => setLoading(false))
   }
 
@@ -248,6 +249,66 @@ export default function DriverDetailPage() {
                 </div>
               </div>
             )}
+
+            {/* Subscription */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+              <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <CalendarClock className="w-4 h-4" /> Subscription
+              </h3>
+
+              {/* Current status */}
+              {driver.subscriptionActive ? (
+                <div className="rounded-lg border border-green-200 bg-green-50 p-4 mb-4">
+                  <p className="text-sm font-semibold text-green-800">Active: {driver.subscriptionPlanName || '—'}</p>
+                  <p className="text-xs text-green-700 mt-1">
+                    Expires: {driver.subscriptionExpiresAt ? new Date(driver.subscriptionExpiresAt).toLocaleDateString() : '—'}
+                  </p>
+                  <p className="text-xs text-green-700 mt-1">
+                    Commission while active: {driver.subscriptionCommissionPercent ?? 0}%
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 mb-4">
+                  <p className="text-sm text-gray-600">No active subscription — pays normal commission</p>
+                </div>
+              )}
+
+              {/* Recent plans */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100">
+                      {['Plan', 'Price', 'Duration', 'Started', 'Expires', 'Status'].map(h => (
+                        <th key={h} className="text-left text-xs text-gray-500 font-semibold pb-3">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {subs.map((s: any, i: number) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className="py-2.5 text-gray-700">{s.planName || '—'}</td>
+                        <td className="py-2.5 font-medium">₹{(s.price || 0).toLocaleString()}</td>
+                        <td className="py-2.5 text-gray-500 text-xs">{s.durationDays ?? '—'} days</td>
+                        <td className="py-2.5 text-gray-500 text-xs">{s.startedAt ? new Date(s.startedAt).toLocaleDateString() : '—'}</td>
+                        <td className="py-2.5 text-gray-500 text-xs">{s.expiresAt ? new Date(s.expiresAt).toLocaleDateString() : '—'}</td>
+                        <td className="py-2.5">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                            s.status === 'active' ? 'bg-green-100 text-green-700'
+                              : s.status === 'cancelled' ? 'bg-red-100 text-red-600'
+                              : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {s.status || 'expired'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    {subs.length === 0 && (
+                      <tr><td colSpan={6} className="text-center text-gray-400 py-8">No subscription history</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
             {/* Documents */}
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">

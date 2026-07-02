@@ -17,22 +17,35 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!ride) return withCors({ error: 'Ride not found' }, 404)
     if (ride.status === 'completed') return withCors({ error: 'Already completed' }, 400)
 
-    // Get commission % for this zone + vehicle + service (prefer value stored at booking)
-    let commissionPercent = ride.commissionPercent != null ? ride.commissionPercent : 20
-    if (ride.commissionPercent == null) {
-      const zone: any = await Zone.findById(ride.zoneId).lean()
-      if (zone?.pricing) {
-        const p = zone.pricing.find((x: any) => x.vehicleTypeName === ride.vehicleType && x.service === ride.service)
-        if (p?.commissionPercent != null) commissionPercent = p.commissionPercent
+    const driver: any = await Driver.findById(ride.driverId)
+
+    // Subscribed drivers pay a reduced/zero commission (Rapido-style pass)
+    const subscribed = !!(driver && driver.subscriptionActive && driver.subscriptionExpiresAt
+      && new Date(driver.subscriptionExpiresAt).getTime() > Date.now())
+
+    // Commission % — subscription overrides the zone/booking commission
+    let commissionPercent: number
+    if (subscribed) {
+      commissionPercent = driver.subscriptionCommissionPercent || 0
+    } else {
+      commissionPercent = ride.commissionPercent != null ? ride.commissionPercent : 20
+      if (ride.commissionPercent == null) {
+        const zone: any = await Zone.findById(ride.zoneId).lean()
+        if (zone?.pricing) {
+          const p = zone.pricing.find((x: any) => x.vehicleTypeName === ride.vehicleType && x.service === ride.service)
+          if (p?.commissionPercent != null) commissionPercent = p.commissionPercent
+        }
       }
     }
 
-    // Use totalFare (fare + tip) as the base if present, plus any multi-stop waiting charge
+    // Tip is 100% the driver's — commission applies only to the fare (+ multi-stop waiting charge)
     const waiting = ride.waitingChargeTotal || 0
-    const fare = (ride.totalFare != null ? ride.totalFare : (ride.fare || 0)) + waiting
-    if (waiting > 0) ride.totalFare = fare   // persist the waiting-inclusive total
-    const commission = Math.round((fare * commissionPercent) / 100)  // admin profit
-    const driverEarning = fare - commission
+    const tip = ride.tip || 0
+    const baseFare = (ride.fare || 0) + waiting     // commissionable amount (excludes tip)
+    const fare = baseFare + tip                     // full amount (for records / response)
+    ride.totalFare = fare
+    const commission = Math.round((baseFare * commissionPercent) / 100)  // admin profit
+    const driverEarning = (baseFare - commission) + tip                  // driver keeps the full tip
 
     ride.status = 'completed'
     ride.completedAt = new Date()
@@ -42,7 +55,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ride.driverEarning = driverEarning
     await ride.save()
 
-    const driver: any = await Driver.findById(ride.driverId)
     if (driver) {
       driver.totalRides = (driver.totalRides || 0) + 1
       driver.totalEarnings = (driver.totalEarnings || 0) + driverEarning

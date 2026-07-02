@@ -8,5 +8,7 @@ const SettingsSchema = new Schema({
   mail: { type: Schema.Types.Mixed, default: {} },
   firebase: { type: Schema.Types.Mixed, default: {} },
   services: { type: Schema.Types.Mixed, default: {} },
+  // Driver-app rules: { walletBlockEnabled, maxNegativeWallet }
+  driverApp: { type: Schema.Types.Mixed, default: {} },
 }, { timestamps: true })
 export default mongoose.models.Settings || mongoose.model('Settings', SettingsSchema)

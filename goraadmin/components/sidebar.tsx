@@ -90,6 +90,7 @@ const navItems: NavItem[] = [
     label: 'Settings', icon: Settings,
     children: [
       { label: 'User App', href: '/settings/user-app', icon: Smartphone },
+      { label: 'Driver App', href: '/settings/driver-app', icon: Car },
       { label: 'General', href: '/settings/general', icon: Settings },
       { label: 'Payment', href: '/settings/payment', icon: CreditCard },
       { label: 'Maps', href: '/settings/maps', icon: Map },

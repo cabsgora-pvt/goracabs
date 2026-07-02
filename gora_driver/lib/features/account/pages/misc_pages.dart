@@ -5,6 +5,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../mock/mock_data.dart';
 import '../../../providers/driver_provider.dart';
+import '../../../services/driver_api_service.dart';
 
 // ── QR Code Page ─────────────────────────────────────
 class QrCodePage extends StatelessWidget {
@@ -357,65 +358,196 @@ class _AdminChatPageState extends State<AdminChatPage> {
 class _Msg { final String text; final bool isMe; const _Msg(this.text, this.isMe); }
 
 // ── Subscription Page ─────────────────────────────────
-class SubscriptionPage extends StatelessWidget {
+class SubscriptionPage extends StatefulWidget {
   static const route = '/subscription';
   const SubscriptionPage({super.key});
+  @override
+  State<SubscriptionPage> createState() => _SubscriptionPageState();
+}
+
+class _SubscriptionPageState extends State<SubscriptionPage> {
+  bool _loading = true;
+  bool _busy = false;
+  Map<String, dynamic> _current = {};
+  List<Map<String, dynamic>> _plans = [];
+  List<Map<String, dynamic>> _history = [];
+  num _wallet = 0;
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final r = await DriverApiService.getSubscription();
+      if (!mounted) return;
+      setState(() {
+        _current = (r['current'] as Map?)?.cast<String, dynamic>() ?? {};
+        _plans = ((r['plans'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        _history = ((r['history'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+        _wallet = (r['walletBalance'] as num?) ?? 0;
+        _loading = false;
+      });
+    } catch (_) { if (mounted) setState(() => _loading = false); }
+  }
+
+  String _fmtDate(dynamic iso) {
+    if (iso == null) return '';
+    final d = DateTime.tryParse(iso.toString())?.toLocal();
+    if (d == null) return '';
+    const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return '${d.day} ${m[d.month-1]} ${d.year}';
+  }
+
+  Future<void> _buy(Map<String, dynamic> plan) async {
+    final price = (plan['price'] as num?) ?? 0;
+    final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: Text('Buy ${plan['name']}?'),
+      content: Text('₹${price.toStringAsFixed(0)} will be deducted from your wallet (₹${_wallet.toStringAsFixed(0)}).'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+        ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text('Confirm')),
+      ],
+    ));
+    if (ok != true) return;
+    setState(() => _busy = true);
+    final r = await DriverApiService.buySubscription(plan['_id'].toString());
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (r['success'] == true) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Subscription activated!'), backgroundColor: AppColors.green));
+      _load();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r['error']?.toString() ?? 'Failed'), backgroundColor: AppColors.red));
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: blueAppBar('Subscription'),
     backgroundColor: AppColors.cardBg,
-    body: SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(children: [
-        Container(
-          padding: const EdgeInsets.all(20), width: double.infinity,
-          decoration: BoxDecoration(gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]), borderRadius: BorderRadius.circular(20)),
-          child: Column(children: [
-            const Icon(Icons.workspace_premium, color: Colors.white, size: 40),
-            const SizedBox(height: 8),
-            const Text('Choose Your Plan', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
-            const Text('Unlock unlimited rides', style: TextStyle(color: Colors.white70, fontSize: 13)),
+    body: _loading
+      ? const Center(child: CircularProgressIndicator())
+      : RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(padding: const EdgeInsets.all(16), children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.all(20), width: double.infinity,
+              decoration: BoxDecoration(gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]), borderRadius: BorderRadius.circular(20)),
+              child: Column(children: [
+                const Icon(Icons.workspace_premium, color: Colors.white, size: 40),
+                const SizedBox(height: 8),
+                const Text('Membership', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
+                const Text('Subscribe & pay zero commission', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(20)),
+                  child: Text('Wallet: ₹${_wallet.toStringAsFixed(0)}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
+                ),
+              ]),
+            ),
+            const SizedBox(height: 16),
+            // Current active plan / no-plan notice
+            if (_current['active'] == true) ...[
+              Container(
+                padding: const EdgeInsets.all(16), width: double.infinity,
+                decoration: BoxDecoration(color: AppColors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.green)),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    const Icon(Icons.verified, color: AppColors.green, size: 20), const SizedBox(width: 8),
+                    Expanded(child: Text('Active: ${_current['planName'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.textDark, fontSize: 15))),
+                  ]),
+                  const SizedBox(height: 6),
+                  Text('Valid till ${_fmtDate(_current['expiresAt'])}', style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                  Text('Commission while active: ${_current['commissionPercent'] ?? 0}%', style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                ]),
+              ),
+              const SizedBox(height: 16),
+            ] else ...[
+              Container(
+                padding: const EdgeInsets.all(14), width: double.infinity,
+                decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.orange.withOpacity(0.4))),
+                child: const Text('No active plan — you pay normal commission per ride. Subscribe to keep more of your earnings.',
+                  style: TextStyle(color: AppColors.textDark, fontSize: 12.5, fontWeight: FontWeight.w600)),
+              ),
+              const SizedBox(height: 16),
+            ],
+            // Plans
+            const Text('Available Plans', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+            const SizedBox(height: 10),
+            if (_plans.isEmpty)
+              const Padding(padding: EdgeInsets.all(20), child: Center(child: Text('No plans available right now', style: TextStyle(color: AppColors.textGrey))))
+            else
+              ..._plans.map(_planCard),
+            // History
+            if (_history.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              const Text('Recent Plans', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+              const SizedBox(height: 8),
+              ..._history.map((h) => Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(12)),
+                child: Row(children: [
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(h['planName']?.toString() ?? 'Plan', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textDark)),
+                    Text('${_fmtDate(h['startedAt'])} → ${_fmtDate(h['expiresAt'])}', style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                  ])),
+                  Text('₹${(h['price'] as num?)?.toStringAsFixed(0) ?? '0'}', style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                  const SizedBox(width: 8),
+                  _statusChip(h['status']?.toString() ?? ''),
+                ]),
+              )),
+            ],
+            const SizedBox(height: 20),
           ]),
         ),
-        const SizedBox(height: 16),
-        _planCard(context, 'Weekly', '₹ 199', '7 days', ['Unlimited rides', 'Priority support'], false),
-        const SizedBox(height: 10),
-        _planCard(context, 'Monthly', '₹ 599', '30 days', ['Unlimited rides', 'Priority support', '20% bonus rides'], true),
-        const SizedBox(height: 10),
-        _planCard(context, 'Quarterly', '₹ 1,499', '90 days', ['Unlimited rides', 'Priority support', '30% bonus rides', 'Gold badge'], false),
-      ]),
-    ),
   );
 
-  Widget _planCard(BuildContext context, String name, String price, String duration, List<String> features, bool popular) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: popular ? AppColors.primary.withOpacity(0.05) : AppColors.white,
-      borderRadius: BorderRadius.circular(16),
-      border: popular ? Border.all(color: AppColors.primary, width: 1.5) : null,
-      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)],
-    ),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(children: [
-        Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textDark)),
-        if (popular) ...[
-          const SizedBox(width: 8),
-          Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3), decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(6)), child: const Text('POPULAR', style: TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700))),
+  Widget _statusChip(String s) {
+    final Color c = s == 'active' ? AppColors.green : (s == 'cancelled' ? AppColors.red : AppColors.textGrey);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: c.withOpacity(0.12), borderRadius: BorderRadius.circular(20)),
+      child: Text(s.isEmpty ? '—' : s, style: TextStyle(color: c, fontSize: 10, fontWeight: FontWeight.w700)),
+    );
+  }
+
+  Widget _planCard(Map<String, dynamic> plan) {
+    final benefits = ((plan['benefits'] as List?) ?? []).map((e) => e.toString()).toList();
+    final price = (plan['price'] as num?) ?? 0;
+    final days = (plan['durationDays'] as num?)?.toInt() ?? 0;
+    final comm = (plan['commissionPercentWhileActive'] as num?) ?? 0;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.white, borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)],
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(plan['name']?.toString() ?? 'Plan', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textDark))),
+          Text('₹${price.toStringAsFixed(0)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.primary)),
+        ]),
+        Text('$days days • ${comm == 0 ? 'Zero commission' : '$comm% commission'}', style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
+        if ((plan['description']?.toString() ?? '').isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Text(plan['description'].toString(), style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
         ],
-        const Spacer(),
-        Text(price, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.primary)),
+        const SizedBox(height: 10),
+        ...benefits.map((f) => Padding(padding: const EdgeInsets.only(bottom: 4), child: Row(children: [
+          const Icon(Icons.check_circle, color: AppColors.green, size: 16),
+          const SizedBox(width: 6),
+          Expanded(child: Text(f, style: const TextStyle(fontSize: 13, color: AppColors.textDark))),
+        ]))),
+        const SizedBox(height: 12),
+        PrimaryButton(label: 'Subscribe Now', loading: _busy, onTap: () => _buy(plan)),
       ]),
-      Text(duration, style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
-      const SizedBox(height: 10),
-      ...features.map((f) => Padding(padding: const EdgeInsets.only(bottom: 4), child: Row(children: [
-        const Icon(Icons.check_circle, color: AppColors.green, size: 16),
-        const SizedBox(width: 6),
-        Text(f, style: const TextStyle(fontSize: 13, color: AppColors.textDark)),
-      ]))),
-      const SizedBox(height: 12),
-      PrimaryButton(label: 'Subscribe Now', onTap: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Subscribed successfully!'), backgroundColor: AppColors.green))),
-    ]),
-  );
+    );
+  }
 }
 
 // ── Vehicle Info Page ─────────────────────────────────

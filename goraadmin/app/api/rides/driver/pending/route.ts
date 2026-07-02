@@ -4,6 +4,7 @@ import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
 import User from '@/models/User'
+import Settings from '@/models/Settings'
 import { requireDriverAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 
@@ -19,6 +20,20 @@ export async function GET(req: NextRequest) {
     await connectDB()
     const driver: any = await Driver.findById(payload.id).lean()
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
+
+    // Ola-style block: if the driver's wallet is too far negative (unpaid cash
+    // commission), stop sending ride requests until they recharge.
+    const settings: any = await Settings.findOne({ key: 'global' }).lean()
+    const da = settings?.driverApp || {}
+    const blockEnabled = da.walletBlockEnabled !== false
+    const maxNeg = Math.abs(Number(da.maxNegativeWallet ?? 500))
+    if (blockEnabled && (driver.walletBalance || 0) < -maxNeg) {
+      return withCors({
+        rides: [],
+        walletBlocked: true,
+        reason: `Low wallet balance (₹${Math.round(driver.walletBalance || 0)}). Please recharge to receive ride requests.`,
+      })
+    }
 
     const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000)
     const driverId = String(driver._id)

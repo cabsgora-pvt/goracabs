@@ -164,6 +164,14 @@ class DriverApiService {
   static Future<Map<String, dynamic>> getTripHistory() =>
       get('/rides/driver/history');
 
+  // ── Subscription (membership) ─────────────────────────────
+  // { current, history, plans, walletBalance }
+  static Future<Map<String, dynamic>> getSubscription() =>
+      get('/auth/driver/subscription');
+
+  static Future<Map<String, dynamic>> buySubscription(String planId) =>
+      post('/auth/driver/subscription/buy', {'planId': planId}, auth: true);
+
   // Outstation phase / distance / night-halt update
   static Future<Map<String, dynamic>> updatePhase(String rideId, Map<String, dynamic> body) =>
       post('/rides/$rideId/phase', body, auth: true);
