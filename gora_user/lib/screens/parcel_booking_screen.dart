@@ -32,6 +32,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   bool _isFragile = false;
   bool _cod = false;
   String _paymentMode = 'cash';
+  num _payableFare = 0;
   String _couponCode = '';
   int _couponDiscount = 0;
   DateTime? _scheduledAt;   // null = deliver now
@@ -124,10 +125,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   Future<void> _book() async {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
     final num fare = (v['fare'] as num?) ?? 0;
-    final _payMethod = _cod ? 'cash' : _paymentMode;
-    final _paid = await PaymentService.charge(context, method: _payMethod, amount: (fare - _couponDiscount).clamp(0, fare));
-    if (!mounted) return;
-    if (!_paid) { setState(() => _loading = false); return; }
+    _payableFare = (fare - _couponDiscount).clamp(0, fare);
     try {
       final res = await ApiService.bookRide({
         'pickupAddress': _pickupCtrl.text, 'dropAddress': _dropCtrl.text,
@@ -172,6 +170,8 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           if (_locPoll == null) _startDriverLocation();
           if (Navigator.canPop(context)) { Navigator.pop(context); _showAssigned(); }
         } else if (status == 'completed') {
+          await PaymentService.charge(context, method: _cod ? 'cash' : _paymentMode, amount: _payableFare, rideId: _rideId);
+          if (!mounted) return;
           t.cancel(); if (!mounted) return;
           Navigator.of(context, rootNavigator: true).popUntil((r) => r.isFirst);
           Navigator.push(context, MaterialPageRoute(builder: (_) => RatingScreen(driverName: _driverName, vehicleName: _selectedVehicle ?? 'Delivery', selectedTip: 0, rideId: _rideId)));

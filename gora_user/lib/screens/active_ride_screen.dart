@@ -4,6 +4,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
+import '../services/payment_service.dart';
 import '../theme/app_theme.dart';
 import 'rating_screen.dart';
 
@@ -36,6 +37,15 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
       final status = (r['status'] ?? '').toString();
       if (status == 'completed') {
         _statusPoll?.cancel(); _locPoll?.cancel();
+        // Charge the fare at ride finish (outstation is prepaid at booking, skip it).
+        final svc = (r['service'] ?? '').toString();
+        if (svc != 'outstation') {
+          var method = (r['paymentMode'] ?? 'cash').toString();
+          if (method == 'cod') method = 'cash';
+          final fare = (r['fare'] as num?) ?? 0;
+          await PaymentService.charge(context, method: method, amount: fare, rideId: widget.rideId);
+          if (!mounted) return;
+        }
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => RatingScreen(
           driverName: (r['driverName'] ?? 'Driver').toString(), vehicleName: (r['vehicleType'] ?? '').toString(), selectedTip: 0, rideId: widget.rideId)));
         return;

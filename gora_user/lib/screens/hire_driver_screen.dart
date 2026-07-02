@@ -25,6 +25,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   String _transmission = 'manual';
   String _tripType = 'one_way';   // one_way | round_trip
   String _paymentMode = 'cash';
+  num _payableFare = 0;
   String _couponCode = '';
   int _couponDiscount = 0;
   String? _selectedVehicle;
@@ -108,10 +109,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   Future<void> _book() async {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
     final num fare = (v['fare'] as num?) ?? 0;
-    final num payable = (fare - _couponDiscount).clamp(0, fare);
-    final _paid = await PaymentService.charge(context, method: _paymentMode, amount: payable);
-    if (!mounted) return;
-    if (!_paid) return;
+    _payableFare = (fare - _couponDiscount).clamp(0, fare);
     try {
       final res = await ApiService.bookRide({
         'pickupAddress': _pickupCtrl.text, 'dropAddress': _dropCtrl.text,
@@ -155,6 +153,8 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
         if (status == 'accepted' || status == 'arrived' || status == 'ongoing') {
           if (Navigator.canPop(context)) { Navigator.pop(context); _showAssigned(); }
         } else if (status == 'completed') {
+          await PaymentService.charge(context, method: _paymentMode, amount: _payableFare, rideId: _rideId);
+          if (!mounted) return;
           t.cancel(); if (!mounted) return;
           Navigator.of(context, rootNavigator: true).popUntil((r) => r.isFirst);
           _showFinalBill(ride);

@@ -37,6 +37,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   String? _selectedVehicle;
   // ── Ola-style payment + coupon selection (UI only) ──
   String _paymentMode = 'cash';
+  num _payableFare = 0;
   String _couponCode = '';
   int _couponDiscount = 0;
   final _pickupController = TextEditingController();
@@ -516,12 +517,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     final basePrice = int.tryParse((selectedVehicleData['price'] as String).replaceAll('₹', '')) ?? 0;
     final tip = _selectedTip ?? 0;
     final stops = await _resolveStops();
-    // Charge the user the payable fare (after coupon) via their selected method
-    // before the ride is booked. cash → immediate, wallet → deduct, online → Razorpay.
-    final _paid = await PaymentService.charge(context, method: _paymentMode,
-        amount: (basePrice - _couponDiscount).clamp(0, basePrice));
-    if (!mounted) return;
-    if (!_paid) return;
+    _payableFare = (basePrice - _couponDiscount).clamp(0, basePrice);
     try {
       final res = await ApiService.bookRide({
         'pickupAddress': _pickupController.text,
@@ -1933,7 +1929,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
       barrierColor: Colors.transparent, // Don't dim the map
       builder: (BuildContext context) {
         // Poll backend: when ride starts switch to full trip map; when completed show summary
-        _startStatusPolling((status, ride) {
+        _startStatusPolling((status, ride) async {
           if (status == 'ongoing') {
             if (!_showFullTripMap && mounted) {
               setState(() {
@@ -1942,6 +1938,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
               });
             }
           } else if (status == 'completed') {
+            await PaymentService.charge(context, method: _paymentMode, amount: _payableFare, rideId: _rideId);
+            if (!mounted) return;
             if (Navigator.canPop(context)) {
               Navigator.of(context).pop();
             }

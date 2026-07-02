@@ -51,6 +51,7 @@ class _RentalScreenState extends State<RentalScreen> {
 
   // ── Payment + coupon (UI-only) ──
   String _paymentMode = 'cash';
+  num _payableFare = 0;
   String _couponCode = '';
   int _couponDiscount = 0;
 
@@ -171,9 +172,7 @@ class _RentalScreenState extends State<RentalScreen> {
     }
     try {
       final fare = _scaledPrice(p);         // hours × per-hour rate
-      final _paid = await PaymentService.charge(context, method: _paymentMode, amount: (fare - _couponDiscount).clamp(0, fare));
-      if (!mounted) return;
-      if (!_paid) { setState(() => _isSearching = false); return; }
+      _payableFare = (fare - _couponDiscount).clamp(0, fare);
       final res = await ApiService.bookRide({
         'pickupAddress': _pickupController.text,
         'dropAddress': _dropController.text,
@@ -227,6 +226,8 @@ class _RentalScreenState extends State<RentalScreen> {
         _dialogSetState?.call(() {}); // refresh the assigned dialog live
         // Completion → show final bill, then rating
         if (status == 'completed') {
+          await PaymentService.charge(this.context, method: _paymentMode, amount: _payableFare, rideId: _rideId);
+          if (!mounted) return;
           t.cancel(); _pollTimer = null;
           if (!mounted) return;
           Navigator.of(this.context, rootNavigator: true).popUntil((r) => r.isFirst);
