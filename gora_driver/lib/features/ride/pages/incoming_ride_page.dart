@@ -255,6 +255,9 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
               const SizedBox(width: 12),
               Expanded(child: _rideStatCard(Icons.timer, r.eta, 'ETA')),
             ]),
+            const SizedBox(height: 12),
+            // Payment method — tells the driver whether to collect cash or not
+            _paymentBanner(r),
             const SizedBox(height: 24),
             // Buttons
             Row(children: [
@@ -310,6 +313,47 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
         Text(address, style: const TextStyle(fontSize: 13, color: AppColors.textDark, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
       ])),
     ]);
+  }
+
+  // Payment method banner: green = collect cash, purple/blue = already paid digitally.
+  Widget _paymentBanner(RideRequestModel r) {
+    final mode = r.paymentMode;
+    final amt = (r.totalFareValue > 0 ? r.totalFareValue : r.baseFare).toStringAsFixed(0);
+    Color color; IconData icon; String title; String sub;
+    if (mode == 'online') {
+      color = AppColors.primary; icon = Icons.credit_card;
+      title = 'Paid Online'; sub = 'No cash to collect';
+    } else if (mode == 'wallet') {
+      color = Colors.deepPurple; icon = Icons.account_balance_wallet;
+      title = 'Gora Wallet'; sub = 'No cash to collect';
+    } else {
+      color = AppColors.green; icon = Icons.payments;
+      title = 'Cash Payment'; sub = 'Collect ₹$amt from rider';
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Row(children: [
+        Icon(icon, color: color, size: 22),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 14)),
+          Text(sub, style: const TextStyle(color: AppColors.textGrey, fontSize: 11, fontWeight: FontWeight.w600)),
+        ])),
+        if (r.tipAmount > 0)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(color: AppColors.green.withOpacity(0.15), borderRadius: BorderRadius.circular(20)),
+            child: Text('Tip ₹${r.tipAmount.toStringAsFixed(0)}',
+              style: const TextStyle(color: AppColors.green, fontWeight: FontWeight.w800, fontSize: 12)),
+          ),
+      ]),
+    );
   }
 
   Widget _rideStatCard(IconData icon, String value, String label) {

@@ -328,6 +328,15 @@ class _RidePollerState extends State<_RidePoller> {
         codAmount: (r['codAmount'] as num?)?.toDouble() ?? 0,
         parcelPhotos: ((r['parcelPhotos'] as List?) ?? []).map((e) => e.toString()).toList(),
         stops: ((r['stops'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+        paymentMode: (r['paymentMode'] ?? 'cash').toString(),
+        baseFare: (fare as num?) ?? 0,
+        tipAmount: (tip as num?) ?? 0,
+        totalFareValue: (total as num?) ?? 0,
+        distanceKm: (r['distance'] as num?) ?? 0,
+        durationMin: (r['duration'] as num?)?.toInt() ?? 0,
+        routePolyline: (r['routePolyline'] ?? '').toString(),
+        hireStartAt: (r['hireStartAt'] ?? '').toString(),
+        hireEndAt: (r['hireEndAt'] ?? '').toString(),
       );
       if (!mounted) return;
       _navigating = true;

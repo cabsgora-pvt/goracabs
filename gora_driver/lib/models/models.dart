@@ -40,6 +40,16 @@ class RideRequestModel {
   final List<String> parcelPhotos;
   // Multi-stop (in-city A→B→C)
   final List<Map<String, dynamic>> stops;
+  // Payment + fare details (numeric, for display)
+  final String paymentMode;      // 'cash' | 'wallet' | 'online'
+  final num baseFare;            // fare before tip
+  final num tipAmount;           // tip added by rider
+  final num totalFareValue;      // fare + tip (numeric)
+  final num distanceKm;          // road distance (km, numeric)
+  final int durationMin;         // road duration (min)
+  final String routePolyline;    // encoded polyline (pickup→drop)
+  // Hire schedule (start/end ISO strings)
+  final String hireStartAt, hireEndAt;
 
   const RideRequestModel({
     required this.id, required this.userName, required this.userPhone, required this.userRating,
@@ -47,6 +57,15 @@ class RideRequestModel {
     required this.fare, required this.eta, required this.rideType,
     required this.pickupLat, required this.pickupLng, required this.dropLat, required this.dropLng,
     this.userProfilePicUrl = '',
+    this.paymentMode = 'cash',
+    this.baseFare = 0,
+    this.tipAmount = 0,
+    this.totalFareValue = 0,
+    this.distanceKm = 0,
+    this.durationMin = 0,
+    this.routePolyline = '',
+    this.hireStartAt = '',
+    this.hireEndAt = '',
     this.service = 'taxi',
     this.tripType = 'one_way',
     this.cityFrom = '',
