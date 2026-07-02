@@ -1,8 +1,11 @@
 'use client'
 import { useEffect, useState } from 'react'
 
-const TABS = ['Subscription Plans', 'Wallet Rules'] as const
+const TABS = ['Subscription Plans', 'Ringtones', 'Wallet Rules'] as const
 const SERVICES = ['taxi', 'rental', 'outstation', 'delivery', 'hire_driver']
+const SERVICE_LABEL: Record<string, string> = {
+  taxi: 'Taxi', rental: 'Rental', outstation: 'Outstation', delivery: 'Parcel', hire_driver: 'Hire Driver',
+}
 
 export default function DriverAppSettings() {
   const [tab, setTab] = useState<string>('Subscription Plans')
@@ -71,18 +74,32 @@ export default function DriverAppSettings() {
     setEditIdx(plans.length)
   }
 
-  async function saveWalletRules() {
+  async function saveDriverApp(okMsg = 'Saved ✓') {
     setBusy(true)
     try {
       const body = { ...settings, driverApp: { ...(settings.driverApp || {}) } }
       await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      flash('Wallet rules saved ✓')
+      flash(okMsg)
     } catch { flash('Failed') }
     setBusy(false)
   }
 
   const setDriverApp = (field: string, val: any) =>
     setSettings({ ...settings, driverApp: { ...(settings?.driverApp || {}), [field]: val } })
+
+  const setRingtone = (service: string, url: string) =>
+    setDriverApp('ringtones', { ...(settings?.driverApp?.ringtones || {}), [service]: url })
+
+  async function uploadRingtone(service: string, file: File) {
+    setBusy(true)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const r = await fetch('/api/upload', { method: 'POST', body: fd }).then(r => r.json())
+      if (r.url) { setRingtone(service, r.url); flash('Uploaded — click Save to apply') }
+      else flash('Upload failed')
+    } catch { flash('Upload failed') }
+    setBusy(false)
+  }
 
   if (!settings) return <div className="p-8 text-gray-500">Loading…</div>
   const da = settings.driverApp || {}
@@ -178,6 +195,35 @@ export default function DriverAppSettings() {
             </div>
           )}
 
+          {tab === 'Ringtones' && (
+            <div className="space-y-3 max-w-2xl">
+              <p className="text-sm text-gray-500">Set a ringtone per service. It plays in the driver app when a request of that service arrives. (MP3 / WAV recommended)</p>
+              {SERVICES.map(svc => {
+                const url = settings?.driverApp?.ringtones?.[svc] || ''
+                return (
+                  <div key={svc} className="bg-white border rounded-xl p-4 flex items-center gap-3">
+                    <div className="w-24 font-semibold text-gray-800 text-sm">{SERVICE_LABEL[svc]}</div>
+                    <div className="flex-1 min-w-0">
+                      {url
+                        ? <audio controls src={url} className="w-full h-9">Audio</audio>
+                        : <span className="text-xs text-gray-400">No ringtone (default sound)</span>}
+                    </div>
+                    <label className="cursor-pointer text-sm font-semibold text-[#1C2656] border border-[#1C2656] rounded-lg px-4 py-1.5 hover:bg-[#1C2656]/5 whitespace-nowrap">
+                      Upload
+                      <input type="file" accept="audio/*" className="hidden" title={`${SERVICE_LABEL[svc]} ringtone`}
+                        onChange={e => { const f = e.target.files?.[0]; if (f) uploadRingtone(svc, f) }} />
+                    </label>
+                    {url && <button type="button" onClick={() => setRingtone(svc, '')} className="text-red-500 text-xs font-bold">Clear</button>}
+                  </div>
+                )
+              })}
+              <div className="flex justify-end pt-2">
+                <button type="button" onClick={() => saveDriverApp('Ringtones saved ✓')} disabled={busy}
+                  className="bg-[#1C2656] text-white px-6 py-2 rounded-lg text-sm font-semibold disabled:opacity-50">Save</button>
+              </div>
+            </div>
+          )}
+
           {tab === 'Wallet Rules' && (
             <div className="bg-white border rounded-xl p-5 space-y-4 max-w-md">
               <div className="flex items-center justify-between">
@@ -198,7 +244,7 @@ export default function DriverAppSettings() {
                 <p className="text-xs text-gray-500 mt-1">Driver can owe up to this much (wallet goes to −₹{da.maxNegativeWallet ?? 500}). Beyond it, no rides until they recharge.</p>
               </div>
               <div className="flex justify-end pt-2 border-t">
-                <button type="button" onClick={saveWalletRules} disabled={busy}
+                <button type="button" onClick={() => saveDriverApp('Wallet rules saved ✓')} disabled={busy}
                   className="bg-[#1C2656] text-white px-6 py-2 rounded-lg text-sm font-semibold disabled:opacity-50">Save</button>
               </div>
             </div>

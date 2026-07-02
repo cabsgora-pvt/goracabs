@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../config/app_config.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 import 'on_ride_page.dart';
@@ -23,15 +25,34 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   bool _accepting = false;
   bool _firstLoaded = false;
 
+  // Per-service ringtone (admin-managed) + player
+  Map<String, String> _ringtones = {};
+  final AudioPlayer _player = AudioPlayer();
+  String? _playingService;
+
   @override
   void initState() {
     super.initState();
-    _refresh();
+    _init();
+  }
+
+  Future<void> _init() async {
+    try {
+      final cfg = await DriverApiService.getDriverConfig();
+      final r = (cfg['ringtones'] as Map?) ?? {};
+      _ringtones = r.map((k, v) => MapEntry(k.toString(), v.toString()));
+    } catch (_) {}
+    await _refresh();
     _timer = Timer.periodic(const Duration(seconds: 3), (_) => _refresh());
   }
 
   @override
-  void dispose() { _timer?.cancel(); super.dispose(); }
+  void dispose() {
+    _timer?.cancel();
+    _player.stop();
+    _player.dispose();
+    super.dispose();
+  }
 
   Future<void> _refresh() async {
     if (_accepting || !mounted) return;
@@ -45,15 +66,41 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
           .toList();
       if (!mounted) return;
       _firstLoaded = true;
-      if (models.isEmpty) { Navigator.pop(context); return; }
+      if (models.isEmpty) { await _stopRing(); if (mounted) Navigator.pop(context); return; }
       setState(() => _requests = models);
+      _updateRing();
     } catch (_) {}
+  }
+
+  // Play the ringtone of the top (nearest) request's service; loop until handled.
+  void _updateRing() {
+    if (_requests.isEmpty) { _stopRing(); return; }
+    final svc = _requests.first.service;
+    if (_playingService == svc) return;
+    _playRing(svc);
+  }
+
+  Future<void> _playRing(String svc) async {
+    final rel = _ringtones[svc] ?? '';
+    _playingService = svc;
+    try {
+      await _player.stop();
+      if (rel.isEmpty) return; // no custom ringtone set for this service
+      await _player.setReleaseMode(ReleaseMode.loop);
+      await _player.play(UrlSource(AppConfig.imageUrl(rel)));
+    } catch (_) {}
+  }
+
+  Future<void> _stopRing() async {
+    _playingService = null;
+    try { await _player.stop(); } catch (_) {}
   }
 
   Future<void> _accept(RideRequestModel m) async {
     if (_accepting) return;
     setState(() => _accepting = true);
     _timer?.cancel();
+    await _stopRing();
     final r = await DriverApiService.acceptRide(m.id);
     if (!mounted) return;
     if (r['success'] == true || r['ride'] != null) {
@@ -66,7 +113,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
         SnackBar(content: Text(r['error']?.toString() ?? 'Ride already taken')),
       );
       _timer = Timer.periodic(const Duration(seconds: 3), (_) => _refresh());
-      if (_requests.isEmpty) Navigator.pop(context);
+      if (_requests.isEmpty) { Navigator.pop(context); } else { _updateRing(); }
     }
   }
 
@@ -74,7 +121,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     _rejectedIds.add(m.id);
     DriverApiService.rejectRide(m.id); // fire-and-forget; server records rejectedBy
     setState(() => _requests.removeWhere((x) => x.id == m.id));
-    if (_requests.isEmpty && mounted) Navigator.pop(context);
+    if (_requests.isEmpty && mounted) { _stopRing(); Navigator.pop(context); } else { _updateRing(); }
   }
 
   @override
