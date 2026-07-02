@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  static const primary = Color(0xFF1565C0);
-  static const primaryLight = Color(0xFF1E88E5);
-  static const primaryDark = Color(0xFF0D47A1);
-  static const accent = Color(0xFF42A5F5);
+  // Brand palette copied from the user app (navy)
+  static const primary = Color(0xFF1C2656);
+  static const primaryLight = Color(0xFF3A4A8C);
+  static const primaryDark = Color(0xFF10162E);
+  static const accent = Color(0xFF3A4A8C);
   static const background = Color(0xFFFFFFFF);
   static const cardBg = Color(0xFFF0F4FF);
   static const textDark = Color(0xFF0D1B2A);
