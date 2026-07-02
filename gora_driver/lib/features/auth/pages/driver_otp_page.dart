@@ -184,18 +184,21 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
                         controller: _controllers[i],
                         focusNode: _nodes[i],
                         textAlign: TextAlign.center,
+                        textAlignVertical: TextAlignVertical.center,
                         keyboardType: TextInputType.number,
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly,
                           LengthLimitingTextInputFormatter(1),
                         ],
                         style: const TextStyle(
-                          fontSize: 24,
+                          fontSize: 22,
                           fontWeight: FontWeight.w800,
                           color: AppColors.primary,
                         ),
                         decoration: InputDecoration(
                           counterText: '',
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 8),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                             borderSide: const BorderSide(color: AppColors.divider, width: 2),

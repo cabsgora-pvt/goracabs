@@ -12,7 +12,14 @@ class DriverPaymentService {
   }) async {
     final order = await DriverApiService.createSubscriptionOrder(planId);
     if (order['orderId'] == null) {
+      // Surfaces "Unauthorized" (session expired) or "Razorpay is not enabled" etc.
       return {'error': order['error']?.toString() ?? 'Could not start payment'};
+    }
+
+    // An empty key_id is the #1 cause of Razorpay "Authentication failed".
+    final key = (order['keyId'] ?? '').toString();
+    if (key.isEmpty) {
+      return {'error': 'Payment not configured. Ask admin to set valid Razorpay keys in Settings → Payment.'};
     }
 
     final completer = Completer<Map<String, dynamic>>();
@@ -36,7 +43,7 @@ class DriverPaymentService {
 
     try {
       rzp.open({
-        'key': order['keyId'],
+        'key': key,
         'amount': order['amount'],
         'order_id': order['orderId'],
         'currency': order['currency'] ?? 'INR',
