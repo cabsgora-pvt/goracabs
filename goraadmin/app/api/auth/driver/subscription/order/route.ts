@@ -13,10 +13,14 @@ export async function OPTIONS() { return corsOptions() }
 export async function POST(req: NextRequest) {
   try {
     const payload = requireDriverAuth(req)
-    if (!payload) return withCors({ error: 'Unauthorized' }, 401)
+    if (!payload) {
+      console.log('[SubOrder] Unauthorized — no/invalid driver token')
+      return withCors({ error: 'Unauthorized' }, 401)
+    }
 
     const { planId } = await req.json()
     if (!planId) return withCors({ error: 'planId required' }, 400)
+    console.log(`[SubOrder] driver=${payload.id} planId=${planId}`)
 
     await connectDB()
     const plan: any = await SubscriptionPlan.findById(planId).lean()

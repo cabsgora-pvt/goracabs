@@ -48,9 +48,14 @@ export async function createRazorpayOrder(
       }),
     })
     const data = await res.json()
-    if (!res.ok) return { ok: false, error: data?.error?.description || 'Failed to create order' }
+    if (!res.ok) {
+      console.log(`[Razorpay] order failed mode=${cfg.mode} keyId=${cfg.keyId ? cfg.keyId.slice(0, 12) + '…' : 'EMPTY'} status=${res.status} resp=${JSON.stringify(data)}`)
+      return { ok: false, error: data?.error?.description || 'Failed to create order' }
+    }
+    console.log(`[Razorpay] order OK mode=${cfg.mode} keyId=${cfg.keyId.slice(0, 12)}… orderId=${data.id}`)
     return { ok: true, order: data, keyId: cfg.keyId }
   } catch (e: any) {
+    console.log(`[Razorpay] order exception: ${e?.message}`)
     return { ok: false, error: e?.message || 'Razorpay request failed' }
   }
 }
