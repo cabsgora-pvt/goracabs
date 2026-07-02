@@ -4,15 +4,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../config/app_config.dart';
 import '../../../providers/driver_provider.dart';
 import '../../../core/widgets/app_widgets.dart';
-import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
 import '../../earnings/pages/earnings_page.dart';
 import '../../account/pages/account_page.dart';
-import '../../ride/pages/incoming_ride_page.dart';
+import '../../ride/pages/incoming_requests_page.dart';
 import '../bloc/home_bloc.dart';
 import 'map_placeholder.dart';
 
@@ -263,84 +261,16 @@ class _RidePollerState extends State<_RidePoller> {
     } catch (_) {}
   }
 
-  // Ride IDs already shown this session, and content signatures to dedupe rapid duplicates
-  final Set<String> _handledRideIds = {};
-  final Set<String> _handledSigs = {};
-
   Future<void> _poll() async {
     if (_navigating || !mounted) return;
     try {
       final res = await DriverApiService.getPendingRequests();
       final rides = (res['rides'] as List?) ?? [];
       if (rides.isEmpty) return;
-      // Pick the first ride we haven't already shown (by id or content signature)
-      Map<String, dynamic>? pick;
-      for (final raw in rides) {
-        final m = Map<String, dynamic>.from(raw as Map);
-        final id = m['id']?.toString() ?? '';
-        final sig = '${m['pickupAddress']}|${m['fare']}|${m['vehicleType']}|${m['service']}';
-        if (_handledRideIds.contains(id) || _handledSigs.contains(sig)) continue;
-        pick = m; break;
-      }
-      if (pick == null) return; // all current pending already handled
-      final r = pick;
-      final rideId = r['id']?.toString() ?? '';
-      _handledRideIds.add(rideId);
-      _handledSigs.add('${r['pickupAddress']}|${r['fare']}|${r['vehicleType']}|${r['service']}');
-      final fare = (r['fare'] ?? 0);
-      final tip = (r['tip'] ?? 0);
-      final total = (r['totalFare'] ?? (fare + tip));
-      final ratingNum = r['riderRating'];
-      final ratingStr = ratingNum is num && ratingNum > 0 ? ratingNum.toStringAsFixed(1) : '5.0';
-      final picRaw = (r['riderProfilePicUrl'] ?? '').toString();
-      final picUrl = picRaw.isEmpty ? '' : AppConfig.imageUrl(picRaw);
-      final model = RideRequestModel(
-        id: r['id']?.toString() ?? '',
-        userName: (r['riderName'] ?? 'Rider').toString(),
-        userPhone: (r['riderPhone'] ?? '').toString(),
-        userRating: ratingStr,
-        userProfilePicUrl: picUrl,
-        pickupAddress: (r['pickupAddress'] ?? '').toString(),
-        dropAddress: (r['dropAddress'] ?? '').toString(),
-        distance: '${r['distance'] ?? 0} km',
-        fare: '₹ $total',
-        eta: '${r['duration'] ?? 4} min',
-        rideType: (r['vehicleType'] ?? 'taxi').toString(),
-        pickupLat: (r['pickupLat'] ?? 23.0225).toDouble(),
-        pickupLng: (r['pickupLng'] ?? 72.5714).toDouble(),
-        dropLat: (r['dropLat'] ?? 23.0732).toDouble(),
-        dropLng: (r['dropLng'] ?? 72.6208).toDouble(),
-        service: (r['service'] ?? 'taxi').toString(),
-        tripType: (r['tripType'] ?? 'one_way').toString(),
-        cityFrom: (r['cityFrom'] ?? '').toString(),
-        cityTo: (r['cityTo'] ?? '').toString(),
-        departureAt: (r['departureAt'] ?? '').toString(),
-        returnAt: (r['returnAt'] ?? '').toString(),
-        numPassengers: (r['numPassengers'] as num?)?.toInt() ?? 0,
-        packageHours: (r['packageHours'] as num?)?.toInt() ?? 0,
-        packageKm: (r['packageKm'] as num?)?.toInt() ?? 0,
-        hireTotalHours: (r['hireTotalHours'] as num?)?.toInt() ?? 0,
-        transmission: (r['transmission'] ?? '').toString(),
-        senderName: (r['senderName'] ?? '').toString(), senderPhone: (r['senderPhone'] ?? '').toString(),
-        receiverName: (r['receiverName'] ?? '').toString(), receiverPhone: (r['receiverPhone'] ?? '').toString(),
-        itemType: (r['itemType'] ?? '').toString(), weightKg: (r['weightKg'] as num?)?.toDouble() ?? 0,
-        packageSize: (r['packageSize'] ?? '').toString(), isFragile: (r['isFragile'] as bool?) ?? false,
-        codAmount: (r['codAmount'] as num?)?.toDouble() ?? 0,
-        parcelPhotos: ((r['parcelPhotos'] as List?) ?? []).map((e) => e.toString()).toList(),
-        stops: ((r['stops'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList(),
-        paymentMode: (r['paymentMode'] ?? 'cash').toString(),
-        baseFare: (fare as num?) ?? 0,
-        tipAmount: (tip as num?) ?? 0,
-        totalFareValue: (total as num?) ?? 0,
-        distanceKm: (r['distance'] as num?) ?? 0,
-        durationMin: (r['duration'] as num?)?.toInt() ?? 0,
-        routePolyline: (r['routePolyline'] ?? '').toString(),
-        hireStartAt: (r['hireStartAt'] ?? '').toString(),
-        hireEndAt: (r['hireEndAt'] ?? '').toString(),
-      );
+      // Open the multi-request screen (shows up to 5 pending requests at once).
       if (!mounted) return;
       _navigating = true;
-      await Navigator.pushNamed(context, IncomingRidePage.route, arguments: model);
+      await Navigator.pushNamed(context, IncomingRequestsPage.route);
       _navigating = false;
     } catch (_) {}
   }

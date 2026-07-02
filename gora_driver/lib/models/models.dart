@@ -1,4 +1,5 @@
 // All models in one file for simplicity
+import '../config/app_config.dart';
 
 class DriverModel {
   final String id, name, phone, email, profilePic, vehicleNumber, vehicleModel, vehicleType, rating, totalRides, status;
@@ -82,6 +83,61 @@ class RideRequestModel {
     this.packageSize = '', this.isFragile = false, this.codAmount = 0, this.parcelPhotos = const [],
     this.stops = const [],
   });
+
+  // Build a request model from a pending-request JSON row (backend /rides/driver/pending)
+  factory RideRequestModel.fromJson(Map<String, dynamic> r) {
+    final num fare = (r['fare'] as num?) ?? 0;
+    final num tip = (r['tip'] as num?) ?? 0;
+    final num total = (r['totalFare'] as num?) ?? (fare + tip);
+    final ratingNum = r['riderRating'];
+    final ratingStr = ratingNum is num && ratingNum > 0 ? ratingNum.toStringAsFixed(1) : '5.0';
+    final picRaw = (r['riderProfilePicUrl'] ?? '').toString();
+    final picUrl = picRaw.isEmpty ? '' : AppConfig.imageUrl(picRaw);
+    return RideRequestModel(
+      id: r['id']?.toString() ?? '',
+      userName: (r['riderName'] ?? 'Rider').toString(),
+      userPhone: (r['riderPhone'] ?? '').toString(),
+      userRating: ratingStr,
+      userProfilePicUrl: picUrl,
+      pickupAddress: (r['pickupAddress'] ?? '').toString(),
+      dropAddress: (r['dropAddress'] ?? '').toString(),
+      distance: '${r['distance'] ?? 0} km',
+      fare: '₹ $total',
+      eta: '${r['duration'] ?? 4} min',
+      rideType: (r['vehicleType'] ?? 'taxi').toString(),
+      pickupLat: (r['pickupLat'] ?? 23.0225).toDouble(),
+      pickupLng: (r['pickupLng'] ?? 72.5714).toDouble(),
+      dropLat: (r['dropLat'] ?? 23.0732).toDouble(),
+      dropLng: (r['dropLng'] ?? 72.6208).toDouble(),
+      service: (r['service'] ?? 'taxi').toString(),
+      tripType: (r['tripType'] ?? 'one_way').toString(),
+      cityFrom: (r['cityFrom'] ?? '').toString(),
+      cityTo: (r['cityTo'] ?? '').toString(),
+      departureAt: (r['departureAt'] ?? '').toString(),
+      returnAt: (r['returnAt'] ?? '').toString(),
+      numPassengers: (r['numPassengers'] as num?)?.toInt() ?? 0,
+      packageHours: (r['packageHours'] as num?)?.toInt() ?? 0,
+      packageKm: (r['packageKm'] as num?)?.toInt() ?? 0,
+      hireTotalHours: (r['hireTotalHours'] as num?)?.toInt() ?? 0,
+      transmission: (r['transmission'] ?? '').toString(),
+      senderName: (r['senderName'] ?? '').toString(), senderPhone: (r['senderPhone'] ?? '').toString(),
+      receiverName: (r['receiverName'] ?? '').toString(), receiverPhone: (r['receiverPhone'] ?? '').toString(),
+      itemType: (r['itemType'] ?? '').toString(), weightKg: (r['weightKg'] as num?)?.toDouble() ?? 0,
+      packageSize: (r['packageSize'] ?? '').toString(), isFragile: (r['isFragile'] as bool?) ?? false,
+      codAmount: (r['codAmount'] as num?)?.toDouble() ?? 0,
+      parcelPhotos: ((r['parcelPhotos'] as List?) ?? []).map((e) => e.toString()).toList(),
+      stops: ((r['stops'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList(),
+      paymentMode: (r['paymentMode'] ?? 'cash').toString(),
+      baseFare: fare,
+      tipAmount: tip,
+      totalFareValue: total,
+      distanceKm: (r['distance'] as num?) ?? 0,
+      durationMin: (r['duration'] as num?)?.toInt() ?? 0,
+      routePolyline: (r['routePolyline'] ?? '').toString(),
+      hireStartAt: (r['hireStartAt'] ?? '').toString(),
+      hireEndAt: (r['hireEndAt'] ?? '').toString(),
+    );
+  }
 }
 
 class TripModel {

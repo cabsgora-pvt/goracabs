@@ -14,6 +14,7 @@ import '../features/registration/kyc_success_page.dart';
 import '../features/registration/kyc_pending_page.dart';
 import '../features/registration/rejection_page.dart';
 import '../features/ride/pages/incoming_ride_page.dart';
+import '../features/ride/pages/incoming_requests_page.dart';
 import '../features/ride/pages/on_ride_page.dart';
 import '../features/ride/pages/invoice_page.dart';
 import '../features/ride/pages/review_page.dart';
@@ -50,6 +51,7 @@ class AppRoutes {
     KycPendingPage.route:          (_) => const KycPendingPage(),
     RejectionPage.route:           (_) => const RejectionPage(),
     IncomingRidePage.route:   (_) => const IncomingRidePage(),
+    IncomingRequestsPage.route: (_) => const IncomingRequestsPage(),
     OnRidePage.route:         (_) => const OnRidePage(),
     InvoicePage.route:        (_) => const InvoicePage(),
     ReviewPage.route:         (_) => const ReviewPage(),
