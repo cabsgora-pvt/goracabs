@@ -9,6 +9,8 @@ const WalletTransactionSchema = new Schema({
   note: { type: String, default: '' },
   // recharge = user added money, ride = ride payment, admin = manual adjust, refund
   source: { type: String, enum: ['recharge', 'ride', 'admin', 'refund', 'cashback'], default: 'recharge' },
+  // Razorpay payment id (or other gateway ref) — used for idempotency
+  ref: { type: String, default: '', index: true },
 }, { timestamps: true })
 
 export default mongoose.models.WalletTransaction || mongoose.model('WalletTransaction', WalletTransactionSchema)

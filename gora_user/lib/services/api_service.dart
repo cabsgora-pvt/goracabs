@@ -104,6 +104,34 @@ class ApiService {
   // ── Wallet ───────────────────────────────────────────────
   static Future<Map<String, dynamic>> getWallet() => get('/wallet');
   static Future<Map<String, dynamic>> addMoney(num amount) => post('/wallet', {'amount': amount}, auth: true);
+  // Pay a ride fare from wallet balance (deduct)
+  static Future<Map<String, dynamic>> walletPay({required num amount, String? note, String? rideId}) =>
+      post('/wallet/pay', {'amount': amount, if (note != null) 'note': note, if (rideId != null) 'rideId': rideId}, auth: true);
+
+  // ── Payment (Razorpay) ────────────────────────────────────
+  static Map<String, dynamic>? _paymentConfigCache;
+  // { razorpay: {enabled, keyId, mode}, cashEnabled, walletEnabled }
+  static Future<Map<String, dynamic>> getPaymentConfig({bool force = false}) async {
+    if (_paymentConfigCache != null && !force) return _paymentConfigCache!;
+    try {
+      _paymentConfigCache = await get('/payment/config');
+    } catch (_) {
+      _paymentConfigCache = {'razorpay': {'enabled': false}, 'cashEnabled': true, 'walletEnabled': true};
+    }
+    return _paymentConfigCache!;
+  }
+
+  static Future<Map<String, dynamic>> createRazorpayOrder({required num amount, String purpose = 'wallet', String? rideId}) =>
+      post('/payment/razorpay/order', {'amount': amount, 'purpose': purpose, if (rideId != null) 'rideId': rideId}, auth: true);
+
+  static Future<Map<String, dynamic>> verifyRazorpayPayment({
+    required String orderId, required String paymentId, required String signature,
+    String purpose = 'wallet', num? amount, String? rideId,
+  }) =>
+      post('/payment/razorpay/verify', {
+        'orderId': orderId, 'paymentId': paymentId, 'signature': signature, 'purpose': purpose,
+        if (amount != null) 'amount': amount, if (rideId != null) 'rideId': rideId,
+      }, auth: true);
 
   // ── Auth ──────────────────────────────────────────────────
   static Future<Map<String, dynamic>> sendOtp(String phone) =>

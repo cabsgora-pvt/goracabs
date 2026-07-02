@@ -79,19 +79,63 @@ export default function PaymentSettingsPage() {
                     <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${settings?.payment?.razorpay?.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
                   </button>
                 </div>
+
+                {/* Test / Live mode switch */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Key ID</label>
-                  <input value={settings?.payment?.razorpay?.keyId || ''}
-                    onChange={e => update(['payment', 'razorpay', 'keyId'], e.target.value)}
-                    placeholder="rzp_live_..."
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono" />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Mode</label>
+                  <div className="flex gap-2">
+                    {(['test', 'live'] as const).map(m => {
+                      const active = (settings?.payment?.razorpay?.mode || 'test') === m
+                      return (
+                        <button key={m} type="button"
+                          onClick={() => update(['payment', 'razorpay', 'mode'], m)}
+                          className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${active ? (m === 'live' ? 'bg-green-600 text-white border-green-600' : 'bg-amber-500 text-white border-amber-500') : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>
+                          {m === 'test' ? 'Test Mode' : 'Live Mode'}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    App uses the <strong>{(settings?.payment?.razorpay?.mode || 'test') === 'live' ? 'Live' : 'Test'}</strong> keys below. Test mode charges no real money.
+                  </p>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Key Secret</label>
-                  <input type="password" value={settings?.payment?.razorpay?.keySecret || ''}
-                    onChange={e => update(['payment', 'razorpay', 'keySecret'], e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+
+                {/* Test keys */}
+                <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-4 space-y-3">
+                  <p className="text-sm font-semibold text-amber-700">Test Keys (rzp_test_...)</p>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Test Key ID</label>
+                    <input value={settings?.payment?.razorpay?.testKeyId || ''}
+                      onChange={e => update(['payment', 'razorpay', 'testKeyId'], e.target.value)}
+                      placeholder="rzp_test_..." title="Razorpay Test Key ID"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Test Key Secret</label>
+                    <input type="password" value={settings?.payment?.razorpay?.testKeySecret || ''}
+                      onChange={e => update(['payment', 'razorpay', 'testKeySecret'], e.target.value)}
+                      placeholder="••••••••" title="Razorpay Test Key Secret"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                </div>
+
+                {/* Live keys */}
+                <div className="rounded-lg border border-green-200 bg-green-50/50 p-4 space-y-3">
+                  <p className="text-sm font-semibold text-green-700">Live Keys (rzp_live_...)</p>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Live Key ID</label>
+                    <input value={settings?.payment?.razorpay?.liveKeyId || ''}
+                      onChange={e => update(['payment', 'razorpay', 'liveKeyId'], e.target.value)}
+                      placeholder="rzp_live_..." title="Razorpay Live Key ID"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Live Key Secret</label>
+                    <input type="password" value={settings?.payment?.razorpay?.liveKeySecret || ''}
+                      onChange={e => update(['payment', 'razorpay', 'liveKeySecret'], e.target.value)}
+                      placeholder="••••••••" title="Razorpay Live Key Secret"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  </div>
                 </div>
               </>
             )}
@@ -151,6 +195,7 @@ export default function PaymentSettingsPage() {
                   <input type="range" min="5" max="40" step="1"
                     value={settings?.payment?.commissionPercent || 20}
                     onChange={e => update(['payment', 'commissionPercent'], +e.target.value)}
+                    title="Platform commission percent" aria-label="Platform commission percent"
                     className="w-full accent-primary" />
                   <div className="flex justify-between text-xs text-gray-400 mt-1">
                     <span>5%</span><span>40%</span>

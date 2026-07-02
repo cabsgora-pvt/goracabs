@@ -4,6 +4,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../services/payment_service.dart';
 import '../widgets/payment_coupon_bar.dart';
 import '../widgets/finding_driver_view.dart';
 import 'home_screen.dart';
@@ -107,6 +108,10 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   Future<void> _book() async {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
     final num fare = (v['fare'] as num?) ?? 0;
+    final num payable = (fare - _couponDiscount).clamp(0, fare);
+    final _paid = await PaymentService.charge(context, method: _paymentMode, amount: payable);
+    if (!mounted) return;
+    if (!_paid) return;
     try {
       final res = await ApiService.bookRide({
         'pickupAddress': _pickupCtrl.text, 'dropAddress': _dropCtrl.text,

@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../services/payment_service.dart';
 import '../utils/polyline_utils.dart';
 import '../widgets/payment_coupon_bar.dart';
 import '../widgets/finding_driver_view.dart';
@@ -515,6 +516,12 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     final basePrice = int.tryParse((selectedVehicleData['price'] as String).replaceAll('₹', '')) ?? 0;
     final tip = _selectedTip ?? 0;
     final stops = await _resolveStops();
+    // Charge the user the payable fare (after coupon) via their selected method
+    // before the ride is booked. cash → immediate, wallet → deduct, online → Razorpay.
+    final _paid = await PaymentService.charge(context, method: _paymentMode,
+        amount: (basePrice - _couponDiscount).clamp(0, basePrice));
+    if (!mounted) return;
+    if (!_paid) return;
     try {
       final res = await ApiService.bookRide({
         'pickupAddress': _pickupController.text,

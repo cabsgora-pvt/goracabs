@@ -18,6 +18,23 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
   String _paymentMode = 'cash';
   String _couponCode = '';
   int _couponDiscount = 0;
+  bool _walletEnabled = true;
+  bool _onlineEnabled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPaymentConfig();
+  }
+
+  Future<void> _loadPaymentConfig() async {
+    final cfg = await ApiService.getPaymentConfig();
+    if (!mounted) return;
+    setState(() {
+      _walletEnabled = cfg['walletEnabled'] != false;
+      _onlineEnabled = (cfg['razorpay'] is Map) && (cfg['razorpay']['enabled'] == true);
+    });
+  }
 
   void _notify() => widget.onChanged(_paymentMode, _couponCode, _couponDiscount);
 
@@ -56,8 +73,8 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
       builder: (ctx) => Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Column(mainAxisSize: MainAxisSize.min, children: [
         const Padding(padding: EdgeInsets.all(8), child: Text('Payment method', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
         tile('cash', Icons.payments_outlined, 'Cash', 'Pay the driver directly'),
-        tile('online', Icons.account_balance_wallet_outlined, 'Online', 'UPI / card / wallet'),
-        tile('advance', Icons.lock_clock, 'Pay 20% advance', 'Rest on completion'),
+        if (_walletEnabled) tile('wallet', Icons.account_balance_wallet_outlined, 'Gora Wallet', 'Pay from your wallet balance'),
+        if (_onlineEnabled) tile('online', Icons.credit_card, 'Online', 'UPI / card / net banking'),
       ])),
     );
     if (m != null) { setState(() => _paymentMode = m); _notify(); }
@@ -91,8 +108,8 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
 
   @override
   Widget build(BuildContext context) {
-    final payLabel = _paymentMode == 'online' ? 'Online' : (_paymentMode == 'advance' ? '20% adv' : 'Cash');
-    final payIcon = _paymentMode == 'online' ? Icons.account_balance_wallet_outlined : (_paymentMode == 'advance' ? Icons.lock_clock : Icons.payments_outlined);
+    final payLabel = _paymentMode == 'online' ? 'Online' : (_paymentMode == 'wallet' ? 'Wallet' : 'Cash');
+    final payIcon = _paymentMode == 'online' ? Icons.credit_card : (_paymentMode == 'wallet' ? Icons.account_balance_wallet_outlined : Icons.payments_outlined);
     Widget item(IconData ic, String label, VoidCallback onTap, {Color? c}) => Expanded(child: InkWell(
       onTap: onTap,
       child: Padding(padding: const EdgeInsets.symmetric(vertical: 9),

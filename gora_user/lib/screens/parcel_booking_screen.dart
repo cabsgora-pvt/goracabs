@@ -6,6 +6,7 @@ import 'package:share_plus/share_plus.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../services/payment_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/payment_coupon_bar.dart';
 import '../widgets/finding_driver_view.dart';
@@ -123,6 +124,10 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   Future<void> _book() async {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
     final num fare = (v['fare'] as num?) ?? 0;
+    final _payMethod = _cod ? 'cash' : _paymentMode;
+    final _paid = await PaymentService.charge(context, method: _payMethod, amount: (fare - _couponDiscount).clamp(0, fare));
+    if (!mounted) return;
+    if (!_paid) { setState(() => _loading = false); return; }
     try {
       final res = await ApiService.bookRide({
         'pickupAddress': _pickupCtrl.text, 'dropAddress': _dropCtrl.text,

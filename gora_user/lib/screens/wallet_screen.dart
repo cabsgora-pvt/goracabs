@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../services/payment_service.dart';
+import '../providers/user_provider.dart';
 
 class WalletScreen extends StatefulWidget {
   const WalletScreen({super.key});
@@ -134,6 +137,29 @@ class _AddMoneySheetState extends State<AddMoneySheet> {
     }
     setState(() => _busy = true);
     try {
+      final cfg = await ApiService.getPaymentConfig();
+      final rzpEnabled = (cfg['razorpay'] is Map) && (cfg['razorpay']['enabled'] == true);
+
+      if (rzpEnabled) {
+        // Real payment via Razorpay — server credits wallet after verification.
+        final user = context.read<UserProvider>().user;
+        final res = await PaymentService.topUpWallet(
+          amount: amt,
+          contact: user?['phone']?.toString(),
+          email: user?['email']?.toString(),
+        );
+        if (!mounted) return;
+        if (res.success) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('₹$amt added to wallet')));
+          Navigator.pop(context, true);
+        } else {
+          setState(() => _busy = false);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res.error ?? 'Payment failed')));
+        }
+        return;
+      }
+
+      // Fallback: no gateway configured → direct credit (as before).
       final r = await ApiService.addMoney(amt);
       if (!mounted) return;
       if (r['balance'] != null) {

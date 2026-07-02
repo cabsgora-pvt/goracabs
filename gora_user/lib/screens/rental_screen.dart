@@ -4,6 +4,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../services/payment_service.dart';
 import '../theme/app_theme.dart';
 import 'ride_history_screen.dart';
 import 'home_screen.dart';
@@ -170,6 +171,9 @@ class _RentalScreenState extends State<RentalScreen> {
     }
     try {
       final fare = _scaledPrice(p);         // hours × per-hour rate
+      final _paid = await PaymentService.charge(context, method: _paymentMode, amount: (fare - _couponDiscount).clamp(0, fare));
+      if (!mounted) return;
+      if (!_paid) { setState(() => _isSearching = false); return; }
       final res = await ApiService.bookRide({
         'pickupAddress': _pickupController.text,
         'dropAddress': _dropController.text,

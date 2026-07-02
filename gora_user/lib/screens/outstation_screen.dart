@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../services/payment_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/polyline_utils.dart';
 import 'home_screen.dart';
@@ -57,8 +58,10 @@ class _OutstationScreenState extends State<OutstationScreen> {
   final List<Map<String, dynamic>> _stops = []; // {address, lat, lng}
   // Ola-style category filter for the cab list
   String _vehCategory = 'All'; // All | Mini | Sedan | SUV
-  // Ola-style: payment mode + coupon + insurance add-on
-  String _paymentMode = 'cash'; // cash | online | advance
+  // Ola-style: payment mode + coupon
+  String _paymentMode = 'cash'; // cash | wallet | online
+  bool _walletPayEnabled = true;
+  bool _onlinePayEnabled = false;
   String _couponCode = '';
   int _couponDiscount = 0;
   String _bookingFor = 'Myself'; // Myself | Someone else
@@ -98,6 +101,16 @@ class _OutstationScreenState extends State<OutstationScreen> {
     _fromController.text = '';
     _toController.text = '';
     _initCurrentLocation();
+    _loadPaymentConfig();
+  }
+
+  Future<void> _loadPaymentConfig() async {
+    final cfg = await ApiService.getPaymentConfig();
+    if (!mounted) return;
+    setState(() {
+      _walletPayEnabled = cfg['walletEnabled'] != false;
+      _onlinePayEnabled = (cfg['razorpay'] is Map) && (cfg['razorpay']['enabled'] == true);
+    });
   }
 
   // Pre-fill From field with the user's real current location
@@ -197,8 +210,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
       builder: (ctx) => Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Column(mainAxisSize: MainAxisSize.min, children: [
         const Padding(padding: EdgeInsets.all(8), child: Text('Payment method', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
         tile('cash', Icons.payments_outlined, 'Cash', 'Pay the driver directly'),
-        tile('online', Icons.account_balance_wallet_outlined, 'Online', 'UPI / card / wallet'),
-        tile('advance', Icons.lock_clock, 'Pay 20% advance', 'Rest on trip completion'),
+        if (_walletPayEnabled) tile('wallet', Icons.account_balance_wallet_outlined, 'Gora Wallet', 'Pay from your wallet balance'),
+        if (_onlinePayEnabled) tile('online', Icons.credit_card, 'Online', 'UPI / card / net banking'),
       ])),
     );
   }
@@ -2153,8 +2166,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
                       const SizedBox(height: 14),
                       // Compact Ola-style "Cash · Coupon · Mode" row
                       StatefulBuilder(builder: (context, setSheet) {
-                        final payLabel = _paymentMode == 'online' ? 'Online' : (_paymentMode == 'advance' ? '20% adv' : 'Cash');
-                        final payIcon = _paymentMode == 'online' ? Icons.account_balance_wallet_outlined : (_paymentMode == 'advance' ? Icons.lock_clock : Icons.payments_outlined);
+                        final payLabel = _paymentMode == 'online' ? 'Online' : (_paymentMode == 'wallet' ? 'Wallet' : 'Cash');
+                        final payIcon = _paymentMode == 'online' ? Icons.credit_card : (_paymentMode == 'wallet' ? Icons.account_balance_wallet_outlined : Icons.payments_outlined);
                         Widget item(IconData ic, String label, VoidCallback onTap, {Color? c}) => Expanded(child: InkWell(
                           onTap: onTap,
                           child: Padding(padding: const EdgeInsets.symmetric(vertical: 8),
@@ -2273,7 +2286,16 @@ class _OutstationScreenState extends State<OutstationScreen> {
       ])));
   }
 
-  void _showFindingDriverDialog() {
+  Future<void> _showFindingDriverDialog() async {
+    // Charge the trip fare via the selected method before searching for a driver.
+    if (_selectedVehicle != null) {
+      final selV = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => <String, dynamic>{});
+      final rawFare = ((_tripType == 'Round Trip' ? selV['roundTripFare'] : selV['oneWayFare']) as num?) ?? 0;
+      final payable = (rawFare - _couponDiscount).clamp(0, rawFare);
+      final paid = await PaymentService.charge(context, method: _paymentMode, amount: payable);
+      if (!mounted) return;
+      if (!paid) return;
+    }
     setState(() {
       _isSearching = true;
     });
