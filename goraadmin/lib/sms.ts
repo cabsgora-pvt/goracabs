@@ -45,6 +45,8 @@ export async function sendSms(phone: string, message: string): Promise<SmsResult
       const res = await fetch(url, { method: 'GET' })
       const text = await res.text()
       const ok = res.ok && !/error|invalid|fail|insufficient|not\s*found/i.test(text)
+      // Log for VPS debugging (key masked)
+      console.log(`[SMS Indori] number=${number} sender=${c.senderId} tpl=${c.templateId} route=${c.route || '16'} httpStatus=${res.status} response=${text}`)
       return { success: ok, message: ok ? 'SMS sent' : `SMS Indori error: ${text}`, raw: text }
     }
 
