@@ -35,10 +35,11 @@ export async function sendSms(phone: string, message: string): Promise<SmsResult
       if (!c.authKey || !c.senderId || !c.templateId) {
         return { success: false, message: 'SMS Indori not configured (auth key / sender id / template id missing)' }
       }
+      const routeVal = encodeURIComponent(c.route || '16')
       const url =
         `${apiUrl}?authentic-key=${encodeURIComponent(c.authKey)}` +
         `&senderid=${encodeURIComponent(c.senderId)}` +
-        `&route=${encodeURIComponent(c.route || '16')}` +
+        `&route=${routeVal}&routeid=${routeVal}` +
         `&number=${encodeURIComponent(number)}` +
         `&message=${encodeURIComponent(message)}` +
         `&templateid=${encodeURIComponent(c.templateId)}`
