@@ -19,8 +19,8 @@ class DriverOtpPage extends StatefulWidget {
 }
 
 class _DriverOtpPageState extends State<DriverOtpPage> {
-  final _controllers = List.generate(4, (_) => TextEditingController());
-  final _nodes = List.generate(4, (_) => FocusNode());
+  final _controllers = List.generate(6, (_) => TextEditingController());
+  final _nodes = List.generate(6, (_) => FocusNode());
   int _timer = 30;
   Timer? _t;
   bool _loading = false;
@@ -52,7 +52,7 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
   String get _otp => _controllers.map((c) => c.text).join();
 
   Future<void> _verify() async {
-    if (_otp.length != 4) return;
+    if (_otp.length != 6) return;
     final phone = ModalRoute.of(context)?.settings.arguments as String? ?? '';
     setState(() => _loading = true);
     try {
@@ -171,20 +171,15 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
                   ),
                   const SizedBox(height: 4),
                   const Text(
-                    'Enter the 4-digit code sent to your number',
+                    'Enter the 6-digit code sent to your number',
                     style: TextStyle(color: AppColors.textGrey, fontSize: 14),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    '(Use: 1234 for demo)',
-                    style: TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 32),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: List.generate(4, (i) => SizedBox(
-                      width: 64,
-                      height: 64,
+                    children: List.generate(6, (i) => SizedBox(
+                      width: 46,
+                      height: 58,
                       child: TextFormField(
                         controller: _controllers[i],
                         focusNode: _nodes[i],
@@ -213,8 +208,8 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
                           fillColor: AppColors.cardBg,
                         ),
                         onChanged: (v) {
-                          if (v.isNotEmpty && i < 3) _nodes[i + 1].requestFocus();
-                          if (_otp.length == 4) _verify();
+                          if (v.isNotEmpty && i < 5) _nodes[i + 1].requestFocus();
+                          if (_otp.length == 6) _verify();
                         },
                       ),
                     )),

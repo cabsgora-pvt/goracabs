@@ -15,8 +15,8 @@ class OtpScreen extends StatefulWidget {
 }
 
 class _OtpScreenState extends State<OtpScreen> {
-  final List<TextEditingController> _controllers = List.generate(4, (_) => TextEditingController());
-  final List<FocusNode> _focusNodes = List.generate(4, (_) => FocusNode());
+  final List<TextEditingController> _controllers = List.generate(6, (_) => TextEditingController());
+  final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
   bool _loading = false;
 
   @override
@@ -29,9 +29,9 @@ class _OtpScreenState extends State<OtpScreen> {
   String get _otp => _controllers.map((c) => c.text).join();
 
   Future<void> _verifyOtp() async {
-    if (_otp.length < 4) {
+    if (_otp.length < 6) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter the 4-digit OTP')),
+        const SnackBar(content: Text('Enter the 6-digit OTP')),
       );
       return;
     }
@@ -71,7 +71,7 @@ class _OtpScreenState extends State<OtpScreen> {
     await ApiService.sendOtp(widget.phone);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('OTP resent! Use 1234')),
+      const SnackBar(content: Text('OTP resent')),
     );
   }
 
@@ -114,13 +114,13 @@ class _OtpScreenState extends State<OtpScreen> {
                           const Text('Enter OTP', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 8),
                           Text(
-                            'Sent to +91 ${widget.phone}  •  Use 1234',
+                            'Sent to +91 ${widget.phone}',
                             style: TextStyle(fontSize: 14, color: AppTheme.textGrey),
                           ),
                           const SizedBox(height: 32),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                            children: List.generate(4, (i) => _buildOtpBox(i)),
+                            children: List.generate(6, (i) => _buildOtpBox(i)),
                           ),
                           const SizedBox(height: 24),
                           Center(
@@ -155,14 +155,14 @@ class _OtpScreenState extends State<OtpScreen> {
 
   Widget _buildOtpBox(int index) {
     return SizedBox(
-      width: 60, height: 60,
+      width: 46, height: 56,
       child: TextField(
         controller: _controllers[index],
         focusNode: _focusNodes[index],
         keyboardType: TextInputType.number,
         textAlign: TextAlign.center,
         maxLength: 1,
-        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, height: 1.0),
+        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, height: 1.0),
         decoration: InputDecoration(
           counterText: '',
           contentPadding: EdgeInsets.zero,
@@ -178,7 +178,7 @@ class _OtpScreenState extends State<OtpScreen> {
           filled: true,
         ),
         onChanged: (value) {
-          if (value.isNotEmpty && index < 3) _focusNodes[index + 1].requestFocus();
+          if (value.isNotEmpty && index < 5) _focusNodes[index + 1].requestFocus();
           else if (value.isEmpty && index > 0) _focusNodes[index - 1].requestFocus();
         },
       ),

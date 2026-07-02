@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:animated_text_kit/animated_text_kit.dart';
-import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import 'otp_screen.dart';
 
@@ -123,7 +122,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          const Text('Use OTP: 1234', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                          const Text("We'll send a 6-digit OTP to verify your number", style: TextStyle(fontSize: 12, color: Colors.grey)),
                           const SizedBox(height: 20),
                           SizedBox(
                             width: double.infinity,

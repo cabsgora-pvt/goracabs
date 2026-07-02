@@ -23,9 +23,17 @@
     "mapboxToken": ""
   },
   "sms": {
-    "provider": "twilio",
+    "provider": "smsindori",
+    "smsindori": {
+      "authKey": "373543616273676f72613130301775052482",
+      "senderId": "GORAOT",
+      "route": "16",
+      "templateId": "1107177495369252598",
+      "templateText": "Your Gora Cabs OTP is {#numeric#}. It is valid for 5 minutes. Do not share it with anyone.",
+      "apiUrl": "http://sms.smsindori.com/http-tokenkeyapi.php"
+    },
     "twilio": { "accountSid": "", "authToken": "", "fromNumber": "" },
-    "msg91": { "authKey": "", "senderId": "" }
+    "msg91": { "authKey": "", "senderId": "", "templateId": "" }
   },
   "mail": {
     "driver": "smtp",

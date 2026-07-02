@@ -4,18 +4,17 @@ import { connectDB } from '@/lib/mongodb'
 import User from '@/models/User'
 import { signToken } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
-
-const DEFAULT_OTP = '1234'
+import { checkOtp } from '@/lib/otp'
 
 export async function OPTIONS() { return corsOptions() }
 
 export async function POST(req: NextRequest) {
   try {
     const { phone, otp } = await req.json()
+    if (!phone || !otp) return withCors({ error: 'Phone and OTP are required' }, 400)
 
-    if (otp !== DEFAULT_OTP) {
-      return withCors({ error: 'Invalid OTP. Use 1234' }, 401)
-    }
+    const verify = await checkOtp(String(phone), String(otp), 'user')
+    if (!verify.ok) return withCors({ error: verify.error }, verify.status)
 
     await connectDB()
 
