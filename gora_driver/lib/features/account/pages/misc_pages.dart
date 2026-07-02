@@ -6,6 +6,7 @@ import '../../../core/widgets/app_widgets.dart';
 import '../../../mock/mock_data.dart';
 import '../../../providers/driver_provider.dart';
 import '../../../services/driver_api_service.dart';
+import '../../../services/driver_payment_service.dart';
 
 // ── QR Code Page ─────────────────────────────────────
 class QrCodePage extends StatelessWidget {
@@ -368,6 +369,7 @@ class SubscriptionPage extends StatefulWidget {
 class _SubscriptionPageState extends State<SubscriptionPage> {
   bool _loading = true;
   bool _busy = false;
+  bool _rzpEnabled = false;
   Map<String, dynamic> _current = {};
   List<Map<String, dynamic>> _plans = [];
   List<Map<String, dynamic>> _history = [];
@@ -380,12 +382,15 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     setState(() => _loading = true);
     try {
       final r = await DriverApiService.getSubscription();
+      Map<String, dynamic> cfg = {};
+      try { cfg = await DriverApiService.getPaymentConfig(); } catch (_) {}
       if (!mounted) return;
       setState(() {
         _current = (r['current'] as Map?)?.cast<String, dynamic>() ?? {};
         _plans = ((r['plans'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
         _history = ((r['history'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
         _wallet = (r['walletBalance'] as num?) ?? 0;
+        _rzpEnabled = (cfg['razorpay'] is Map) && (cfg['razorpay']['enabled'] == true);
         _loading = false;
       });
     } catch (_) { if (mounted) setState(() => _loading = false); }
@@ -401,9 +406,12 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
 
   Future<void> _buy(Map<String, dynamic> plan) async {
     final price = (plan['price'] as num?) ?? 0;
+    final payLine = _rzpEnabled
+        ? 'Pay ₹${price.toStringAsFixed(0)} online (UPI / card / net banking).'
+        : '₹${price.toStringAsFixed(0)} will be deducted from your wallet (₹${_wallet.toStringAsFixed(0)}).';
     final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
       title: Text('Buy ${plan['name']}?'),
-      content: Text('₹${price.toStringAsFixed(0)} will be deducted from your wallet (₹${_wallet.toStringAsFixed(0)}).'),
+      content: Text(payLine),
       actions: [
         TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
         ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text('Confirm')),
@@ -411,7 +419,18 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     ));
     if (ok != true) return;
     setState(() => _busy = true);
-    final r = await DriverApiService.buySubscription(plan['_id'].toString());
+
+    final planId = plan['_id'].toString();
+    Map<String, dynamic> r;
+    if (_rzpEnabled) {
+      // Pay via Razorpay, then activate on the server after verification
+      final phone = context.read<DriverProvider>().phone;
+      r = await DriverPaymentService.paySubscription(planId: planId, contact: phone);
+    } else {
+      // No gateway configured → wallet payment
+      r = await DriverApiService.buySubscription(planId);
+    }
+
     if (!mounted) return;
     setState(() => _busy = false);
     if (r['success'] == true) {

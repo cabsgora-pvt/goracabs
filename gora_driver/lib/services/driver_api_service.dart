@@ -169,8 +169,22 @@ class DriverApiService {
   static Future<Map<String, dynamic>> getSubscription() =>
       get('/auth/driver/subscription');
 
-  static Future<Map<String, dynamic>> buySubscription(String planId) =>
-      post('/auth/driver/subscription/buy', {'planId': planId}, auth: true);
+  // Public payment config (razorpay enabled + keyId + mode)
+  static Future<Map<String, dynamic>> getPaymentConfig() => get('/payment/config');
+
+  // Create a Razorpay order for a subscription plan
+  static Future<Map<String, dynamic>> createSubscriptionOrder(String planId) =>
+      post('/auth/driver/subscription/order', {'planId': planId}, auth: true);
+
+  // Activate a plan. Pass Razorpay fields when paid via gateway; omit for wallet payment.
+  static Future<Map<String, dynamic>> buySubscription(String planId,
+      {String? orderId, String? paymentId, String? signature}) =>
+      post('/auth/driver/subscription/buy', {
+        'planId': planId,
+        if (orderId != null) 'orderId': orderId,
+        if (paymentId != null) 'paymentId': paymentId,
+        if (signature != null) 'signature': signature,
+      }, auth: true);
 
   // Outstation phase / distance / night-halt update
   static Future<Map<String, dynamic>> updatePhase(String rideId, Map<String, dynamic> body) =>

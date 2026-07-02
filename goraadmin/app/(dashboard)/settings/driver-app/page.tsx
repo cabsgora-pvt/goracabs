@@ -7,6 +7,7 @@ const SERVICES = ['taxi', 'rental', 'outstation', 'delivery', 'hire_driver']
 export default function DriverAppSettings() {
   const [tab, setTab] = useState<string>('Subscription Plans')
   const [plans, setPlans] = useState<any[]>([])
+  const [editIdx, setEditIdx] = useState<number>(-1)
   const [settings, setSettings] = useState<any>(null)
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
@@ -47,13 +48,14 @@ export default function DriverAppSettings() {
     try {
       if (p._id) await fetch(`/api/subscription-plans/${p._id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       else await fetch('/api/subscription-plans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      await load(); flash('Plan saved ✓')
+      await load(); setEditIdx(-1); flash('Plan saved ✓')
     } catch { flash('Failed') }
     setBusy(false)
   }
 
   async function delPlan(i: number) {
     const p = plans[i]
+    setEditIdx(-1)
     if (!p._id) { setPlans(plans.filter((_, x) => x !== i)); return }
     setBusy(true)
     try { await fetch(`/api/subscription-plans/${p._id}`, { method: 'DELETE' }); await load(); flash('Plan deleted') }
@@ -61,10 +63,13 @@ export default function DriverAppSettings() {
     setBusy(false)
   }
 
-  const addPlan = () => setPlans([...plans, {
-    name: 'New Plan', price: 0, durationDays: 30, description: '', benefits: [],
-    commissionPercentWhileActive: 0, services: [], vehicleTypes: [], isActive: true, sortOrder: plans.length,
-  }])
+  const addPlan = () => {
+    setPlans([...plans, {
+      name: 'New Plan', price: 0, durationDays: 30, description: '', benefits: [],
+      commissionPercentWhileActive: 0, services: [], vehicleTypes: [], isActive: true, sortOrder: plans.length,
+    }])
+    setEditIdx(plans.length)
+  }
 
   async function saveWalletRules() {
     setBusy(true)
@@ -105,9 +110,9 @@ export default function DriverAppSettings() {
         <div className="flex-1 max-w-3xl">
           {tab === 'Subscription Plans' && (
             <div className="space-y-3">
-              {plans.map((p, i) => (
-                <div key={p._id || i} className="bg-white border rounded-xl p-4 space-y-2 relative">
-                  <button type="button" onClick={() => delPlan(i)} className="absolute top-3 right-3 text-red-500 text-xs font-bold">✕ Delete</button>
+              {plans.map((p, i) => editIdx === i ? (
+                /* ── Edit form ── */
+                <div key={p._id || i} className="bg-white border-2 border-[#1C2656] rounded-xl p-4 space-y-2">
                   <div className="grid grid-cols-2 gap-2">
                     <div><label className="block text-xs text-gray-500 mb-1">Plan name</label>
                       <input className={inp} title="Plan name" placeholder="Weekly Pass" value={p.name || ''} onChange={e => updPlan(i, 'name', e.target.value)} /></div>
@@ -135,8 +140,37 @@ export default function DriverAppSettings() {
                   </div>
                   <div className="flex items-center justify-between pt-1">
                     <label className="text-xs flex items-center gap-1"><input type="checkbox" checked={p.isActive !== false} onChange={e => updPlan(i, 'isActive', e.target.checked)} /> Active</label>
-                    <button type="button" onClick={() => savePlan(i)} disabled={busy}
-                      className="bg-[#1C2656] text-white px-5 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-50">{p._id ? 'Save' : 'Create'}</button>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => { if (!p._id) delPlan(i); else setEditIdx(-1) }} className="px-4 py-1.5 rounded-lg text-sm font-semibold border border-gray-300 text-gray-600 hover:bg-gray-50">Cancel</button>
+                      <button type="button" onClick={() => savePlan(i)} disabled={busy} className="bg-[#1C2656] text-white px-5 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-50">{p._id ? 'Save' : 'Create'}</button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* ── Preview card (same look as the driver app) ── */
+                <div key={p._id || i} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-extrabold text-gray-800 text-base">{p.name}</h3>
+                        {p.isActive === false && <span className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full font-semibold">INACTIVE</span>}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">{p.durationDays} days • {(+p.commissionPercentWhileActive || 0) === 0 ? 'Zero commission' : `${p.commissionPercentWhileActive}% commission`}</p>
+                    </div>
+                    <div className="text-2xl font-black text-[#1C2656]">₹{p.price}</div>
+                  </div>
+                  {p.description && <p className="text-sm text-gray-500 mt-1">{p.description}</p>}
+                  {(p.benefits || []).length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {(p.benefits || []).map((b: string, bi: number) => (
+                        <li key={bi} className="flex items-center gap-2 text-sm text-gray-700"><span className="text-green-600 font-bold">✓</span>{b}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {(p.services || []).length > 0 && <p className="text-xs text-gray-400 mt-2">Services: {(p.services || []).join(', ')}</p>}
+                  <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-gray-100">
+                    <button type="button" onClick={() => setEditIdx(i)} className="px-4 py-1.5 rounded-lg text-sm font-semibold border border-[#1C2656] text-[#1C2656] hover:bg-[#1C2656]/5">✎ Edit</button>
+                    <button type="button" onClick={() => delPlan(i)} className="px-4 py-1.5 rounded-lg text-sm font-semibold border border-red-300 text-red-600 hover:bg-red-50">🗑 Delete</button>
                   </div>
                 </div>
               ))}
@@ -151,7 +185,7 @@ export default function DriverAppSettings() {
                   <p className="font-medium text-gray-800">Block rides on low balance</p>
                   <p className="text-xs text-gray-500">Stop sending requests when a driver owes too much commission.</p>
                 </div>
-                <button type="button"
+                <button type="button" title="Toggle low-balance block" aria-label="Toggle low-balance block"
                   onClick={() => setDriverApp('walletBlockEnabled', !(da.walletBlockEnabled !== false))}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${da.walletBlockEnabled !== false ? 'bg-[#1C2656]' : 'bg-gray-200'}`}>
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${da.walletBlockEnabled !== false ? 'translate-x-6' : 'translate-x-1'}`} />
