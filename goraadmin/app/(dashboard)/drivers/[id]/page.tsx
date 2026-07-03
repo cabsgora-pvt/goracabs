@@ -23,6 +23,10 @@ export default function DriverDetailPage() {
   const [rejectReason, setRejectReason] = useState('')
   const [deleteModal, setDeleteModal] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
+  const [wAmount, setWAmount] = useState('')
+  const [wType, setWType] = useState<'credit' | 'debit'>('credit')
+  const [wNote, setWNote] = useState('')
+  const [wBusy, setWBusy] = useState(false)
 
   const fetchDriver = () => {
     fetch(`/api/drivers/${id}`)
@@ -82,6 +86,34 @@ export default function DriverDetailPage() {
     }
     setActionLoading(false)
     setDeleteModal(false)
+  }
+
+  const adjustWallet = async () => {
+    const amount = Number(wAmount)
+    if (!amount || amount <= 0) {
+      setToast({ msg: 'Enter a valid amount', type: 'error' })
+      return
+    }
+    setWBusy(true)
+    try {
+      const res = await fetch(`/api/drivers/${id}/wallet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, type: wType, note: wNote }),
+      })
+      const d = await res.json()
+      if (res.ok && d.success) {
+        setWAmount('')
+        setWNote('')
+        fetchDriver()
+        setToast({ msg: `Wallet ${wType === 'credit' ? 'credited' : 'debited'}`, type: 'success' })
+      } else {
+        setToast({ msg: d.error || 'Failed to adjust wallet', type: 'error' })
+      }
+    } catch {
+      setToast({ msg: 'Failed to adjust wallet', type: 'error' })
+    }
+    setWBusy(false)
   }
 
   const verifyDoc = async (docId: string) => {
@@ -230,6 +262,61 @@ export default function DriverDetailPage() {
                 <DollarSign className="w-6 h-6 text-purple-600 mx-auto mb-1" />
                 <p className="text-xl font-bold text-gray-900">₹{(driver.walletBalance || 0).toLocaleString()}</p>
                 <p className="text-xs text-gray-500 mt-1">Wallet</p>
+              </div>
+            </div>
+
+            {/* Adjust Wallet */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+              <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <DollarSign className="w-4 h-4" /> Adjust Wallet
+              </h3>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setWType('credit')}
+                    aria-label="Add money (credit)"
+                    title="Add money (credit)"
+                    className={`px-3 py-2 text-sm font-medium ${wType === 'credit' ? 'bg-green-50 text-green-700' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                    Add
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWType('debit')}
+                    aria-label="Deduct money (debit)"
+                    title="Deduct money (debit)"
+                    className={`px-3 py-2 text-sm font-medium border-l border-gray-200 ${wType === 'debit' ? 'bg-red-50 text-red-600' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                    Deduct
+                  </button>
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  value={wAmount}
+                  onChange={e => setWAmount(e.target.value)}
+                  placeholder="Amount ₹"
+                  aria-label="Wallet adjustment amount"
+                  title="Wallet adjustment amount"
+                  className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-300"
+                />
+                <input
+                  type="text"
+                  value={wNote}
+                  onChange={e => setWNote(e.target.value)}
+                  placeholder="Note (optional)"
+                  aria-label="Wallet adjustment note"
+                  title="Wallet adjustment note"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-300"
+                />
+                <button
+                  type="button"
+                  onClick={adjustWallet}
+                  disabled={wBusy}
+                  aria-label="Apply wallet adjustment"
+                  title="Apply wallet adjustment"
+                  className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50">
+                  {wBusy ? 'Applying…' : 'Apply'}
+                </button>
               </div>
             </div>
 

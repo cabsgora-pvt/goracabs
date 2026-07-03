@@ -231,22 +231,14 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
                 style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: cash ? AppColors.green : AppColors.primary)),
           ]),
         ),
-        // buttons
+        // Swipe: drag right → Accept (green), drag left → Reject (red)
         Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(children: [
-            Expanded(child: OutlinedButton(
-              onPressed: _accepting ? null : () => _reject(r),
-              style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.red), padding: const EdgeInsets.symmetric(vertical: 11), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-              child: const Text('Reject', style: TextStyle(color: AppColors.red, fontWeight: FontWeight.w700)),
-            )),
-            const SizedBox(width: 10),
-            Expanded(child: ElevatedButton(
-              onPressed: _accepting ? null : () => _accept(r),
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.green, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 11), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-              child: const Text('Accept', style: TextStyle(fontWeight: FontWeight.w800)),
-            )),
-          ]),
+          child: _SwipeAction(
+            enabled: !_accepting,
+            onAccept: () => _accept(r),
+            onReject: () => _reject(r),
+          ),
         ),
       ]),
     );
@@ -257,4 +249,91 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     const SizedBox(width: 8),
     Expanded(child: Text(addr, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, color: AppColors.textDark, fontWeight: FontWeight.w500))),
   ]);
+}
+
+// Bidirectional swipe control: drag the knob RIGHT to Accept (green),
+// LEFT to Reject (red). The track tints green/red as you drag; releasing
+// past ~60% triggers the action, otherwise it springs back to center.
+class _SwipeAction extends StatefulWidget {
+  final VoidCallback onAccept;
+  final VoidCallback onReject;
+  final bool enabled;
+  const _SwipeAction({required this.onAccept, required this.onReject, required this.enabled});
+  @override
+  State<_SwipeAction> createState() => _SwipeActionState();
+}
+
+class _SwipeActionState extends State<_SwipeAction> {
+  double _dx = 0;
+  bool _dragging = false;
+
+  @override
+  Widget build(BuildContext context) {
+    const h = 54.0, knob = 46.0;
+    return LayoutBuilder(builder: (context, c) {
+      final w = c.maxWidth;
+      final maxDx = ((w - knob) / 2) - 6;
+      final t = maxDx <= 0 ? 0.0 : (_dx / maxDx).clamp(-1.0, 1.0);
+      const base = Color(0xFFEDEFF3);
+      final bg = t >= 0
+          ? Color.lerp(base, AppColors.green, t * 0.85)!
+          : Color.lerp(base, AppColors.red, -t * 0.85)!;
+      final knobColor = t > 0.06 ? AppColors.green : (t < -0.06 ? AppColors.red : Colors.white);
+      final knobIcon = t > 0.06 ? Icons.check : (t < -0.06 ? Icons.close : Icons.unfold_more);
+      return SizedBox(
+        height: h,
+        child: Stack(alignment: Alignment.center, children: [
+          Container(decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(h / 2))),
+          // Left hint (Reject) — fades out as you drag right
+          Positioned(
+            left: 16,
+            child: Opacity(
+              opacity: (0.6 - t).clamp(0.0, 1.0),
+              child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                Icon(Icons.chevron_left, size: 18, color: AppColors.red),
+                Text('Reject', style: TextStyle(color: AppColors.red, fontWeight: FontWeight.w800, fontSize: 13)),
+              ]),
+            ),
+          ),
+          // Right hint (Accept) — fades out as you drag left
+          Positioned(
+            right: 16,
+            child: Opacity(
+              opacity: (0.6 + t).clamp(0.0, 1.0),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Text('Accept', style: TextStyle(color: AppColors.green, fontWeight: FontWeight.w800, fontSize: 13)),
+                Icon(Icons.chevron_right, size: 18, color: t > 0.06 ? Colors.white : AppColors.green),
+              ]),
+            ),
+          ),
+          // Draggable knob
+          AnimatedPositioned(
+            duration: Duration(milliseconds: _dragging ? 0 : 180),
+            curve: Curves.easeOut,
+            left: (w / 2 - knob / 2) + _dx,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragStart: widget.enabled ? (_) => setState(() => _dragging = true) : null,
+              onHorizontalDragUpdate: widget.enabled ? (d) => setState(() => _dx = (_dx + d.delta.dx).clamp(-maxDx, maxDx)) : null,
+              onHorizontalDragEnd: widget.enabled ? (_) => _end(t) : null,
+              child: Container(
+                width: knob, height: knob,
+                decoration: BoxDecoration(
+                  color: knobColor, shape: BoxShape.circle,
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 6, offset: const Offset(0, 2))],
+                ),
+                child: Icon(knobIcon, size: 22, color: knobColor == Colors.white ? AppColors.primary : Colors.white),
+              ),
+            ),
+          ),
+        ]),
+      );
+    });
+  }
+
+  void _end(double t) {
+    setState(() { _dragging = false; _dx = 0; });
+    if (t >= 0.6) widget.onAccept();
+    else if (t <= -0.6) widget.onReject();
+  }
 }

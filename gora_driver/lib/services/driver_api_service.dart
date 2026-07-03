@@ -175,6 +175,9 @@ class DriverApiService {
   // Public driver-app config (per-service ringtones + wallet rules)
   static Future<Map<String, dynamic>> getDriverConfig() => get('/driver-config');
 
+  // Driver wallet: { balance, transactions }
+  static Future<Map<String, dynamic>> getWallet() => get('/auth/driver/wallet');
+
   // Create a Razorpay order for a subscription plan
   static Future<Map<String, dynamic>> createSubscriptionOrder(String planId) =>
       post('/auth/driver/subscription/order', {'planId': planId}, auth: true);
