@@ -21,6 +21,13 @@ const DriverSchema = new Schema({
   acceptsHireDriver: { type: Boolean, default: false },
   // Driver opts in to receive parcel/delivery requests
   acceptsDelivery: { type: Boolean, default: false },
+  // Admin gates which services a driver is ALLOWED to enable. If false, the
+  // option is hidden in the driver's Preferences and forced off.
+  allowTaxi: { type: Boolean, default: true },
+  allowRental: { type: Boolean, default: true },
+  allowOutstation: { type: Boolean, default: true },
+  allowHireDriver: { type: Boolean, default: true },
+  allowDelivery: { type: Boolean, default: true },
   vehicleNumber: String,
   vehicleModel: String,
   vehicleType: String,

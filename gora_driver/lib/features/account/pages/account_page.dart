@@ -190,7 +190,6 @@ class AccountPage extends StatelessWidget {
                 _Section('Support'),
                 MenuRow(icon: Icons.receipt_long, label: 'Rate Card', onTap: () => Navigator.pushNamed(context, '/rate-card')),
                 MenuRow(icon: Icons.bar_chart_outlined, label: 'Reports', onTap: () => Navigator.pushNamed(context, '/reports')),
-                MenuRow(icon: Icons.sos, label: 'SOS Contacts', onTap: () => Navigator.pushNamed(context, '/sos'), iconColor: AppColors.red),
                 MenuRow(icon: Icons.chat, label: 'Chat with Support', onTap: () => Navigator.pushNamed(context, '/admin-chat')),
                 MenuRow(icon: Icons.support_agent, label: 'Support Tickets', onTap: () => Navigator.pushNamed(context, '/support-tickets')),
 

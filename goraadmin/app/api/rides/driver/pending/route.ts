@@ -47,11 +47,14 @@ export async function GET(req: NextRequest) {
     const taxiBranch: any = { ...baseFilter, service: { $nin: ['outstation', 'rental', 'hire_driver', 'delivery'] } }
     if (driver.zoneId) taxiBranch.zoneId = driver.zoneId
 
-    const branches: any[] = [taxiBranch]
-    if (driver.acceptsOutstation) branches.push({ ...baseFilter, service: 'outstation' })
-    if (driver.acceptsRental) branches.push({ ...baseFilter, service: 'rental' })
-    if (driver.acceptsHireDriver) branches.push({ ...baseFilter, service: 'hire_driver' })
-    if (driver.acceptsDelivery) branches.push({ ...baseFilter, service: 'delivery' })
+    // Gate each service by the admin-set allow flag (default allowed)
+    const branches: any[] = []
+    if (driver.allowTaxi !== false) branches.push(taxiBranch)
+    if (driver.acceptsOutstation && driver.allowOutstation !== false) branches.push({ ...baseFilter, service: 'outstation' })
+    if (driver.acceptsRental && driver.allowRental !== false) branches.push({ ...baseFilter, service: 'rental' })
+    if (driver.acceptsHireDriver && driver.allowHireDriver !== false) branches.push({ ...baseFilter, service: 'hire_driver' })
+    if (driver.acceptsDelivery && driver.allowDelivery !== false) branches.push({ ...baseFilter, service: 'delivery' })
+    if (branches.length === 0) return withCors({ rides: [] })
 
     const query: any = {
       status: 'pending',

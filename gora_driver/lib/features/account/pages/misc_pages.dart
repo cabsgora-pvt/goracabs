@@ -83,24 +83,58 @@ class _QrCodePageState extends State<QrCodePage> {
   }
 }
 
-// ── Rate Card Page ─────────────────────────────────────
-class RateCardPage extends StatelessWidget {
+// ── Rate Card Page (real — driver's zone pricing) ──
+class RateCardPage extends StatefulWidget {
   static const route = '/rate-card';
   const RateCardPage({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: blueAppBar('Rate Card'),
-    backgroundColor: AppColors.cardBg,
-    body: ListView(padding: const EdgeInsets.all(16), children: [
-      _rateCard(context, 'Sedan', [['Base Fare', '₹ 50'], ['Per km', '₹ 12'], ['Per min', '₹ 1.5'], ['Min Fare', '₹ 80']]),
-      const SizedBox(height: 12),
-      _rateCard(context, 'SUV / Prime', [['Base Fare', '₹ 80'], ['Per km', '₹ 18'], ['Per min', '₹ 2'], ['Min Fare', '₹ 120']]),
-      const SizedBox(height: 12),
-      _rateCard(context, 'Auto', [['Base Fare', '₹ 30'], ['Per km', '₹ 8'], ['Per min', '₹ 1'], ['Min Fare', '₹ 50']]),
-    ]),
-  );
+  State<RateCardPage> createState() => _RateCardPageState();
+}
 
-  Widget _rateCard(BuildContext context, String type, List<List<String>> rates) => Container(
+class _RateCardPageState extends State<RateCardPage> {
+  bool _loading = true;
+  String _zone = '';
+  List<Map<String, dynamic>> _cards = [];
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    try {
+      final r = await DriverApiService.getRateCard();
+      _zone = (r['zone'] ?? '').toString();
+      _cards = ((r['cards'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: blueAppBar('Rate Card'),
+      backgroundColor: AppColors.cardBg,
+      body: _loading
+          ? const AppLoader()
+          : _cards.isEmpty
+              ? const Center(child: Text('No rate card set for your zone yet', style: TextStyle(color: AppColors.textGrey)))
+              : ListView(padding: const EdgeInsets.all(16), children: [
+                  if (_zone.isNotEmpty)
+                    Padding(padding: const EdgeInsets.only(bottom: 10),
+                      child: Text('Zone: $_zone', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.textDark, fontSize: 14))),
+                  ..._cards.map((c) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _rateCard((c['vehicleType'] ?? 'Vehicle').toString(), [
+                          ['Base Fare', '₹ ${c['baseFare'] ?? 0}'],
+                          ['Per km', '₹ ${c['perKm'] ?? 0}'],
+                          ['Per min', '₹ ${c['perMin'] ?? 0}'],
+                          ['Min Fare', '₹ ${c['minFare'] ?? 0}'],
+                        ]),
+                      )),
+                ]),
+    );
+  }
+
+  Widget _rateCard(String type, List<List<String>> rates) => Container(
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)]),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -334,43 +368,72 @@ class RewardsPage extends StatelessWidget {
 }
 
 // ── Reports Page ─────────────────────────────────────
-class ReportsPage extends StatelessWidget {
+class ReportsPage extends StatefulWidget {
   static const route = '/reports';
   const ReportsPage({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: blueAppBar('My Reports'),
-    backgroundColor: AppColors.cardBg,
-    body: ListView(padding: const EdgeInsets.all(16), children: [
-      _reportCard('May 2025', '52 rides', '₹ 28,350', '647 km', '4.8 ⭐'),
-      const SizedBox(height: 12),
-      _reportCard('Apr 2025', '48 rides', '₹ 25,100', '581 km', '4.7 ⭐'),
-      const SizedBox(height: 12),
-      _reportCard('Mar 2025', '61 rides', '₹ 33,200', '774 km', '4.9 ⭐'),
-    ]),
-  );
+  State<ReportsPage> createState() => _ReportsPageState();
+}
 
-  Widget _reportCard(String month, String rides, String earnings, String distance, String rating) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)]),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(month, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.primary)),
-      const SizedBox(height: 12),
-      Row(children: [
-        Expanded(child: _stat('Rides', rides, Icons.directions_car)),
-        Expanded(child: _stat('Earned', earnings, Icons.currency_rupee)),
-        Expanded(child: _stat('Distance', distance, Icons.route)),
-        Expanded(child: _stat('Rating', rating, Icons.star)),
-      ]),
-    ]),
-  );
+class _ReportsPageState extends State<ReportsPage> {
+  bool _loading = true;
+  num _today = 0, _week = 0, _totalRides = 0, _totalEarnings = 0, _todayDistance = 0;
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    try {
+      final r = await DriverApiService.getEarningsSummary();
+      _today = (r['today'] as num?) ?? 0;
+      _week = (r['week'] as num?) ?? 0;
+      _totalRides = (r['totalRides'] as num?) ?? 0;
+      _totalEarnings = (r['totalEarnings'] as num?) ?? 0;
+      _todayDistance = (r['todayDistance'] as num?) ?? 0;
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: blueAppBar('My Reports'),
+      backgroundColor: AppColors.cardBg,
+      body: _loading
+          ? const AppLoader()
+          : ListView(padding: const EdgeInsets.all(16), children: [
+              Container(
+                width: double.infinity, padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]), borderRadius: BorderRadius.circular(20)),
+                child: Column(children: [
+                  const Text('Total Earnings', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  const SizedBox(height: 6),
+                  Text('₹ ${_totalEarnings.toStringAsFixed(0)}', style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 4),
+                  Text('${_totalRides.toStringAsFixed(0)} total rides', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                ]),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)]),
+                child: Row(children: [
+                  Expanded(child: _stat('Today', '₹${_today.toStringAsFixed(0)}', Icons.today)),
+                  Expanded(child: _stat('This Week', '₹${_week.toStringAsFixed(0)}', Icons.calendar_today)),
+                  Expanded(child: _stat('Total Rides', _totalRides.toStringAsFixed(0), Icons.directions_car)),
+                  Expanded(child: _stat("Today's km", _todayDistance.toStringAsFixed(0), Icons.route)),
+                ]),
+              ),
+            ]),
+    );
+  }
 
   Widget _stat(String l, String v, IconData icon) => Column(children: [
-    Icon(icon, color: AppColors.primary, size: 16),
-    const SizedBox(height: 4),
-    Text(v, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppColors.textDark), textAlign: TextAlign.center),
-    Text(l, style: const TextStyle(fontSize: 10, color: AppColors.textGrey)),
-  ]);
+        Icon(icon, color: AppColors.primary, size: 16),
+        const SizedBox(height: 4),
+        Text(v, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppColors.textDark), textAlign: TextAlign.center),
+        Text(l, style: const TextStyle(fontSize: 10, color: AppColors.textGrey)),
+      ]);
 }
 
 // ── Admin Chat Page ─────────────────────────────────────

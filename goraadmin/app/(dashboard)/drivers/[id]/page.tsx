@@ -8,7 +8,7 @@ import { Toast } from '@/components/ui/toast'
 import {
   ArrowLeft, Phone, Car, Star, TrendingUp, DollarSign,
   CheckCircle, XCircle, Mail, MapPin, CreditCard, FileText,
-  Trash2, Ban, CalendarClock, ArrowDownToLine,
+  Trash2, Ban, CalendarClock, ArrowDownToLine, SlidersHorizontal,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -28,6 +28,12 @@ export default function DriverDetailPage() {
   const [wType, setWType] = useState<'credit' | 'debit'>('credit')
   const [wNote, setWNote] = useState('')
   const [wBusy, setWBusy] = useState(false)
+  const [allowTaxi, setAllowTaxi] = useState(true)
+  const [allowRental, setAllowRental] = useState(true)
+  const [allowOutstation, setAllowOutstation] = useState(true)
+  const [allowHireDriver, setAllowHireDriver] = useState(true)
+  const [allowDelivery, setAllowDelivery] = useState(true)
+  const [prefsBusy, setPrefsBusy] = useState(false)
 
   const fetchDriver = () => {
     fetch(`/api/drivers/${id}`)
@@ -37,6 +43,35 @@ export default function DriverDetailPage() {
   }
 
   useEffect(() => { fetchDriver() }, [id])
+
+  useEffect(() => {
+    if (!driver) return
+    setAllowTaxi(driver.allowTaxi !== false)
+    setAllowRental(driver.allowRental !== false)
+    setAllowOutstation(driver.allowOutstation !== false)
+    setAllowHireDriver(driver.allowHireDriver !== false)
+    setAllowDelivery(driver.allowDelivery !== false)
+  }, [driver])
+
+  const saveServicePreferences = async () => {
+    setPrefsBusy(true)
+    try {
+      const res = await fetch(`/api/drivers/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allowTaxi, allowRental, allowOutstation, allowHireDriver, allowDelivery }),
+      })
+      if (res.ok) {
+        fetchDriver()
+        setToast({ msg: 'Service preferences saved', type: 'success' })
+      } else {
+        setToast({ msg: 'Failed to save service preferences', type: 'error' })
+      }
+    } catch {
+      setToast({ msg: 'Failed to save service preferences', type: 'error' })
+    }
+    setPrefsBusy(false)
+  }
 
   const approveDriver = async () => {
     setActionLoading(true)
@@ -318,6 +353,73 @@ export default function DriverDetailPage() {
                   className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50">
                   {wBusy ? 'Applying…' : 'Apply'}
                 </button>
+              </div>
+            </div>
+
+            {/* Service Preferences */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+              <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <SlidersHorizontal className="w-4 h-4" /> Service Preferences
+              </h3>
+
+              {/* Currently accepting */}
+              <div className="mb-4">
+                <p className="text-xs text-gray-500 mb-2">Currently accepting:</p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { label: 'Taxi', accepted: true },
+                    { label: 'Rental', accepted: !!driver.acceptsRental },
+                    { label: 'Outstation', accepted: !!driver.acceptsOutstation },
+                    { label: 'Hire Driver', accepted: !!driver.acceptsHireDriver },
+                    { label: 'Delivery', accepted: !!driver.acceptsDelivery },
+                  ].map(s => (
+                    <span
+                      key={s.label}
+                      className={`inline-block px-2.5 py-1 rounded-full text-xs font-medium ${
+                        s.accepted ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
+                      }`}>
+                      {s.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Allowed services */}
+              <div className="border-t border-gray-100 pt-4">
+                <p className="text-sm font-medium text-gray-700 mb-1">Allowed services</p>
+                <p className="text-xs text-gray-500 mb-3">Unchecked services are hidden in the driver app and cannot be enabled.</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[
+                    { label: 'Taxi', value: allowTaxi, set: setAllowTaxi },
+                    { label: 'Rental', value: allowRental, set: setAllowRental },
+                    { label: 'Outstation', value: allowOutstation, set: setAllowOutstation },
+                    { label: 'Hire Driver', value: allowHireDriver, set: setAllowHireDriver },
+                    { label: 'Delivery', value: allowDelivery, set: setAllowDelivery },
+                  ].map(s => (
+                    <label key={s.label} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={s.value}
+                        onChange={e => s.set(e.target.checked)}
+                        aria-label={`Allow ${s.label}`}
+                        title={`Allow ${s.label}`}
+                        className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-300"
+                      />
+                      {s.label}
+                    </label>
+                  ))}
+                </div>
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={saveServicePreferences}
+                    disabled={prefsBusy}
+                    aria-label="Save service preferences"
+                    title="Save service preferences"
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+                    {prefsBusy ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
               </div>
             </div>
 

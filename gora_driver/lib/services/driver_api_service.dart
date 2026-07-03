@@ -202,6 +202,9 @@ class DriverApiService {
   // Zone leaderboard: { zone, entries: [{rank,name,rides,earnings,isMe}] }
   static Future<Map<String, dynamic>> getLeaderboard() => get('/rides/driver/leaderboard');
 
+  // Rate card for the driver's zone: { zone, cards: [{vehicleType,baseFare,perKm,perMin,minFare}] }
+  static Future<Map<String, dynamic>> getRateCard() => get('/auth/driver/ratecard');
+
   // ── Bank accounts + withdrawals ───────────────────────────
   // { driverName, banks: [{accountHolderName,bankName,accountNumber,ifscCode}] }
   static Future<Map<String, dynamic>> getBanks() => get('/auth/driver/banks');
