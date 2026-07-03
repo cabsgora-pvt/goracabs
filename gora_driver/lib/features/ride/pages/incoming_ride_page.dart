@@ -112,11 +112,11 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
                 ),
                 const SizedBox(width: 14),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(r.userName, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                  Text(r.userName, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.textDark)),
                   const SizedBox(height: 4),
                   Row(children: [
                     const Icon(Icons.star, color: AppColors.orange, size: 16),
-                    Text(' ${r.userRating}', style: const TextStyle(fontSize: 13, color: AppColors.textGrey)),
+                    Text(' ${r.userRating}', style: TextStyle(fontSize: 13, color: AppColors.textGrey)),
                   ]),
                 ])),
                 Container(
@@ -149,7 +149,7 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
                   if (r.cityFrom.isNotEmpty || r.cityTo.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Text('${r.cityFrom.isNotEmpty ? r.cityFrom : "Pickup"} → ${r.cityTo.isNotEmpty ? r.cityTo : "Destination"}',
-                      style: const TextStyle(fontSize: 12, color: AppColors.textDark, fontWeight: FontWeight.w700),
+                      style: TextStyle(fontSize: 12, color: AppColors.textDark, fontWeight: FontWeight.w700),
                       maxLines: 1, overflow: TextOverflow.ellipsis),
                   ],
                   const SizedBox(height: 8),
@@ -226,7 +226,7 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
                   if (r.senderName.isNotEmpty || r.receiverName.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Text('${r.senderName.isNotEmpty ? r.senderName : "Sender"} → ${r.receiverName.isNotEmpty ? r.receiverName : "Receiver"}',
-                      style: const TextStyle(fontSize: 12, color: AppColors.textDark, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      style: TextStyle(fontSize: 12, color: AppColors.textDark, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
                   ],
                 ]),
               ),
@@ -291,7 +291,7 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
     child: Row(mainAxisSize: MainAxisSize.min, children: [
       Icon(icon, size: 11, color: AppColors.orange),
       const SizedBox(width: 4),
-      Text(text, style: const TextStyle(fontSize: 10, color: AppColors.textDark, fontWeight: FontWeight.w700)),
+      Text(text, style: TextStyle(fontSize: 10, color: AppColors.textDark, fontWeight: FontWeight.w700)),
     ]),
   );
 
@@ -309,8 +309,8 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
       Icon(icon, color: color, size: 20),
       const SizedBox(width: 12),
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textGrey, fontWeight: FontWeight.w600)),
-        Text(address, style: const TextStyle(fontSize: 13, color: AppColors.textDark, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
+        Text(label, style: TextStyle(fontSize: 11, color: AppColors.textGrey, fontWeight: FontWeight.w600)),
+        Text(address, style: TextStyle(fontSize: 13, color: AppColors.textDark, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
       ])),
     ]);
   }
@@ -343,7 +343,7 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(title, style: TextStyle(color: color, fontWeight: FontWeight.w800, fontSize: 14)),
-          Text(sub, style: const TextStyle(color: AppColors.textGrey, fontSize: 11, fontWeight: FontWeight.w600)),
+          Text(sub, style: TextStyle(color: AppColors.textGrey, fontSize: 11, fontWeight: FontWeight.w600)),
         ])),
         if (r.tipAmount > 0)
           Container(
@@ -363,8 +363,8 @@ class _IncomingRidePageState extends State<IncomingRidePage> {
       child: Column(children: [
         Icon(icon, color: AppColors.primary, size: 20),
         const SizedBox(height: 4),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.textDark, fontSize: 14)),
-        Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textGrey)),
+        Text(value, style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.textDark, fontSize: 14)),
+        Text(label, style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
       ]),
     );
   }

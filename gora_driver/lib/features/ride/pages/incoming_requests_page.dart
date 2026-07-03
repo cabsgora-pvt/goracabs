@@ -222,11 +222,11 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
                   : null,
             ),
             const SizedBox(width: 8),
-            Expanded(child: Text(r.userName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark))),
+            Expanded(child: Text(r.userName, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark))),
             const Icon(Icons.star, color: AppColors.orange, size: 14),
-            Text(' ${r.userRating}', style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
+            Text(' ${r.userRating}', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
             const SizedBox(width: 8),
-            Text('${r.distance} • ${r.eta}', style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+            Text('${r.distance} • ${r.eta}', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
           ]),
         ),
         const SizedBox(height: 8),
@@ -266,7 +266,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   Widget _addrRow(IconData ic, Color c, String addr) => Row(children: [
     Icon(ic, color: c, size: 16),
     const SizedBox(width: 8),
-    Expanded(child: Text(addr, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5, color: AppColors.textDark, fontWeight: FontWeight.w500))),
+    Expanded(child: Text(addr, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, color: AppColors.textDark, fontWeight: FontWeight.w500))),
   ]);
 }
 

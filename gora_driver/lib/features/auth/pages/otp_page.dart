@@ -64,9 +64,9 @@ class _OtpPageState extends State<OtpPage> {
           padding: const EdgeInsets.all(24),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const SizedBox(height: 16),
-            const Text('Verify OTP', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+            Text('Verify OTP', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.textDark)),
             const SizedBox(height: 8),
-            Text('Enter the 4-digit OTP sent to +91 $phone', style: const TextStyle(color: AppColors.textGrey, fontSize: 14)),
+            Text('Enter the 4-digit OTP sent to +91 $phone', style: TextStyle(color: AppColors.textGrey, fontSize: 14)),
             const SizedBox(height: 8),
             const Text('(Use: 1234 for demo)', style: TextStyle(color: AppColors.primary, fontSize: 13, fontWeight: FontWeight.w600)),
             const SizedBox(height: 40),
@@ -85,7 +85,7 @@ class _OtpPageState extends State<OtpPage> {
                     counterText: '',
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppColors.divider, width: 2),
+                      borderSide: BorderSide(color: AppColors.divider, width: 2),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -111,7 +111,7 @@ class _OtpPageState extends State<OtpPage> {
             const SizedBox(height: 24),
             Center(
               child: _timer > 0
-                  ? Text('Resend OTP in $_timer seconds', style: const TextStyle(color: AppColors.textGrey))
+                  ? Text('Resend OTP in $_timer seconds', style: TextStyle(color: AppColors.textGrey))
                   : TextButton(
                       onPressed: () { setState(() => _timer = 30); _startTimer(); },
                       child: const Text('Resend OTP', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),

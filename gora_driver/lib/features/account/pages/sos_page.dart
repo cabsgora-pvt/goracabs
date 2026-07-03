@@ -32,7 +32,7 @@ class _SosPageState extends State<SosPage> {
           child: Row(children: [
             const Icon(Icons.sos, color: AppColors.red, size: 28),
             const SizedBox(width: 12),
-            const Expanded(child: Text('In an emergency, press SOS to alert all contacts instantly.', style: TextStyle(fontSize: 13, color: AppColors.textDark))),
+            Expanded(child: Text('In an emergency, press SOS to alert all contacts instantly.', style: TextStyle(fontSize: 13, color: AppColors.textDark))),
           ]),
         ),
         Expanded(
@@ -48,8 +48,8 @@ class _SosPageState extends State<SosPage> {
                   child: Text(contacts[i].name[0], style: const TextStyle(color: AppColors.red, fontWeight: FontWeight.w700))),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(contacts[i].name, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
-                  Text('${contacts[i].phone}  •  ${contacts[i].relation}', style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                  Text(contacts[i].name, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                  Text('${contacts[i].phone}  •  ${contacts[i].relation}', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
                 ])),
                 IconButton(icon: const Icon(Icons.delete_outline, color: AppColors.red), onPressed: () => setState(() => contacts.removeAt(i))),
               ]),

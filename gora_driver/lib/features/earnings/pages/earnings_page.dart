@@ -38,7 +38,7 @@ class _EarningsPageState extends State<EarningsPage> {
                 const Icon(Icons.event, size: 18, color: AppColors.primary),
                 const SizedBox(width: 8),
                 Expanded(child: Text('Week ending ${_fmt(_date)}',
-                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textDark))),
+                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textDark))),
                 TextButton.icon(
                   onPressed: () async {
                     final picked = await showDatePicker(
@@ -122,7 +122,7 @@ class _Body extends StatelessWidget {
                     topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                     bottomTitles: AxisTitles(sideTitles: SideTitles(
                       showTitles: true,
-                      getTitlesWidget: (v, _) => Text(weekly[v.toInt()].date, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                      getTitlesWidget: (v, _) => Text(weekly[v.toInt()].date, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
                     )),
                   ),
                   gridData: const FlGridData(show: false),
@@ -150,8 +150,8 @@ class _Body extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('${e.rides} rides  •  ${e.distance}', style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
-                  Text(e.duration, style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                  Text('${e.rides} rides  •  ${e.distance}', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                  Text(e.duration, style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
                 ])),
                 Text('₹ ${e.amount}', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.primary, fontSize: 15)),
               ]),

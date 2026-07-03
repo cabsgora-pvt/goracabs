@@ -147,10 +147,10 @@ class _BankDetailsPageState extends State<BankDetailsPage> {
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: AppColors.divider),
                       ),
-                      child: const Row(
+                      child: Row(
                         children: [
-                          Icon(Icons.lock_rounded, size: 16, color: AppColors.primary),
-                          SizedBox(width: 8),
+                          const Icon(Icons.lock_rounded, size: 16, color: AppColors.primary),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               'Your bank details are encrypted and stored securely.',

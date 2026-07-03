@@ -178,7 +178,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    const Center(
+                    Center(
                       child: Text('Upload Profile Photo', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
                     ),
                     const SizedBox(height: 20),
@@ -195,11 +195,11 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                     TextFormField(
                       readOnly: true,
                       initialValue: '+91 $_phone',
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Mobile Number',
                         prefixIcon: Icon(Icons.phone_rounded, color: AppColors.textGrey),
                       ),
-                      style: const TextStyle(color: AppColors.textGrey),
+                      style: TextStyle(color: AppColors.textGrey),
                     ),
                     const SizedBox(height: 16),
                     TextFormField(

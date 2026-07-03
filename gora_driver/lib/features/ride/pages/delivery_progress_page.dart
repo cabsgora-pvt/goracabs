@@ -211,8 +211,8 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
 
   Widget _line(IconData i, String l, String v) => Padding(padding: const EdgeInsets.symmetric(vertical: 4),
     child: Row(children: [Icon(i, size: 16, color: AppColors.textGrey), const SizedBox(width: 8),
-      SizedBox(width: 60, child: Text(l, style: const TextStyle(fontSize: 12, color: AppColors.textGrey))),
-      Expanded(child: Text(v, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textDark), maxLines: 2))]));
+      SizedBox(width: 60, child: Text(l, style: TextStyle(fontSize: 12, color: AppColors.textGrey))),
+      Expanded(child: Text(v, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textDark), maxLines: 2))]));
 }
 
 class _SigPainter extends CustomPainter {

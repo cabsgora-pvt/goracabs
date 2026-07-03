@@ -78,13 +78,13 @@ class _TripCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(6)),
-                child: Text(trip.vehicleType, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey)),
+                child: Text(trip.vehicleType, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey)),
               ),
             const Spacer(),
             if (trip.numPassengers > 0) ...[
-              const Icon(Icons.group, size: 12, color: AppColors.textGrey),
+              Icon(Icons.group, size: 12, color: AppColors.textGrey),
               const SizedBox(width: 3),
-              Text('${trip.numPassengers}', style: const TextStyle(fontSize: 11, color: AppColors.textGrey, fontWeight: FontWeight.w600)),
+              Text('${trip.numPassengers}', style: TextStyle(fontSize: 11, color: AppColors.textGrey, fontWeight: FontWeight.w600)),
             ],
           ]),
           const SizedBox(height: 10),
@@ -93,15 +93,15 @@ class _TripCard extends StatelessWidget {
               child: Text(trip.userName[0], style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.primary))),
             const SizedBox(width: 12),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(trip.userName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textDark)),
-              Text(trip.date, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+              Text(trip.userName, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textDark)),
+              Text(trip.date, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
               if (trip.service == 'outstation' && (trip.cityFrom.isNotEmpty || trip.cityTo.isNotEmpty))
                 Text('${trip.cityFrom} → ${trip.cityTo}',
                   maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: 11, color: AppColors.orange, fontWeight: FontWeight.w600)),
             ])),
             Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text(trip.fare, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.textDark)),
+              Text(trip.fare, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.textDark)),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
@@ -114,18 +114,18 @@ class _TripCard extends StatelessWidget {
           ]),
           if (isCompleted) ...[
             const SizedBox(height: 12),
-            const Divider(color: AppColors.divider, height: 1),
+            Divider(color: AppColors.divider, height: 1),
             const SizedBox(height: 10),
             Row(children: [
               Expanded(child: Row(children: [
-                const Icon(Icons.route, size: 14, color: AppColors.textGrey),
+                Icon(Icons.route, size: 14, color: AppColors.textGrey),
                 const SizedBox(width: 4),
-                Text(trip.distance, style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                Text(trip.distance, style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
               ])),
               Expanded(child: Row(children: [
-                const Icon(Icons.timer, size: 14, color: AppColors.textGrey),
+                Icon(Icons.timer, size: 14, color: AppColors.textGrey),
                 const SizedBox(width: 4),
-                Text(trip.duration, style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                Text(trip.duration, style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
               ])),
               Row(children: List.generate(5, (i) => Icon(
                 i < trip.rating ? Icons.star : Icons.star_border,

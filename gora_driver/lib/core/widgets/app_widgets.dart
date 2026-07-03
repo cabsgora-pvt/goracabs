@@ -35,7 +35,7 @@ class SectionHeader extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+        Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textDark)),
         if (action != null)
           GestureDetector(onTap: onAction, child: Text(action!, style: const TextStyle(fontSize: 13, color: AppColors.primary, fontWeight: FontWeight.w600))),
       ],
@@ -61,8 +61,8 @@ class InfoTile extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
-          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textDark)),
+          Text(label, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
+          Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textDark)),
         ]),
       ],
     );
@@ -131,7 +131,7 @@ class EmptyState extends StatelessWidget {
       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
         Icon(icon, size: 64, color: AppColors.divider),
         const SizedBox(height: 16),
-        Text(message, style: const TextStyle(color: AppColors.textGrey, fontSize: 15)),
+        Text(message, style: TextStyle(color: AppColors.textGrey, fontSize: 15)),
       ]),
     );
   }
@@ -159,8 +159,8 @@ class MenuRow extends StatelessWidget {
             child: Icon(icon, size: 20, color: iconColor ?? AppColors.primary),
           ),
           const SizedBox(width: 14),
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.textDark))),
-          const Icon(Icons.chevron_right, color: AppColors.textGrey, size: 18),
+          Expanded(child: Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Theme.of(context).colorScheme.onSurface))),
+          Icon(Icons.chevron_right, color: AppColors.textGrey, size: 18),
         ]),
       ),
     );

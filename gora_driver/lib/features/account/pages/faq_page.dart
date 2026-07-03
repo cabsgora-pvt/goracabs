@@ -74,9 +74,9 @@ class _FaqPageState extends State<FaqPage> {
                       ]),
                       if (open) ...[
                         const SizedBox(height: 10),
-                        const Divider(color: AppColors.divider, height: 1),
+                        Divider(color: AppColors.divider, height: 1),
                         const SizedBox(height: 10),
-                        Text(_faqs[i].a, style: const TextStyle(fontSize: 13, color: AppColors.textGrey, height: 1.5)),
+                        Text(_faqs[i].a, style: TextStyle(fontSize: 13, color: AppColors.textGrey, height: 1.5)),
                       ],
                     ]),
                   ),

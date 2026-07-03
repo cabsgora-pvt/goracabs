@@ -211,7 +211,7 @@ class AccountPage extends StatelessWidget {
 
   Widget _Section(String title) => Padding(
     padding: const EdgeInsets.only(top: 8, bottom: 8),
-    child: Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textGrey, letterSpacing: 0.5)),
+    child: Text(title, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textGrey, letterSpacing: 0.5)),
   );
 
   void _confirmLogout(BuildContext context) {
@@ -267,7 +267,7 @@ class _QuickStat extends StatelessWidget {
       Icon(icon, color: color, size: 20),
       const SizedBox(height: 4),
       Text(value, style: TextStyle(fontWeight: FontWeight.w800, color: color, fontSize: 13)),
-      Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textGrey)),
+      Text(label, style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
     ]),
   );
 }

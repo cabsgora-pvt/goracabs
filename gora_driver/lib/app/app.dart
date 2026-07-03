@@ -6,6 +6,7 @@ import '../core/theme/app_theme.dart';
 import '../features/auth/bloc/auth_bloc.dart';
 import '../features/splash/splash_page.dart';
 import '../providers/driver_provider.dart';
+import '../providers/theme_provider.dart';
 import 'app_routes.dart';
 
 class GoraDriverApp extends StatelessWidget {
@@ -13,14 +14,20 @@ class GoraDriverApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => DriverProvider(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => DriverProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+      ],
       child: BlocProvider(
         create: (_) => AuthBloc(),
-        child: MaterialApp(
+        child: Consumer<ThemeProvider>(
+          builder: (context, themeProv, _) => MaterialApp(
           title: 'Gora Driver',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: themeProv.mode,
           initialRoute: SplashPage.route,
           routes: AppRoutes.routes,
           onGenerateRoute: (settings) {
@@ -49,6 +56,7 @@ class GoraDriverApp extends StatelessWidget {
               );
             });
           },
+          ),
         ),
       ),
     );

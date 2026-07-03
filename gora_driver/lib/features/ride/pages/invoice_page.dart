@@ -43,19 +43,19 @@ class InvoicePage extends StatelessWidget {
                 const SizedBox(height: 16),
                 // Fare breakdown
                 _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Fare Breakdown', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                  Text('Fare Breakdown', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textDark)),
                   const SizedBox(height: 12),
                   _fareRow('Base Fare', '₹ 50'),
                   _fareRow('Distance (${ride?.distance ?? "12 km"})', '₹ 110'),
                   _fareRow('Time Charges', '₹ 30'),
                   _fareRow('GST (5%)', '₹ 9.50'),
-                  const Divider(color: AppColors.divider, height: 24),
+                  Divider(color: AppColors.divider, height: 24),
                   _fareRow('Total', ride?.fare ?? '₹ 185', bold: true),
                 ])),
                 const SizedBox(height: 12),
                 // Trip summary
                 _Card(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Trip Summary', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                  Text('Trip Summary', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textDark)),
                   const SizedBox(height: 12),
                   InfoTile(icon: Icons.person, label: 'Rider', value: ride?.userName ?? 'User'),
                   const SizedBox(height: 12),
@@ -71,13 +71,13 @@ class InvoicePage extends StatelessWidget {
                   Row(children: [
                     const Icon(Icons.radio_button_checked, color: AppColors.green, size: 18),
                     const SizedBox(width: 10),
-                    Expanded(child: Text(ride?.pickupAddress ?? '', style: const TextStyle(fontSize: 13, color: AppColors.textDark))),
+                    Expanded(child: Text(ride?.pickupAddress ?? '', style: TextStyle(fontSize: 13, color: AppColors.textDark))),
                   ]),
                   Padding(padding: const EdgeInsets.only(left: 9), child: Container(width: 2, height: 20, color: AppColors.divider)),
                   Row(children: [
                     const Icon(Icons.location_on, color: AppColors.red, size: 18),
                     const SizedBox(width: 10),
-                    Expanded(child: Text(ride?.dropAddress ?? '', style: const TextStyle(fontSize: 13, color: AppColors.textDark))),
+                    Expanded(child: Text(ride?.dropAddress ?? '', style: TextStyle(fontSize: 13, color: AppColors.textDark))),
                   ]),
                 ])),
               ]),

@@ -119,7 +119,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         shape: BoxShape.circle,
                         border: Border.all(color: AppColors.white, width: 2),
                       ),
-                      child: const Icon(Icons.camera_alt, color: AppColors.white, size: 16),
+                      child: Icon(Icons.camera_alt, color: AppColors.white, size: 16),
                     ),
                   ),
                 ],
@@ -127,11 +127,11 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           const SizedBox(height: 14),
-          Text(name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+          Text(name, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textDark)),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             const Icon(Icons.star, color: AppColors.orange, size: 16),
             Text(' ${dp.rating}  •  ${dp.totalRides} trips',
-                style: const TextStyle(color: AppColors.textGrey)),
+                style: TextStyle(color: AppColors.textGrey)),
           ]),
           const SizedBox(height: 24),
 
@@ -167,13 +167,13 @@ class _InfoCard extends StatelessWidget {
       boxShadow: [BoxShadow(color: Colors.black.withAlpha(10), blurRadius: 8)],
     ),
     child: Column(children: items.asMap().entries.map((e) => Column(children: [
-      if (e.key > 0) const Divider(color: AppColors.divider, height: 20),
+      if (e.key > 0) Divider(color: AppColors.divider, height: 20),
       Row(children: [
         Icon(e.value.icon, color: AppColors.primary, size: 18),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(e.value.label, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
-          Text(e.value.value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textDark)),
+          Text(e.value.label, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
+          Text(e.value.value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textDark)),
         ])),
       ]),
     ])).toList()),

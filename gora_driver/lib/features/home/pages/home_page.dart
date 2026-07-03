@@ -235,9 +235,9 @@ class _OfflinePrompt extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 12)]),
       child: Row(children: [
-        const Icon(Icons.power_settings_new_rounded, color: AppColors.textGrey, size: 28),
+        Icon(Icons.power_settings_new_rounded, color: AppColors.textGrey, size: 28),
         const SizedBox(width: 12),
-        const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('You are offline', style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
           Text('Go online to start receiving ride requests', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
         ])),

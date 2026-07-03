@@ -118,8 +118,8 @@ class _IdCardPageState extends State<IdCardPage> {
                 decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), color: AppColors.cardBg, border: Border.all(color: _navy.withOpacity(0.25), width: 2)),
                 child: ClipRRect(borderRadius: BorderRadius.circular(7),
                     child: picUrl.isEmpty
-                        ? const Icon(Icons.person, size: 40, color: AppColors.textGrey)
-                        : Image.network(picUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.person, size: 40, color: AppColors.textGrey))),
+                        ? Icon(Icons.person, size: 40, color: AppColors.textGrey)
+                        : Image.network(picUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Icon(Icons.person, size: 40, color: AppColors.textGrey))),
               ),
               const SizedBox(width: 10),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

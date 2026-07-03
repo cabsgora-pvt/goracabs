@@ -61,7 +61,7 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _entries.isEmpty
-              ? const Center(
+              ? Center(
                   child: Text('No data yet', style: TextStyle(color: AppColors.textGrey)),
                 )
               : Column(children: [
@@ -71,7 +71,7 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
                       child: Align(
                         alignment: Alignment.centerLeft,
                         child: Text('Zone: $_zone',
-                            style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                            style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
                       ),
                     ),
                   Expanded(
@@ -101,7 +101,7 @@ class _LeaderboardPageState extends State<LeaderboardPage> {
                             const SizedBox(width: 12),
                             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                               Text(e.isMe ? '${e.name} (You)' : e.name, style: TextStyle(fontWeight: FontWeight.w700, color: e.isMe ? AppColors.primary : AppColors.textDark)),
-                              Text('${e.rides} rides', style: const TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                              Text('${e.rides} rides', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
                             ])),
                             Text(e.earnings, style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.primary)),
                           ]),

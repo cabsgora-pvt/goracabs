@@ -31,11 +31,11 @@ class _ReviewPageState extends State<ReviewPage> {
           CircleAvatar(radius: 40, backgroundColor: AppColors.primary,
             child: Text(ride?.userName[0] ?? 'U', style: const TextStyle(fontSize: 34, color: Colors.white, fontWeight: FontWeight.w800))),
           const SizedBox(height: 12),
-          Text(ride?.userName ?? 'Rider', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+          Text(ride?.userName ?? 'Rider', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.textDark)),
           const SizedBox(height: 4),
-          Text(ride?.pickupAddress ?? '', style: const TextStyle(color: AppColors.textGrey, fontSize: 12), textAlign: TextAlign.center),
+          Text(ride?.pickupAddress ?? '', style: TextStyle(color: AppColors.textGrey, fontSize: 12), textAlign: TextAlign.center),
           const SizedBox(height: 32),
-          const Text('How was your ride?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.textDark)),
+          Text('How was your ride?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.textDark)),
           const SizedBox(height: 16),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(5, (i) =>
             GestureDetector(
@@ -90,7 +90,7 @@ class _ReviewPageState extends State<ReviewPage> {
           const SizedBox(height: 12),
           TextButton(
             onPressed: () => Navigator.pushNamedAndRemoveUntil(context, '/home', (_) => false),
-            child: const Text('Skip', style: TextStyle(color: AppColors.textGrey)),
+            child: Text('Skip', style: TextStyle(color: AppColors.textGrey)),
           ),
         ]),
       ),

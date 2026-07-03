@@ -102,17 +102,17 @@ class _LoginPageState extends State<LoginPage> {
                       const Spacer(flex: 1),
                       Container(
                         width: double.infinity,
-                        decoration: const BoxDecoration(
+                        decoration: BoxDecoration(
                           color: AppColors.white,
                           borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
                         ),
                         padding: const EdgeInsets.fromLTRB(24, 28, 24, 40),
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          const Text('Driver Login', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppColors.textDark)),
+                          Text('Driver Login', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppColors.textDark)),
                           const SizedBox(height: 4),
-                          const Text('Enter your mobile number to continue', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                          Text('Enter your mobile number to continue', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
                           const SizedBox(height: 18),
-                          const Text('Phone Number', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textDark)),
+                          Text('Phone Number', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textDark)),
                           const SizedBox(height: 8),
                           TextField(
                             controller: _phone,
@@ -129,14 +129,14 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          const Text("We'll send a 6-digit OTP to verify your number", style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                          Text("We'll send a 6-digit OTP to verify your number", style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
                           const SizedBox(height: 20),
                           PrimaryButton(label: 'Send OTP', loading: _loading, onTap: _sendOtp),
                           const SizedBox(height: 16),
                           Center(
                             child: Text.rich(TextSpan(
                               text: 'By continuing, you agree to our ',
-                              style: const TextStyle(color: AppColors.textGrey, fontSize: 11.5),
+                              style: TextStyle(color: AppColors.textGrey, fontSize: 11.5),
                               children: const [
                                 TextSpan(text: 'Terms & Privacy Policy', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
                               ],

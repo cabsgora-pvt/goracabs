@@ -141,21 +141,21 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
                     const Spacer(),
                     Container(
                       width: double.infinity,
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         color: AppColors.white,
                         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
                       ),
                       padding: const EdgeInsets.fromLTRB(24, 28, 24, 40),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        const Text('Enter OTP', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+                        Text('Enter OTP', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textDark)),
                         const SizedBox(height: 8),
-                        Text('Sent to +91 $phone', style: const TextStyle(fontSize: 14, color: AppColors.textGrey)),
+                        Text('Sent to +91 $phone', style: TextStyle(fontSize: 14, color: AppColors.textGrey)),
                         const SizedBox(height: 28),
                         Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: List.generate(6, (i) => _buildOtpBox(i))),
                         const SizedBox(height: 20),
                         Center(
                           child: _timer > 0
-                              ? Text('Resend OTP in $_timer s', style: const TextStyle(color: AppColors.textGrey))
+                              ? Text('Resend OTP in $_timer s', style: TextStyle(color: AppColors.textGrey))
                               : TextButton(
                                   onPressed: () { DriverApiService.sendOtp(phone); setState(() => _timer = 30); _startTimer(); },
                                   child: const Text('Resend OTP', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
@@ -188,7 +188,7 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
         style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.primary),
         decoration: InputDecoration(
           counterText: '', isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 8),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.divider, width: 2)),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.divider, width: 2)),
           focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primary, width: 2)),
           filled: true, fillColor: AppColors.cardBg,
         ),

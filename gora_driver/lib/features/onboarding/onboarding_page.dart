@@ -37,7 +37,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
           top: 52, right: 20,
           child: TextButton(
             onPressed: () => Navigator.pushReplacementNamed(context, LoginPage.route),
-            child: const Text('Skip', style: TextStyle(color: AppColors.textGrey, fontWeight: FontWeight.w600)),
+            child: Text('Skip', style: TextStyle(color: AppColors.textGrey, fontWeight: FontWeight.w600)),
           ),
         ),
         // Bottom
@@ -94,9 +94,9 @@ class _SlideWidget extends StatelessWidget {
           child: Icon(slide.icon, size: 80, color: Colors.white),
         ),
         const SizedBox(height: 48),
-        Text(slide.title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+        Text(slide.title, textAlign: TextAlign.center, style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.textDark)),
         const SizedBox(height: 16),
-        Text(slide.desc, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, color: AppColors.textGrey, height: 1.6)),
+        Text(slide.desc, textAlign: TextAlign.center, style: TextStyle(fontSize: 15, color: AppColors.textGrey, height: 1.6)),
         const SizedBox(height: 120),
       ]),
     );

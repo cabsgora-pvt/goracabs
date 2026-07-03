@@ -99,7 +99,7 @@ class OnRidePage extends StatelessWidget {
                   bottom: 0, left: 0, right: 0,
                   child: Container(
                     padding: const EdgeInsets.all(20),
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                       color: AppColors.white,
                       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
                       boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 16)],
@@ -121,8 +121,8 @@ class OnRidePage extends StatelessWidget {
                         ),
                         const SizedBox(width: 12),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(r.userName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.textDark)),
-                          Text(r.userPhone, style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                          Text(r.userName, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16, color: AppColors.textDark)),
+                          Text(r.userPhone, style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
                         ])),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -131,7 +131,7 @@ class OnRidePage extends StatelessWidget {
                         ),
                       ]),
                       const SizedBox(height: 16),
-                      const Divider(color: AppColors.divider),
+                      Divider(color: AppColors.divider),
                       const SizedBox(height: 12),
                       // Location
                       _locationRow(Icons.radio_button_checked, AppColors.green, started ? 'From' : 'Pickup', r.pickupAddress),
@@ -161,7 +161,7 @@ class OnRidePage extends StatelessWidget {
                                     _waitingAtStop.value = true;
                                   })
                                 else Column(children: [
-                                  const Text('⏳ Waiting — customer doing their work', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                                  Text('⏳ Waiting — customer doing their work', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
                                   const SizedBox(height: 8),
                                   PrimaryButton(label: '▶ Resume / Next', onTap: () async {
                                     await DriverApiService.stopAction(r.id, {'action': 'resume', 'index': idx});
@@ -264,8 +264,8 @@ class OnRidePage extends StatelessWidget {
       Icon(icon, color: color, size: 18),
       const SizedBox(width: 10),
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textGrey)),
-        Text(addr, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textDark), maxLines: 2),
+        Text(label, style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
+        Text(addr, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textDark), maxLines: 2),
       ])),
     ]);
   }

@@ -34,6 +34,7 @@ import '../features/account/pages/faq_page.dart';
 import '../features/account/pages/preferences_page.dart';
 import '../features/account/pages/misc_pages.dart';
 import '../features/account/pages/id_card_page.dart';
+import '../features/account/pages/legal_pages.dart';
 
 class AppRoutes {
   static Map<String, WidgetBuilder> get routes => {
@@ -79,5 +80,7 @@ class AppRoutes {
     SubscriptionPage.route:   (_) => const SubscriptionPage(),
     VehicleInfoPage.route:    (_) => const VehicleInfoPage(),
     IdCardPage.route:         (_) => const IdCardPage(),
+    PrivacyPolicyPage.route:  (_) => const PrivacyPolicyPage(),
+    TermsPage.route:          (_) => const TermsPage(),
   };
 }

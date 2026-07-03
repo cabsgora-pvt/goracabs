@@ -58,7 +58,7 @@ class TripDetailPage extends StatelessWidget {
                 child: Text(trip.userName[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
               const SizedBox(width: 12),
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(trip.userName, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                Text(trip.userName, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
                 if (trip.rating > 0) Row(children: List.generate(5, (i) => Icon(i < trip.rating ? Icons.star : Icons.star_border, size: 14, color: AppColors.orange))),
               ]),
             ]),
@@ -71,13 +71,13 @@ class TripDetailPage extends StatelessWidget {
             Row(children: [
               const Icon(Icons.radio_button_checked, color: AppColors.green, size: 18),
               const SizedBox(width: 10),
-              Expanded(child: Text(trip.pickupAddress, style: const TextStyle(fontSize: 13, color: AppColors.textDark))),
+              Expanded(child: Text(trip.pickupAddress, style: TextStyle(fontSize: 13, color: AppColors.textDark))),
             ]),
             Padding(padding: const EdgeInsets.only(left: 9), child: Container(width: 2, height: 20, color: AppColors.divider)),
             Row(children: [
               const Icon(Icons.location_on, color: AppColors.red, size: 18),
               const SizedBox(width: 10),
-              Expanded(child: Text(trip.dropAddress, style: const TextStyle(fontSize: 13, color: AppColors.textDark))),
+              Expanded(child: Text(trip.dropAddress, style: TextStyle(fontSize: 13, color: AppColors.textDark))),
             ]),
           ])),
           const SizedBox(height: 12),
@@ -89,7 +89,7 @@ class TripDetailPage extends StatelessWidget {
               _fareRow('Base Fare', '₹ 50'),
               _fareRow('Distance Fare', '₹ 110'),
               _fareRow('Waiting Charges', '₹ 0'),
-              const Divider(color: AppColors.divider),
+              Divider(color: AppColors.divider),
               _fareRow('Total', trip.fare, bold: true),
             ])),
         ]),
@@ -116,8 +116,8 @@ class _StatBox extends StatelessWidget {
     child: Column(children: [
       Icon(icon, color: AppColors.primary, size: 18),
       const SizedBox(height: 4),
-      Text(value, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppColors.textDark), textAlign: TextAlign.center),
-      Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textGrey)),
+      Text(value, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppColors.textDark), textAlign: TextAlign.center),
+      Text(label, style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
     ]),
   );
 }

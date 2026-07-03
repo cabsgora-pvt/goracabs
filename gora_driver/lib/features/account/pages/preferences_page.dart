@@ -105,7 +105,7 @@ class _PreferencesPageState extends State<PreferencesPage> {
 
   Widget _section(String t) => Padding(
         padding: const EdgeInsets.only(top: 8, bottom: 10),
-        child: Text(t, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textGrey, letterSpacing: 0.5)),
+        child: Text(t, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textGrey, letterSpacing: 0.5)),
       );
 
   // onChanged == null renders a disabled (always-on) switch (used for Taxi).
@@ -118,8 +118,8 @@ class _PreferencesPageState extends State<PreferencesPage> {
               child: Icon(icon, size: 18, color: AppColors.primary)),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textDark)),
-            Text(sub, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+            Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textDark)),
+            Text(sub, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
           ])),
           Switch(value: val, onChanged: onChanged, activeColor: AppColors.primary),
         ]),

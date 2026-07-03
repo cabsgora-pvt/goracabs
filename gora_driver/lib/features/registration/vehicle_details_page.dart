@@ -77,11 +77,11 @@ class _VehicleDetailsPageState extends State<VehicleDetailsPage> {
                     TextFormField(
                       initialValue: _vehicle['name'] as String? ?? '',
                       readOnly: true,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Vehicle Type',
                         prefixIcon: Icon(Icons.directions_car_rounded, color: AppColors.textGrey),
                       ),
-                      style: const TextStyle(color: AppColors.textGrey),
+                      style: TextStyle(color: AppColors.textGrey),
                     ),
                     const SizedBox(height: 16),
                     TextFormField(

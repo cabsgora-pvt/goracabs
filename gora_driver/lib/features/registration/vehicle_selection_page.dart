@@ -62,7 +62,7 @@ class _VehicleSelectionPageState extends State<VehicleSelectionPage> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
                 : _vehicleTypes.isEmpty
-                    ? const Center(child: Text('No vehicle types available', style: TextStyle(color: AppColors.textGrey)))
+                    ? Center(child: Text('No vehicle types available', style: TextStyle(color: AppColors.textGrey)))
                     : Column(
                         children: [
                           Expanded(

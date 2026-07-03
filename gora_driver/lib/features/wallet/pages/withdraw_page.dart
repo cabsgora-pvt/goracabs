@@ -101,7 +101,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
                 bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 20,
               ),
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('Add Bank Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+                Text('Add Bank Account', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textDark)),
                 const SizedBox(height: 16),
                 field('Account holder name', holderCtrl),
                 field('Bank name', bankCtrl),
@@ -238,16 +238,16 @@ class _WithdrawPageState extends State<WithdrawPage> {
                 if (_driverName.isNotEmpty) ...[
                   const SizedBox(height: 10),
                   Row(children: [
-                    const Icon(Icons.person, size: 16, color: AppColors.textGrey),
+                    Icon(Icons.person, size: 16, color: AppColors.textGrey),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text('Account holder: $_driverName',
-                          style: const TextStyle(fontSize: 13, color: AppColors.textGrey, fontWeight: FontWeight.w600)),
+                          style: TextStyle(fontSize: 13, color: AppColors.textGrey, fontWeight: FontWeight.w600)),
                     ),
                   ]),
                 ],
                 const SizedBox(height: 28),
-                const Text('Enter Amount', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                Text('Enter Amount', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textDark)),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _ctrl,
@@ -267,7 +267,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: OutlinedButton(
                       onPressed: () => _ctrl.text = amt.toString(),
-                      style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.divider), padding: EdgeInsets.zero, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                      style: OutlinedButton.styleFrom(side: BorderSide(color: AppColors.divider), padding: EdgeInsets.zero, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                       child: Text('₹$amt', style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600)),
                     ),
                   ),
@@ -275,7 +275,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
                 const SizedBox(height: 24),
                 // Bank Account header + add
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                  const Text('Bank Account', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                  Text('Bank Account', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textDark)),
                   TextButton.icon(
                     onPressed: _openAddBankSheet,
                     icon: const Icon(Icons.add, size: 18, color: AppColors.primary),
@@ -289,9 +289,9 @@ class _WithdrawPageState extends State<WithdrawPage> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(12)),
-                    child: const Row(children: [
+                    child: Row(children: [
                       Icon(Icons.info_outline, color: AppColors.textGrey, size: 20),
-                      SizedBox(width: 10),
+                      const SizedBox(width: 10),
                       Expanded(child: Text('Add a bank account to withdraw',
                           style: TextStyle(color: AppColors.textGrey, fontSize: 13, fontWeight: FontWeight.w600))),
                     ]),
@@ -317,12 +317,12 @@ class _WithdrawPageState extends State<WithdrawPage> {
                         activeColor: AppColors.primary,
                         contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                         title: Text('${b['bankName'] ?? ''}',
-                            style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                            style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
                         subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           Text('A/C: ${_mask('${b['accountNumber'] ?? ''}')}',
-                              style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
+                              style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
                           Text('IFSC: ${b['ifscCode'] ?? ''}',
-                              style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
+                              style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
                         ]),
                       ),
                     );

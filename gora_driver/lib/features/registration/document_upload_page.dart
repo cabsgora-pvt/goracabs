@@ -144,7 +144,7 @@ class _DocumentUploadPageState extends State<DocumentUploadPage> {
                           errorBuilder: (_, __, ___) => const Icon(Icons.insert_drive_file_rounded, color: AppColors.primary),
                         ),
                       )
-                    : const Icon(Icons.upload_file_rounded, color: AppColors.textGrey, size: 28),
+                    : Icon(Icons.upload_file_rounded, color: AppColors.textGrey, size: 28),
               ),
             ),
             const SizedBox(width: 12),
@@ -152,7 +152,7 @@ class _DocumentUploadPageState extends State<DocumentUploadPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(docName, style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.textDark, fontSize: 14)),
+                  Text(docName, style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.textDark, fontSize: 14)),
                   const SizedBox(height: 4),
                   uploaded
                       ? const Row(children: [
@@ -160,7 +160,7 @@ class _DocumentUploadPageState extends State<DocumentUploadPage> {
                           SizedBox(width: 4),
                           Text('Uploaded', style: TextStyle(color: AppColors.green, fontSize: 12, fontWeight: FontWeight.w600)),
                         ])
-                      : const Text('Not uploaded', style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
+                      : Text('Not uploaded', style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
                 ],
               ),
             ),

@@ -94,7 +94,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
       body: dp.loading && docs.isEmpty
           ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
           : docs.isEmpty
-              ? const Center(child: Text('No documents uploaded yet', style: TextStyle(color: AppColors.textGrey)))
+              ? Center(child: Text('No documents uploaded yet', style: TextStyle(color: AppColors.textGrey)))
               : ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: docs.length,
@@ -130,9 +130,9 @@ class _DocumentsPageState extends State<DocumentsPage> {
                           const SizedBox(width: 14),
                           Expanded(
                             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textDark)),
+                              Text(name, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textDark)),
                               const SizedBox(height: 2),
-                              const Text('Tap to view', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                              Text('Tap to view', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
                             ]),
                           ),
                           Container(

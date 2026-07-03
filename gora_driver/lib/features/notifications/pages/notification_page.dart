@@ -83,9 +83,9 @@ class _NotifCard extends StatelessWidget {
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(notif.title, style: TextStyle(fontWeight: notif.isRead ? FontWeight.w600 : FontWeight.w800, fontSize: 13, color: AppColors.textDark)),
         const SizedBox(height: 3),
-        Text(notif.body, style: const TextStyle(fontSize: 12, color: AppColors.textGrey, height: 1.4), maxLines: 2, overflow: TextOverflow.ellipsis),
+        Text(notif.body, style: TextStyle(fontSize: 12, color: AppColors.textGrey, height: 1.4), maxLines: 2, overflow: TextOverflow.ellipsis),
         const SizedBox(height: 4),
-        Text(notif.time, style: const TextStyle(fontSize: 10, color: AppColors.textGrey)),
+        Text(notif.time, style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
       ])),
       if (!notif.isRead)
         Container(width: 8, height: 8, decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle)),

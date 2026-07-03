@@ -71,11 +71,11 @@ class _QrCodePageState extends State<QrCodePage> {
                         Text('No payment QR yet', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
                       ])
                     : ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.network(full, fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 60, color: AppColors.textGrey))),
+                        errorBuilder: (_, __, ___) => Icon(Icons.broken_image, size: 60, color: AppColors.textGrey))),
               ),
               const SizedBox(height: 20),
-              const Text('Your Payment QR', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textDark)),
-              const Padding(padding: EdgeInsets.symmetric(horizontal: 40, vertical: 4),
+              Text('Your Payment QR', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+              Padding(padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 4),
                 child: Text('Riders can scan this to pay you directly (UPI / GPay / PhonePe).', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textGrey, fontSize: 12.5))),
               const SizedBox(height: 24),
               PrimaryButton(label: _qrUrl.isEmpty ? 'Upload QR Code' : 'Change QR Code', width: 220, loading: _busy, onTap: _upload),
@@ -117,11 +117,11 @@ class _RateCardPageState extends State<RateCardPage> {
       body: _loading
           ? const AppLoader()
           : _cards.isEmpty
-              ? const Center(child: Text('No rate card set for your zone yet', style: TextStyle(color: AppColors.textGrey)))
+              ? Center(child: Text('No rate card set for your zone yet', style: TextStyle(color: AppColors.textGrey)))
               : ListView(padding: const EdgeInsets.all(16), children: [
                   if (_zone.isNotEmpty)
                     Padding(padding: const EdgeInsets.only(bottom: 10),
-                      child: Text('Zone: $_zone', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.textDark, fontSize: 14))),
+                      child: Text('Zone: $_zone', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.textDark, fontSize: 14))),
                   ..._cards.map((c) => Padding(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: _rateCard((c['vehicleType'] ?? 'Vehicle').toString(), [
@@ -143,15 +143,15 @@ class _RateCardPageState extends State<RateCardPage> {
         Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(8)),
           child: const Icon(Icons.directions_car, color: AppColors.primary, size: 20)),
         const SizedBox(width: 10),
-        Text(type, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.textDark)),
+        Text(type, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.textDark)),
       ]),
       const SizedBox(height: 12),
-      const Divider(color: AppColors.divider, height: 1),
+      Divider(color: AppColors.divider, height: 1),
       ...rates.map((r) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text(r[0], style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
-          Text(r[1], style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 13)),
+          Text(r[0], style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+          Text(r[1], style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 13)),
         ]),
       )),
     ]),
@@ -237,9 +237,9 @@ class _ReferralPageState extends State<ReferralPage> {
           Container(
             padding: const EdgeInsets.all(14), width: double.infinity,
             decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(14)),
-            child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('How it works', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.textDark)),
-              SizedBox(height: 8),
+              const SizedBox(height: 8),
               Text('1. Share your code with a driver friend', style: TextStyle(fontSize: 12.5, color: AppColors.textGrey)),
               Text('2. They enter it while creating their profile', style: TextStyle(fontSize: 12.5, color: AppColors.textGrey)),
               Text('3. Reward is added to both wallets instantly', style: TextStyle(fontSize: 12.5, color: AppColors.textGrey)),
@@ -256,8 +256,8 @@ class _ReferralPageState extends State<ReferralPage> {
     child: Column(children: [
       Icon(icon, color: AppColors.primary, size: 22),
       const SizedBox(height: 6),
-      Text(value, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textDark)),
-      Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+      Text(value, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textDark)),
+      Text(label, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
     ]),
   );
 }
@@ -295,7 +295,7 @@ class DriverLevelsPage extends StatelessWidget {
             const SizedBox(width: 14),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(l.name, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: l.current ? l.color : AppColors.textDark)),
-              Text(l.range, style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
+              Text(l.range, style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
             ])),
             if (l.current)
               Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -359,8 +359,8 @@ class RewardsPage extends StatelessWidget {
         Icon(isGain ? Icons.add_circle : Icons.remove_circle, color: isGain ? AppColors.green : AppColors.red, size: 20),
         const SizedBox(width: 10),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(desc, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textDark)),
-          Text(time, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+          Text(desc, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textDark)),
+          Text(time, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
         ])),
         Text(pts, style: TextStyle(fontWeight: FontWeight.w700, color: isGain ? AppColors.green : AppColors.red)),
       ]),
@@ -432,8 +432,8 @@ class _ReportsPageState extends State<ReportsPage> {
   Widget _stat(String l, String v, IconData icon) => Column(children: [
         Icon(icon, color: AppColors.primary, size: 16),
         const SizedBox(height: 4),
-        Text(v, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppColors.textDark), textAlign: TextAlign.center),
-        Text(l, style: const TextStyle(fontSize: 10, color: AppColors.textGrey)),
+        Text(v, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: AppColors.textDark), textAlign: TextAlign.center),
+        Text(l, style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
       ]);
 }
 
@@ -509,7 +509,7 @@ class _AdminChatPageState extends State<AdminChatPage> {
         child: _loading
             ? const AppLoader()
             : _messages.isEmpty
-                ? const Center(child: Text('Start a conversation with support', style: TextStyle(color: AppColors.textGrey, fontSize: 13)))
+                ? Center(child: Text('Start a conversation with support', style: TextStyle(color: AppColors.textGrey, fontSize: 13)))
                 : ListView.builder(
                     padding: const EdgeInsets.all(16),
                     itemCount: _messages.length,
@@ -536,7 +536,7 @@ class _AdminChatPageState extends State<AdminChatPage> {
         top: false,
         child: Container(
           padding: const EdgeInsets.only(left: 16, right: 8, bottom: 8, top: 8),
-          decoration: const BoxDecoration(color: AppColors.white, border: Border(top: BorderSide(color: AppColors.divider))),
+          decoration: BoxDecoration(color: AppColors.white, border: Border(top: BorderSide(color: AppColors.divider))),
           child: Row(children: [
             Expanded(child: TextField(controller: _ctrl, decoration: const InputDecoration(hintText: 'Type message...'), onSubmitted: (_) => _send())),
             IconButton(icon: const Icon(Icons.send_rounded, color: AppColors.primary), onPressed: _send),
@@ -667,11 +667,11 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(children: [
                     const Icon(Icons.verified, color: AppColors.green, size: 20), const SizedBox(width: 8),
-                    Expanded(child: Text('Active: ${_current['planName'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.textDark, fontSize: 15))),
+                    Expanded(child: Text('Active: ${_current['planName'] ?? ''}', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.textDark, fontSize: 15))),
                   ]),
                   const SizedBox(height: 6),
-                  Text('Valid till ${_fmtDate(_current['expiresAt'])}', style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
-                  Text('Commission while active: ${_current['commissionPercent'] ?? 0}%', style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                  Text('Valid till ${_fmtDate(_current['expiresAt'])}', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                  Text('Commission while active: ${_current['commissionPercent'] ?? 0}%', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
                 ]),
               ),
               const SizedBox(height: 16),
@@ -679,22 +679,22 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
               Container(
                 padding: const EdgeInsets.all(14), width: double.infinity,
                 decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.orange.withOpacity(0.4))),
-                child: const Text('No active plan — you pay normal commission per ride. Subscribe to keep more of your earnings.',
+                child: Text('No active plan — you pay normal commission per ride. Subscribe to keep more of your earnings.',
                   style: TextStyle(color: AppColors.textDark, fontSize: 12.5, fontWeight: FontWeight.w600)),
               ),
               const SizedBox(height: 16),
             ],
             // Plans
-            const Text('Available Plans', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+            Text('Available Plans', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textDark)),
             const SizedBox(height: 10),
             if (_plans.isEmpty)
-              const Padding(padding: EdgeInsets.all(20), child: Center(child: Text('No plans available right now', style: TextStyle(color: AppColors.textGrey))))
+              Padding(padding: const EdgeInsets.all(20), child: Center(child: Text('No plans available right now', style: TextStyle(color: AppColors.textGrey))))
             else
               ..._plans.map(_planCard),
             // History
             if (_history.isNotEmpty) ...[
               const SizedBox(height: 20),
-              const Text('Recent Plans', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+              Text('Recent Plans', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textDark)),
               const SizedBox(height: 8),
               ..._history.map((h) => Container(
                 margin: const EdgeInsets.only(bottom: 8),
@@ -702,10 +702,10 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                 decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(12)),
                 child: Row(children: [
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(h['planName']?.toString() ?? 'Plan', style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textDark)),
-                    Text('${_fmtDate(h['startedAt'])} → ${_fmtDate(h['expiresAt'])}', style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+                    Text(h['planName']?.toString() ?? 'Plan', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textDark)),
+                    Text('${_fmtDate(h['startedAt'])} → ${_fmtDate(h['expiresAt'])}', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
                   ])),
-                  Text('₹${(h['price'] as num?)?.toStringAsFixed(0) ?? '0'}', style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                  Text('₹${(h['price'] as num?)?.toStringAsFixed(0) ?? '0'}', style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
                   const SizedBox(width: 8),
                   _statusChip(h['status']?.toString() ?? ''),
                 ]),
@@ -739,19 +739,19 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Expanded(child: Text(plan['name']?.toString() ?? 'Plan', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textDark))),
+          Expanded(child: Text(plan['name']?.toString() ?? 'Plan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textDark))),
           Text('₹${price.toStringAsFixed(0)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.primary)),
         ]),
-        Text('$days days • ${comm == 0 ? 'Zero commission' : '$comm% commission'}', style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
+        Text('$days days • ${comm == 0 ? 'Zero commission' : '$comm% commission'}', style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
         if ((plan['description']?.toString() ?? '').isNotEmpty) ...[
           const SizedBox(height: 4),
-          Text(plan['description'].toString(), style: const TextStyle(color: AppColors.textGrey, fontSize: 12)),
+          Text(plan['description'].toString(), style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
         ],
         const SizedBox(height: 10),
         ...benefits.map((f) => Padding(padding: const EdgeInsets.only(bottom: 4), child: Row(children: [
           const Icon(Icons.check_circle, color: AppColors.green, size: 16),
           const SizedBox(width: 6),
-          Expanded(child: Text(f, style: const TextStyle(fontSize: 13, color: AppColors.textDark))),
+          Expanded(child: Text(f, style: TextStyle(fontSize: 13, color: AppColors.textDark))),
         ]))),
         const SizedBox(height: 12),
         PrimaryButton(label: 'Subscribe Now', loading: _busy, onTap: () => _buy(plan)),
@@ -799,9 +799,9 @@ class VehicleInfoPage extends StatelessWidget {
               boxShadow: [BoxShadow(color: Colors.black.withAlpha(10), blurRadius: 8)]),
             child: Column(children: [
               _row('Vehicle Model', dp.vehicleModel.isNotEmpty ? dp.vehicleModel : '—'),
-              const Divider(color: AppColors.divider, height: 20),
+              Divider(color: AppColors.divider, height: 20),
               _row('Registration No.', dp.vehicleNumber.isNotEmpty ? dp.vehicleNumber : '—'),
-              const Divider(color: AppColors.divider, height: 20),
+              Divider(color: AppColors.divider, height: 20),
               _row('Vehicle Type', dp.vehicleType.isNotEmpty ? dp.vehicleType : '—'),
             ]),
           ),
@@ -813,8 +813,8 @@ class VehicleInfoPage extends StatelessWidget {
   Widget _row(String label, String value) => Row(
     mainAxisAlignment: MainAxisAlignment.spaceBetween,
     children: [
-      Text(label, style: const TextStyle(color: AppColors.textGrey, fontSize: 13)),
-      Text(value, style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 13)),
+      Text(label, style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+      Text(value, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 13)),
     ],
   );
 }

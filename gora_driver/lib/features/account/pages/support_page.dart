@@ -120,7 +120,7 @@ class _SupportPageState extends State<SupportPage> {
             Expanded(
               child: Text(
                 (t['subject'] as String?) ?? 'Ticket',
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textDark),
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textDark),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -130,10 +130,10 @@ class _SupportPageState extends State<SupportPage> {
           ]),
           if (lastMessage.isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text(lastMessage, style: const TextStyle(fontSize: 12, color: AppColors.textGrey), maxLines: 1, overflow: TextOverflow.ellipsis),
+            Text(lastMessage, style: TextStyle(fontSize: 12, color: AppColors.textGrey), maxLines: 1, overflow: TextOverflow.ellipsis),
           ],
           const SizedBox(height: 6),
-          Text(date, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+          Text(date, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
         ]),
       ),
     );
@@ -207,7 +207,7 @@ class _SupportPageState extends State<SupportPage> {
             return Padding(
               padding: EdgeInsets.only(bottom: MediaQuery.of(sheetCtx).viewInsets.bottom, left: 20, right: 20, top: 20),
               child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('New Support Ticket', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                Text('New Support Ticket', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textDark)),
                 const SizedBox(height: 16),
                 TextField(
                   controller: subjectCtrl,
@@ -392,7 +392,7 @@ class _SupportTicketDetailPageState extends State<SupportTicketDetailPage> {
                 child: Text(
                   'This ticket is ${_statusLabel(status).toLowerCase()}.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 12, color: AppColors.textGrey),
+                  style: TextStyle(fontSize: 12, color: AppColors.textGrey),
                 ),
               )
             : Row(children: [

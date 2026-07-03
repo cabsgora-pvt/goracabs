@@ -144,7 +144,7 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
             Text(widget.ride.userName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
             const SizedBox(height: 4),
             Text('Package: $_pkgHours hr / $_pkgKm km', style: const TextStyle(fontSize: 13, color: AppColors.primary, fontWeight: FontWeight.w600)),
-            Text(widget.ride.pickupAddress, style: const TextStyle(fontSize: 12, color: AppColors.textGrey), maxLines: 1, overflow: TextOverflow.ellipsis),
+            Text(widget.ride.pickupAddress, style: TextStyle(fontSize: 12, color: AppColors.textGrey), maxLines: 1, overflow: TextOverflow.ellipsis),
           ]),
         ),
         const SizedBox(height: 14),
@@ -191,10 +191,10 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
     decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(14),
       border: Border.all(color: over ? AppColors.orange : AppColors.divider, width: over ? 1.5 : 1)),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+      Text(label, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
       const SizedBox(height: 6),
       Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: over ? AppColors.orange : AppColors.textDark)),
-      Text(sub, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
+      Text(sub, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
     ]),
   );
 }
