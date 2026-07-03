@@ -532,13 +532,16 @@ class _AdminChatPageState extends State<AdminChatPage> {
                     },
                   ),
       ),
-      Container(
-        padding: EdgeInsets.only(left: 16, right: 8, bottom: MediaQuery.of(context).viewInsets.bottom + 12, top: 8),
-        decoration: const BoxDecoration(color: AppColors.white, border: Border(top: BorderSide(color: AppColors.divider))),
-        child: Row(children: [
-          Expanded(child: TextField(controller: _ctrl, decoration: const InputDecoration(hintText: 'Type message...'), onSubmitted: (_) => _send())),
-          IconButton(icon: const Icon(Icons.send_rounded, color: AppColors.primary), onPressed: _send),
-        ]),
+      SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.only(left: 16, right: 8, bottom: 8, top: 8),
+          decoration: const BoxDecoration(color: AppColors.white, border: Border(top: BorderSide(color: AppColors.divider))),
+          child: Row(children: [
+            Expanded(child: TextField(controller: _ctrl, decoration: const InputDecoration(hintText: 'Type message...'), onSubmitted: (_) => _send())),
+            IconButton(icon: const Icon(Icons.send_rounded, color: AppColors.primary), onPressed: _send),
+          ]),
+        ),
       ),
     ]),
   );
