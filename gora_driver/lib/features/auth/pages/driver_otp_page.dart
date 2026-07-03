@@ -114,139 +114,89 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
   Widget build(BuildContext context) {
     final phone = ModalRoute.of(context)?.settings.arguments as String? ?? '';
     return Scaffold(
-      body: Column(
-        children: [
-          // Header gradient
-          Container(
-            height: 220,
-            width: double.infinity,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [AppColors.primaryDark, AppColors.primary],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.only(
-                bottomLeft: Radius.circular(40),
-                bottomRight: Radius.circular(40),
-              ),
-            ),
-            child: SafeArea(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.arrow_back, color: Colors.white),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-                  const Icon(Icons.verified_user_rounded, size: 48, color: Colors.white),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'OTP Verification',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Sent to +91 $phone',
-                    style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.8)),
-                  ),
-                ],
-              ),
-            ),
+      body: Stack(children: [
+        // Full-screen Gora background artwork
+        Positioned.fill(
+          child: ShaderMask(
+            shaderCallback: (rect) => LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withAlpha(26), Colors.black.withAlpha(102),
+                Colors.black.withAlpha(102), Colors.black.withAlpha(26),
+              ],
+              stops: const [0.0, 0.3, 0.7, 1.0],
+            ).createShader(rect),
+            blendMode: BlendMode.dstIn,
+            child: Image.asset('assets/images/otp_bg.png', fit: BoxFit.cover),
           ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Enter OTP',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textDark),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Enter the 6-digit code sent to your number',
-                    style: TextStyle(color: AppColors.textGrey, fontSize: 14),
-                  ),
-                  const SizedBox(height: 32),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: List.generate(6, (i) => SizedBox(
-                      width: 46,
-                      height: 58,
-                      child: TextFormField(
-                        controller: _controllers[i],
-                        focusNode: _nodes[i],
-                        textAlign: TextAlign.center,
-                        textAlignVertical: TextAlignVertical.center,
-                        keyboardType: TextInputType.number,
-                        inputFormatters: [
-                          FilteringTextInputFormatter.digitsOnly,
-                          LengthLimitingTextInputFormatter(1),
-                        ],
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.primary,
-                        ),
-                        decoration: InputDecoration(
-                          counterText: '',
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(vertical: 8),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: AppColors.divider, width: 2),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: AppColors.primary, width: 2),
-                          ),
-                          filled: true,
-                          fillColor: AppColors.cardBg,
-                        ),
-                        onChanged: (v) {
-                          if (v.isNotEmpty && i < 5) _nodes[i + 1].requestFocus();
-                          if (_otp.length == 6) _verify();
-                        },
+        ),
+        SafeArea(
+          child: LayoutBuilder(builder: (context, constraints) {
+            return SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: IntrinsicHeight(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Spacer(),
+                    Container(
+                      width: double.infinity,
+                      decoration: const BoxDecoration(
+                        color: AppColors.white,
+                        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
                       ),
-                    )),
-                  ),
-                  const SizedBox(height: 32),
-                  PrimaryButton(
-                    label: 'Verify & Continue',
-                    loading: _loading,
-                    onTap: _verify,
-                  ),
-                  const SizedBox(height: 24),
-                  Center(
-                    child: _timer > 0
-                        ? Text(
-                            'Resend OTP in $_timer seconds',
-                            style: const TextStyle(color: AppColors.textGrey),
-                          )
-                        : TextButton(
-                            onPressed: () {
-                              DriverApiService.sendOtp(phone);
-                              setState(() => _timer = 30);
-                              _startTimer();
-                            },
-                            child: const Text(
-                              'Resend OTP',
-                              style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                  ),
-                ],
+                      padding: const EdgeInsets.fromLTRB(24, 28, 24, 40),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Text('Enter OTP', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textDark)),
+                        const SizedBox(height: 8),
+                        Text('Sent to +91 $phone', style: const TextStyle(fontSize: 14, color: AppColors.textGrey)),
+                        const SizedBox(height: 28),
+                        Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: List.generate(6, (i) => _buildOtpBox(i))),
+                        const SizedBox(height: 20),
+                        Center(
+                          child: _timer > 0
+                              ? Text('Resend OTP in $_timer s', style: const TextStyle(color: AppColors.textGrey))
+                              : TextButton(
+                                  onPressed: () { DriverApiService.sendOtp(phone); setState(() => _timer = 30); _startTimer(); },
+                                  child: const Text('Resend OTP', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
+                                ),
+                        ),
+                        const SizedBox(height: 8),
+                        PrimaryButton(label: 'Verify & Continue', loading: _loading, onTap: _verify),
+                      ]),
+                    ),
+                  ]),
+                ),
               ),
-            ),
-          ),
-        ],
+            );
+          }),
+        ),
+      ]),
+    );
+  }
+
+  Widget _buildOtpBox(int i) {
+    return SizedBox(
+      width: 46, height: 56,
+      child: TextFormField(
+        controller: _controllers[i],
+        focusNode: _nodes[i],
+        textAlign: TextAlign.center,
+        textAlignVertical: TextAlignVertical.center,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(1)],
+        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.primary),
+        decoration: InputDecoration(
+          counterText: '', isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 8),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.divider, width: 2)),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primary, width: 2)),
+          filled: true, fillColor: AppColors.cardBg,
+        ),
+        onChanged: (v) {
+          if (v.isNotEmpty && i < 5) _nodes[i + 1].requestFocus();
+          if (v.isEmpty && i > 0) _nodes[i - 1].requestFocus();
+          if (_otp.length == 6) _verify();
+        },
       ),
     );
   }
