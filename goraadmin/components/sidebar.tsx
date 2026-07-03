@@ -79,8 +79,9 @@ const navItems: NavItem[] = [
   {
     label: 'Support', icon: HelpCircle,
     children: [
-      { label: 'Tickets', href: '/support/tickets', icon: MessageSquare },
-      { label: 'FAQ', href: '/support/faq', icon: FileText },
+      { label: 'Tickets', href: '/support/tickets', icon: FileText },
+      { label: 'Support Chat', href: '/support/chats', icon: MessageSquare },
+      { label: 'FAQ', href: '/support/faq', icon: HelpCircle },
       { label: 'SOS Contacts', href: '/support/sos', icon: AlertCircle },
     ]
   },

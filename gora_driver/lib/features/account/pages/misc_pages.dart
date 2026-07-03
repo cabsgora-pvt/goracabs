@@ -1,4 +1,5 @@
 // All smaller pages in one file
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -445,47 +446,98 @@ class AdminChatPage extends StatefulWidget {
 
 class _AdminChatPageState extends State<AdminChatPage> {
   final _ctrl = TextEditingController();
-  final _msgs = [
-    _Msg('Hello! How can I help you today?', false),
-    _Msg('My payment for trip T2005 was not received.', true),
-    _Msg('I\'m sorry for the inconvenience. I\'m checking your account now.', false),
-    _Msg('Please allow 24 hours for the payment to reflect.', false),
-  ];
+  List<Map<String, dynamic>> _messages = [];
+  bool _loading = true;
+  Timer? _pollTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) => _fetch());
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _fetch() async {
+    try {
+      final r = await DriverApiService.getSupportChat();
+      if (!mounted) return;
+      setState(() {
+        _messages = List<Map<String, dynamic>>.from(
+          (r['messages'] as List? ?? const []).map((e) => Map<String, dynamic>.from(e as Map)),
+        );
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _send() async {
+    final text = _ctrl.text.trim();
+    if (text.isEmpty) return;
+    _ctrl.clear();
+    try {
+      final r = await DriverApiService.sendSupportChat(text);
+      if (!mounted) return;
+      final msgs = r['messages'] as List?;
+      if (msgs != null) {
+        setState(() {
+          _messages = List<Map<String, dynamic>>.from(
+            msgs.map((e) => Map<String, dynamic>.from(e as Map)),
+          );
+        });
+      } else {
+        await _fetch();
+      }
+    } catch (_) {
+      if (mounted) await _fetch();
+    }
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: blueAppBar('Support Chat', actions: [const Padding(padding: EdgeInsets.symmetric(horizontal: 12, vertical: 14), child: CircleAvatar(radius: 14, backgroundColor: Colors.white24, child: Icon(Icons.support_agent, color: Colors.white, size: 16)))]),
     body: Column(children: [
-      Expanded(child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _msgs.length,
-        itemBuilder: (_, i) {
-          final m = _msgs[i];
-          return Align(
-            alignment: m.isMe ? Alignment.centerRight : Alignment.centerLeft,
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.72),
-              decoration: BoxDecoration(
-                color: m.isMe ? AppColors.primary : AppColors.cardBg,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Text(m.text, style: TextStyle(color: m.isMe ? Colors.white : AppColors.textDark, fontSize: 13)),
-            ),
-          );
-        },
-      )),
+      Expanded(
+        child: _loading
+            ? const AppLoader()
+            : _messages.isEmpty
+                ? const Center(child: Text('Start a conversation with support', style: TextStyle(color: AppColors.textGrey, fontSize: 13)))
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _messages.length,
+                    itemBuilder: (_, i) {
+                      final m = _messages[i];
+                      final isMe = m['sender'] == 'driver';
+                      return Align(
+                        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.72),
+                          decoration: BoxDecoration(
+                            color: isMe ? AppColors.primary : AppColors.cardBg,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text('${m['message'] ?? ''}', style: TextStyle(color: isMe ? Colors.white : AppColors.textDark, fontSize: 13)),
+                        ),
+                      );
+                    },
+                  ),
+      ),
       Container(
         padding: EdgeInsets.only(left: 16, right: 8, bottom: MediaQuery.of(context).viewInsets.bottom + 12, top: 8),
         decoration: const BoxDecoration(color: AppColors.white, border: Border(top: BorderSide(color: AppColors.divider))),
         child: Row(children: [
-          Expanded(child: TextField(controller: _ctrl, decoration: const InputDecoration(hintText: 'Type message...'))),
-          IconButton(icon: const Icon(Icons.send_rounded, color: AppColors.primary), onPressed: () {
-            if (_ctrl.text.isNotEmpty) {
-              setState(() { _msgs.add(_Msg(_ctrl.text, true)); _ctrl.clear(); });
-            }
-          }),
+          Expanded(child: TextField(controller: _ctrl, decoration: const InputDecoration(hintText: 'Type message...'), onSubmitted: (_) => _send())),
+          IconButton(icon: const Icon(Icons.send_rounded, color: AppColors.primary), onPressed: _send),
         ]),
       ),
     ]),

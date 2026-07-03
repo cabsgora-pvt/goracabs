@@ -205,6 +205,19 @@ class DriverApiService {
   // Rate card for the driver's zone: { zone, cards: [{vehicleType,baseFare,perKm,perMin,minFare}] }
   static Future<Map<String, dynamic>> getRateCard() => get('/auth/driver/ratecard');
 
+  // ── Support tickets ───────────────────────────────────────
+  static Future<Map<String, dynamic>> getSupportTickets() => get('/auth/driver/support/tickets');
+  static Future<Map<String, dynamic>> createSupportTicket(String subject, String message, {String category = 'general'}) =>
+      post('/auth/driver/support/tickets', {'subject': subject, 'message': message, 'category': category}, auth: true);
+  static Future<Map<String, dynamic>> getSupportTicket(String id) => get('/auth/driver/support/tickets/$id');
+  static Future<Map<String, dynamic>> replySupportTicket(String id, String message) =>
+      post('/auth/driver/support/tickets/$id', {'message': message}, auth: true);
+
+  // ── Support chat (driver ↔ admin) ─────────────────────────
+  static Future<Map<String, dynamic>> getSupportChat() => get('/auth/driver/support/chat');
+  static Future<Map<String, dynamic>> sendSupportChat(String message) =>
+      post('/auth/driver/support/chat', {'message': message}, auth: true);
+
   // ── Bank accounts + withdrawals ───────────────────────────
   // { driverName, banks: [{accountHolderName,bankName,accountNumber,ifscCode}] }
   static Future<Map<String, dynamic>> getBanks() => get('/auth/driver/banks');

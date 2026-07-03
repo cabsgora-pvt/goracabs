@@ -6,7 +6,11 @@ const MessageSchema = new Schema({
 })
 const TicketSchema = new Schema({
   userId: { type: Schema.Types.ObjectId, ref: 'User' },
-  userName: String,
+  driverId: { type: Schema.Types.ObjectId, ref: 'Driver' },
+  role: { type: String, enum: ['user', 'driver'], default: 'user' },
+  userName: String,        // requester display name (driver or user)
+  driverPhone: String,
+  zoneName: String,
   subject: String,
   category: String,
   priority: { type: String, enum: ['low', 'medium', 'high'], default: 'medium' },
