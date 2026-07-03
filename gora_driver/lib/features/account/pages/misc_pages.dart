@@ -6,7 +6,6 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../config/app_config.dart';
-import '../../../mock/mock_data.dart';
 import '../../../providers/driver_provider.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/driver_payment_service.dart';
