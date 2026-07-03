@@ -6,7 +6,6 @@ import '../../../providers/driver_provider.dart';
 import '../../earnings/pages/earnings_page.dart';
 import '../../history/pages/history_page.dart';
 import '../../wallet/pages/wallet_page.dart';
-import '../../notifications/pages/notification_page.dart';
 
 class AccountPage extends StatelessWidget {
   const AccountPage({super.key});
@@ -174,7 +173,6 @@ class AccountPage extends StatelessWidget {
                 MenuRow(icon: Icons.history, label: 'Trip History', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryPage()))),
                 MenuRow(icon: Icons.bar_chart, label: 'Earnings', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EarningsPage()))),
                 MenuRow(icon: Icons.account_balance_wallet, label: 'Wallet', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletPage()))),
-                MenuRow(icon: Icons.notifications, label: 'Notifications', onTap: () => Navigator.pushNamed(context, '/notifications')),
 
                 const SizedBox(height: 8),
                 _Section('Driver Info'),
@@ -185,10 +183,7 @@ class AccountPage extends StatelessWidget {
 
                 const SizedBox(height: 8),
                 _Section('Rewards & Growth'),
-                MenuRow(icon: Icons.celebration, label: 'Incentives', onTap: () => Navigator.pushNamed(context, '/incentives'), iconColor: AppColors.orange),
                 MenuRow(icon: Icons.leaderboard, label: 'Leaderboard', onTap: () => Navigator.pushNamed(context, '/leaderboard'), iconColor: AppColors.orange),
-                MenuRow(icon: Icons.military_tech, label: 'Driver Levels', onTap: () => Navigator.pushNamed(context, '/driver-levels'), iconColor: AppColors.orange),
-                MenuRow(icon: Icons.card_giftcard, label: 'Rewards', onTap: () => Navigator.pushNamed(context, '/rewards'), iconColor: AppColors.orange),
                 MenuRow(icon: Icons.share, label: 'Refer & Earn', onTap: () => Navigator.pushNamed(context, '/referral'), iconColor: AppColors.orange),
 
                 const SizedBox(height: 8),

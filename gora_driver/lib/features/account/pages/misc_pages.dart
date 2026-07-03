@@ -1,52 +1,87 @@
 // All smaller pages in one file
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
+import '../../../config/app_config.dart';
 import '../../../mock/mock_data.dart';
 import '../../../providers/driver_provider.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/driver_payment_service.dart';
 
-// ── QR Code Page ─────────────────────────────────────
-class QrCodePage extends StatelessWidget {
+// ── QR Code Page (driver's own payment/UPI QR — riders scan to pay) ──
+class QrCodePage extends StatefulWidget {
   static const route = '/qr-code';
   const QrCodePage({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: blueAppBar('My QR Code'),
-    body: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Container(
-        width: 220, height: 220, padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20)]),
-        child: CustomPaint(painter: _QRPainter()),
-      ),
-      const SizedBox(height: 24),
-      const Text('DRV001 • Rajesh Kumar', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textDark)),
-      const Text('Scan to identify driver', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
-      const SizedBox(height: 32),
-      PrimaryButton(label: 'Share QR Code', width: 200, onTap: () {}),
-    ])),
-  );
+  State<QrCodePage> createState() => _QrCodePageState();
 }
 
-class _QRPainter extends CustomPainter {
+class _QrCodePageState extends State<QrCodePage> {
+  String _qrUrl = '';
+  bool _loading = true, _busy = false;
+
   @override
-  void paint(Canvas canvas, Size size) {
-    final p = Paint()..color = AppColors.textDark..style = PaintingStyle.fill;
-    const cell = 9.0;
-    final cols = (size.width / cell).floor();
-    final rows = (size.height / cell).floor();
-    final pattern = [1,0,1,1,0,1,0,1,1,0,1,0,1,1,0,1,0,1,1,0];
-    for (int r = 0; r < rows; r++) {
-      for (int c = 0; c < cols; c++) {
-        if (pattern[(r * cols + c) % pattern.length] == 1) {
-          canvas.drawRect(Rect.fromLTWH(c * cell, r * cell, cell - 1, cell - 1), p);
-        }
-      }
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    try {
+      final r = await DriverApiService.getProfile();
+      final d = r['driver'] as Map?;
+      if (d != null) _qrUrl = (d['paymentQrUrl'] ?? '').toString();
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _upload() async {
+    final x = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 90);
+    if (x == null) return;
+    setState(() => _busy = true);
+    final url = await DriverApiService.uploadFile(x);
+    if (!mounted) return;
+    if (url != null) {
+      await DriverApiService.savePaymentQr(url);
+      if (!mounted) return;
+      setState(() { _qrUrl = url; _busy = false; });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment QR updated'), backgroundColor: AppColors.green));
+    } else {
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed'), backgroundColor: AppColors.red));
     }
   }
-  @override bool shouldRepaint(_) => false;
+
+  @override
+  Widget build(BuildContext context) {
+    final full = _qrUrl.isEmpty ? '' : AppConfig.imageUrl(_qrUrl);
+    return Scaffold(
+      appBar: blueAppBar('My QR Code'),
+      backgroundColor: AppColors.cardBg,
+      body: _loading
+          ? const AppLoader()
+          : Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Container(
+                width: 240, height: 240, padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20)]),
+                child: full.isEmpty
+                    ? Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Icon(Icons.qr_code_2, size: 90, color: Colors.grey[400]),
+                        const SizedBox(height: 8),
+                        Text('No payment QR yet', style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+                      ])
+                    : ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.network(full, fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, size: 60, color: AppColors.textGrey))),
+              ),
+              const SizedBox(height: 20),
+              const Text('Your Payment QR', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+              const Padding(padding: EdgeInsets.symmetric(horizontal: 40, vertical: 4),
+                child: Text('Riders can scan this to pay you directly (UPI / GPay / PhonePe).', textAlign: TextAlign.center, style: TextStyle(color: AppColors.textGrey, fontSize: 12.5))),
+              const SizedBox(height: 24),
+              PrimaryButton(label: _qrUrl.isEmpty ? 'Upload QR Code' : 'Change QR Code', width: 220, loading: _busy, onTap: _upload),
+            ])),
+    );
+  }
 }
 
 // ── Rate Card Page ─────────────────────────────────────
@@ -89,67 +124,106 @@ class RateCardPage extends StatelessWidget {
   );
 }
 
-// ── Referral Page ─────────────────────────────────────
-class ReferralPage extends StatelessWidget {
+// ── Referral Page (real: admin-set rewards, code, stats) ──
+class ReferralPage extends StatefulWidget {
   static const route = '/referral';
   const ReferralPage({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: blueAppBar('Refer & Earn'),
-    body: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(children: [
-        const SizedBox(height: 24),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [AppColors.primary, AppColors.primaryDark]),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Column(children: [
-            const Icon(Icons.share, color: Colors.white, size: 40),
-            const SizedBox(height: 12),
-            const Text('Invite Drivers, Earn ₹200!', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
-            const SizedBox(height: 4),
-            Text('For every driver you refer who completes 10 rides', style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 13), textAlign: TextAlign.center),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-              child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                const Text('GORA-DRV-2025', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.primary, letterSpacing: 2)),
-                IconButton(icon: const Icon(Icons.copy, color: AppColors.primary), onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Code copied!')))),
-              ]),
-            ),
-          ]),
-        ),
-        const SizedBox(height: 32),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(16)),
-          child: Column(children: [
-            const SectionHeader(title: 'Your Referrals'),
-            const SizedBox(height: 12),
-            _refRow('Suresh Kumar', 'Completed 10 rides', '₹ 200', true),
-            const Divider(color: AppColors.divider),
-            _refRow('Ankit Shah', '3/10 rides completed', 'Pending', false),
-          ]),
-        ),
-      ]),
-    ),
-  );
+  State<ReferralPage> createState() => _ReferralPageState();
+}
 
-  Widget _refRow(String name, String status, String reward, bool paid) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 8),
-    child: Row(children: [
-      CircleAvatar(radius: 18, backgroundColor: AppColors.primary.withOpacity(0.1),
-        child: Text(name[0], style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700))),
-      const SizedBox(width: 10),
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(name, style: const TextStyle(fontWeight: FontWeight.w600, color: AppColors.textDark, fontSize: 13)),
-        Text(status, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
-      ])),
-      Text(reward, style: TextStyle(fontWeight: FontWeight.w700, color: paid ? AppColors.green : AppColors.textGrey, fontSize: 13)),
+class _ReferralPageState extends State<ReferralPage> {
+  bool _loading = true;
+  String _code = '';
+  num _referrerReward = 0, _refereeReward = 0, _referredCount = 0, _referralEarnings = 0;
+
+  @override
+  void initState() { super.initState(); _load(); }
+
+  Future<void> _load() async {
+    try {
+      final r = await DriverApiService.getReferral();
+      _code = (r['code'] ?? '').toString();
+      _referrerReward = (r['referrerReward'] as num?) ?? 0;
+      _refereeReward = (r['refereeReward'] as num?) ?? 0;
+      _referredCount = (r['referredCount'] as num?) ?? 0;
+      _referralEarnings = (r['referralEarnings'] as num?) ?? 0;
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  void _copy() {
+    Clipboard.setData(ClipboardData(text: _code));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Code copied!')));
+  }
+
+  void _share() {
+    Clipboard.setData(ClipboardData(
+      text: 'Join Gora Cabs as a driver! Use my referral code $_code while signing up and we both earn rewards.'));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invite text copied — paste in WhatsApp / SMS')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: blueAppBar('Refer & Earn'),
+      backgroundColor: AppColors.cardBg,
+      body: _loading ? const AppLoader() : SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(children: [
+          Container(
+            padding: const EdgeInsets.all(20), width: double.infinity,
+            decoration: BoxDecoration(gradient: const LinearGradient(colors: [AppColors.primary, AppColors.primaryDark]), borderRadius: BorderRadius.circular(20)),
+            child: Column(children: [
+              const Icon(Icons.card_giftcard, color: Colors.white, size: 40),
+              const SizedBox(height: 10),
+              Text('Invite Drivers, Earn ₹${_referrerReward.toStringAsFixed(0)}!', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
+              const SizedBox(height: 4),
+              Text('Your friend also gets ₹${_refereeReward.toStringAsFixed(0)} on joining', style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 13), textAlign: TextAlign.center),
+              const SizedBox(height: 18),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  Text(_code.isEmpty ? '—' : _code, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.primary, letterSpacing: 2)),
+                  IconButton(icon: const Icon(Icons.copy, color: AppColors.primary), onPressed: _copy),
+                ]),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(child: _statBox('Referrals', _referredCount.toStringAsFixed(0), Icons.group)),
+            const SizedBox(width: 12),
+            Expanded(child: _statBox('Earned', '₹ ${_referralEarnings.toStringAsFixed(0)}', Icons.account_balance_wallet)),
+          ]),
+          const SizedBox(height: 20),
+          PrimaryButton(label: 'Share Invite', onTap: _share),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(14), width: double.infinity,
+            decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(14)),
+            child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('How it works', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.textDark)),
+              SizedBox(height: 8),
+              Text('1. Share your code with a driver friend', style: TextStyle(fontSize: 12.5, color: AppColors.textGrey)),
+              Text('2. They enter it while creating their profile', style: TextStyle(fontSize: 12.5, color: AppColors.textGrey)),
+              Text('3. Reward is added to both wallets instantly', style: TextStyle(fontSize: 12.5, color: AppColors.textGrey)),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _statBox(String label, String value, IconData icon) => Container(
+    padding: const EdgeInsets.symmetric(vertical: 14),
+    decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(14)),
+    child: Column(children: [
+      Icon(icon, color: AppColors.primary, size: 22),
+      const SizedBox(height: 6),
+      Text(value, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textDark)),
+      Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textGrey)),
     ]),
   );
 }

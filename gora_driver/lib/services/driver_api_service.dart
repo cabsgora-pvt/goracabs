@@ -192,6 +192,16 @@ class DriverApiService {
   // Driver wallet: { balance, transactions }
   static Future<Map<String, dynamic>> getWallet() => get('/auth/driver/wallet');
 
+  // Referral: { code, referrerReward, refereeReward, referredCount, referralEarnings }
+  static Future<Map<String, dynamic>> getReferral() => get('/auth/driver/referral');
+
+  // Save the driver's payment QR image url
+  static Future<Map<String, dynamic>> savePaymentQr(String qrUrl) =>
+      post('/auth/driver/qr', {'qrUrl': qrUrl}, auth: true);
+
+  // Zone leaderboard: { zone, entries: [{rank,name,rides,earnings,isMe}] }
+  static Future<Map<String, dynamic>> getLeaderboard() => get('/rides/driver/leaderboard');
+
   // Create a Razorpay order for a subscription plan
   static Future<Map<String, dynamic>> createSubscriptionOrder(String planId) =>
       post('/auth/driver/subscription/order', {'planId': planId}, auth: true);

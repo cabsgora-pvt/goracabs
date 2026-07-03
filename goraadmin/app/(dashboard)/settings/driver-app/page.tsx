@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 
-const TABS = ['Subscription Plans', 'Ringtones', 'Wallet Rules'] as const
+const TABS = ['Subscription Plans', 'Ringtones', 'Referral', 'Wallet Rules'] as const
 const SERVICES = ['taxi', 'rental', 'outstation', 'delivery', 'hire_driver']
 const SERVICE_LABEL: Record<string, string> = {
   taxi: 'Taxi', rental: 'Rental', outstation: 'Outstation', delivery: 'Parcel', hire_driver: 'Hire Driver',
@@ -89,6 +89,9 @@ export default function DriverAppSettings() {
 
   const setRingtone = (service: string, url: string) =>
     setDriverApp('ringtones', { ...(settings?.driverApp?.ringtones || {}), [service]: url })
+
+  const setReferral = (field: string, val: any) =>
+    setDriverApp('referral', { ...(settings?.driverApp?.referral || {}), [field]: val })
 
   async function uploadRingtone(service: string, file: File) {
     setBusy(true)
@@ -219,6 +222,30 @@ export default function DriverAppSettings() {
               })}
               <div className="flex justify-end pt-2">
                 <button type="button" onClick={() => saveDriverApp('Ringtones saved ✓')} disabled={busy}
+                  className="bg-[#1C2656] text-white px-6 py-2 rounded-lg text-sm font-semibold disabled:opacity-50">Save</button>
+              </div>
+            </div>
+          )}
+
+          {tab === 'Referral' && (
+            <div className="bg-white border rounded-xl p-5 space-y-4 max-w-md">
+              <p className="text-sm text-gray-500">Rewards paid when a new driver signs up using another driver&apos;s referral code. Both get credited to their wallet.</p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Referrer reward (₹)</label>
+                <input className={inp} type="number" title="Referrer reward" placeholder="50"
+                  value={(settings?.driverApp?.referral?.referrerReward) ?? 0}
+                  onChange={e => setReferral('referrerReward', +e.target.value)} />
+                <p className="text-xs text-gray-500 mt-1">Paid to the driver who <strong>shared</strong> the code (e.g. Yash).</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">New driver reward (₹)</label>
+                <input className={inp} type="number" title="New driver reward" placeholder="30"
+                  value={(settings?.driverApp?.referral?.refereeReward) ?? 0}
+                  onChange={e => setReferral('refereeReward', +e.target.value)} />
+                <p className="text-xs text-gray-500 mt-1">Paid to the driver who <strong>joined</strong> using the code (e.g. Manoj).</p>
+              </div>
+              <div className="flex justify-end pt-2 border-t">
+                <button type="button" onClick={() => saveDriverApp('Referral rewards saved ✓')} disabled={busy}
                   className="bg-[#1C2656] text-white px-6 py-2 rounded-lg text-sm font-semibold disabled:opacity-50">Save</button>
               </div>
             </div>

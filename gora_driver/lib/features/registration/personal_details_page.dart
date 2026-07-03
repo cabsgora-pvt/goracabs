@@ -26,6 +26,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
   final _form = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _email = TextEditingController();
+  final _referralController = TextEditingController();
   String? _selectedState;
   String? _selectedZoneId;
   String? _selectedZoneName;
@@ -100,6 +101,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
         'zoneId': _selectedZoneId,
         'zoneName': _selectedZoneName,
         'profilePicUrl': _profilePicUrl,
+        'referralCode': _referralController.text.trim().toUpperCase(),
       });
       if (!mounted) return;
       if (res['error'] != null) {
@@ -122,6 +124,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
   void dispose() {
     _name.dispose();
     _email.dispose();
+    _referralController.dispose();
     super.dispose();
   }
 
@@ -210,6 +213,16 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                         if (v != null && v.isNotEmpty && !v.contains('@')) return 'Enter valid email';
                         return null;
                       },
+                    ),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _referralController,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: const InputDecoration(
+                        labelText: 'Referral code (optional)',
+                        hintText: "Enter a friend's code",
+                        prefixIcon: Icon(Icons.card_giftcard_rounded, color: AppColors.primary),
+                      ),
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(

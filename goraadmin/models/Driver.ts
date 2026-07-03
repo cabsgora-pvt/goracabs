@@ -28,6 +28,13 @@ const DriverSchema = new Schema({
   totalRides: { type: Number, default: 0 },
   totalEarnings: { type: Number, default: 0 },
   walletBalance: { type: Number, default: 0 },
+  // ── Referral ──
+  referralCode: { type: String, index: true },
+  referredBy: { type: String, default: '' },      // code the driver signed up with
+  referredCount: { type: Number, default: 0 },     // how many drivers used this driver's code
+  referralEarnings: { type: Number, default: 0 },  // total ₹ earned from referrals
+  // Driver's own payment/UPI QR image (shown to riders for direct payment)
+  paymentQrUrl: { type: String, default: '' },
   // ── Subscription (Rapido-style pass; overrides ride commission while active) ──
   subscriptionActive: { type: Boolean, default: false },
   subscriptionPlanId: { type: Schema.Types.ObjectId, ref: 'SubscriptionPlan' },
