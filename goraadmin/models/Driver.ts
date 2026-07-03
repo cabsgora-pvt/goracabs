@@ -42,6 +42,8 @@ const DriverSchema = new Schema({
   referralEarnings: { type: Number, default: 0 },  // total ₹ earned from referrals
   // Driver's own payment/UPI QR image (shown to riders for direct payment)
   paymentQrUrl: { type: String, default: '' },
+  // Sequential serial for the Gora Captain ID card (assigned lazily)
+  serialNo: { type: Number },
   // ── Subscription (Rapido-style pass; overrides ride commission while active) ──
   subscriptionActive: { type: Boolean, default: false },
   subscriptionPlanId: { type: Schema.Types.ObjectId, ref: 'SubscriptionPlan' },

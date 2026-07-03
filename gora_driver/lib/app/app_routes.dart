@@ -33,6 +33,7 @@ import '../features/account/pages/support_page.dart';
 import '../features/account/pages/faq_page.dart';
 import '../features/account/pages/preferences_page.dart';
 import '../features/account/pages/misc_pages.dart';
+import '../features/account/pages/id_card_page.dart';
 
 class AppRoutes {
   static Map<String, WidgetBuilder> get routes => {
@@ -77,5 +78,6 @@ class AppRoutes {
     AdminChatPage.route:      (_) => const AdminChatPage(),
     SubscriptionPage.route:   (_) => const SubscriptionPage(),
     VehicleInfoPage.route:    (_) => const VehicleInfoPage(),
+    IdCardPage.route:         (_) => const IdCardPage(),
   };
 }

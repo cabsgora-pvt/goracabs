@@ -218,6 +218,11 @@ class DriverApiService {
   static Future<Map<String, dynamic>> sendSupportChat(String message) =>
       post('/auth/driver/support/chat', {'message': message}, auth: true);
 
+  // ── ID card + profile picture ─────────────────────────────
+  static Future<Map<String, dynamic>> getIdCard() => get('/auth/driver/idcard');
+  static Future<Map<String, dynamic>> saveProfilePic(String url) =>
+      post('/auth/driver/profile-pic', {'url': url}, auth: true);
+
   // ── Bank accounts + withdrawals ───────────────────────────
   // { driverName, banks: [{accountHolderName,bankName,accountNumber,ifscCode}] }
   static Future<Map<String, dynamic>> getBanks() => get('/auth/driver/banks');

@@ -34,6 +34,7 @@ export default function DriverDetailPage() {
   const [allowHireDriver, setAllowHireDriver] = useState(true)
   const [allowDelivery, setAllowDelivery] = useState(true)
   const [prefsBusy, setPrefsBusy] = useState(false)
+  const [photoBusy, setPhotoBusy] = useState(false)
 
   const fetchDriver = () => {
     fetch(`/api/drivers/${id}`)
@@ -71,6 +72,38 @@ export default function DriverDetailPage() {
       setToast({ msg: 'Failed to save service preferences', type: 'error' })
     }
     setPrefsBusy(false)
+  }
+
+  const uploadPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setPhotoBusy(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const upRes = await fetch('/api/upload', { method: 'POST', body: fd })
+      const upData = await upRes.json()
+      if (!upRes.ok || !upData.url) {
+        setToast({ msg: upData.error || 'Failed to upload photo', type: 'error' })
+        setPhotoBusy(false)
+        return
+      }
+      const putRes = await fetch(`/api/drivers/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profilePicUrl: upData.url }),
+      })
+      if (putRes.ok) {
+        fetchDriver()
+        setToast({ msg: 'Profile photo updated', type: 'success' })
+      } else {
+        setToast({ msg: 'Failed to save profile photo', type: 'error' })
+      }
+    } catch {
+      setToast({ msg: 'Failed to update profile photo', type: 'error' })
+    }
+    setPhotoBusy(false)
   }
 
   const approveDriver = async () => {
@@ -207,8 +240,32 @@ export default function DriverDetailPage() {
           {/* Profile Card */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
             <div className="text-center mb-6">
-              <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-bold text-3xl mx-auto mb-3">
-                {driver.name?.charAt(0) || '?'}
+              {driver.profilePicUrl ? (
+                <img
+                  src={driver.profilePicUrl}
+                  alt={driver.name || 'Driver'}
+                  className="w-20 h-20 rounded-full object-cover mx-auto mb-3"
+                />
+              ) : (
+                <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-bold text-3xl mx-auto mb-3">
+                  {driver.name?.charAt(0) || '?'}
+                </div>
+              )}
+              <div className="mb-3">
+                <input
+                  id="driver-photo-input"
+                  type="file"
+                  accept="image/*"
+                  onChange={uploadPhoto}
+                  aria-label="Choose profile photo"
+                  title="Choose profile photo"
+                  className="hidden"
+                />
+                <label
+                  htmlFor="driver-photo-input"
+                  className={`inline-flex items-center gap-1 px-3 py-1.5 bg-gray-50 text-gray-700 rounded-lg text-xs font-medium border border-gray-200 hover:bg-gray-100 cursor-pointer ${photoBusy ? 'opacity-50 pointer-events-none' : ''}`}>
+                  {photoBusy ? 'Uploading…' : 'Change Photo'}
+                </label>
               </div>
               <h2 className="text-lg font-bold text-gray-900">{driver.name || 'Unnamed'}</h2>
               <div className="mt-2"><Badge status={driver.status} /></div>

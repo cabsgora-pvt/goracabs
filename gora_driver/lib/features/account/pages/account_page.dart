@@ -180,6 +180,7 @@ class AccountPage extends StatelessWidget {
                 MenuRow(icon: Icons.directions_car, label: 'Vehicle Info', onTap: () => Navigator.pushNamed(context, '/vehicle-info')),
                 MenuRow(icon: Icons.folder, label: 'Documents', onTap: () => Navigator.pushNamed(context, '/documents')),
                 MenuRow(icon: Icons.qr_code, label: 'My QR Code', onTap: () => Navigator.pushNamed(context, '/qr-code')),
+                MenuRow(icon: Icons.badge, label: 'My ID Card', onTap: () => Navigator.pushNamed(context, '/id-card')),
 
                 const SizedBox(height: 8),
                 _Section('Rewards & Growth'),
