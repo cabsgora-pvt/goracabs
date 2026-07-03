@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../core/constants/app_colors.dart';
 import '../auth/bloc/auth_bloc.dart';
 import '../onboarding/onboarding_page.dart';
 import '../home/pages/home_page.dart';
@@ -51,42 +50,25 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
         }
       },
       child: Scaffold(
-        body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [AppColors.primaryDark, AppColors.primary, AppColors.primaryLight],
-              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+        backgroundColor: const Color(0xFF010920), // matches the splash artwork + native splash
+        body: Stack(fit: StackFit.expand, children: [
+          FadeTransition(
+            opacity: _fade,
+            child: ScaleTransition(
+              scale: _scale,
+              child: Image.asset('assets/images/splashscreen.png', fit: BoxFit.contain),
             ),
           ),
-          child: Center(
-            child: FadeTransition(
-              opacity: _fade,
-              child: ScaleTransition(
-                scale: _scale,
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Container(
-                    width: 100, height: 100,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(28),
-                      border: Border.all(color: Colors.white30, width: 2),
-                    ),
-                    child: const Icon(Icons.local_taxi_rounded, size: 56, color: Colors.white),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text('GORA DRIVER', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 3)),
-                  const SizedBox(height: 8),
-                  Text('Drive. Earn. Succeed.', style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.8), letterSpacing: 1)),
-                  const SizedBox(height: 48),
-                  SizedBox(
-                    width: 28, height: 28,
-                    child: CircularProgressIndicator(color: Colors.white.withOpacity(0.7), strokeWidth: 2.5),
-                  ),
-                ]),
+          const Positioned(
+            left: 0, right: 0, bottom: 56,
+            child: Center(
+              child: SizedBox(
+                width: 26, height: 26,
+                child: CircularProgressIndicator(strokeWidth: 2.4, valueColor: AlwaysStoppedAnimation(Colors.white)),
               ),
             ),
           ),
-        ),
+        ]),
       ),
     );
   }
