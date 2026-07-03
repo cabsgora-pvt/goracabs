@@ -1,13 +1,16 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
-import '../../../mock/mock_data.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 
 abstract class EarningsEvent extends Equatable {
   @override List<Object?> get props => [];
 }
-class LoadEarningsEvent extends EarningsEvent {}
+class LoadEarningsEvent extends EarningsEvent {
+  final DateTime? date;
+  LoadEarningsEvent({this.date});
+  @override List<Object?> get props => [date];
+}
 
 abstract class EarningsState extends Equatable {
   @override List<Object?> get props => [];
@@ -27,19 +30,24 @@ class EarningsBloc extends Bloc<EarningsEvent, EarningsState> {
   }
   Future<void> _onLoad(LoadEarningsEvent e, Emitter emit) async {
     emit(EarningsLoading());
-    final w = await MockEarningsService.getWeeklyEarnings();
-    final s = Map<String, String>.from(await MockEarningsService.getSummary());
-    // Overlay real totals from driver profile (earnings already net of commission)
+    List<EarningsModel> weekly = [];
+    Map<String, String> summary = {'today': '₹0', 'week': '₹0', 'month': '₹0', 'totalRides': '0'};
     try {
-      final res = await DriverApiService.getProfile();
-      final d = res['driver'] as Map?;
-      if (d != null) {
-        final totalEarnings = d['totalEarnings'] ?? 0;
-        final totalRides = d['totalRides'] ?? 0;
-        s['month'] = '₹ $totalEarnings';
-        s['totalRides'] = '$totalRides';
-      }
+      final res = await DriverApiService.getEarnings(date: e.date);
+      final daily = (res['daily'] as List?) ?? [];
+      weekly = daily.map((raw) {
+        final m = Map<String, dynamic>.from(raw as Map);
+        return EarningsModel(
+          date: (m['date'] ?? '').toString(),
+          amount: (m['amount'] ?? '0').toString(),
+          rides: (m['rides'] ?? '0').toString(),
+          distance: (m['distance'] ?? '0 km').toString(),
+          duration: (m['duration'] ?? '—').toString(),
+        );
+      }).toList();
+      final s = (res['summary'] as Map?) ?? {};
+      summary = s.map((k, v) => MapEntry(k.toString(), v.toString()));
     } catch (_) {}
-    emit(EarningsLoaded(w, s));
+    emit(EarningsLoaded(weekly, summary));
   }
 }

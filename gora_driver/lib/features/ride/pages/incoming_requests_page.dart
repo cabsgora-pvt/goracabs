@@ -29,6 +29,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   Map<String, String> _ringtones = {};
   final AudioPlayer _player = AudioPlayer();
   String? _playingService;
+  bool _closed = false; // guards against double-pop (which lands on the start screen)
 
   @override
   void initState() {
@@ -55,7 +56,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   }
 
   Future<void> _refresh() async {
-    if (_accepting || !mounted) return;
+    if (_accepting || _closed || !mounted) return;
     try {
       final res = await DriverApiService.getPendingRequests();
       final rides = (res['rides'] as List?) ?? [];
@@ -64,9 +65,9 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
           .where((m) => !_rejectedIds.contains(m.id))
           .take(_maxRequests)
           .toList();
-      if (!mounted) return;
+      if (!mounted || _closed) return;
       _firstLoaded = true;
-      if (models.isEmpty) { await _stopRing(); if (mounted) Navigator.pop(context); return; }
+      if (models.isEmpty) { _close(); return; }
       setState(() => _requests = models);
       _updateRing();
     } catch (_) {}
@@ -96,6 +97,16 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     try { await _player.stop(); } catch (_) {}
   }
 
+  // Close the screen exactly once (timer's _refresh and button handlers could
+  // otherwise both pop, removing the home screen and leaving a blank start view).
+  void _close() {
+    if (_closed) return;
+    _closed = true;
+    _timer?.cancel();
+    _stopRing();
+    if (mounted) Navigator.pop(context);
+  }
+
   Future<void> _accept(RideRequestModel m) async {
     if (_accepting) return;
     setState(() => _accepting = true);
@@ -113,7 +124,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
         SnackBar(content: Text(r['error']?.toString() ?? 'Ride already taken')),
       );
       _timer = Timer.periodic(const Duration(seconds: 3), (_) => _refresh());
-      if (_requests.isEmpty) { Navigator.pop(context); } else { _updateRing(); }
+      if (_requests.isEmpty) { _close(); } else { _updateRing(); }
     }
   }
 
@@ -121,11 +132,12 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     _rejectedIds.add(m.id);
     DriverApiService.rejectRide(m.id); // fire-and-forget; server records rejectedBy
     setState(() => _requests.removeWhere((x) => x.id == m.id));
-    if (_requests.isEmpty && mounted) { _stopRing(); Navigator.pop(context); } else { _updateRing(); }
+    if (_requests.isEmpty) { _close(); } else { _updateRing(); }
   }
 
   @override
   Widget build(BuildContext context) {
+    final single = _requests.length == 1;
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -136,20 +148,27 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
             padding: const EdgeInsets.symmetric(vertical: 16),
             decoration: const BoxDecoration(gradient: LinearGradient(colors: [AppColors.primaryDark, AppColors.primary])),
             child: Column(children: [
-              Text('${_requests.length} New Request${_requests.length == 1 ? '' : 's'}',
+              Text(single ? 'New Ride Request' : '${_requests.length} New Requests',
                   style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
               const SizedBox(height: 2),
-              const Text('Tap Accept on any ride', style: TextStyle(fontSize: 12, color: Colors.white70)),
+              Text(single ? 'Swipe to accept or reject' : 'Swipe any request to accept / reject',
+                  style: const TextStyle(fontSize: 12, color: Colors.white70)),
             ]),
           ),
           Expanded(
             child: !_firstLoaded
                 ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
-                    padding: const EdgeInsets.all(12),
-                    itemCount: _requests.length,
-                    itemBuilder: (_, i) => _requestCard(_requests[i]),
-                  ),
+                : _requests.isEmpty
+                    ? const SizedBox()
+                    : single
+                        // 1 request → full-page single view
+                        ? SingleChildScrollView(padding: const EdgeInsets.all(14), child: _requestCard(_requests.first, big: true))
+                        // multiple → scrollable list
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(12),
+                            itemCount: _requests.length,
+                            itemBuilder: (_, i) => _requestCard(_requests[i]),
+                          ),
           ),
         ]),
       ),
@@ -166,7 +185,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     }
   }
 
-  Widget _requestCard(RideRequestModel r) {
+  Widget _requestCard(RideRequestModel r, {bool big = false}) {
     final meta = _serviceMeta(r.service);
     final cash = r.paymentMode == 'cash';
     return Container(
@@ -188,7 +207,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
               child: Text(meta.label, style: TextStyle(color: meta.color, fontWeight: FontWeight.w800, fontSize: 10, letterSpacing: 0.5)),
             ),
             const Spacer(),
-            Text(r.fare, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17, color: AppColors.textDark)),
+            Text(r.fare, style: TextStyle(fontWeight: FontWeight.w900, fontSize: big ? 22 : 17, color: AppColors.textDark)),
           ]),
         ),
         // user + rating
@@ -196,7 +215,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
           padding: const EdgeInsets.symmetric(horizontal: 14),
           child: Row(children: [
             CircleAvatar(
-              radius: 16, backgroundColor: AppColors.primary,
+              radius: big ? 22 : 16, backgroundColor: AppColors.primary,
               backgroundImage: r.userProfilePicUrl.isNotEmpty ? NetworkImage(r.userProfilePicUrl) : null,
               child: r.userProfilePicUrl.isEmpty
                   ? Text(r.userName.isNotEmpty ? r.userName[0].toUpperCase() : 'R', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13))

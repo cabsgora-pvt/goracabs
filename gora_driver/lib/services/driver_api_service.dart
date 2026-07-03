@@ -164,6 +164,20 @@ class DriverApiService {
   static Future<Map<String, dynamic>> getTripHistory() =>
       get('/rides/driver/history');
 
+  // Today/week earnings summary for the home dashboard
+  static Future<Map<String, dynamic>> getEarningsSummary() =>
+      get('/rides/driver/summary');
+
+  // Earnings page: 7-day daily breakdown ending at [date] (default today) + summary
+  static Future<Map<String, dynamic>> getEarnings({DateTime? date}) {
+    var path = '/rides/driver/earnings';
+    if (date != null) {
+      final d = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      path += '?date=$d';
+    }
+    return get(path);
+  }
+
   // ── Subscription (membership) ─────────────────────────────
   // { current, history, plans, walletBalance }
   static Future<Map<String, dynamic>> getSubscription() =>

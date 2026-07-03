@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../mock/mock_data.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
@@ -44,15 +45,38 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
 
   Future<void> _onLoad(LoadHomeDataEvent e, Emitter emit) async {
     emit(HomeLoading());
+    // Restore the driver's online status (survives the home screen being rebuilt
+    // after a ride — it must NOT auto-go-offline; only manual toggle changes it).
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      isOnline = prefs.getBool('driver_online') ?? false;
+    } catch (_) {}
     final d = await MockAuthService.getProfile();
-    final s = await MockEarningsService.getSummary();
     driver = d;
+    // Real earnings summary (today / week / rides / distance)
+    Map<String, String> s;
+    try {
+      final r = await DriverApiService.getEarningsSummary();
+      s = {
+        'today': '₹ ${r['today'] ?? 0}',
+        'week': '₹${r['week'] ?? 0}',
+        'totalRides': '${r['totalRides'] ?? 0}',
+        'totalDistance': '${r['todayDistance'] ?? 0} km',
+      };
+    } catch (_) {
+      s = {'today': '₹ 0', 'week': '₹0', 'totalRides': '0', 'totalDistance': '0 km'};
+    }
     summary = s;
     emit(HomeLoaded(d, s));
   }
 
   Future<void> _onToggle(ToggleOnlineEvent e, Emitter emit) async {
     isOnline = e.isOnline;
+    // Persist so it survives navigation/app restarts
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('driver_online', e.isOnline);
+    } catch (_) {}
     // Report online/offline + current location to backend
     try {
       final pos = await LocationService.getCurrentLocation();

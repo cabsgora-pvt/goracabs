@@ -106,22 +106,43 @@ class _HomeTab extends StatelessWidget {
               ),
             ]),
             actions: [
-              // Online/Offline Toggle
+              // Online/Offline toggle switch — green (online) / gray (offline)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
                 child: GestureDetector(
                   onTap: () => context.read<HomeBloc>().add(ToggleOnlineEvent(!isOnline)),
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 300),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    duration: const Duration(milliseconds: 250),
+                    width: 104, height: 34,
                     decoration: BoxDecoration(
-                      color: isOnline ? AppColors.green : Colors.white24,
+                      color: isOnline ? AppColors.green : Colors.grey.shade500,
                       borderRadius: BorderRadius.circular(20),
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 4, offset: const Offset(0, 2))],
                     ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Container(width: 8, height: 8, decoration: BoxDecoration(color: isOnline ? Colors.white : Colors.white60, shape: BoxShape.circle)),
-                      const SizedBox(width: 6),
-                      Text(isOnline ? 'ON DUTY' : 'OFF DUTY', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white)),
+                    child: Stack(children: [
+                      AnimatedAlign(
+                        duration: const Duration(milliseconds: 250),
+                        alignment: isOnline ? Alignment.centerLeft : Alignment.centerRight,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(isOnline ? 'Online' : 'Offline',
+                            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.white)),
+                        ),
+                      ),
+                      AnimatedAlign(
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeOut,
+                        alignment: isOnline ? Alignment.centerRight : Alignment.centerLeft,
+                        child: Padding(
+                          padding: const EdgeInsets.all(3),
+                          child: Container(
+                            width: 28, height: 28,
+                            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                            child: Icon(isOnline ? Icons.check : Icons.power_settings_new,
+                              size: 16, color: isOnline ? AppColors.green : Colors.grey.shade600),
+                          ),
+                        ),
+                      ),
                     ]),
                   ),
                 ),

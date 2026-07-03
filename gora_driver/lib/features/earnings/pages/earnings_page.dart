@@ -6,27 +6,68 @@ import '../../../core/widgets/app_widgets.dart';
 import '../bloc/earnings_bloc.dart';
 import '../../../models/models.dart';
 
-class EarningsPage extends StatelessWidget {
+class EarningsPage extends StatefulWidget {
   static const route = '/earnings';
   const EarningsPage({super.key});
+  @override
+  State<EarningsPage> createState() => _EarningsPageState();
+}
+
+class _EarningsPageState extends State<EarningsPage> {
+  DateTime _date = DateTime.now();
+
+  String _fmt(DateTime d) {
+    const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${d.day} ${m[d.month - 1]} ${d.year}';
+  }
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (_) => EarningsBloc()..add(LoadEarningsEvent()),
-      child: BlocBuilder<EarningsBloc, EarningsState>(
-        builder: (context, state) {
-          return Scaffold(
-            appBar: blueAppBar('Earnings'),
-            backgroundColor: AppColors.cardBg,
-            body: state is EarningsLoading
-                ? const AppLoader()
-                : state is EarningsLoaded
-                    ? _Body(weekly: state.weekly, summary: state.summary)
-                    : const SizedBox(),
-          );
-        },
-      ),
+      create: (_) => EarningsBloc()..add(LoadEarningsEvent(date: _date)),
+      child: Builder(builder: (context) {
+        return Scaffold(
+          appBar: blueAppBar('Earnings'),
+          backgroundColor: AppColors.cardBg,
+          body: Column(children: [
+            // Date filter — shows the 7-day week ending on the picked date
+            Container(
+              color: AppColors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(children: [
+                const Icon(Icons.event, size: 18, color: AppColors.primary),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Week ending ${_fmt(_date)}',
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textDark))),
+                TextButton.icon(
+                  onPressed: () async {
+                    final picked = await showDatePicker(
+                      context: context, initialDate: _date,
+                      firstDate: DateTime(2020), lastDate: DateTime.now());
+                    if (picked != null) {
+                      setState(() => _date = picked);
+                      if (context.mounted) context.read<EarningsBloc>().add(LoadEarningsEvent(date: picked));
+                    }
+                  },
+                  icon: const Icon(Icons.calendar_month, size: 16),
+                  label: const Text('Change'),
+                ),
+              ]),
+            ),
+            Expanded(
+              child: BlocBuilder<EarningsBloc, EarningsState>(
+                builder: (context, state) {
+                  return state is EarningsLoading
+                      ? const AppLoader()
+                      : state is EarningsLoaded
+                          ? _Body(weekly: state.weekly, summary: state.summary)
+                          : const SizedBox();
+                },
+              ),
+            ),
+          ]),
+        );
+      }),
     );
   }
 }
