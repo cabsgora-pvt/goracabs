@@ -3,6 +3,7 @@ import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
 import Ride from '@/models/Ride'
 import DriverSubscription from '@/models/DriverSubscription'
+import Withdrawal from '@/models/Withdrawal'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -11,7 +12,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (!driver) return NextResponse.json({ error: 'Driver not found' }, { status: 404 })
     const recentRides = await Ride.find({ driverId: params.id }).sort({ createdAt: -1 }).limit(10).lean()
     const subscriptions = await DriverSubscription.find({ driverId: params.id }).sort({ createdAt: -1 }).limit(10).lean()
-    return NextResponse.json({ driver, recentRides, subscriptions })
+    const withdrawals = await Withdrawal.find({ driverId: params.id }).sort({ createdAt: -1 }).limit(10).lean()
+    return NextResponse.json({ driver, recentRides, subscriptions, withdrawals })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

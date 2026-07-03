@@ -66,5 +66,15 @@ const DriverSchema = new Schema({
     ifscCode: String,
     accountType: { type: String, enum: ['savings', 'current'], default: 'savings' },
   },
+  // Multiple saved bank accounts for withdrawals (driver adds/selects via radio)
+  bankAccounts: {
+    type: [{
+      accountHolderName: String,
+      bankName: String,
+      accountNumber: String,
+      ifscCode: String,
+    }],
+    default: [],
+  },
 }, { timestamps: true })
 export default mongoose.models.Driver || mongoose.model('Driver', DriverSchema)

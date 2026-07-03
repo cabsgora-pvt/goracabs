@@ -270,6 +270,12 @@ export default function DriverAppSettings() {
                   value={da.maxNegativeWallet ?? 500} onChange={e => setDriverApp('maxNegativeWallet', +e.target.value)} />
                 <p className="text-xs text-gray-500 mt-1">Driver can owe up to this much (wallet goes to −₹{da.maxNegativeWallet ?? 500}). Beyond it, no rides until they recharge.</p>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Minimum withdrawal (₹)</label>
+                <input className={inp} type="number" title="Minimum withdrawal" placeholder="100"
+                  value={da.minWithdrawal ?? 100} onChange={e => setDriverApp('minWithdrawal', +e.target.value)} />
+                <p className="text-xs text-gray-500 mt-1">Drivers can request withdrawals of at least this amount.</p>
+              </div>
               <div className="flex justify-end pt-2 border-t">
                 <button type="button" onClick={() => saveDriverApp('Wallet rules saved ✓')} disabled={busy}
                   className="bg-[#1C2656] text-white px-6 py-2 rounded-lg text-sm font-semibold disabled:opacity-50">Save</button>

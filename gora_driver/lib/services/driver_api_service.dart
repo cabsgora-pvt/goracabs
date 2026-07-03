@@ -202,6 +202,18 @@ class DriverApiService {
   // Zone leaderboard: { zone, entries: [{rank,name,rides,earnings,isMe}] }
   static Future<Map<String, dynamic>> getLeaderboard() => get('/rides/driver/leaderboard');
 
+  // ── Bank accounts + withdrawals ───────────────────────────
+  // { driverName, banks: [{accountHolderName,bankName,accountNumber,ifscCode}] }
+  static Future<Map<String, dynamic>> getBanks() => get('/auth/driver/banks');
+
+  static Future<Map<String, dynamic>> addBank(Map<String, dynamic> bank) =>
+      post('/auth/driver/banks', bank, auth: true);
+
+  static Future<Map<String, dynamic>> requestWithdrawal(Map<String, dynamic> data) =>
+      post('/auth/driver/withdraw', data, auth: true);
+
+  static Future<Map<String, dynamic>> getWithdrawals() => get('/auth/driver/withdraw');
+
   // Create a Razorpay order for a subscription plan
   static Future<Map<String, dynamic>> createSubscriptionOrder(String planId) =>
       post('/auth/driver/subscription/order', {'planId': planId}, auth: true);

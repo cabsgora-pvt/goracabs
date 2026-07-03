@@ -8,7 +8,7 @@ import { Toast } from '@/components/ui/toast'
 import {
   ArrowLeft, Phone, Car, Star, TrendingUp, DollarSign,
   CheckCircle, XCircle, Mail, MapPin, CreditCard, FileText,
-  Trash2, Ban, CalendarClock,
+  Trash2, Ban, CalendarClock, ArrowDownToLine,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -17,6 +17,7 @@ export default function DriverDetailPage() {
   const [driver, setDriver] = useState<any>(null)
   const [recentRides, setRecentRides] = useState<any[]>([])
   const [subs, setSubs] = useState<any[]>([])
+  const [withdrawals, setWithdrawals] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [rejectModal, setRejectModal] = useState(false)
@@ -31,7 +32,7 @@ export default function DriverDetailPage() {
   const fetchDriver = () => {
     fetch(`/api/drivers/${id}`)
       .then(r => r.json())
-      .then(d => { setDriver(d.driver); setRecentRides(d.recentRides || []); setSubs(d.subscriptions || []); setLoading(false) })
+      .then(d => { setDriver(d.driver); setRecentRides(d.recentRides || []); setSubs(d.subscriptions || []); setWithdrawals(d.withdrawals || []); setLoading(false) })
       .catch(() => setLoading(false))
   }
 
@@ -391,6 +392,51 @@ export default function DriverDetailPage() {
                     ))}
                     {subs.length === 0 && (
                       <tr><td colSpan={6} className="text-center text-gray-400 py-8">No subscription history</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Withdrawal History */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+              <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <ArrowDownToLine className="w-4 h-4" /> Withdrawal History
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100">
+                      {['Date', 'Amount', 'Bank', 'Status', 'Note/Reason'].map(h => (
+                        <th key={h} className="text-left text-xs text-gray-500 font-semibold pb-3">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {withdrawals.map((w: any, i: number) => (
+                      <tr key={w._id || i} className="hover:bg-gray-50">
+                        <td className="py-2.5 text-gray-500 text-xs">{w.createdAt ? new Date(w.createdAt).toLocaleDateString() : '—'}</td>
+                        <td className="py-2.5 font-medium">₹{(w.amount || 0).toLocaleString()}</td>
+                        <td className="py-2.5 text-gray-700">
+                          {w.bankName || '—'}
+                          {w.accountNumber && (
+                            <span className="text-gray-400 font-mono text-xs ml-1">•••• {String(w.accountNumber).slice(-4)}</span>
+                          )}
+                        </td>
+                        <td className="py-2.5">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                            w.status === 'approved' ? 'bg-green-100 text-green-700'
+                              : w.status === 'rejected' ? 'bg-red-100 text-red-600'
+                              : 'bg-yellow-100 text-yellow-700'
+                          }`}>
+                            {w.status || 'pending'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 text-gray-500 text-xs">{w.note || '—'}</td>
+                      </tr>
+                    ))}
+                    {withdrawals.length === 0 && (
+                      <tr><td colSpan={5} className="text-center text-gray-400 py-8">No withdrawals yet</td></tr>
                     )}
                   </tbody>
                 </table>
