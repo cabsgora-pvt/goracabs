@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../config/app_config.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
+import '../../../services/location_service.dart';
 import 'on_ride_page.dart';
 
 // Shows up to 5 pending ride requests at once (taxi / rental / outstation / etc.).
@@ -31,6 +33,10 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   String? _playingService;
   bool _closed = false; // guards against double-pop (which lands on the start screen)
 
+  // Driver's current location — used to compute the driver → pickup distance
+  // shown on each card. Fetched once when the screen opens.
+  double? _driverLat, _driverLng;
+
   @override
   void initState() {
     super.initState();
@@ -38,6 +44,12 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   }
 
   Future<void> _init() async {
+    // Fetch driver location in the background (for pickup-distance display).
+    LocationService.getCurrentLocation().then((pos) {
+      if (pos != null && mounted) {
+        setState(() { _driverLat = pos.latitude; _driverLng = pos.longitude; });
+      }
+    }).catchError((_) {});
     try {
       final cfg = await DriverApiService.getDriverConfig();
       final r = (cfg['ringtones'] as Map?) ?? {};
@@ -187,172 +199,273 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
 
   Widget _requestCard(RideRequestModel r, {bool big = false}) {
     final meta = _serviceMeta(r.service);
-    final cash = r.paymentMode == 'cash';
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.divider),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)],
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // top row: service badge + fare
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
-          child: Row(children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: meta.color.withOpacity(0.12), borderRadius: BorderRadius.circular(6)),
-              child: Text(meta.label, style: TextStyle(color: meta.color, fontWeight: FontWeight.w800, fontSize: 10, letterSpacing: 0.5)),
-            ),
-            const Spacer(),
-            Text(r.fare, style: TextStyle(fontWeight: FontWeight.w900, fontSize: big ? 22 : 17, color: AppColors.textDark)),
-          ]),
-        ),
-        // user + rating
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          child: Row(children: [
-            CircleAvatar(
-              radius: big ? 22 : 16, backgroundColor: AppColors.primary,
-              backgroundImage: r.userProfilePicUrl.isNotEmpty ? NetworkImage(r.userProfilePicUrl) : null,
-              child: r.userProfilePicUrl.isEmpty
-                  ? Text(r.userName.isNotEmpty ? r.userName[0].toUpperCase() : 'R', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13))
-                  : null,
-            ),
-            const SizedBox(width: 8),
-            Expanded(child: Text(r.userName, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark))),
-            const Icon(Icons.star, color: AppColors.orange, size: 14),
-            Text(' ${r.userRating}', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-            const SizedBox(width: 8),
-            Text('${r.distance} • ${r.eta}', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
-          ]),
-        ),
-        const SizedBox(height: 8),
-        // pickup → drop
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14),
-          child: Column(children: [
-            _addrRow(Icons.radio_button_checked, AppColors.green, r.pickupAddress),
-            const SizedBox(height: 4),
-            _addrRow(Icons.location_on, AppColors.red, r.dropAddress),
-          ]),
-        ),
-        // payment
-        Padding(
-          padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-          child: Row(children: [
-            Icon(cash ? Icons.payments : (r.paymentMode == 'wallet' ? Icons.account_balance_wallet : Icons.credit_card),
-                size: 15, color: cash ? AppColors.green : AppColors.primary),
-            const SizedBox(width: 5),
-            Text(cash ? 'Cash — collect from rider' : (r.paymentMode == 'wallet' ? 'Paid via Wallet' : 'Paid Online'),
-                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: cash ? AppColors.green : AppColors.primary)),
-          ]),
-        ),
-        // Swipe: drag right → Accept (green), drag left → Reject (red)
-        Padding(
-          padding: const EdgeInsets.all(12),
-          child: _SwipeAction(
-            enabled: !_accepting,
-            onAccept: () => _accept(r),
-            onReject: () => _reject(r),
-          ),
-        ),
-      ]),
+    return _RequestCard(
+      key: ValueKey(r.id),
+      ride: r,
+      serviceColor: meta.color,
+      enabled: !_accepting,
+      driverLat: _driverLat,
+      driverLng: _driverLng,
+      onAccept: () => _accept(r),
+      onReject: () => _reject(r),
     );
   }
-
-  Widget _addrRow(IconData ic, Color c, String addr) => Row(children: [
-    Icon(ic, color: c, size: 16),
-    const SizedBox(width: 8),
-    Expanded(child: Text(addr, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12.5, color: AppColors.textDark, fontWeight: FontWeight.w500))),
-  ]);
 }
 
-// Bidirectional swipe control: drag the knob RIGHT to Accept (green),
-// LEFT to Reject (red). The track tints green/red as you drag; releasing
-// past ~60% triggers the action, otherwise it springs back to center.
-class _SwipeAction extends StatefulWidget {
+// Fare display: base ride price + tip (e.g. "₹142 + ₹55").
+// Tip is shown in green only when the rider actually added one; otherwise
+// just the ride price is shown.
+Widget _fareWithTip(RideRequestModel r) {
+  final base = r.baseFare > 0 ? r.baseFare : r.totalFareValue;
+  final hasTip = r.tipAmount > 0;
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.baseline,
+    textBaseline: TextBaseline.alphabetic,
+    children: [
+      Text('₹${base.toStringAsFixed(0)}',
+          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 30, color: AppColors.textDark)),
+      if (hasTip)
+        Text('  + ₹${r.tipAmount.toStringAsFixed(0)}',
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 24, color: AppColors.green)),
+    ],
+  );
+}
+
+// A single ride-request card, styled after the reference layout:
+// vehicle badge → big fare (+ tip) → pickup/drop route → reject (with a
+// countdown ring) + a brand-coloured Accept button.
+//
+// The WHOLE card is swipeable: drag it RIGHT to accept, LEFT to reject.
+// Each card also counts down; when it reaches zero it auto-skips (reject).
+class _RequestCard extends StatefulWidget {
+  final RideRequestModel ride;
+  final Color serviceColor;
+  final bool enabled;
+  final double? driverLat, driverLng;
   final VoidCallback onAccept;
   final VoidCallback onReject;
-  final bool enabled;
-  const _SwipeAction({required this.onAccept, required this.onReject, required this.enabled});
+  const _RequestCard({
+    super.key,
+    required this.ride,
+    required this.serviceColor,
+    required this.enabled,
+    required this.driverLat,
+    required this.driverLng,
+    required this.onAccept,
+    required this.onReject,
+  });
   @override
-  State<_SwipeAction> createState() => _SwipeActionState();
+  State<_RequestCard> createState() => _RequestCardState();
 }
 
-class _SwipeActionState extends State<_SwipeAction> {
-  double _dx = 0;
-  bool _dragging = false;
+class _RequestCardState extends State<_RequestCard> {
+  static const int _total = 15; // seconds before the request auto-skips
+  int _left = _total;
+  Timer? _t;
+  bool _handled = false;
 
   @override
-  Widget build(BuildContext context) {
-    const h = 54.0, knob = 46.0;
-    return LayoutBuilder(builder: (context, c) {
-      final w = c.maxWidth;
-      final maxDx = ((w - knob) / 2) - 6;
-      final t = maxDx <= 0 ? 0.0 : (_dx / maxDx).clamp(-1.0, 1.0);
-      const base = Color(0xFFEDEFF3);
-      final bg = t >= 0
-          ? Color.lerp(base, AppColors.green, t * 0.85)!
-          : Color.lerp(base, AppColors.red, -t * 0.85)!;
-      final knobColor = t > 0.06 ? AppColors.green : (t < -0.06 ? AppColors.red : Colors.white);
-      final knobIcon = t > 0.06 ? Icons.check : (t < -0.06 ? Icons.close : Icons.unfold_more);
-      return SizedBox(
-        height: h,
-        child: Stack(alignment: Alignment.center, children: [
-          Container(decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(h / 2))),
-          // Left hint (Reject) — fades out as you drag right
-          Positioned(
-            left: 16,
-            child: Opacity(
-              opacity: (0.6 - t).clamp(0.0, 1.0),
-              child: Row(mainAxisSize: MainAxisSize.min, children: const [
-                Icon(Icons.chevron_left, size: 18, color: AppColors.red),
-                Text('Reject', style: TextStyle(color: AppColors.red, fontWeight: FontWeight.w800, fontSize: 13)),
-              ]),
-            ),
-          ),
-          // Right hint (Accept) — fades out as you drag left
-          Positioned(
-            right: 16,
-            child: Opacity(
-              opacity: (0.6 + t).clamp(0.0, 1.0),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                const Text('Accept', style: TextStyle(color: AppColors.green, fontWeight: FontWeight.w800, fontSize: 13)),
-                Icon(Icons.chevron_right, size: 18, color: t > 0.06 ? Colors.white : AppColors.green),
-              ]),
-            ),
-          ),
-          // Draggable knob
-          AnimatedPositioned(
-            duration: Duration(milliseconds: _dragging ? 0 : 180),
-            curve: Curves.easeOut,
-            left: (w / 2 - knob / 2) + _dx,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onHorizontalDragStart: widget.enabled ? (_) => setState(() => _dragging = true) : null,
-              onHorizontalDragUpdate: widget.enabled ? (d) => setState(() => _dx = (_dx + d.delta.dx).clamp(-maxDx, maxDx)) : null,
-              onHorizontalDragEnd: widget.enabled ? (_) => _end(t) : null,
-              child: Container(
-                width: knob, height: knob,
-                decoration: BoxDecoration(
-                  color: knobColor, shape: BoxShape.circle,
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 6, offset: const Offset(0, 2))],
-                ),
-                child: Icon(knobIcon, size: 22, color: knobColor == Colors.white ? AppColors.primary : Colors.white),
-              ),
-            ),
-          ),
-        ]),
-      );
+  void initState() {
+    super.initState();
+    _t = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      if (_left <= 1) _fire(widget.onReject);
+      else setState(() => _left--);
     });
   }
 
-  void _end(double t) {
-    setState(() { _dragging = false; _dx = 0; });
-    if (t >= 0.6) widget.onAccept();
-    else if (t <= -0.6) widget.onReject();
+  @override
+  void dispose() { _t?.cancel(); super.dispose(); }
+
+  // Run accept/reject exactly once (swipe, tap and the timer can all race).
+  void _fire(VoidCallback cb) {
+    if (_handled) return;
+    _handled = true;
+    _t?.cancel();
+    cb();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = widget.ride;
+    return Dismissible(
+      key: ValueKey('dis_${r.id}'),
+      direction: widget.enabled ? DismissDirection.horizontal : DismissDirection.none,
+      confirmDismiss: (dir) async {
+        if (!widget.enabled) return false;
+        _fire(dir == DismissDirection.startToEnd ? widget.onAccept : widget.onReject);
+        return false; // parent handles removal / navigation
+      },
+      background: _swipeBg(Alignment.centerLeft, AppColors.green, Icons.check, 'ACCEPT'),
+      secondaryBackground: _swipeBg(Alignment.centerRight, AppColors.red, Icons.close, 'REJECT'),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: AppColors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.divider),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          // Vehicle badge
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+            child: Row(children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(20)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(_vehicleIcon(r.rideType), size: 16, color: widget.serviceColor),
+                  const SizedBox(width: 6),
+                  Text(_cap(r.rideType.isNotEmpty ? r.rideType : 'Auto'),
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textDark)),
+                ]),
+              ),
+            ]),
+          ),
+          // Big fare + tip
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 6, 14, 12),
+            child: _fareWithTip(r),
+          ),
+          // Route (pickup → drop)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _leg(Icons.radio_button_checked, AppColors.green, _pickupKm(), r.pickupAddress),
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: SizedBox(height: 22, child: Column(children: [
+                  Expanded(child: Container(width: 2, color: AppColors.divider)),
+                  Icon(Icons.arrow_drop_down, size: 16, color: AppColors.textGrey),
+                ])),
+              ),
+              _leg(Icons.location_on, AppColors.red, _dropKm(), r.dropAddress),
+            ]),
+          ),
+          // Payment
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+            child: _paymentLine(r),
+          ),
+          // Actions: reject (with countdown ring) + brand-coloured Accept
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(children: [
+              GestureDetector(
+                onTap: widget.enabled ? () => _fire(widget.onReject) : null,
+                behavior: HitTestBehavior.opaque,
+                child: SizedBox(
+                  width: 54, height: 54,
+                  child: Stack(alignment: Alignment.center, children: [
+                    SizedBox(
+                      width: 54, height: 54,
+                      child: CircularProgressIndicator(
+                        value: _left / _total, strokeWidth: 3,
+                        color: AppColors.red, backgroundColor: AppColors.divider,
+                      ),
+                    ),
+                    const Icon(Icons.close, color: AppColors.red, size: 24),
+                  ]),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: widget.enabled ? () => _fire(widget.onAccept) : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary, // brand colour, not yellow
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                  ),
+                  child: const Text('Accept', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                ),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  // Driver → pickup distance heading. Prefers a backend-supplied value;
+  // otherwise computes it from the driver's location and the pickup coords.
+  String _pickupKm() {
+    final r = widget.ride;
+    if (r.pickupDistanceKm > 0) return '${r.pickupDistanceKm.toStringAsFixed(1)} Km';
+    if (widget.driverLat != null && widget.driverLng != null && r.pickupLat != 0 && r.pickupLng != 0) {
+      final m = Geolocator.distanceBetween(widget.driverLat!, widget.driverLng!, r.pickupLat, r.pickupLng);
+      return '${(m / 1000).toStringAsFixed(1)} Km';
+    }
+    return ''; // no location yet → show pickup without a distance heading
+  }
+
+  // Trip distance heading (pickup → drop).
+  String _dropKm() {
+    final r = widget.ride;
+    if (r.distanceKm > 0) return '${r.distanceKm.toStringAsFixed(1)} Km';
+    return r.distance;
+  }
+
+  // One leg of the route: marker + optional big km heading + "Name - address".
+  Widget _leg(IconData icon, Color color, String km, String address) {
+    final split = address.split(' - ');
+    final name = split.first.trim();
+    final rest = split.length > 1 ? split.sublist(1).join(' - ').trim() : '';
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(padding: const EdgeInsets.only(top: 2), child: Icon(icon, color: color, size: 18)),
+      const SizedBox(width: 10),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (km.isNotEmpty)
+          Text(km, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: AppColors.textDark)),
+        RichText(
+          text: TextSpan(children: [
+            TextSpan(text: name, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: AppColors.textDark)),
+            if (rest.isNotEmpty)
+              TextSpan(text: ' - $rest', style: TextStyle(fontWeight: FontWeight.w400, fontSize: 12.5, color: AppColors.textGrey)),
+          ]),
+          maxLines: 3, overflow: TextOverflow.ellipsis,
+        ),
+      ])),
+    ]);
+  }
+
+  Widget _paymentLine(RideRequestModel r) {
+    final cash = r.paymentMode == 'cash';
+    final wallet = r.paymentMode == 'wallet';
+    return Row(children: [
+      Icon(cash ? Icons.payments : (wallet ? Icons.account_balance_wallet : Icons.credit_card),
+          size: 15, color: cash ? AppColors.green : AppColors.primary),
+      const SizedBox(width: 5),
+      Text(cash ? 'Cash — collect from rider' : (wallet ? 'Paid via Wallet' : 'Paid Online'),
+          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: cash ? AppColors.green : AppColors.primary)),
+    ]);
+  }
+
+  // Full-bleed coloured background revealed while swiping the card.
+  Widget _swipeBg(Alignment align, Color c, IconData ic, String label) => Container(
+    margin: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.symmetric(horizontal: 28),
+    alignment: align,
+    decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(16)),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(ic, color: Colors.white),
+      const SizedBox(width: 8),
+      Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+    ]),
+  );
+
+  static String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
+  static IconData _vehicleIcon(String v) {
+    final s = v.toLowerCase();
+    if (s.contains('auto')) return Icons.electric_rickshaw;
+    if (s.contains('bike') || s.contains('moto')) return Icons.two_wheeler;
+    if (s.contains('suv') || s.contains('xl')) return Icons.airport_shuttle;
+    return Icons.local_taxi;
   }
 }

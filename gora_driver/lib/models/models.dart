@@ -46,7 +46,8 @@ class RideRequestModel {
   final num baseFare;            // fare before tip
   final num tipAmount;           // tip added by rider
   final num totalFareValue;      // fare + tip (numeric)
-  final num distanceKm;          // road distance (km, numeric)
+  final num distanceKm;          // trip road distance (km, numeric)
+  final num pickupDistanceKm;    // driver → pickup distance (km); 0 if backend omits it
   final int durationMin;         // road duration (min)
   final String routePolyline;    // encoded polyline (pickup→drop)
   // Hire schedule (start/end ISO strings)
@@ -63,6 +64,7 @@ class RideRequestModel {
     this.tipAmount = 0,
     this.totalFareValue = 0,
     this.distanceKm = 0,
+    this.pickupDistanceKm = 0,
     this.durationMin = 0,
     this.routePolyline = '',
     this.hireStartAt = '',
@@ -132,6 +134,7 @@ class RideRequestModel {
       tipAmount: tip,
       totalFareValue: total,
       distanceKm: (r['distance'] as num?) ?? 0,
+      pickupDistanceKm: (r['pickupDistance'] as num?) ?? 0,
       durationMin: (r['duration'] as num?)?.toInt() ?? 0,
       routePolyline: (r['routePolyline'] ?? '').toString(),
       hireStartAt: (r['hireStartAt'] ?? '').toString(),
