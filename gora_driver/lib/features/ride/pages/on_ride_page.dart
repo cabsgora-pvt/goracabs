@@ -46,7 +46,14 @@ class OnRidePage extends StatelessWidget {
             return;
           }
           if (state is RideEndedState) {
-            Navigator.pushReplacementNamed(context, InvoicePage.route, arguments: state.ride);
+            Navigator.pushReplacementNamed(
+              context, InvoicePage.route,
+              arguments: RideCompletionArgs(
+                state.ride,
+                driverEarning: state.driverEarning,
+                adminProfit: state.adminProfit,
+              ),
+            );
           }
           if (state is OtpErrorState) {
             ScaffoldMessenger.of(context).showSnackBar(
