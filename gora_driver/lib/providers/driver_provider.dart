@@ -5,9 +5,15 @@ import '../services/driver_api_service.dart';
 class DriverProvider extends ChangeNotifier {
   Map<String, dynamic>? _data;
   bool _loading = false;
+  double? _walletBalance; // null until first fetch
 
   Map<String, dynamic>? get data => _data;
   bool get loading => _loading;
+
+  // Wallet balance + low-balance flag (drives the home-screen banner).
+  double get walletBalance => _walletBalance ?? 0;
+  bool get balanceLoaded => _walletBalance != null;
+  bool get isLowBalance => balanceLoaded && walletBalance <= 0;
 
   String get name => _data?['name'] as String? ?? '';
   String get phone => _data?['phone'] as String? ?? '';
@@ -44,8 +50,18 @@ class DriverProvider extends ChangeNotifier {
         _data = Map<String, dynamic>.from(res['driver'] as Map);
       }
     } catch (_) {}
+    await refreshBalance();
     _loading = false;
     notifyListeners();
+  }
+
+  // Fetch the current wallet balance (authoritative source for the banner).
+  Future<void> refreshBalance() async {
+    try {
+      final w = await DriverApiService.getWallet();
+      _walletBalance = (w['balance'] as num?)?.toDouble() ?? 0;
+      notifyListeners();
+    } catch (_) {}
   }
 
   void setData(Map<String, dynamic> d) {

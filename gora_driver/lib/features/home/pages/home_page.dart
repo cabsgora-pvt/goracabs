@@ -11,6 +11,7 @@ import '../../../services/location_service.dart';
 import '../../earnings/pages/earnings_page.dart';
 import '../../account/pages/account_page.dart';
 import '../../ride/pages/incoming_requests_page.dart';
+import '../../wallet/pages/wallet_page.dart';
 import '../bloc/home_bloc.dart';
 import 'map_placeholder.dart';
 
@@ -155,11 +156,19 @@ class _HomeTab extends StatelessWidget {
             const MapPlaceholder(),
             // Background poller for incoming ride requests (no visual change)
             if (isOnline) const _RidePoller(),
-            // Stats card at top
+            // Stats card at top (+ low-balance banner right below it)
             if (state is HomeLoaded || state is OnlineStatusChanged)
               Positioned(
                 top: 16, left: 16, right: 16,
-                child: _StatsCard(summary: summary),
+                child: Column(children: [
+                  _StatsCard(summary: summary),
+                  if (dp.isLowBalance) ...[
+                    const SizedBox(height: 12),
+                    _LowBalanceBanner(
+                      onTap: () => Navigator.pushNamed(context, WalletPage.route),
+                    ),
+                  ],
+                ]),
               ),
             // Online prompt
             if (!isOnline)
@@ -243,6 +252,44 @@ class _OfflinePrompt extends StatelessWidget {
         ])),
         ElevatedButton(onPressed: onGoOnline, style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)), child: const Text('Go Online')),
       ]),
+    );
+  }
+}
+
+// Red alert shown on the home map when the driver's wallet balance is 0 or
+// negative. Tapping it opens the wallet so the driver can recharge.
+class _LowBalanceBanner extends StatelessWidget {
+  final VoidCallback onTap;
+  const _LowBalanceBanner({required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: AppColors.red,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [BoxShadow(color: AppColors.red.withOpacity(0.35), blurRadius: 12, offset: const Offset(0, 4))],
+        ),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 34, height: 34,
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
+            child: const Icon(Icons.warning_rounded, color: Colors.white, size: 20),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Low Balance  ⚠️', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
+              SizedBox(height: 2),
+              Text('Your wallet balance is low. Please recharge to continue',
+                  style: TextStyle(color: Colors.white70, fontSize: 12.5, height: 1.25)),
+            ]),
+          ),
+        ]),
+      ),
     );
   }
 }
