@@ -70,6 +70,8 @@ class _RentalScreenState extends State<RentalScreen> {
   Timer? _pollTimer;
   // Live rental status (from backend during ride)
   String _rentalPhase = 'pending';
+  List<Map<String, dynamic>> _rentalStops = []; // destinations the rider adds during the ride
+  bool _addingStop = false;
   double _liveHours = 0, _liveKm = 0;
   int _pkgHrs = 0, _pkgKm = 0;
   void Function(void Function())? _dialogSetState; // rebuilds the assigned dialog live
@@ -226,6 +228,7 @@ class _RentalScreenState extends State<RentalScreen> {
         _liveKm = (ride['actualKm'] as num?)?.toDouble() ?? _liveKm;
         _pkgHrs = (ride['packageHours'] as num?)?.toInt() ?? _pkgHrs;
         _pkgKm = (ride['packageKm'] as num?)?.toInt() ?? _pkgKm;
+        _rentalStops = ((ride['rentalStops'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
         _dialogSetState?.call(() {}); // refresh the assigned dialog live
         // Completion → show final bill, then rating
         if (status == 'completed') {
@@ -1192,6 +1195,121 @@ class _RentalScreenState extends State<RentalScreen> {
     Navigator.push(context, MaterialPageRoute(builder: (_) => RideChatScreen(rideId: _rideId!, otherName: _driverName)));
   }
 
+  // Destinations the rider adds during the rental (one by one, or several).
+  Widget _rentalDestinationsSection() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[200]!)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const Icon(Icons.route, size: 18, color: Color(0xFF1C2656)),
+          const SizedBox(width: 8),
+          const Text('Where to?', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+          const Spacer(),
+          Text('${_rentalStops.length} added', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+        ]),
+        if (_rentalStops.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          ..._rentalStops.asMap().entries.map((e) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(children: [
+                  CircleAvatar(radius: 11, backgroundColor: const Color(0xFF1C2656),
+                      child: Text('${e.key + 1}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(e.value['address']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5))),
+                ]),
+              )),
+        ],
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _addingStop ? null : _showAddDestinationSheet,
+            icon: _addingStop
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1C2656)))
+                : const Icon(Icons.add_location_alt_outlined, size: 18),
+            label: Text(_rentalStops.isEmpty ? 'Add destination' : 'Add another destination'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF1C2656),
+              side: const BorderSide(color: Color(0xFF1C2656)),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  // Search sheet to pick a destination to add to the ongoing rental.
+  void _showAddDestinationSheet() {
+    final ctrl = TextEditingController();
+    List<Map<String, dynamic>> sugg = [];
+    Timer? deb;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setS) => Padding(
+        padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: MediaQuery.of(ctx).viewInsets.bottom + 16),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Add destination', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4),
+          Text('Driver will be notified of the new stop', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          const SizedBox(height: 14),
+          TextField(
+            controller: ctrl,
+            autofocus: true,
+            decoration: InputDecoration(
+              hintText: 'Search a place',
+              prefixIcon: const Icon(Icons.search),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onChanged: (q) {
+              deb?.cancel();
+              deb = Timer(const Duration(milliseconds: 350), () async {
+                if (q.trim().length < 2) { setS(() => sugg = []); return; }
+                final r = await ApiService.placesAutocomplete(q);
+                setS(() => sugg = r);
+              });
+            },
+          ),
+          const SizedBox(height: 8),
+          ...sugg.take(6).map((s) => ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.location_on_outlined, color: Color(0xFF1C2656)),
+                title: Text(s['description']?.toString() ?? '', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
+                onTap: () async {
+                  final details = await ApiService.placeDetails(s['placeId'] as String? ?? '');
+                  if (details == null || details['lat'] == null) return;
+                  if (ctx.mounted) Navigator.pop(ctx);
+                  await _addDestination(
+                    (details['address'] ?? s['description'] ?? '').toString(),
+                    (details['lat'] as num).toDouble(),
+                    (details['lng'] as num).toDouble(),
+                  );
+                },
+              )),
+          const SizedBox(height: 8),
+        ]),
+      )),
+    );
+  }
+
+  Future<void> _addDestination(String address, double lat, double lng) async {
+    if (_rideId == null) return;
+    setState(() => _addingStop = true);
+    try {
+      await ApiService.rentalAction(_rideId!, {'action': 'addStop', 'address': address, 'lat': lat, 'lng': lng});
+      _rentalStops = [..._rentalStops, {'address': address, 'lat': lat, 'lng': lng}];
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Destination added — driver notified'), backgroundColor: Colors.green));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not add destination'), backgroundColor: Colors.red));
+    }
+    if (mounted) { setState(() => _addingStop = false); _dialogSetState?.call(() {}); }
+  }
+
   void _showDriverAssignedDialog() {
     setState(() {
       _isSearching = false;
@@ -1250,6 +1368,8 @@ class _RentalScreenState extends State<RentalScreen> {
                       child: Text('⏸ Driver waiting (paused)', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600))),
                   ]),
                 ),
+                const SizedBox(height: 12),
+                _rentalDestinationsSection(),
                 const SizedBox(height: 12),
               ],
               // OTP box — driver asks for this to start

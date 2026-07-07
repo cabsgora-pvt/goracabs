@@ -162,6 +162,11 @@ class ApiService {
     required double pickupLat, required double pickupLng,
   }) => get('/rental/packages?pickupLat=$pickupLat&pickupLng=$pickupLng');
 
+  // Rental ride actions: start | ping | wait | addStop | extend | end.
+  // addStop body: { action: 'addStop', address, lat, lng } → appends a destination.
+  static Future<Map<String, dynamic>> rentalAction(String rideId, Map<String, dynamic> body) =>
+      post('/rides/$rideId/rental', body, auth: true);
+
   // ── Ride engine ───────────────────────────────────────────
   static Future<Map<String, dynamic>> estimateFare({
     required double pickupLat, required double pickupLng,

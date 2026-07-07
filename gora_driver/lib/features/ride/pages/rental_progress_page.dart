@@ -27,6 +27,7 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
 
   int get _pkgHours => widget.ride.packageHours;
   int get _pkgKm => widget.ride.packageKm;
+  List<Map<String, dynamic>> _stops = []; // destinations the rider added live
 
   @override
   void initState() {
@@ -56,7 +57,12 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
       'action': 'ping', 'lat': pos.latitude, 'lng': pos.longitude,
     });
     final r = res['rental'] as Map<String, dynamic>?;
-    if (r != null && mounted) setState(() => _actualKm = (r['actualKm'] as num?)?.toDouble() ?? _actualKm);
+    if (r != null && mounted) {
+      setState(() {
+        _actualKm = (r['actualKm'] as num?)?.toDouble() ?? _actualKm;
+        _stops = ((r['rentalStops'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      });
+    }
   }
 
   Future<void> _toggleWait() async {
@@ -147,6 +153,32 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
             Text(widget.ride.pickupAddress, style: TextStyle(fontSize: 12, color: AppColors.textGrey), maxLines: 1, overflow: TextOverflow.ellipsis),
           ]),
         ),
+        // Destinations added by the rider (live)
+        if (_stops.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: const [
+                Icon(Icons.route, size: 18, color: AppColors.primary),
+                SizedBox(width: 8),
+                Text('Rider destinations', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+              ]),
+              const SizedBox(height: 8),
+              ..._stops.asMap().entries.map((e) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(children: [
+                      CircleAvatar(radius: 11, backgroundColor: AppColors.primary,
+                          child: Text('${e.key + 1}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(e.value['address']?.toString() ?? '', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5))),
+                    ]),
+                  )),
+            ]),
+          ),
+        ],
         const SizedBox(height: 14),
         // Live timer + km
         Row(children: [

@@ -94,6 +94,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         extraHoursCharge: ride.extraHoursCharge, extraKmCharge: ride.extraKmCharge,
         finalFare: ride.finalFare, status: ride.status,
         rentalStartedAt: ride.rentalStartedAt,
+        rentalStops: ride.rentalStops || [],
       },
     })
   } catch (e: any) {
