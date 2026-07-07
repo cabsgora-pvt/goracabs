@@ -641,20 +641,46 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
       : RefreshIndicator(
           onRefresh: _load,
           child: ListView(padding: const EdgeInsets.all(16), children: [
-            // Header
+            // Premium header
             Container(
               padding: const EdgeInsets.all(20), width: double.infinity,
-              decoration: BoxDecoration(gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]), borderRadius: BorderRadius.circular(20)),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 16, offset: const Offset(0, 6))],
+              ),
               child: Column(children: [
-                const Icon(Icons.workspace_premium, color: Colors.white, size: 40),
-                const SizedBox(height: 8),
-                const Text('Membership', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
-                const Text('Subscribe & pay zero commission', style: TextStyle(color: Colors.white70, fontSize: 13)),
-                const SizedBox(height: 10),
+                Row(children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(14)),
+                    child: const Icon(Icons.workspace_premium_rounded, color: Colors.amber, size: 28),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: const [
+                    Text('Gora Pro Membership', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white)),
+                    SizedBox(height: 2),
+                    Text('Keep 100% of your fare — zero commission', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  ])),
+                ]),
+                const SizedBox(height: 18),
+                Row(children: [
+                  _perk(Icons.percent_rounded, '0% Commission'),
+                  _perk(Icons.bolt_rounded, 'Priority Rides'),
+                  _perk(Icons.support_agent_rounded, '24×7 Support'),
+                ]),
+                const SizedBox(height: 18),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(20)),
-                  child: Text('Wallet: ₹${_wallet.toStringAsFixed(0)}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                  decoration: BoxDecoration(color: Colors.white.withOpacity(0.12), borderRadius: BorderRadius.circular(12)),
+                  child: Row(children: [
+                    const Icon(Icons.account_balance_wallet_rounded, color: Colors.white, size: 18),
+                    const SizedBox(width: 8),
+                    const Text('Wallet Balance', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                    const Spacer(),
+                    Text('₹${_wallet.toStringAsFixed(0)}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 15)),
+                  ]),
                 ),
               ]),
             ),
@@ -663,34 +689,49 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             if (_current['active'] == true) ...[
               Container(
                 padding: const EdgeInsets.all(16), width: double.infinity,
-                decoration: BoxDecoration(color: AppColors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.green)),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [AppColors.green.withOpacity(0.12), AppColors.green.withOpacity(0.04)]),
+                  borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.green.withOpacity(0.6)),
+                ),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(children: [
-                    const Icon(Icons.verified, color: AppColors.green, size: 20), const SizedBox(width: 8),
-                    Expanded(child: Text('Active: ${_current['planName'] ?? ''}', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.textDark, fontSize: 15))),
+                    const Icon(Icons.verified_rounded, color: AppColors.green, size: 22), const SizedBox(width: 8),
+                    Expanded(child: Text('${_current['planName'] ?? 'Plan'} · Active', style: TextStyle(fontWeight: FontWeight.w900, color: AppColors.textDark, fontSize: 15))),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(color: AppColors.green, borderRadius: BorderRadius.circular(20)),
+                      child: Text('${_daysLeft(_current['expiresAt'])} days left', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800)),
+                    ),
                   ]),
-                  const SizedBox(height: 6),
-                  Text('Valid till ${_fmtDate(_current['expiresAt'])}', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
-                  Text('Commission while active: ${_current['commissionPercent'] ?? 0}%', style: TextStyle(color: AppColors.textGrey, fontSize: 13)),
+                  const SizedBox(height: 12),
+                  Row(children: [
+                    Expanded(child: _activeStat('Valid till', _fmtDate(_current['expiresAt']))),
+                    Expanded(child: _activeStat('Commission', '${_current['commissionPercent'] ?? 0}%')),
+                  ]),
                 ]),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
             ] else ...[
               Container(
                 padding: const EdgeInsets.all(14), width: double.infinity,
-                decoration: BoxDecoration(color: Colors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.orange.withOpacity(0.4))),
-                child: Text('No active plan — you pay normal commission per ride. Subscribe to keep more of your earnings.',
-                  style: TextStyle(color: AppColors.textDark, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                decoration: BoxDecoration(color: AppColors.orange.withOpacity(0.1), borderRadius: BorderRadius.circular(14), border: Border.all(color: AppColors.orange.withOpacity(0.4))),
+                child: Row(children: [
+                  const Icon(Icons.info_rounded, color: AppColors.orange, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text('You have no active plan — commission is deducted on every ride. Subscribe to keep more of your earnings.',
+                    style: TextStyle(color: AppColors.textDark, fontSize: 12.5, fontWeight: FontWeight.w600))),
+                ]),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
             ],
             // Plans
-            Text('Available Plans', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textDark)),
-            const SizedBox(height: 10),
+            Text('Choose Your Plan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppColors.textDark)),
+            const SizedBox(height: 12),
             if (_plans.isEmpty)
               Padding(padding: const EdgeInsets.all(20), child: Center(child: Text('No plans available right now', style: TextStyle(color: AppColors.textGrey))))
             else
-              ..._plans.map(_planCard),
+              ..._plans.map((p) => _planCard(p,
+                  isActivePlan: _current['active'] == true && _current['planName']?.toString() == p['name']?.toString())),
             // History
             if (_history.isNotEmpty) ...[
               const SizedBox(height: 20),
@@ -725,36 +766,104 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     );
   }
 
-  Widget _planCard(Map<String, dynamic> plan) {
+  Widget _perk(IconData icon, String label) => Expanded(
+    child: Column(children: [
+      Icon(icon, color: Colors.white, size: 20),
+      const SizedBox(height: 5),
+      Text(label, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70, fontSize: 10.5, fontWeight: FontWeight.w600)),
+    ]),
+  );
+
+  Widget _activeStat(String label, String value) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Text(label, style: TextStyle(color: AppColors.textGrey, fontSize: 11)),
+    const SizedBox(height: 2),
+    Text(value, style: TextStyle(color: AppColors.textDark, fontWeight: FontWeight.w800, fontSize: 13)),
+  ]);
+
+  int _daysLeft(dynamic iso) {
+    final d = DateTime.tryParse(iso?.toString() ?? '')?.toLocal();
+    if (d == null) return 0;
+    final n = d.difference(DateTime.now()).inDays;
+    return n < 0 ? 0 : n;
+  }
+
+  Widget _planCard(Map<String, dynamic> plan, {bool isActivePlan = false}) {
     final benefits = ((plan['benefits'] as List?) ?? []).map((e) => e.toString()).toList();
     final price = (plan['price'] as num?) ?? 0;
     final days = (plan['durationDays'] as num?)?.toInt() ?? 0;
     final comm = (plan['commissionPercentWhileActive'] as num?) ?? 0;
+    final featured = plan['recommended'] == true || plan['popular'] == true;
+    final perDay = days > 0 ? price / days : 0;
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 14),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: AppColors.white, borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)],
+        color: AppColors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: featured ? AppColors.primary : AppColors.divider, width: featured ? 1.8 : 1),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(featured ? 0.08 : 0.04), blurRadius: featured ? 14 : 8, offset: const Offset(0, 4))],
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(child: Text(plan['name']?.toString() ?? 'Plan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textDark))),
-          Text('₹${price.toStringAsFixed(0)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppColors.primary)),
-        ]),
-        Text('$days days • ${comm == 0 ? 'Zero commission' : '$comm% commission'}', style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
-        if ((plan['description']?.toString() ?? '').isNotEmpty) ...[
-          const SizedBox(height: 4),
-          Text(plan['description'].toString(), style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
-        ],
-        const SizedBox(height: 10),
-        ...benefits.map((f) => Padding(padding: const EdgeInsets.only(bottom: 4), child: Row(children: [
-          const Icon(Icons.check_circle, color: AppColors.green, size: 16),
-          const SizedBox(width: 6),
-          Expanded(child: Text(f, style: TextStyle(fontSize: 13, color: AppColors.textDark))),
-        ]))),
-        const SizedBox(height: 12),
-        PrimaryButton(label: 'Subscribe Now', loading: _busy, onTap: () => _buy(plan)),
+        if (featured)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            decoration: const BoxDecoration(gradient: LinearGradient(colors: [AppColors.primaryDark, AppColors.primary])),
+            child: const Text('★  MOST POPULAR', textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
+          ),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(plan['name']?.toString() ?? 'Plan', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: AppColors.textDark)),
+                const SizedBox(height: 2),
+                Text('$days days validity', style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
+              ])),
+              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                Text('₹${price.toStringAsFixed(0)}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: AppColors.primary)),
+                if (perDay > 0) Text('≈ ₹${perDay.toStringAsFixed(0)}/day', style: TextStyle(color: AppColors.textGrey, fontSize: 11)),
+              ]),
+            ]),
+            const SizedBox(height: 12),
+            // Commission highlight
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+              decoration: BoxDecoration(color: (comm == 0 ? AppColors.green : AppColors.orange).withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
+              child: Row(children: [
+                Icon(comm == 0 ? Icons.verified_rounded : Icons.percent_rounded, size: 16, color: comm == 0 ? AppColors.green : AppColors.orange),
+                const SizedBox(width: 6),
+                Text(comm == 0 ? 'Zero commission — keep 100%' : 'Only $comm% commission per ride',
+                    style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: comm == 0 ? AppColors.green : AppColors.orange)),
+              ]),
+            ),
+            if ((plan['description']?.toString() ?? '').isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(plan['description'].toString(), style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
+            ],
+            if (benefits.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              ...benefits.map((f) => Padding(padding: const EdgeInsets.only(bottom: 6), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Icon(Icons.check_circle_rounded, color: AppColors.green, size: 17),
+                const SizedBox(width: 8),
+                Expanded(child: Text(f, style: TextStyle(fontSize: 13, color: AppColors.textDark))),
+              ]))),
+            ],
+            const SizedBox(height: 14),
+            isActivePlan
+                ? Container(
+                    width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 14),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: AppColors.green.withOpacity(0.12), borderRadius: BorderRadius.circular(14), border: Border.all(color: AppColors.green)),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                      Icon(Icons.check_circle, color: AppColors.green, size: 18), SizedBox(width: 6),
+                      Text('Current Plan', style: TextStyle(color: AppColors.green, fontWeight: FontWeight.w800)),
+                    ]),
+                  )
+                : PrimaryButton(label: 'Subscribe Now', loading: _busy, onTap: () => _buy(plan)),
+          ]),
+        ),
       ]),
     );
   }
