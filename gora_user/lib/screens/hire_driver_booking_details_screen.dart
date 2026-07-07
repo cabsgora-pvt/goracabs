@@ -19,6 +19,15 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
   final String? vehicleNumber;
   final String? vehicleModel;
   final String? vehicleColor;
+  // Extra summary fields (screenshot layout). All optional — sensible defaults
+  // are derived from the existing fields when not supplied.
+  final String? bookingDate;
+  final String? bookingTime;
+  final String? tripEndDate;
+  final String? noOfDays;
+  final String tripType; // 'one_way' | 'round_trip'
+  final String? gearType;
+  final String? visitingLocation;
 
   const HireDriverBookingDetailsScreen({
     Key? key,
@@ -38,7 +47,34 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
     this.vehicleNumber,
     this.vehicleModel,
     this.vehicleColor,
+    this.bookingDate,
+    this.bookingTime,
+    this.tripEndDate,
+    this.noOfDays,
+    this.tripType = 'one_way',
+    this.gearType,
+    this.visitingLocation,
   }) : super(key: key);
+
+  // ── Derived summary values (used by the screenshot-style rows) ──
+  int _dayCount() {
+    final m = RegExp(r'\d+').firstMatch(noOfDays ?? package);
+    return m != null ? int.parse(m.group(0)!) : 1;
+  }
+
+  String _endDate() {
+    if (tripEndDate != null && tripEndDate!.isNotEmpty) return tripEndDate!;
+    try {
+      final p = tripStartDate.split('/');
+      if (p.length != 3) return '';
+      final d = DateTime(int.parse(p[2]), int.parse(p[1]), int.parse(p[0])).add(Duration(days: _dayCount()));
+      return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  String get _tripLabel => tripType == 'round_trip' ? 'Round Trip' : tripType == 'one_way' ? 'One Way' : tripType;
 
   @override
   Widget build(BuildContext context) {
@@ -351,23 +387,16 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 16),
-                    _buildDetailRow(context, 'Inquiry Id', inquiryId),
-                    const SizedBox(height: 12),
-                    _buildDetailRow(context, 'Pickup Location', pickupLocation),
-                    const SizedBox(height: 12),
-                    _buildDetailRow(context, 'Drop Location', dropLocation),
-                    const SizedBox(height: 12),
-                    _buildDetailRow(context, 'Car Type', carType),
-                    const SizedBox(height: 12),
-                    _buildDetailRow(context, 'Hire Mode', hireDuration),
-                    const SizedBox(height: 12),
-                    _buildDetailRow(context, 'Package', package),
-                    const SizedBox(height: 12),
-                    _buildDetailRow(context, 'Price', price),
-                    const SizedBox(height: 12),
-                    _buildDetailRow(context, 'Start Date', tripStartDate),
-                    const SizedBox(height: 12),
-                    _buildDetailRow(context, 'Start Time', tripTime),
+                    _buildSummaryRow(context, 'Booking Date', bookingDate ?? tripStartDate),
+                    _buildSummaryRow(context, 'Booking Time', bookingTime ?? tripTime),
+                    _buildSummaryRow(context, 'Trip start date', tripStartDate),
+                    _buildSummaryRow(context, 'Trip end date', _endDate()),
+                    _buildSummaryRow(context, 'No. of days', '${_dayCount()}'),
+                    _buildSummaryRow(context, 'Trip', _tripLabel),
+                    _buildSummaryRow(context, 'Car Type', carType),
+                    _buildSummaryRow(context, 'Gear Type', (gearType == null || gearType!.isEmpty) ? 'Manual' : gearType!),
+                    _buildSummaryRow(context, 'Visiting Location',
+                        (visitingLocation == null || visitingLocation!.isEmpty) ? dropLocation : visitingLocation!),
                   ],
                 ),
               ),
@@ -585,30 +614,29 @@ class HireDriverBookingDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildDetailRow(BuildContext context, String label, String value) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 120,
-          child: Text(
-            '$label :',
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
+  // Screenshot-style row: bold dark label  :  grey value
+  Widget _buildSummaryRow(BuildContext context, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 128,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
             ),
           ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              color: Theme.of(context).colorScheme.onSurface,
+          const Text(':  ', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+          Expanded(
+            child: Text(
+              value.isEmpty ? '—' : value,
+              style: TextStyle(fontSize: 15, color: Colors.grey[600]),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

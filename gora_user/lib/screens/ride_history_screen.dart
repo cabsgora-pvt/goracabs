@@ -337,10 +337,85 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     return Column(children: outs.map((r) => _buildRideCard(r)).toList());
   }
 
+  // Build the hire-driver booking summary from a REAL ride record.
+  Widget _hireSummary(Map<String, dynamic> ride) {
+    final id = ride['id']?.toString() ?? '';
+    return HireDriverBookingDetailsScreen(
+      inquiryId: id.length >= 6 ? 'HRD${id.substring(id.length - 6).toUpperCase()}' : 'HRD',
+      pickupLocation: ride['from']?.toString() ?? '',
+      dropLocation: ride['to']?.toString() ?? '',
+      carType: (ride['vehicle']?.toString().isNotEmpty ?? false) ? ride['vehicle'].toString() : 'Car',
+      hireDuration: '${ride['hireTotalHours'] ?? 0} hr',
+      package: '${_hireDays(ride)} Day${_hireDays(ride) > 1 ? 's' : ''}',
+      price: ride['fare']?.toString() ?? '₹0',
+      tripStartDate: _isoDmy(ride['hireStartAt']) ?? _dateOnly(ride['date']),
+      tripTime: _isoTime(ride['hireStartAt']) ?? (_timeOnly(ride['date']) ?? ''),
+      tripEndDate: _isoDmy(ride['hireEndAt']),
+      noOfDays: '${_hireDays(ride)}',
+      tripType: ride['tripType']?.toString() ?? 'one_way',
+      gearType: _gearLabel(ride['transmission']),
+      visitingLocation: ride['to']?.toString() ?? '',
+      bookingDate: _dateOnly(ride['date']),
+      bookingTime: _timeOnly(ride['date']),
+      driverName: ride['driver']?.toString(),
+      vehicleModel: ride['driverVehicleModel']?.toString(),
+      vehicleNumber: ride['driverVehicleNumber']?.toString(),
+    );
+  }
+
+  String _dateOnly(dynamic d) {
+    final s = d?.toString() ?? '';
+    return s.contains(',') ? s.split(',')[0].trim() : s;
+  }
+
+  String? _timeOnly(dynamic d) {
+    final s = d?.toString() ?? '';
+    if (!s.contains(',')) return null;
+    final parts = s.split(',')[1].trim().split(':');
+    if (parts.length < 2) return null;
+    final h = int.tryParse(parts[0]) ?? 0;
+    final ap = h >= 12 ? 'PM' : 'AM';
+    final hh = h == 0 ? 12 : (h > 12 ? h - 12 : h);
+    return '${hh.toString().padLeft(2, '0')}:${parts[1]} $ap';
+  }
+
+  String? _isoDmy(dynamic iso) {
+    final d = DateTime.tryParse(iso?.toString() ?? '')?.toLocal();
+    if (d == null) return null;
+    return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+  }
+
+  String? _isoTime(dynamic iso) {
+    final d = DateTime.tryParse(iso?.toString() ?? '')?.toLocal();
+    if (d == null) return null;
+    final ap = d.hour >= 12 ? 'PM' : 'AM';
+    final hh = d.hour == 0 ? 12 : (d.hour > 12 ? d.hour - 12 : d.hour);
+    return '${hh.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')} $ap';
+  }
+
+  int _hireDays(Map<String, dynamic> ride) {
+    final s = DateTime.tryParse(ride['hireStartAt']?.toString() ?? '');
+    final e = DateTime.tryParse(ride['hireEndAt']?.toString() ?? '');
+    if (s != null && e != null) {
+      final d = e.difference(s).inDays;
+      if (d > 0) return d;
+    }
+    final hrs = (ride['hireTotalHours'] as int?) ?? 0;
+    return hrs > 0 ? ((hrs + 23) ~/ 24) : 1;
+  }
+
+  String _gearLabel(dynamic t) {
+    final s = (t ?? '').toString().toLowerCase();
+    if (s.contains('auto')) return 'Automatic';
+    if (s.contains('man')) return 'Manual';
+    return s.isEmpty ? 'Manual' : t.toString();
+  }
+
   Widget _buildRideCard(Map<String, dynamic> ride) {
     final isCancelled = ride['status'] == 'Cancelled';
     return InkWell(
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TripDetailScreen(ride: ride))),
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) =>
+          ride['service'] == 'hire_driver' ? _hireSummary(ride) : TripDetailScreen(ride: ride))),
       child: Container(
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
