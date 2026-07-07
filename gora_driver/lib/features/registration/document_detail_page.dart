@@ -82,6 +82,46 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
     }
   }
 
+  void _remove(bool front) => setState(() => front ? _frontUrl = null : _backUrl = null);
+
+  // Full-screen zoomable preview of the uploaded image.
+  void _previewImage(String label, String url) {
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+            ),
+            child: Row(children: [
+              Expanded(child: Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+              GestureDetector(onTap: () => Navigator.pop(context), child: const Icon(Icons.close, color: Colors.white)),
+            ]),
+          ),
+          Flexible(
+            child: Container(
+              color: Colors.white,
+              child: InteractiveViewer(
+                child: Image.network(
+                  url,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Padding(padding: EdgeInsets.all(40), child: Text('Could not load image')),
+                  loadingBuilder: (_, child, progress) =>
+                      progress == null ? child : const Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator(color: AppColors.primary)),
+                ),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
   Future<void> _pickExpiry() async {
     final now = DateTime.now();
     final picked = await pickDate(context, initial: _expiry ?? now, first: DateTime(now.year - 5), last: DateTime(now.year + 15));
@@ -131,10 +171,10 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
         ],
         const SizedBox(height: 20),
         // Images
-        _imageTile('Front Image', _frontUrl, _frontBusy, () => _pick(true)),
+        _imageTile('Front Image', _frontUrl, _frontBusy, () => _pick(true), () => _remove(true)),
         if (s.needsBack) ...[
-          const SizedBox(height: 12),
-          _imageTile('Back Image', _backUrl, _backBusy, () => _pick(false)),
+          const SizedBox(height: 16),
+          _imageTile('Back Image', _backUrl, _backBusy, () => _pick(false), () => _remove(false)),
         ],
         const SizedBox(height: 28),
         PrimaryButton(label: 'Save', onTap: _save),
@@ -143,48 +183,88 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
     );
   }
 
-  Widget _imageTile(String label, String? url, bool busy, VoidCallback onPick) {
+  Widget _imageTile(String label, String? url, bool busy, VoidCallback onPick, VoidCallback onRemove) {
     final has = (url ?? '').isNotEmpty;
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: has ? AppColors.green : AppColors.divider, width: has ? 1.5 : 1),
-      ),
-      padding: const EdgeInsets.all(12),
-      child: Row(children: [
-        Container(
-          width: 64, height: 64,
-          decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.divider)),
-          child: has
-              ? ClipRRect(borderRadius: BorderRadius.circular(7),
-                  child: Image.network(url!, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.insert_drive_file_rounded, color: AppColors.primary)))
-              : Icon(Icons.upload_file_rounded, color: AppColors.textGrey, size: 26),
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 13)),
+      const SizedBox(height: 6),
+      // Framed preview / upload dropzone
+      GestureDetector(
+        onTap: busy ? null : (has ? () => _previewImage(label, url!) : onPick),
+        child: Container(
+          height: 180,
+          width: double.infinity,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: has ? AppColors.green : AppColors.divider, width: has ? 1.5 : 1),
+          ),
+          child: busy
+              ? const Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
+              : has
+                  ? Stack(fit: StackFit.expand, children: [
+                      Image.network(url!, fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => Center(child: Icon(Icons.broken_image_rounded, color: AppColors.textGrey, size: 40))),
+                      Positioned(
+                        top: 8, left: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(color: AppColors.green, borderRadius: BorderRadius.circular(20)),
+                          child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                            Icon(Icons.check_circle_rounded, size: 13, color: Colors.white),
+                            SizedBox(width: 4),
+                            Text('Uploaded', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+                          ]),
+                        ),
+                      ),
+                      Positioned(
+                        top: 8, right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                          child: const Icon(Icons.zoom_in_rounded, color: Colors.white, size: 18),
+                        ),
+                      ),
+                    ])
+                  : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                      const Icon(Icons.cloud_upload_rounded, color: AppColors.primary, size: 40),
+                      const SizedBox(height: 8),
+                      Text('Tap to upload $label', style: TextStyle(color: AppColors.textGrey, fontSize: 13, fontWeight: FontWeight.w500)),
+                    ]),
         ),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 14)),
-          const SizedBox(height: 4),
-          has
-              ? const Row(children: [
-                  Icon(Icons.check_circle_rounded, size: 14, color: AppColors.green),
-                  SizedBox(width: 4),
-                  Text('Uploaded', style: TextStyle(color: AppColors.green, fontSize: 12, fontWeight: FontWeight.w600)),
-                ])
-              : Text('Not uploaded', style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
-        ])),
-        busy
-            ? const SizedBox(width: 34, height: 34, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
-            : TextButton(
-                onPressed: onPick,
-                style: TextButton.styleFrom(
-                  backgroundColor: has ? AppColors.cardBg : AppColors.primary.withOpacity(0.1),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: Text(has ? 'Change' : 'Upload', style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 13)),
+      ),
+      // Change / Remove actions once an image is present
+      if (has && !busy) ...[
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: onPick,
+              icon: const Icon(Icons.swap_horiz_rounded, size: 18, color: AppColors.primary),
+              label: const Text('Change', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: AppColors.primary.withOpacity(0.4)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
               ),
-      ]),
-    );
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: onRemove,
+              icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.red),
+              label: const Text('Remove', style: TextStyle(color: AppColors.red, fontWeight: FontWeight.w600)),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: AppColors.red.withOpacity(0.4)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+              ),
+            ),
+          ),
+        ]),
+      ],
+    ]);
   }
 }
