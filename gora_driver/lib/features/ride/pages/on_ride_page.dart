@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/constants/app_colors.dart';
@@ -9,6 +10,7 @@ import '../bloc/ride_bloc.dart';
 import '../../home/pages/map_placeholder.dart' show RideMap;
 import 'invoice_page.dart';
 import 'ride_chat_page.dart';
+import 'collect_fare_page.dart';
 import 'emergency_actions_page.dart';
 import 'rental_progress_page.dart';
 import 'hire_progress_page.dart';
@@ -258,7 +260,7 @@ class OnRidePage extends StatelessWidget {
                                   _outstationPhase.value = 'enroute';  // reset for next ride
                                   _nightHaltConfirmed.value = false;
                                   _stopIndex.value = 0; _waitingAtStop.value = false;
-                                  _confirmEndRide(context, bloc);
+                                  _confirmEndRide(context, bloc, r);
                                 },
                                 child: const Text('🏁 End Ride', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                               );
@@ -311,18 +313,71 @@ class OnRidePage extends StatelessWidget {
     );
   }
 
-  void _confirmEndRide(BuildContext context, RideBloc bloc) {
+  double _fareOf(RideRequestModel r) => r.totalFareValue > 0
+      ? r.totalFareValue.toDouble()
+      : (double.tryParse(r.fare.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0);
+
+  // Online: driver requests payment; ride completes only after the rider pays.
+  Future<void> _awaitOnlinePayment(BuildContext context, RideRequestModel r) async {
+    try { await DriverApiService.requestPayment(r.id); } catch (_) {}
+    if (!context.mounted) return;
+    Timer? poll;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dctx) {
+        poll = Timer.periodic(const Duration(seconds: 3), (_) async {
+          try {
+            final ride = await DriverApiService.getRide(r.id);
+            if ((ride['status'] ?? '').toString() == 'completed') {
+              poll?.cancel();
+              if (dctx.mounted) Navigator.pop(dctx);
+              if (context.mounted) Navigator.pushReplacementNamed(context, InvoicePage.route, arguments: r);
+            }
+          } catch (_) {}
+        });
+        return AlertDialog(
+          content: Column(mainAxisSize: MainAxisSize.min, children: const [
+            CircularProgressIndicator(color: AppColors.primary),
+            SizedBox(height: 16),
+            Text('Waiting for rider to pay online…', textAlign: TextAlign.center),
+          ]),
+          actions: [
+            TextButton(onPressed: () { poll?.cancel(); Navigator.pop(dctx); }, child: const Text('Cancel')),
+          ],
+        );
+      },
+    );
+  }
+
+  void _confirmEndRide(BuildContext context, RideBloc bloc, RideRequestModel r) {
+    final cash = r.paymentMode == 'cash';
+    final online = r.paymentMode == 'online';
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('End Ride?', style: TextStyle(fontWeight: FontWeight.w700)),
-        content: const Text('Are you sure you want to end this ride?'),
+        content: Text(cash
+            ? 'Collect the fare from the rider, then confirm.'
+            : online
+                ? 'The rider will be asked to pay online. The ride completes once they pay.'
+                : 'Are you sure you want to end this ride?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(_), child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.red),
-            onPressed: () { Navigator.pop(_); bloc.add(EndRideEvent()); },
-            child: const Text('End Ride', style: TextStyle(color: Colors.white)),
+            onPressed: () async {
+              Navigator.pop(_);
+              if (cash) {
+                final collected = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => CollectFarePage(amount: _fareOf(r))));
+                if (collected == true) bloc.add(EndRideEvent());
+              } else if (online) {
+                await _awaitOnlinePayment(context, r);
+              } else {
+                bloc.add(EndRideEvent()); // wallet — auto-deducted
+              }
+            },
+            child: Text(cash ? 'Collect Fare' : online ? 'Request Payment' : 'End Ride', style: const TextStyle(color: Colors.white)),
           ),
         ],
       ),

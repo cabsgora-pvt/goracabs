@@ -13,6 +13,7 @@ import 'ride_chat_screen.dart';
 import '../widgets/payment_coupon_bar.dart';
 import '../widgets/payment_method_picker.dart';
 import '../widgets/sos_button.dart';
+import '../widgets/online_payment.dart';
 import '../widgets/finding_driver_view.dart';
 import 'booking_screen.dart';
 import 'home_screen.dart';
@@ -649,6 +650,10 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         if (status != 'pending' && _driverLocTimer == null) {
           _startDriverLocationPolling();
           _startEtaPolling();
+        }
+        // Online gating: driver requested payment → prompt rider to pay, then complete.
+        if (ride['awaitingPayment'] == true && status != 'completed') {
+          promptOnlinePayment(context, _rideId, ride);
         }
         onStatus(status, ride);
       } catch (_) {}

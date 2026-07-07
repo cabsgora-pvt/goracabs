@@ -133,6 +133,8 @@ const RideSchema = new Schema({
   rejectedBy: [String],
   otp: String,
   zoneId: { type: Schema.Types.ObjectId, ref: 'Zone' },
+  // Online payment gating: driver ended an online ride → rider must pay before it completes
+  awaitingPayment: { type: Boolean, default: false },
   // In-ride chat between rider and driver
   messages: [{
     sender: { type: String, enum: ['user', 'driver'] },

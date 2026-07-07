@@ -10,6 +10,7 @@ import 'ride_chat_screen.dart';
 import '../widgets/payment_coupon_bar.dart';
 import '../widgets/payment_method_picker.dart';
 import '../widgets/sos_button.dart';
+import '../widgets/online_payment.dart';
 import '../widgets/finding_driver_view.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
@@ -140,6 +141,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
       try {
         final ride = await ApiService.getRide(_rideId!);
         final status = (ride['status'] ?? 'pending').toString();
+        if (ride['awaitingPayment'] == true && status != 'completed') { promptOnlinePayment(context, _rideId, ride); }
         if (ride['driverName'] != null) _driverName = ride['driverName'].toString();
         if (ride['driverPhone'] != null) _driverPhone = ride['driverPhone'].toString();
         final dr = ride['driver'] as Map<String, dynamic>?;

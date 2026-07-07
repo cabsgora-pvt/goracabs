@@ -6,6 +6,7 @@ import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 import 'invoice_page.dart';
 import 'emergency_actions_page.dart';
+import 'collect_fare_page.dart';
 
 // Live hire-a-driver screen: timer vs booked hours, extend, end with overtime bill.
 class HireProgressPage extends StatefulWidget {
@@ -49,6 +50,14 @@ class _HireProgressPageState extends State<HireProgressPage> {
   }
 
   Future<void> _end() async {
+    // Cash → collect the fare via QR first
+    if (widget.ride.paymentMode == 'cash') {
+      final amt = widget.ride.totalFareValue > 0
+          ? widget.ride.totalFareValue.toDouble()
+          : (double.tryParse(widget.ride.fare.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0);
+      final collected = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => CollectFarePage(amount: amt)));
+      if (collected != true) return;
+    }
     setState(() => _ending = true);
     final res = await DriverApiService.hireAction(widget.ride.id, {'action': 'end'});
     _tick?.cancel(); _ping?.cancel();

@@ -7,6 +7,7 @@ import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
 import 'invoice_page.dart';
 import 'emergency_actions_page.dart';
+import 'collect_fare_page.dart';
 
 // Live rental-in-progress screen: timer, odometer, waiting toggle, extend, end with extras.
 class RentalProgressPage extends StatefulWidget {
@@ -87,6 +88,14 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
   }
 
   Future<void> _end() async {
+    // Cash → collect the fare via QR first
+    if (widget.ride.paymentMode == 'cash') {
+      final amt = widget.ride.totalFareValue > 0
+          ? widget.ride.totalFareValue.toDouble()
+          : (double.tryParse(widget.ride.fare.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0);
+      final collected = await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => CollectFarePage(amount: amt)));
+      if (collected != true) return;
+    }
     setState(() => _ending = true);
     final pos = await LocationService.getCurrentLocation();
     final res = await DriverApiService.rentalAction(widget.ride.id, {

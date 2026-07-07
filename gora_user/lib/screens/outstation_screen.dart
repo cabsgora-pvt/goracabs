@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../utils/polyline_utils.dart';
 import '../utils/call_util.dart';
 import '../widgets/sos_button.dart';
+import '../widgets/online_payment.dart';
 import 'ride_chat_screen.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
@@ -560,6 +561,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
       try {
         final ride = await ApiService.getRide(_rideId!);
         final status = (ride['status'] ?? 'pending').toString();
+        if (ride['awaitingPayment'] == true && status != 'completed') { promptOnlinePayment(context, _rideId, ride); }
         if (ride['driverName'] != null) _driverName = ride['driverName'].toString();
         if (ride['driverPhone'] != null) _driverPhone = ride['driverPhone'].toString();
         final dr = ride['driver'] as Map<String, dynamic>?;

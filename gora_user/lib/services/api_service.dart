@@ -194,6 +194,10 @@ class ApiService {
   static Future<Map<String, dynamic>> getDriverLocation(String rideId) =>
       get('/rides/$rideId/driver-location');
 
+  // Complete the ride (rider calls this after paying online — driver "requested payment").
+  static Future<Map<String, dynamic>> completeRide(String rideId) =>
+      post('/rides/$rideId/complete', {}, auth: true);
+
   // ── SOS alert (raised when the rider taps SOS) ────────────
   static Future<Map<String, dynamic>> sendSosAlert(Map<String, dynamic> body) =>
       post('/support/sos-alert', body, auth: true);
