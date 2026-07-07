@@ -10,6 +10,11 @@ import '../../../services/location_service.dart';
 import '../../earnings/pages/earnings_page.dart';
 import '../../account/pages/account_page.dart';
 import '../../ride/pages/incoming_requests_page.dart';
+import '../../ride/pages/on_ride_page.dart';
+import '../../ride/pages/rental_progress_page.dart';
+import '../../ride/pages/hire_progress_page.dart';
+import '../../ride/pages/delivery_progress_page.dart';
+import '../../../models/models.dart';
 import '../../wallet/pages/wallet_page.dart';
 import '../../account/service_prefs.dart';
 import '../bloc/home_bloc.dart';
@@ -158,9 +163,86 @@ class _HomeTab extends StatelessWidget {
                 bottom: 100, left: 24, right: 24,
                 child: _OfflinePrompt(onGoOnline: () => context.read<HomeBloc>().add(ToggleOnlineEvent(true))),
               ),
+            // Resume an in-progress ride (auto on reopen + tappable banner)
+            const _ActiveRideResumer(),
           ]),
         );
       },
+    );
+  }
+}
+
+// Checks for the driver's in-progress ride: auto-opens it once on app launch,
+// and shows a tappable "resume" banner while one is active.
+class _ActiveRideResumer extends StatefulWidget {
+  const _ActiveRideResumer();
+  @override
+  State<_ActiveRideResumer> createState() => _ActiveRideResumerState();
+}
+
+class _ActiveRideResumerState extends State<_ActiveRideResumer> {
+  static bool _autoResumed = false; // once per app launch
+  Map<String, dynamic>? _ride;
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+    _t = Timer.periodic(const Duration(seconds: 10), (_) => _check());
+  }
+
+  @override
+  void dispose() { _t?.cancel(); super.dispose(); }
+
+  Future<void> _check() async {
+    try {
+      final res = await DriverApiService.getActiveRide();
+      final ride = res['ride'];
+      if (!mounted) return;
+      setState(() => _ride = ride == null ? null : Map<String, dynamic>.from(ride as Map));
+      if (_ride != null && !_autoResumed) { _autoResumed = true; _resume(); }
+    } catch (_) {}
+  }
+
+  void _resume() {
+    final ride = _ride;
+    if (ride == null || !mounted) return;
+    final m = RideRequestModel.fromJson(Map<String, dynamic>.from(ride));
+    final status = (ride['status'] ?? '').toString();
+    if (status == 'ongoing' && m.service == 'rental') {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => RentalProgressPage(ride: m)));
+    } else if (status == 'ongoing' && m.service == 'hire_driver') {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => HireProgressPage(ride: m)));
+    } else if (status == 'ongoing' && m.service == 'delivery') {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => DeliveryProgressPage(ride: m)));
+    } else {
+      Navigator.pushNamed(context, OnRidePage.route, arguments: m);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_ride == null) return const SizedBox.shrink();
+    return Positioned(
+      bottom: 100, left: 16, right: 16,
+      child: GestureDetector(
+        onTap: _resume,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
+          ),
+          child: Row(children: const [
+            Icon(Icons.navigation_rounded, color: Colors.white),
+            SizedBox(width: 12),
+            Expanded(child: Text('Ride in progress — tap to resume', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800))),
+            Icon(Icons.chevron_right, color: Colors.white),
+          ]),
+        ),
+      ),
     );
   }
 }

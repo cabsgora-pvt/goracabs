@@ -42,6 +42,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentPromoPage = 0;
   // Active ride guard — user can't book a new ride while one is in progress
   Map<String, dynamic>? _activeRide;
+  static bool _autoResumed = false; // auto-open the active ride once per app launch
   Timer? _activeTimer;
   // Current location for the home mini-map + chip
   LatLng? _currentLatLng;
@@ -149,6 +150,15 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (!mounted) return;
       setState(() => _activeRide = active == null ? null : Map<String, dynamic>.from(active as Map));
+      // Auto-resume the active ride once when the app is (re)opened.
+      if (_activeRide != null && !_autoResumed && mounted) {
+        _autoResumed = true;
+        final rideId = (_activeRide!['_id'] ?? _activeRide!['id'] ?? '').toString();
+        if (rideId.isNotEmpty) {
+          Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveRideScreen(rideId: rideId)))
+              .then((_) => _checkActiveRide());
+        }
+      }
     } catch (_) {}
   }
 
