@@ -8,7 +8,10 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../services/payment_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/call_util.dart';
+import 'ride_chat_screen.dart';
 import '../widgets/payment_coupon_bar.dart';
+import '../widgets/payment_method_picker.dart';
 import '../widgets/finding_driver_view.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
@@ -520,6 +523,11 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
       ])));
   }
 
+  void _openChat() {
+    if (_rideId == null) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => RideChatScreen(rideId: _rideId!, otherName: _driverName)));
+  }
+
   void _showAssigned() {
     showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
@@ -563,12 +571,23 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
               if (_vNumber.isNotEmpty) Text([_vModel, _vNumber].where((s) => s.isNotEmpty).join(' • '), style: const TextStyle(fontSize: 11, color: Colors.grey)),
             ])),
           ]),
+          const SizedBox(height: 14),
+          if (!_cod)
+            paymentMethodRow(context, _paymentMode, () async {
+              final m = await showPaymentPicker(context, _paymentMode);
+              if (m != null) { setState(() => _paymentMode = m); _dialogSet?.call(() {}); }
+            }),
           const SizedBox(height: 16),
           Row(children: [
             Expanded(child: ElevatedButton.icon(
-              onPressed: () { if (_driverPhone.isNotEmpty) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$_driverName • $_driverPhone'))); },
+              onPressed: () => dialPhone(_driverPhone),
               icon: const Icon(Icons.call, color: Colors.white), label: const Text('Call', style: TextStyle(color: Colors.white)),
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4CAF50), padding: const EdgeInsets.symmetric(vertical: 14)))),
+            const SizedBox(width: 10),
+            Expanded(child: ElevatedButton.icon(
+              onPressed: _openChat,
+              icon: const Icon(Icons.message, color: Colors.white), label: const Text('Message', style: TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14)))),
             const SizedBox(width: 10),
             Expanded(child: ElevatedButton.icon(
               onPressed: () { if (_rideId != null) Share.share('Track my parcel live: ${AppConfig.serverBaseUrl}/track/$_rideId'); },

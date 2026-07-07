@@ -8,7 +8,10 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../services/payment_service.dart';
 import '../utils/polyline_utils.dart';
+import '../utils/call_util.dart';
+import 'ride_chat_screen.dart';
 import '../widgets/payment_coupon_bar.dart';
+import '../widgets/payment_method_picker.dart';
 import '../widgets/finding_driver_view.dart';
 import 'booking_screen.dart';
 import 'home_screen.dart';
@@ -486,6 +489,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   }
 
   // Share live trip link via OS share sheet
+  void _openChat() {
+    if (_rideId == null) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => RideChatScreen(rideId: _rideId!, otherName: _driverName)));
+  }
+
   void _shareTrip() {
     if (_rideId == null) return;
     final url = '${AppConfig.serverBaseUrl}/track/$_rideId';
@@ -2113,18 +2121,18 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
               
               const SizedBox(height: 12),
               
+              // Change payment method
+              StatefulBuilder(builder: (context, setRow) => paymentMethodRow(context, _paymentMode, () async {
+                final m = await showPaymentPicker(context, _paymentMode);
+                if (m != null) { _paymentMode = m; setRow(() {}); }
+              })),
+              const SizedBox(height: 12),
               // Action Buttons
               Row(
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: () {
-                        if (_driverPhone.isNotEmpty) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Driver: $_driverName • $_driverPhone')),
-                          );
-                        }
-                      },
+                      onPressed: () => dialPhone(_driverPhone),
                       icon: const Icon(Icons.call, color: Colors.green),
                       label: Text('Call', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
                       style: ElevatedButton.styleFrom(
@@ -2135,6 +2143,21 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                           borderRadius: BorderRadius.circular(12),
                           side: BorderSide(color: Colors.grey[200]!),
                         ),
+                        elevation: 2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      onPressed: _openChat,
+                      icon: const Icon(Icons.message, color: Color(0xFF1C2656)),
+                      label: Text('Message', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Theme.of(context).cardColor,
+                        foregroundColor: Theme.of(context).colorScheme.onSurface,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)),
                         elevation: 2,
                       ),
                     ),

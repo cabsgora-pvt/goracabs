@@ -8,6 +8,7 @@ import '../../../services/driver_api_service.dart';
 import '../bloc/ride_bloc.dart';
 import '../../home/pages/map_placeholder.dart' show RideMap;
 import 'invoice_page.dart';
+import 'ride_chat_page.dart';
 import 'rental_progress_page.dart';
 import 'hire_progress_page.dart';
 import 'delivery_progress_page.dart';
@@ -319,48 +320,9 @@ class OnRidePage extends StatelessWidget {
     );
   }
 
+  // Open the real in-ride chat with the rider (shared backend, quick replies).
   void _showChat(BuildContext context, RideRequestModel r) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.6, maxChildSize: 0.9, minChildSize: 0.4, expand: false,
-        builder: (_, ctrl) => Column(children: [
-          Container(margin: const EdgeInsets.only(top: 8), width: 40, height: 4, decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2))),
-          Padding(padding: const EdgeInsets.all(16), child: Row(children: [
-            const Text('Chat with Rider', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-          ])),
-          Expanded(child: ListView(controller: ctrl, padding: const EdgeInsets.symmetric(horizontal: 16), children: [
-            _chatBubble("Hi, I'm here!", false),
-            _chatBubble("Please reach gate 2", true),
-            _chatBubble("Coming in 2 mins", false),
-          ])),
-          Padding(
-            padding: EdgeInsets.only(left: 16, right: 16, bottom: MediaQuery.of(context).viewInsets.bottom + 16),
-            child: Row(children: [
-              const Expanded(child: TextField(decoration: InputDecoration(hintText: 'Type message...'))),
-              const SizedBox(width: 8),
-              IconButton(icon: const Icon(Icons.send, color: AppColors.primary), onPressed: () {}),
-            ]),
-          ),
-        ]),
-      ),
-    );
+    Navigator.push(context, MaterialPageRoute(builder: (_) => RideChatPage(rideId: r.id, otherName: r.userName)));
   }
 
-  Widget _chatBubble(String msg, bool isMe) {
-    return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: isMe ? AppColors.primary : AppColors.cardBg,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Text(msg, style: TextStyle(color: isMe ? Colors.white : AppColors.textDark)),
-      ),
-    );
-  }
 }

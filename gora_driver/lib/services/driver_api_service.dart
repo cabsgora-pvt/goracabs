@@ -161,6 +161,12 @@ class DriverApiService {
   static Future<Map<String, dynamic>> completeRide(String id) =>
       post('/rides/$id/complete', {}, auth: true);
 
+  // In-ride chat (driver ↔ rider)
+  static Future<Map<String, dynamic>> getRideMessages(String rideId) =>
+      get('/rides/$rideId/messages');
+  static Future<Map<String, dynamic>> sendRideMessage(String rideId, String text) =>
+      post('/rides/$rideId/messages', {'sender': 'driver', 'text': text}, auth: true);
+
   static Future<Map<String, dynamic>> getRide(String id) => get('/rides/$id');
 
   static Future<Map<String, dynamic>> rateRide(String id, int rating, String review) =>

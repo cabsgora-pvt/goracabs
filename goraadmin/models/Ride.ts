@@ -133,5 +133,11 @@ const RideSchema = new Schema({
   rejectedBy: [String],
   otp: String,
   zoneId: { type: Schema.Types.ObjectId, ref: 'Zone' },
+  // In-ride chat between rider and driver
+  messages: [{
+    sender: { type: String, enum: ['user', 'driver'] },
+    text: String,
+    createdAt: { type: Date, default: Date.now },
+  }],
 }, { timestamps: true })
 export default mongoose.models.Ride || mongoose.model('Ride', RideSchema)

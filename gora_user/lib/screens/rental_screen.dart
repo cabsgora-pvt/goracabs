@@ -6,11 +6,14 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../services/payment_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/call_util.dart';
+import 'ride_chat_screen.dart';
 import 'ride_history_screen.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
 import 'rental_booking_details_screen.dart';
 import '../widgets/payment_coupon_bar.dart';
+import '../widgets/payment_method_picker.dart';
 import '../widgets/finding_driver_view.dart';
 
 class RentalScreen extends StatefulWidget {
@@ -1184,6 +1187,11 @@ class _RentalScreenState extends State<RentalScreen> {
     );
   }
 
+  void _openChat() {
+    if (_rideId == null) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => RideChatScreen(rideId: _rideId!, otherName: _driverName)));
+  }
+
   void _showDriverAssignedDialog() {
     setState(() {
       _isSearching = false;
@@ -1287,12 +1295,16 @@ class _RentalScreenState extends State<RentalScreen> {
                   ],
                 ),
               ),
+              paymentMethodRow(context, _paymentMode, () async {
+                final m = await showPaymentPicker(context, _paymentMode);
+                if (m != null) setSheet(() => _paymentMode = m);
+              }),
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Expanded(child: ElevatedButton.icon(onPressed: () {}, icon: const Icon(Icons.call, color: Colors.green), label: Text('Call', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).cardColor, foregroundColor: Theme.of(context).colorScheme.onSurface, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2))),
+                  Expanded(child: ElevatedButton.icon(onPressed: () => dialPhone(_driverPhone), icon: const Icon(Icons.call, color: Colors.green), label: Text('Call', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).cardColor, foregroundColor: Theme.of(context).colorScheme.onSurface, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2))),
                   const SizedBox(width: 12),
-                  Expanded(child: ElevatedButton.icon(onPressed: () {}, icon: const Icon(Icons.message, color: Color(0xFF1C2656)), label: Text('Message', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).cardColor, foregroundColor: Theme.of(context).colorScheme.onSurface, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2))),
+                  Expanded(child: ElevatedButton.icon(onPressed: _openChat, icon: const Icon(Icons.message, color: Color(0xFF1C2656)), label: Text('Message', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).cardColor, foregroundColor: Theme.of(context).colorScheme.onSurface, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2))),
                 ],
               ),
               const SizedBox(height: 16),
