@@ -8,6 +8,15 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <!-- For calling rider from the ride screen -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- Keep receiving ride requests while the app is minimized (foreground service) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Full-screen "incoming ride" alert over the lock screen (Ola/Rapido style) -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application
         android:label="gora_driver"
@@ -43,6 +52,11 @@
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="AIzaSyC6B8ARqVLWPF04slIHciG3o9eA_gPexIE"/>
+        <!-- Foreground service that keeps polling for ride requests while minimized -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

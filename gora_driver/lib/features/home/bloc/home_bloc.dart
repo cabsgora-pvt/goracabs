@@ -5,6 +5,7 @@ import '../../../mock/mock_data.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
+import '../../../services/ride_alert_service.dart';
 
 abstract class HomeEvent extends Equatable {
   @override List<Object?> get props => [];
@@ -84,6 +85,14 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       final lng = pos?.longitude ?? 72.5714;
       await DriverApiService.setOnline(e.isOnline, lat, lng);
     } catch (_) {/* keep UI responsive even if network fails */}
+    // Start/stop the foreground service so requests keep arriving while minimized.
+    try {
+      if (e.isOnline) {
+        await RideAlertService.start();
+      } else {
+        await RideAlertService.stop();
+      }
+    } catch (_) {}
     emit(OnlineStatusChanged(e.isOnline));
   }
 }

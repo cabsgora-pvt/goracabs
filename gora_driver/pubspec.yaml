@@ -28,6 +28,9 @@ dependencies:
   share_plus: ^10.0.0
   path_provider: ^2.1.4
   animated_text_kit: ^4.2.2
+  # Keep receiving ride requests while the app is minimized (foreground service)
+  flutter_foreground_task: ^8.10.0
+  flutter_local_notifications: ^17.2.3
 
 dev_dependencies:
   flutter_test:

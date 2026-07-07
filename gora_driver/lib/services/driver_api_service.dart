@@ -97,6 +97,11 @@ class DriverApiService {
   static Future<Map<String, dynamic>> saveBank(Map<String, dynamic> data) =>
       post('/auth/driver/register/bank', data, auth: true);
 
+  // Register the device's FCM push token so the backend can wake the app with a
+  // ride alert even when it's fully closed (Layer 2 — needs Firebase configured).
+  static Future<Map<String, dynamic>> saveFcmToken(String token) =>
+      post('/auth/driver/fcm-token', {'token': token}, auth: true);
+
   // Update driver preferences (currently: acceptsOutstation). Uses POST since CORS
   // allow-methods always includes POST. Returns the saved values.
   static Future<Map<String, dynamic>> updatePreferences(Map<String, dynamic> prefs) =>
