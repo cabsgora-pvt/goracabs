@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 import '../providers/user_provider.dart';
@@ -45,6 +47,8 @@ class _HomeScreenState extends State<HomeScreen> {
   LatLng? _currentLatLng;
   String _currentAddress = 'Locating…';
   GoogleMapController? _homeMapCtrl;
+  Map<String, String> _favourites = {}; // label ('Home'/'Work'/custom) → address
+  Timer? _homeGeoDebounce;
   // Admin-managed app config (banners / places / whyChooseUs)
   Map<String, dynamic>? _cfg;
 
@@ -84,6 +88,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // Re-check periodically so the banner clears when the ride completes/cancels
     _activeTimer = Timer.periodic(const Duration(seconds: 8), (_) => _checkActiveRide());
     _fetchCurrentLocation();
+    _loadFavourites();
     ApiService.getAppConfig().then((c) {
       if (mounted) setState(() => _cfg = c);
     });
@@ -289,137 +294,99 @@ class _HomeScreenState extends State<HomeScreen> {
     final picUrl = user.profilePicUrl;
     final displayName = user.name.isNotEmpty ? user.name : (user.phone.isNotEmpty ? user.phone : 'Guest');
 
+    final mapH = MediaQuery.of(context).size.height * 0.42;
     return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor: AppTheme.primaryBlue,
-                    backgroundImage: picUrl.isNotEmpty
-                        ? NetworkImage(AppConfig.imageUrl(picUrl))
-                        : null,
-                    child: picUrl.isEmpty
-                        ? Text(displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
-                        : null,
+      backgroundColor: Colors.white,
+      body: Column(
+        children: [
+          // ── Map on top (movable, live pin) with overlaid bar ──
+          SizedBox(
+            height: mapH,
+            child: Stack(children: [
+              Positioned.fill(
+                child: GoogleMap(
+                  key: ValueKey(_currentLatLng?.toString() ?? 'home-map'),
+                  initialCameraPosition: CameraPosition(
+                    target: _currentLatLng ?? const LatLng(26.2389, 73.0243),
+                    zoom: 16,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Hello,', style: TextStyle(fontSize: 13, color: AppTheme.textGrey)),
-                        const SizedBox(height: 2),
-                        Text(displayName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () {},
-                    icon: const Icon(Icons.notifications_outlined, size: 26),
-                  ),
-                ],
-              ),
-            ),
-            
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withAlpha(20),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    )
-                  ],
+                  onMapCreated: (c) => _homeMapCtrl = c,
+                  myLocationEnabled: true,
+                  myLocationButtonEnabled: false,
+                  zoomControlsEnabled: false,
+                  mapToolbarEnabled: false,
+                  onCameraMove: (pos) => _currentLatLng = pos.target,
+                  onCameraIdle: _onHomeMapIdle,
                 ),
-                child: TextField(
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => TaxiBookingScreen(
-                          fromLocation: 'Current Location',
-                          hideLocationInputs: false,
+              ),
+              // Live centre pin
+              const IgnorePointer(
+                child: Center(
+                  child: Padding(
+                    padding: EdgeInsets.only(bottom: 40),
+                    child: Icon(Icons.location_on, size: 46, color: AppTheme.primaryBlue),
+                  ),
+                ),
+              ),
+              // Top bar: menu · location · favourite(heart)
+              SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                  child: Row(children: [
+                    _circleIcon(Icons.menu, _openMenu),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(24),
+                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 6)],
                         ),
+                        child: Text(_currentAddress, maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                       ),
-                    );
-                  },
-                  readOnly: true,
-                  decoration: InputDecoration(
-                    hintText: 'Where are you going?',
-                    hintStyle: TextStyle(color: Colors.grey[500], fontSize: 15),
-                    prefixIcon: const Icon(Icons.search, color: AppTheme.primaryBlue, size: 22),
-                    suffixIcon: IconButton(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => TaxiBookingScreen(
-                              fromLocation: 'Current Location',
-                              hideLocationInputs: false,
-                            ),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.arrow_forward, color: AppTheme.primaryBlue, size: 22),
                     ),
-                    filled: true,
-                    fillColor: Theme.of(context).cardColor,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                  ),
+                    const SizedBox(width: 8),
+                    _circleIcon(Icons.favorite_border, _openSaveFavourite),
+                  ]),
                 ),
               ),
-            ),
-            
-            const SizedBox(height: 14),
-
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_activeRide != null) ...[
-                      _buildActiveRideBanner(),
-                      const SizedBox(height: 16),
+              // Recenter
+              Positioned(
+                right: 14, bottom: 22,
+                child: GestureDetector(
+                  onTap: _fetchCurrentLocation,
+                  child: const CircleAvatar(backgroundColor: Colors.white, child: Icon(Icons.my_location, color: AppTheme.primaryBlue)),
+                ),
+              ),
+            ]),
+          ),
+          // ── Bottom sheet content ──
+          Expanded(
+            child: Transform.translate(
+              offset: const Offset(0, -16),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+                ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    if (_activeRide != null) ...[_buildActiveRideBanner(), const SizedBox(height: 14)],
+                    // Search
+                    _homeSearchBar(),
+                    const SizedBox(height: 16),
+                    // Favourites
+                    if (_favourites.isNotEmpty) ...[
+                      Wrap(spacing: 10, runSpacing: 10, children: _favourites.entries.map((e) => _favChip(e.key, e.value)).toList()),
+                      const SizedBox(height: 18),
                     ],
-
-                    // Mini map with the user's current location
-                    _buildHomeMap(),
-                    const SizedBox(height: 18),
-
-                    // Recent / saved locations (last 3) → tap goes to normal ride
-                    const Text('Recent locations', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    ..._recentLocations().map((l) => _buildRecentTile(l)),
-
-                    const SizedBox(height: 20),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Our Services', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        GestureDetector(
-                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ServiceSelectionScreen())),
-                          child: const Text('View All', style: TextStyle(fontSize: 14, color: AppTheme.primaryBlue, fontWeight: FontWeight.w600)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    // Services — single horizontal scrolling line (Ola-style)
+                    // Services — horizontal scroll
+                    const Text('Our services', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 12),
                     SizedBox(
                       height: 96,
                       child: ListView.separated(
@@ -429,112 +396,192 @@ class _HomeScreenState extends State<HomeScreen> {
                         itemBuilder: (_, i) => _buildServiceItem(_services[i]),
                       ),
                     ),
-
-                    const SizedBox(height: 24),
-
-                    const Text('Featured Ads', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 12),
-                    Builder(builder: (_) {
-                      final banners = _banners();
-                      return SizedBox(
-                        height: 160,
-                        child: PageView.builder(
-                          controller: _promoController,
-                          itemCount: banners.length,
-                          onPageChanged: (int page) {
-                            setState(() {
-                              _currentPromoPage = page;
-                            });
-                          },
-                          itemBuilder: (_, i) => _buildPromoBanner(banners[i]),
-                        ),
-                      );
-                    }),
-                    const SizedBox(height: 20),
-                    
-                    // Why Choose Us Section
-                    const Text('Why Choose Gora Cabs?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 12),
-                    ..._whyChooseUs(),
-                    const SizedBox(height: 20),
-                    
-                    // Footer section
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.grey[100]!,
-                            Colors.grey[200]!,
-                          ],
-                        ),
-                      ),
-                      child: Stack(
-                        children: [
-                          // Background pattern
-                          Positioned.fill(
-                            child: CustomPaint(
-                              painter: RajasthaniPatternPainter(),
-                            ),
-                          ),
-                          // Content
-                          Column(
-                            children: [
-                              Text(
-                                'Gora Cabs',
-                                style: TextStyle(
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.grey[600],
-                                  letterSpacing: 1.5,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.favorite, color: Colors.red[500], size: 18),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Made in India',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      color: Colors.grey[700],
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.location_on, color: Colors.orange[500], size: 18),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'Crafted in Rajasthan',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      color: Colors.grey[700],
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                    const SizedBox(height: 22),
+                    // Recent locations
+                    const Text('Recent locations', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    ..._recentLocations().map((l) => _buildRecentTile(l)),
+                  ]),
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
+    );
+  }
+
+  // Small white circular icon button used on the map overlay.
+  Widget _circleIcon(IconData icon, VoidCallback onTap) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 44, height: 44,
+          decoration: BoxDecoration(
+            color: Colors.white, shape: BoxShape.circle,
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 6)],
+          ),
+          child: Icon(icon, color: Colors.black87),
+        ),
+      );
+
+  Widget _homeSearchBar() => GestureDetector(
+        onTap: () => Navigator.push(context, MaterialPageRoute(
+            builder: (_) => TaxiBookingScreen(fromLocation: 'Current Location', hideLocationInputs: false))),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: AppTheme.primaryBlue.withOpacity(0.4), width: 1.5),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)],
+          ),
+          child: Row(children: [
+            const Icon(Icons.search, color: Colors.black87, size: 22),
+            const SizedBox(width: 10),
+            Text('Enter Destination', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.grey[800])),
+          ]),
+        ),
+      );
+
+  Widget _favChip(String label, String address) {
+    final icon = label == 'Home' ? Icons.home_outlined : label == 'Work' ? Icons.work_outline : Icons.favorite_border;
+    return GestureDetector(
+      onTap: () {
+        if (!_canBook()) return;
+        Navigator.push(context, MaterialPageRoute(
+            builder: (_) => TaxiBookingScreen(fromLocation: 'Current Location', hideLocationInputs: false)));
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(color: const Color(0xFFF3F5F9), borderRadius: BorderRadius.circular(24)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 18, color: AppTheme.primaryBlue),
+          const SizedBox(width: 8),
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+        ]),
+      ),
+    );
+  }
+
+  // Reverse-geocode the map centre (debounced) → update the pickup address.
+  void _onHomeMapIdle() {
+    _homeGeoDebounce?.cancel();
+    _homeGeoDebounce = Timer(const Duration(milliseconds: 400), () async {
+      if (_currentLatLng == null) return;
+      final addr = await ApiService.reverseGeocode(_currentLatLng!.latitude, _currentLatLng!.longitude);
+      if (mounted && addr.isNotEmpty) setState(() => _currentAddress = addr);
+    });
+  }
+
+  Future<void> _loadFavourites() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('fav_locations');
+      if (raw != null && raw.isNotEmpty) {
+        final map = jsonDecode(raw) as Map<String, dynamic>;
+        if (mounted) setState(() => _favourites = map.map((k, v) => MapEntry(k, v.toString())));
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _saveFavourite(String label) async {
+    setState(() => _favourites[label] = _currentAddress);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('fav_locations', jsonEncode(_favourites));
+    } catch (_) {}
+  }
+
+  // Heart icon → "Save as favourite" sheet (Home / Work / Others).
+  void _openSaveFavourite() {
+    String selected = 'Home';
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        Widget chip(String label, IconData icon) {
+          final sel = selected == label;
+          return GestureDetector(
+            onTap: () => setSheet(() => selected = label),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: sel ? AppTheme.primaryBlue.withOpacity(0.1) : Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: sel ? AppTheme.primaryBlue : Colors.grey.shade300),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(icon, size: 18, color: sel ? AppTheme.primaryBlue : Colors.black87),
+                const SizedBox(width: 8),
+                Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: sel ? AppTheme.primaryBlue : Colors.black87)),
+              ]),
+            ),
+          );
+        }
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Save as favourite', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            Text(_currentAddress, style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+            const SizedBox(height: 20),
+            const Text('Save location as', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 14),
+            Wrap(spacing: 10, runSpacing: 10, children: [
+              chip('Home', Icons.home_outlined),
+              chip('Work', Icons.work_outline),
+              chip('Others', Icons.favorite_border),
+            ]),
+            const SizedBox(height: 24),
+            Row(children: [
+              Expanded(child: OutlinedButton(
+                onPressed: () => Navigator.pop(ctx),
+                style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                child: const Text('Cancel', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w700)),
+              )),
+              const SizedBox(width: 12),
+              Expanded(child: ElevatedButton(
+                onPressed: () { _saveFavourite(selected); Navigator.pop(ctx); },
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                child: const Text('Save', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+              )),
+            ]),
+          ]),
+        );
+      }),
+    );
+  }
+
+  // Hamburger → quick menu (bottom nav is untouched, per request).
+  void _openMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) {
+        Widget item(IconData icon, String label, Widget screen) => ListTile(
+              leading: Icon(icon, color: AppTheme.primaryBlue),
+              title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+              onTap: () { Navigator.pop(ctx); Navigator.push(context, MaterialPageRoute(builder: (_) => screen)); },
+            );
+        return SafeArea(
+          top: false,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const SizedBox(height: 10),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 6),
+            item(Icons.person_outline, 'Profile', const ProfileScreen()),
+            item(Icons.history, 'My Rides', const RideHistoryScreen()),
+            item(Icons.account_balance_wallet_outlined, 'Wallet', const WalletScreen()),
+            item(Icons.local_offer_outlined, 'Offers', const OffersScreen()),
+            item(Icons.support_agent, 'Support', const SupportScreen()),
+            item(Icons.settings_outlined, 'Settings', const SettingsScreen()),
+            const SizedBox(height: 10),
+          ]),
+        );
+      },
     );
   }
 
