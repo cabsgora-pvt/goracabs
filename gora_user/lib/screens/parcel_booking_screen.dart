@@ -230,22 +230,52 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         // Send / Receive tabs
         Container(color: Theme.of(context).cardColor, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(children: [
-            Expanded(child: _tabBtn('Send', 'Send Parcel')),
+            Expanded(child: _tabBtn('Send', 'Send Parcel', 'Send within city limit')),
             const SizedBox(width: 12),
-            Expanded(child: _tabBtn('Receive', 'Track Parcel')),
+            Expanded(child: _tabBtn('Receive', 'Receive Parcel', 'Get parcel within city limit')),
           ])),
         Expanded(child: _tab == 'Send' ? _buildSend() : _buildReceive()),
       ]),
     );
   }
 
-  Widget _tabBtn(String tab, String label) {
+  Widget _tabBtn(String tab, String title, String subtitle) {
     final sel = _tab == tab;
     return GestureDetector(onTap: () { setState(() => _tab = tab); if (tab == 'Receive') _loadMyParcels(); },
-      child: Container(padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(color: sel ? AppTheme.primaryBlue : Colors.grey[100], borderRadius: BorderRadius.circular(10), border: Border.all(color: sel ? AppTheme.primaryBlue : Colors.grey[300]!)),
-        child: Center(child: Text(label, style: TextStyle(color: sel ? Colors.white : Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 14)))));
+      child: Container(padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: sel ? AppTheme.primaryBlue.withOpacity(0.08) : Theme.of(context).cardColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: sel ? AppTheme.primaryBlue : Colors.grey[300]!, width: sel ? 1.5 : 1),
+        ),
+        child: Row(children: [
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title, style: TextStyle(color: sel ? AppTheme.primaryBlue : Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 14)),
+            const SizedBox(height: 2),
+            Text(subtitle, style: TextStyle(fontSize: 10.5, color: Colors.grey[600])),
+          ])),
+          if (sel) const Icon(Icons.check_circle, color: AppTheme.primaryBlue, size: 18),
+        ])));
   }
+
+  Widget _abBadge(String l, Color c) => Container(
+        width: 26, height: 26, alignment: Alignment.center,
+        decoration: BoxDecoration(color: c, shape: BoxShape.circle),
+        child: Text(l, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+      );
+
+  Widget _spec(IconData icon, String text) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(children: [
+          Container(
+            width: 34, height: 34, alignment: Alignment.center,
+            decoration: BoxDecoration(color: AppTheme.primaryBlue.withOpacity(0.1), shape: BoxShape.circle),
+            child: Icon(icon, size: 18, color: AppTheme.primaryBlue),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500))),
+        ]),
+      );
 
   List<Map<String, dynamic>> _incoming = [];
   Future<void> _loadMyParcels() async {
@@ -380,12 +410,41 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   Widget _buildSend() {
     return Column(children: [
         Expanded(child: ListView(padding: const EdgeInsets.all(16), children: [
-          _title('Delivery Route'),
-          _locField(Icons.radio_button_checked, const Color(0xFF4CAF50), _pickupCtrl, 'Pickup location', pickup: true),
-          ..._pickSug.map((s) => _sugTile(s, pickup: true)),
-          const SizedBox(height: 8),
-          _locField(Icons.location_on, const Color(0xFFFF5252), _dropCtrl, 'Drop location', pickup: false),
-          ..._dropSug.map((s) => _sugTile(s, pickup: false)),
+          _title('Send or Receive Parcel'),
+          Container(
+            decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.grey[200]!)),
+            padding: const EdgeInsets.all(10),
+            child: Column(children: [
+              Row(children: [
+                _abBadge('A', const Color(0xFF12A150)),
+                const SizedBox(width: 10),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Collect from', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  _locField(Icons.radio_button_checked, const Color(0xFF12A150), _pickupCtrl, 'Add sender address', pickup: true),
+                ])),
+              ]),
+              ..._pickSug.map((s) => _sugTile(s, pickup: true)),
+              Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Divider(height: 1, color: Colors.grey[200])),
+              Row(children: [
+                _abBadge('B', const Color(0xFFE53935)),
+                const SizedBox(width: 10),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Deliver to', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  _locField(Icons.location_on, const Color(0xFFE53935), _dropCtrl, 'Add recipient address', pickup: false),
+                ])),
+              ]),
+              ..._dropSug.map((s) => _sugTile(s, pickup: false)),
+            ]),
+          ),
+          const SizedBox(height: 16),
+          // Fit these specifications
+          _title('Fit these specifications'),
+          _spec(Icons.inventory_2_outlined, 'Parcel weighs 20kg or less'),
+          _spec(Icons.block, 'No illegal, alcohol or restricted items'),
+          _spec(Icons.backpack_outlined, 'Item should fit in a backpack'),
+          _spec(Icons.warning_amber_rounded, 'Avoid sending high value & fragile items'),
 
           const SizedBox(height: 16), _title('Parcel Details'),
           Wrap(spacing: 8, runSpacing: 8, children: _itemTypes.map(_chip).toList()),
