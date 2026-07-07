@@ -375,7 +375,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    if (_activeRide != null) ...[_buildActiveRideBanner(), const SizedBox(height: 14)],
                     // Search
                     _homeSearchBar(),
                     const SizedBox(height: 16),
@@ -384,6 +383,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       Wrap(spacing: 10, runSpacing: 10, children: _favourites.entries.map((e) => _favChip(e.key, e.value)).toList()),
                       const SizedBox(height: 18),
                     ],
+                    // Active ride banner — between favourites and services (cancel etc. from here)
+                    if (_activeRide != null) ...[_buildActiveRideBanner(), const SizedBox(height: 18)],
                     // Services — horizontal scroll
                     const Text('Our services', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 12),
