@@ -14,6 +14,7 @@ import 'rating_screen.dart';
 import 'rental_booking_details_screen.dart';
 import '../widgets/payment_coupon_bar.dart';
 import '../widgets/payment_method_picker.dart';
+import '../widgets/sos_button.dart';
 import '../widgets/finding_driver_view.dart';
 
 class RentalScreen extends StatefulWidget {
@@ -1415,6 +1416,8 @@ class _RentalScreenState extends State<RentalScreen> {
                   ],
                 ),
               ),
+              sosButton(context, _rideId),
+              const SizedBox(height: 12),
               paymentMethodRow(context, _paymentMode, () async {
                 final m = await showPaymentPicker(context, _paymentMode);
                 if (m != null) setSheet(() => _paymentMode = m);

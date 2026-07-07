@@ -12,6 +12,7 @@ import '../utils/call_util.dart';
 import 'ride_chat_screen.dart';
 import '../widgets/payment_coupon_bar.dart';
 import '../widgets/payment_method_picker.dart';
+import '../widgets/sos_button.dart';
 import '../widgets/finding_driver_view.dart';
 import 'booking_screen.dart';
 import 'home_screen.dart';
@@ -2121,6 +2122,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
               
               const SizedBox(height: 12),
               
+              sosButton(context, _rideId),
+              const SizedBox(height: 12),
               // Change payment method
               StatefulBuilder(builder: (context, setRow) => paymentMethodRow(context, _paymentMode, () async {
                 final m = await showPaymentPicker(context, _paymentMode);

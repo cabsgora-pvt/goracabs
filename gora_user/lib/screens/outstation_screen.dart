@@ -9,6 +9,7 @@ import '../services/payment_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/polyline_utils.dart';
 import '../utils/call_util.dart';
+import '../widgets/sos_button.dart';
 import 'ride_chat_screen.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
@@ -2519,6 +2520,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
                 ),
               ],
               const SizedBox(height: 16),
+              sosButton(context, _rideId),
+              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(child: ElevatedButton.icon(

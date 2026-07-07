@@ -11,6 +11,7 @@ import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
 import 'invoice_page.dart';
+import 'emergency_actions_page.dart';
 
 // Delivery flow after pickup-OTP start: collect from sender → deliver to receiver (drop OTP).
 class DeliveryProgressPage extends StatefulWidget {
@@ -142,6 +143,13 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
       appBar: AppBar(title: const Text('Parcel Delivery'), backgroundColor: AppColors.primary, foregroundColor: Colors.white,
         actions: [IconButton(icon: const Icon(Icons.navigation), tooltip: 'Navigate', onPressed: _navigate)]),
       backgroundColor: AppColors.cardBg,
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'sos',
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EmergencyActionsPage(rideId: widget.ride.id))),
+        backgroundColor: AppColors.red,
+        icon: const Icon(Icons.sos, color: Colors.white),
+        label: const Text('SOS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+      ),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         // COD banner
         if (r.codAmount > 0) Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(12),

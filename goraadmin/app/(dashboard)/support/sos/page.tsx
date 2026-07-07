@@ -8,7 +8,15 @@ import { Plus, Trash2, Phone, AlertCircle } from 'lucide-react'
 
 export default function SOSPage() {
   const [contacts, setContacts] = useState<any[]>([])
+  const [alerts, setAlerts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+
+  const fetchAlerts = () => {
+    fetch('/api/support/sos-alert')
+      .then(r => r.json())
+      .then(d => setAlerts(d.alerts || []))
+      .catch(() => {})
+  }
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState({ name: '', phone: '', relation: '' })
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -20,7 +28,12 @@ export default function SOSPage() {
       .catch(() => setLoading(false))
   }
 
-  useEffect(() => { fetchContacts() }, [])
+  useEffect(() => {
+    fetchContacts()
+    fetchAlerts()
+    const t = setInterval(fetchAlerts, 10000) // refresh live alerts every 10s
+    return () => clearInterval(t)
+  }, [])
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -56,6 +69,59 @@ export default function SOSPage() {
             </button>
           }
         />
+
+        {/* Live SOS alerts raised during rides */}
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+          <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-red-600" />
+            <h3 className="font-semibold text-gray-800">Live SOS Alerts</h3>
+            {alerts.filter(a => a.status === 'active').length > 0 && (
+              <span className="text-xs px-2 py-0.5 bg-red-600 text-white rounded-full animate-pulse">
+                {alerts.filter(a => a.status === 'active').length} active
+              </span>
+            )}
+            <span className="ml-auto text-xs text-gray-400">auto-refreshes every 10s</span>
+          </div>
+          {alerts.length === 0 ? (
+            <p className="px-5 py-6 text-sm text-gray-400">No SOS alerts raised.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-100">
+                    {['When', 'By', 'Name', 'Phone', 'Ride', 'Location'].map(h => (
+                      <th key={h} className="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {alerts.map(a => (
+                    <tr key={a._id} className={a.status === 'active' ? 'bg-red-50' : 'hover:bg-gray-50'}>
+                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{new Date(a.createdAt).toLocaleString()}</td>
+                      <td className="px-4 py-3">
+                        <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 rounded-full capitalize">{a.triggeredBy}</span>
+                      </td>
+                      <td className="px-4 py-3 font-medium text-gray-800">{a.name || '—'}</td>
+                      <td className="px-4 py-3">
+                        {a.phone ? <a href={`tel:${a.phone}`} className="text-blue-600 font-mono">{a.phone}</a> : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600">
+                        {a.rideId ? `${a.rideId.service || 'ride'} · ${a.rideId.status || ''}` : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 max-w-xs truncate">
+                        {a.lat && a.lng ? (
+                          <a href={`https://maps.google.com/?q=${a.lat},${a.lng}`} target="_blank" rel="noopener noreferrer" className="text-blue-600">
+                            {a.address || `${a.lat.toFixed(4)}, ${a.lng.toFixed(4)}`}
+                          </a>
+                        ) : (a.address || '—')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />

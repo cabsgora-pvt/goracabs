@@ -5,6 +5,7 @@ import '../../../core/widgets/app_widgets.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 import 'invoice_page.dart';
+import 'emergency_actions_page.dart';
 
 // Live hire-a-driver screen: timer vs booked hours, extend, end with overtime bill.
 class HireProgressPage extends StatefulWidget {
@@ -90,6 +91,13 @@ class _HireProgressPageState extends State<HireProgressPage> {
     return Scaffold(
       appBar: blueAppBar('Hire in Progress'),
       backgroundColor: AppColors.cardBg,
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'sos',
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EmergencyActionsPage(rideId: widget.ride.id))),
+        backgroundColor: AppColors.red,
+        icon: const Icon(Icons.sos, color: Colors.white),
+        label: const Text('SOS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+      ),
       body: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
         Container(padding: const EdgeInsets.all(16), width: double.infinity,
           decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16)),

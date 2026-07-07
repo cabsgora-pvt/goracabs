@@ -161,6 +161,10 @@ class DriverApiService {
   static Future<Map<String, dynamic>> completeRide(String id) =>
       post('/rides/$id/complete', {}, auth: true);
 
+  // SOS alert (raised when the driver taps SOS)
+  static Future<Map<String, dynamic>> sendSosAlert(Map<String, dynamic> body) =>
+      post('/support/sos-alert', body, auth: true);
+
   // In-ride chat (driver ↔ rider)
   static Future<Map<String, dynamic>> getRideMessages(String rideId) =>
       get('/rides/$rideId/messages');

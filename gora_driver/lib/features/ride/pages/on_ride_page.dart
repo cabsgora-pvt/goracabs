@@ -9,6 +9,7 @@ import '../bloc/ride_bloc.dart';
 import '../../home/pages/map_placeholder.dart' show RideMap;
 import 'invoice_page.dart';
 import 'ride_chat_page.dart';
+import 'emergency_actions_page.dart';
 import 'rental_progress_page.dart';
 import 'hire_progress_page.dart';
 import 'delivery_progress_page.dart';
@@ -97,8 +98,16 @@ class OnRidePage extends StatelessWidget {
                         ]),
                       ),
                       const Spacer(),
+                      GestureDetector(
+                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EmergencyActionsPage(rideId: r.id))),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(color: AppColors.red, borderRadius: BorderRadius.circular(20)),
+                          child: const Text('SOS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.5)),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
                       IconButton(icon: const Icon(Icons.chat_bubble_outline, color: Colors.white), onPressed: () => _showChat(context, r)),
-                      IconButton(icon: const Icon(Icons.phone, color: Colors.white), onPressed: () {}),
                     ]),
                   ),
                 ),

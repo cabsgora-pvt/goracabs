@@ -10,8 +10,10 @@ import '../services/payment_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/call_util.dart';
 import 'ride_chat_screen.dart';
+import 'parcel_bill_screen.dart';
 import '../widgets/payment_coupon_bar.dart';
 import '../widgets/payment_method_picker.dart';
+import '../widgets/sos_button.dart';
 import '../widgets/finding_driver_view.dart';
 import 'home_screen.dart';
 import 'rating_screen.dart';
@@ -177,6 +179,9 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           if (!mounted) return;
           t.cancel(); if (!mounted) return;
           Navigator.of(context, rootNavigator: true).popUntil((r) => r.isFirst);
+          // Ola-style bill screen, then rating
+          await Navigator.push(context, MaterialPageRoute(builder: (_) => ParcelBillScreen(amount: _payableFare, vehicleName: _selectedVehicle ?? 'Delivery')));
+          if (!mounted) return;
           Navigator.push(context, MaterialPageRoute(builder: (_) => RatingScreen(driverName: _driverName, vehicleName: _selectedVehicle ?? 'Delivery', selectedTip: 0, rideId: _rideId)));
         }
       } catch (_) {}
@@ -631,6 +636,8 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
             ])),
           ]),
           const SizedBox(height: 14),
+          sosButton(context, _rideId),
+          const SizedBox(height: 12),
           if (!_cod)
             paymentMethodRow(context, _paymentMode, () async {
               final m = await showPaymentPicker(context, _paymentMode);

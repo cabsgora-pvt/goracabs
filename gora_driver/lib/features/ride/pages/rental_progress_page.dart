@@ -6,6 +6,7 @@ import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
 import 'invoice_page.dart';
+import 'emergency_actions_page.dart';
 
 // Live rental-in-progress screen: timer, odometer, waiting toggle, extend, end with extras.
 class RentalProgressPage extends StatefulWidget {
@@ -140,6 +141,13 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
     final overKm = _actualKm > _pkgKm;
     return Scaffold(
       appBar: blueAppBar('Rental in Progress'),
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'sos',
+        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EmergencyActionsPage(rideId: widget.ride.id))),
+        backgroundColor: AppColors.red,
+        icon: const Icon(Icons.sos, color: Colors.white),
+        label: const Text('SOS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+      ),
       backgroundColor: AppColors.cardBg,
       body: Padding(padding: const EdgeInsets.all(16), child: Column(children: [
         // Rider + package
