@@ -5,13 +5,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../providers/driver_provider.dart';
-import '../../../core/widgets/app_widgets.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
 import '../../earnings/pages/earnings_page.dart';
 import '../../account/pages/account_page.dart';
 import '../../ride/pages/incoming_requests_page.dart';
 import '../../wallet/pages/wallet_page.dart';
+import '../../account/service_prefs.dart';
 import '../bloc/home_bloc.dart';
 import 'map_placeholder.dart';
 
@@ -72,82 +72,64 @@ class _HomeTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
     return BlocBuilder<HomeBloc, HomeState>(
       builder: (context, state) {
         final isOnline = homeBloc.isOnline;
         final summary = homeBloc.summary;
         final dp = context.watch<DriverProvider>();
-        final picUrl = dp.profilePicUrl;
 
         return Scaffold(
           appBar: AppBar(
             backgroundColor: AppColors.primary,
             elevation: 0,
             automaticallyImplyLeading: false,
-            titleSpacing: 16,
-            title: Row(children: [
-              CircleAvatar(
-                backgroundColor: Colors.white24,
-                radius: 18,
-                backgroundImage: picUrl.isNotEmpty ? NetworkImage(picUrl) : null,
-                child: picUrl.isEmpty
-                    ? Text(dp.name.isNotEmpty ? dp.name[0].toUpperCase() : 'D',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
-                    : null,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  dp.name.isNotEmpty ? dp.name : 'Driver',
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+            titleSpacing: 4,
+            // Preference (left) → Online toggle → Notification (right)
+            leading: IconButton(
+              icon: const Icon(Icons.tune_rounded, color: Colors.white),
+              tooltip: 'Preferences',
+              onPressed: () => showServicePrefsTopSheet(context),
+            ),
+            // Online/Offline toggle — centered
+            centerTitle: true,
+            title: GestureDetector(
+              onTap: () => context.read<HomeBloc>().add(ToggleOnlineEvent(!isOnline)),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 250),
+                width: 104, height: 34,
+                decoration: BoxDecoration(
+                  color: isOnline ? AppColors.green : Colors.grey.shade500,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 4, offset: const Offset(0, 2))],
                 ),
-              ),
-            ]),
-            actions: [
-              // Online/Offline toggle switch — green (online) / gray (offline)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-                child: GestureDetector(
-                  onTap: () => context.read<HomeBloc>().add(ToggleOnlineEvent(!isOnline)),
-                  child: AnimatedContainer(
+                child: Stack(children: [
+                  AnimatedAlign(
                     duration: const Duration(milliseconds: 250),
-                    width: 104, height: 34,
-                    decoration: BoxDecoration(
-                      color: isOnline ? AppColors.green : Colors.grey.shade500,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 4, offset: const Offset(0, 2))],
+                    alignment: isOnline ? Alignment.centerLeft : Alignment.centerRight,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text(isOnline ? 'Online' : 'Offline',
+                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.white)),
                     ),
-                    child: Stack(children: [
-                      AnimatedAlign(
-                        duration: const Duration(milliseconds: 250),
-                        alignment: isOnline ? Alignment.centerLeft : Alignment.centerRight,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Text(isOnline ? 'Online' : 'Offline',
-                            style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.white)),
-                        ),
-                      ),
-                      AnimatedAlign(
-                        duration: const Duration(milliseconds: 250),
-                        curve: Curves.easeOut,
-                        alignment: isOnline ? Alignment.centerRight : Alignment.centerLeft,
-                        child: Padding(
-                          padding: const EdgeInsets.all(3),
-                          child: Container(
-                            width: 28, height: 28,
-                            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                            child: Icon(isOnline ? Icons.check : Icons.power_settings_new,
-                              size: 16, color: isOnline ? AppColors.green : Colors.grey.shade600),
-                          ),
-                        ),
-                      ),
-                    ]),
                   ),
-                ),
+                  AnimatedAlign(
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeOut,
+                    alignment: isOnline ? Alignment.centerRight : Alignment.centerLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.all(3),
+                      child: Container(
+                        width: 28, height: 28,
+                        decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                        child: Icon(isOnline ? Icons.check : Icons.power_settings_new,
+                          size: 16, color: isOnline ? AppColors.green : Colors.grey.shade600),
+                      ),
+                    ),
+                  ),
+                ]),
               ),
+            ),
+            actions: [
               IconButton(icon: const Icon(Icons.notifications_rounded, color: Colors.white), onPressed: () => Navigator.pushNamed(context, '/notifications')),
             ],
           ),
