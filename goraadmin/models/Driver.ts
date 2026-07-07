@@ -1,9 +1,13 @@
 import mongoose, { Schema } from 'mongoose'
 const DocumentSchema = new Schema({
   name: String,
-  fileUrl: String,
+  type: String,          // 'aadhaar' | 'pan' | 'rc' | 'insurance' | 'dl'
+  number: String,        // document number entered by the driver
+  fileUrl: String,       // front image (kept for backward compatibility)
+  frontUrl: String,      // front image
+  backUrl: String,       // back image (aadhaar / insurance)
   status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
-  expiryDate: String,
+  expiryDate: String,    // insurance expiry (yyyy-MM-dd)
   uploadedAt: Date,
 })
 const DriverSchema = new Schema({

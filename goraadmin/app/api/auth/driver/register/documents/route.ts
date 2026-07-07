@@ -20,9 +20,17 @@ export async function POST(req: NextRequest) {
     }
 
     await connectDB()
-    const docs = documents.map((doc: { name: string; fileUrl: string }) => ({
+    const docs = documents.map((doc: {
+      name: string; type?: string; number?: string;
+      fileUrl?: string; frontUrl?: string; backUrl?: string; expiryDate?: string;
+    }) => ({
       name: doc.name,
-      fileUrl: doc.fileUrl,
+      type: doc.type,
+      number: doc.number,
+      fileUrl: doc.frontUrl || doc.fileUrl,
+      frontUrl: doc.frontUrl || doc.fileUrl,
+      backUrl: doc.backUrl,
+      expiryDate: doc.expiryDate,
       status: 'pending',
       uploadedAt: new Date(),
     }))

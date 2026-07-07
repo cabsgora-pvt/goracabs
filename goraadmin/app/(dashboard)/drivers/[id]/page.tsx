@@ -610,25 +610,36 @@ export default function DriverDetailPage() {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {(driver.documents || []).map((doc: any) => (
                   <div key={doc._id} className="border border-gray-200 rounded-lg overflow-hidden">
-                    {doc.fileUrl ? (
-                      <a href={doc.fileUrl} target="_blank" rel="noopener noreferrer" className="block">
-                        <img
-                          src={doc.fileUrl}
-                          alt={doc.name}
-                          className="w-full h-28 object-cover"
-                          onError={(e) => {
-                            const el = e.target as HTMLImageElement
-                            el.parentElement!.innerHTML = '<div class="w-full h-28 bg-gray-100 flex items-center justify-center text-gray-300 text-xs">No preview</div>'
-                          }}
-                        />
-                      </a>
-                    ) : (
-                      <div className="w-full h-28 bg-gray-100 flex items-center justify-center">
-                        <FileText className="w-8 h-8 text-gray-300" />
-                      </div>
-                    )}
+                    <div className={doc.backUrl ? 'grid grid-cols-2 gap-px bg-gray-100' : ''}>
+                      {[{ label: 'Front', url: doc.frontUrl || doc.fileUrl }, ...(doc.backUrl ? [{ label: 'Back', url: doc.backUrl }] : [])].map((img: any, i: number) => (
+                        img.url ? (
+                          <a key={i} href={img.url} target="_blank" rel="noopener noreferrer" className="block relative">
+                            <img
+                              src={img.url}
+                              alt={`${doc.name} ${img.label}`}
+                              className="w-full h-24 object-cover"
+                              onError={(e) => {
+                                const el = e.target as HTMLImageElement
+                                el.parentElement!.innerHTML = '<div class="w-full h-24 bg-gray-100 flex items-center justify-center text-gray-300 text-xs">No preview</div>'
+                              }}
+                            />
+                            <span className="absolute bottom-0 left-0 bg-black/50 text-white text-[9px] px-1 rounded-tr">{img.label}</span>
+                          </a>
+                        ) : (
+                          <div key={i} className="w-full h-24 bg-gray-100 flex items-center justify-center">
+                            <FileText className="w-8 h-8 text-gray-300" />
+                          </div>
+                        )
+                      ))}
+                    </div>
                     <div className="p-2">
-                      <p className="text-xs font-medium text-gray-800 mb-1">{doc.name}</p>
+                      <p className="text-xs font-medium text-gray-800 mb-0.5">{doc.name}</p>
+                      {doc.number && (
+                        <p className="text-[11px] text-gray-500 mb-0.5">No: <span className="font-medium text-gray-700">{doc.number}</span></p>
+                      )}
+                      {doc.expiryDate && (
+                        <p className="text-[11px] text-gray-500 mb-1">Expiry: <span className="font-medium text-gray-700">{doc.expiryDate}</span></p>
+                      )}
                       <div className="flex items-center justify-between">
                         <Badge status={doc.status} />
                         <div className="flex gap-1">

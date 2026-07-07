@@ -1,18 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/widgets/app_widgets.dart';
 import '../../services/driver_api_service.dart';
 // import 'bank_details_page.dart'; // Bank details deferred — driver can add later from settings
+import 'document_detail_page.dart';
 import 'kyc_success_page.dart';
 
-const _requiredDocs = [
-  'Aadhaar Card',
-  'PAN Card',
-  'RC Book (Vehicle Registration)',
-  'PUC Certificate',
-  'Vehicle Insurance',
-  'Driving License',
+// Documents required at registration. Each opens its own detail page where the
+// driver enters the number (+ expiry for insurance) and uploads front/back images.
+const _docSpecs = <DocSpec>[
+  DocSpec(key: 'aadhaar', name: 'Aadhaar Card', numberLabel: 'Aadhaar Number', needsBack: true),
+  DocSpec(key: 'pan', name: 'PAN Card', numberLabel: 'PAN Number'),
+  DocSpec(key: 'rc', name: 'RC Book', numberLabel: 'RC Book Number'),
+  DocSpec(key: 'insurance', name: 'Vehicle Insurance', numberLabel: 'Insurance Number', needsBack: true, needsExpiry: true),
+  DocSpec(key: 'dl', name: 'Driving License', numberLabel: 'License Number'),
 ];
 
 class DocumentUploadPage extends StatefulWidget {
@@ -23,41 +24,42 @@ class DocumentUploadPage extends StatefulWidget {
 }
 
 class _DocumentUploadPageState extends State<DocumentUploadPage> {
-  final Map<String, String?> _uploadedUrls = {for (final d in _requiredDocs) d: null};
-  final Map<String, bool> _uploading = {for (final d in _requiredDocs) d: false};
+  final Map<String, DocData> _data = {for (final s in _docSpecs) s.key: DocData()};
   bool _submitting = false;
 
-  Future<void> _pickAndUpload(String docName) async {
-    final picker = ImagePicker();
-    final file = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
-    if (file == null) return;
+  int get _completed => _docSpecs.where((s) => _data[s.key]!.isComplete(s)).length;
+  bool get _allComplete => _completed == _docSpecs.length;
 
-    setState(() => _uploading[docName] = true);
-    try {
-      final url = await DriverApiService.uploadFile(file);
-      if (mounted) setState(() => _uploadedUrls[docName] = url);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Upload failed: $e'), backgroundColor: AppColors.red),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _uploading[docName] = false);
-    }
+  Future<void> _openDoc(DocSpec spec) async {
+    final result = await Navigator.push<DocData>(
+      context,
+      MaterialPageRoute(builder: (_) => DocumentDetailPage(spec: spec, initial: _data[spec.key]!.copy())),
+    );
+    if (result != null && mounted) setState(() => _data[spec.key] = result);
   }
 
   Future<void> _submit() async {
-    final missing = _requiredDocs.where((d) => _uploadedUrls[d] == null).toList();
+    final missing = _docSpecs.where((s) => !_data[s.key]!.isComplete(s)).toList();
     if (missing.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Please upload: ${missing.first}'), backgroundColor: AppColors.orange),
+        SnackBar(content: Text('Please complete: ${missing.first.name}'), backgroundColor: AppColors.orange),
       );
       return;
     }
     setState(() => _submitting = true);
     try {
-      final docs = _requiredDocs.map((d) => {'name': d, 'fileUrl': _uploadedUrls[d]!}).toList();
+      final docs = _docSpecs.map((s) {
+        final d = _data[s.key]!;
+        return {
+          'type': s.key,
+          'name': s.name,
+          'number': d.number,
+          'frontUrl': d.frontUrl,
+          if (s.needsBack) 'backUrl': d.backUrl,
+          if (s.needsExpiry) 'expiryDate': d.expiry,
+          'fileUrl': d.frontUrl, // backward-compat with the old single-image field
+        };
+      }).toList();
       final res = await DriverApiService.saveDocuments(docs);
       if (!mounted) return;
       if (res['error'] != null) {
@@ -76,7 +78,6 @@ class _DocumentUploadPageState extends State<DocumentUploadPage> {
 
   @override
   Widget build(BuildContext context) {
-    final allUploaded = _requiredDocs.every((d) => _uploadedUrls[d] != null);
     return Scaffold(
       body: Column(
         children: [
@@ -87,13 +88,27 @@ class _DocumentUploadPageState extends State<DocumentUploadPage> {
               children: [
                 const SizedBox(height: 8),
                 _stepIndicator(3),
+                const SizedBox(height: 12),
+                // Completed counter
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: AppColors.divider)),
+                  child: Row(children: [
+                    Icon(_allComplete ? Icons.check_circle : Icons.folder_open, color: _allComplete ? AppColors.green : AppColors.primary, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text('$_completed of ${_docSpecs.length} documents completed',
+                        style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 13))),
+                    Text('${((_completed / _docSpecs.length) * 100).round()}%',
+                        style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.primary)),
+                  ]),
+                ),
                 const SizedBox(height: 16),
-                ..._requiredDocs.map((docName) => _buildDocCard(docName)),
+                ..._docSpecs.map(_buildDocCard),
                 const SizedBox(height: 24),
                 PrimaryButton(
-                  label: allUploaded ? 'Continue' : 'Upload All Documents to Continue',
+                  label: _allComplete ? 'Submit Documents' : 'Complete All Documents to Continue',
                   loading: _submitting,
-                  onTap: allUploaded ? _submit : null,
+                  onTap: _allComplete ? _submit : null,
                 ),
                 const SizedBox(height: 16),
               ],
@@ -104,97 +119,52 @@ class _DocumentUploadPageState extends State<DocumentUploadPage> {
     );
   }
 
-  Widget _buildDocCard(String docName) {
-    final url = _uploadedUrls[docName];
-    final isUploading = _uploading[docName] == true;
-    final uploaded = url != null;
-
+  Widget _buildDocCard(DocSpec spec) {
+    final d = _data[spec.key]!;
+    final done = d.isComplete(spec);
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: uploaded ? AppColors.green : AppColors.divider,
-          width: uploaded ? 1.5 : 1,
-        ),
+        border: Border.all(color: done ? AppColors.green : AppColors.divider, width: done ? 1.5 : 1),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4)],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            // Thumbnail or placeholder
-            GestureDetector(
-              onTap: uploaded ? () => _showPreview(context, url!) : null,
-              child: Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  color: AppColors.cardBg,
-                  border: Border.all(color: AppColors.divider),
-                ),
-                child: uploaded
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(7),
-                        child: Image.network(
-                          url!,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const Icon(Icons.insert_drive_file_rounded, color: AppColors.primary),
-                        ),
-                      )
-                    : Icon(Icons.upload_file_rounded, color: AppColors.textGrey, size: 28),
-              ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _openDoc(spec),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(children: [
+            Container(
+              width: 48, height: 48,
+              decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(10)),
+              child: Icon(done ? Icons.check_circle_rounded : Icons.description_outlined,
+                  color: done ? AppColors.green : AppColors.primary, size: 24),
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(docName, style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.textDark, fontSize: 14)),
-                  const SizedBox(height: 4),
-                  uploaded
-                      ? const Row(children: [
-                          Icon(Icons.check_circle_rounded, size: 14, color: AppColors.green),
-                          SizedBox(width: 4),
-                          Text('Uploaded', style: TextStyle(color: AppColors.green, fontSize: 12, fontWeight: FontWeight.w600)),
-                        ])
-                      : Text('Not uploaded', style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
-                ],
-              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(spec.name, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 14)),
+                const SizedBox(height: 3),
+                Text(
+                  done ? 'Completed' : _requirementHint(spec),
+                  style: TextStyle(color: done ? AppColors.green : AppColors.textGrey, fontSize: 12, fontWeight: done ? FontWeight.w600 : FontWeight.normal),
+                ),
+              ]),
             ),
-            const SizedBox(width: 8),
-            isUploading
-                ? const SizedBox(width: 36, height: 36, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
-                : TextButton(
-                    onPressed: () => _pickAndUpload(docName),
-                    style: TextButton.styleFrom(
-                      backgroundColor: uploaded ? AppColors.cardBg : AppColors.primary.withOpacity(0.1),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    child: Text(
-                      uploaded ? 'Change' : 'Upload',
-                      style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 13),
-                    ),
-                  ),
-          ],
+            Icon(Icons.chevron_right_rounded, color: AppColors.textGrey),
+          ]),
         ),
       ),
     );
   }
 
-  void _showPreview(BuildContext context, String url) {
-    showDialog(
-      context: context,
-      builder: (_) => Dialog(
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: Image.network(url, fit: BoxFit.contain),
-        ),
-      ),
-    );
+  String _requirementHint(DocSpec s) {
+    final parts = <String>['Number', 'Front'];
+    if (s.needsBack) parts.add('Back');
+    if (s.needsExpiry) parts.add('Expiry');
+    return 'Needs: ${parts.join(", ")}';
   }
 
   Widget _buildHeader() {

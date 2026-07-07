@@ -591,8 +591,8 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     if (iso == null) return '';
     final d = DateTime.tryParse(iso.toString())?.toLocal();
     if (d == null) return '';
-    const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return '${d.day} ${m[d.month-1]} ${d.year}';
+    // dd-MM-yyyy
+    return '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}-${d.year}';
   }
 
   Future<void> _buy(Map<String, dynamic> plan) async {
