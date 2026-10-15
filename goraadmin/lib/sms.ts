@@ -46,7 +46,9 @@ export async function sendSms(phone: string, message: string): Promise<SmsResult
         `&templateid=${encodeURIComponent(c.templateId)}`
       const res = await fetch(url, { method: 'GET' })
       const text = await res.text()
-      const ok = res.ok && !/error|invalid|fail|insufficient|not\s*found/i.test(text)
+      // SMS Indori answers HTTP 200 even on rejection, e.g. "Please Provide
+      // valid routeid" / "Please Assign Mobile Number", so match the text too.
+      const ok = res.ok && !/error|invalid|fail|insufficient|not\s*found|please\s+(provide|assign)/i.test(text)
       // Log for VPS debugging (key masked)
       console.log(`[SMS Indori] number=${number} sender=${c.senderId} tpl=${c.templateId} route=${c.route || '16'} httpStatus=${res.status} response=${text}`)
       return { success: ok, message: ok ? 'SMS sent' : `SMS Indori error: ${text}`, raw: text }
