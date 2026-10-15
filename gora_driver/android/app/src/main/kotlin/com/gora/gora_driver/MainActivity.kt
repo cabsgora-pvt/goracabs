@@ -1,4 +1,4 @@
-package com.example.gora_driver
+package com.gora.gora_driver
 
 import io.flutter.embedding.android.FlutterActivity
 

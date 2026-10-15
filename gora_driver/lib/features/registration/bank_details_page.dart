@@ -128,6 +128,10 @@ class _BankDetailsPageState extends State<BankDetailsPage> {
                     ),
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
+                      // Without isExpanded a dropdown sizes to its LONGEST item, so a long
+                      // option overflowed the field on narrow screens. Expanding it makes
+                      // the selected label ellipsise inside the decoration instead.
+                      isExpanded: true,
                       value: _accountType,
                       decoration: const InputDecoration(
                         labelText: 'Account Type *',

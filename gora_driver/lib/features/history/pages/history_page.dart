@@ -20,7 +20,14 @@ class HistoryPage extends StatelessWidget {
         body: BlocBuilder<HistoryBloc, HistoryState>(
           builder: (context, state) {
             if (state is HistoryLoading) return const AppLoader();
-            if (state is HistoryLoaded) return _TripList(trips: state.trips);
+            if (state is HistoryLoaded) {
+              if (state.loadFailed) {
+                return const EmptyState(message: "Couldn't load trips — check your connection", icon: Icons.wifi_off);
+              }
+              return state.trips.isEmpty
+                  ? const EmptyState(message: 'No trips yet', icon: Icons.history)
+                  : _TripList(trips: state.trips);
+            }
             return const EmptyState(message: 'No trips yet', icon: Icons.history);
           },
         ),
@@ -90,7 +97,10 @@ class _TripCard extends StatelessWidget {
           const SizedBox(height: 10),
           Row(children: [
             CircleAvatar(radius: 20, backgroundColor: AppColors.primary.withOpacity(0.1),
-              child: Text(trip.userName[0], style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.primary))),
+              backgroundImage: trip.userProfilePicUrl.isNotEmpty ? NetworkImage(trip.userProfilePicUrl) : null,
+              child: trip.userProfilePicUrl.isEmpty
+                  ? Text(trip.userName[0], style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.primary))
+                  : null),
             const SizedBox(width: 12),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(trip.userName, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textDark)),

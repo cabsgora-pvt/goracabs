@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:geolocator/geolocator.dart';
 
 class LocationService {
@@ -39,11 +40,74 @@ class LocationService {
     }
   }
 
-  static Stream<Position> liveLocation() {
+  /// Asks for "always" location, needed for tracking to survive backgrounding.
+  ///
+  /// Android requires the coarse/fine grant first and only then allows the
+  /// background upgrade, so this is called after a normal permission flow —
+  /// never as the first prompt a driver sees.
+  static Future<bool> ensureBackgroundPermission() async {
+    try {
+      var p = await Geolocator.checkPermission();
+      if (p == LocationPermission.denied) p = await Geolocator.requestPermission();
+      if (p == LocationPermission.denied || p == LocationPermission.deniedForever) return false;
+      if (p == LocationPermission.whileInUse) {
+        // Second request is what surfaces the "Allow all the time" option.
+        p = await Geolocator.requestPermission();
+      }
+      return p == LocationPermission.always || p == LocationPermission.whileInUse;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Live position stream.
+  ///
+  /// [background] keeps the stream alive when the app is not in the foreground
+  /// by running an Android foreground service (and enabling the iOS background
+  /// location indicator). Without it, tracking silently stops the moment the
+  /// driver switches apps — which is why the rental odometer under-counted and
+  /// navigation froze mid-trip.
+  ///
+  /// The manifest already declares FOREGROUND_SERVICE_LOCATION,
+  /// ACCESS_BACKGROUND_LOCATION, WAKE_LOCK and POST_NOTIFICATIONS.
+  static Stream<Position> liveLocation({
+    bool background = false,
+    int distanceFilter = 10,
+    String notificationTitle = 'Gora Driver',
+    String notificationText = 'Tracking your trip',
+  }) {
+    if (background && Platform.isAndroid) {
+      return Geolocator.getPositionStream(
+        locationSettings: AndroidSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: distanceFilter,
+          intervalDuration: const Duration(seconds: 5),
+          foregroundNotificationConfig: ForegroundNotificationConfig(
+            notificationTitle: notificationTitle,
+            notificationText: notificationText,
+            enableWakeLock: true,
+            setOngoing: true,
+          ),
+        ),
+      );
+    }
+
+    if (background && Platform.isIOS) {
+      return Geolocator.getPositionStream(
+        locationSettings: AppleSettings(
+          accuracy: LocationAccuracy.high,
+          activityType: ActivityType.automotiveNavigation,
+          distanceFilter: distanceFilter,
+          pauseLocationUpdatesAutomatically: false,
+          showBackgroundLocationIndicator: true,
+        ),
+      );
+    }
+
     return Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
+      locationSettings: LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
+        distanceFilter: distanceFilter,
       ),
     );
   }

@@ -55,7 +55,10 @@ class TripDetailPage extends StatelessWidget {
             const SizedBox(height: 12),
             Row(children: [
               CircleAvatar(backgroundColor: AppColors.primary, radius: 22,
-                child: Text(trip.userName[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+                backgroundImage: trip.userProfilePicUrl.isNotEmpty ? NetworkImage(trip.userProfilePicUrl) : null,
+                child: trip.userProfilePicUrl.isEmpty
+                    ? Text(trip.userName[0], style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))
+                    : null),
               const SizedBox(width: 12),
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(trip.userName, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
-import '../../core/widgets/app_widgets.dart';
 import 'personal_details_page.dart';
 
 class RejectionPage extends StatelessWidget {

@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <!-- For calling rider from the ride screen -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- Face capture at registration and mid-ride identity re-checks -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
     <!-- Keep receiving ride requests while the app is minimized (foreground service) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
@@ -67,6 +71,19 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Required for tel: links on Android 11+ (package visibility).
+             Without it canLaunchUrl('tel:...') returns false, and the SOS
+             screen's Call Police / Call Safety Team buttons silently did nothing. -->
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
+        </intent>
+        <!-- Required by flutter_tts on Android 11+ (package visibility). Without it
+             the app cannot find the device's speech engine and voice guidance is
+             silently mute - the same failure mode as the tel: bug above. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
         </intent>
     </queries>
 </manifest>

@@ -1,15 +1,15 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
-import '../../../mock/mock_data.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 
+// RideBloc is created per-ride with `currentRide` already set (see
+// on_ride_page.dart) — there is no "load the incoming request" event here;
+// incoming_requests_page.dart fetches and accepts the ride directly via
+// DriverApiService before this bloc is ever created.
 abstract class RideEvent extends Equatable {
   @override List<Object?> get props => [];
 }
-class LoadRideRequestEvent extends RideEvent {}
-// Seeds the bloc with a real ride request (from home polling)
-class SetRideRequestEvent extends RideEvent { final RideRequestModel ride; SetRideRequestEvent(this.ride); @override List<Object?> get props => [ride]; }
 class AcceptRideEvent extends RideEvent { final String id; AcceptRideEvent(this.id); @override List<Object?> get props => [id]; }
 class RejectRideEvent extends RideEvent { final String id; RejectRideEvent(this.id); @override List<Object?> get props => [id]; }
 class ArrivedEvent extends RideEvent {}
@@ -21,11 +21,6 @@ abstract class RideState extends Equatable {
 }
 class RideInitial extends RideState {}
 class RideLoading extends RideState {}
-class IncomingRideState extends RideState {
-  final RideRequestModel ride;
-  IncomingRideState(this.ride);
-  @override List<Object?> get props => [ride];
-}
 class RideAcceptedState extends RideState {
   final RideRequestModel ride;
   RideAcceptedState(this.ride);
@@ -33,8 +28,22 @@ class RideAcceptedState extends RideState {
 }
 class ArrivedAtPickupState extends RideState {
   final RideRequestModel ride;
-  ArrivedAtPickupState(this.ride);
-  @override List<Object?> get props => [ride];
+  /// Server-computed seconds already spent waiting. 0 on a fresh arrival; set
+  /// when the server reports the driver had already arrived (a resumed app).
+  final int waitingSec;
+  ArrivedAtPickupState(this.ride, {this.waitingSec = 0});
+  @override List<Object?> get props => [ride, waitingSec];
+}
+/// The server refused or could not record the arrival. The screen stays on the
+/// "arrive" step and says why, instead of pretending the driver had arrived.
+class ArriveFailedState extends RideState {
+  final RideRequestModel ride;
+  final String message;
+  // RideState is Equatable and Bloc drops a state equal to the current one, so
+  // without this a second identical failure would never reach the screen.
+  final int _nonce = DateTime.now().microsecondsSinceEpoch;
+  ArriveFailedState(this.ride, this.message);
+  @override List<Object?> get props => [ride, message, _nonce];
 }
 class RideStartedState extends RideState {
   final RideRequestModel ride;
@@ -62,25 +71,11 @@ class RideBloc extends Bloc<RideEvent, RideState> {
   RideRequestModel? currentRide;
 
   RideBloc() : super(RideInitial()) {
-    on<LoadRideRequestEvent>(_onLoad);
-    on<SetRideRequestEvent>(_onSet);
     on<AcceptRideEvent>(_onAccept);
     on<RejectRideEvent>(_onReject);
     on<ArrivedEvent>(_onArrived);
     on<StartRideEvent>(_onStart);
     on<EndRideEvent>(_onEnd);
-  }
-
-  Future<void> _onLoad(LoadRideRequestEvent e, Emitter emit) async {
-    emit(RideLoading());
-    final ride = await MockRideService.getIncomingRide();
-    currentRide = ride;
-    emit(IncomingRideState(ride));
-  }
-
-  void _onSet(SetRideRequestEvent e, Emitter emit) {
-    currentRide = e.ride;
-    emit(IncomingRideState(e.ride));
   }
 
   Future<void> _onAccept(AcceptRideEvent e, Emitter emit) async {
@@ -102,8 +97,21 @@ class RideBloc extends Bloc<RideEvent, RideState> {
   }
 
   Future<void> _onArrived(ArrivedEvent e, Emitter emit) async {
-    try { await DriverApiService.arrivedRide(currentRide!.id); } catch (_) {}
-    emit(ArrivedAtPickupState(currentRide!));
+    final ride = currentRide!;
+    Map<String, dynamic> res;
+    try {
+      res = await DriverApiService.arrivedRide(ride.id);
+    } catch (_) {
+      res = {'error': 'Could not reach the server. Check your connection and try again.'};
+    }
+    // This used to swallow every failure and emit "arrived" regardless, so on a
+    // dead network the driver's screen said they had arrived while the server —
+    // and the rider — still had them on the way.
+    if (res['error'] != null) {
+      emit(ArriveFailedState(ride, res['error'].toString()));
+      return;
+    }
+    emit(ArrivedAtPickupState(ride, waitingSec: (res['waitingSec'] as num?)?.toInt() ?? 0));
   }
 
   Future<void> _onStart(StartRideEvent e, Emitter emit) async {

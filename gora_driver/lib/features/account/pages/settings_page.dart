@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../providers/theme_provider.dart';
 import 'legal_pages.dart';
+import '../../ride/widgets/voice_settings_card.dart';
 
 class SettingsPage extends StatelessWidget {
   static const route = '/settings';
@@ -41,6 +42,9 @@ class SettingsPage extends StatelessWidget {
               Switch(value: theme.isDark, onChanged: (v) => context.read<ThemeProvider>().toggle(v), activeColor: AppColors.primary),
             ]),
           ),
+
+          section('Navigation'),
+          const VoiceSettingsCard(),
 
           section('Legal'),
           MenuRow(icon: Icons.help_outline, label: 'FAQ', onTap: () => Navigator.pushNamed(context, '/faq')),

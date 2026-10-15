@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import '../features/splash/splash_page.dart';
 import '../features/onboarding/onboarding_page.dart';
 import '../features/auth/pages/login_page.dart';
-import '../features/auth/pages/otp_page.dart';
 import '../features/auth/pages/driver_otp_page.dart';
 import '../features/home/pages/home_page.dart';
 import '../features/registration/personal_details_page.dart';
+import '../features/registration/face_capture_page.dart';
 import '../features/registration/vehicle_selection_page.dart';
 import '../features/registration/vehicle_details_page.dart';
 import '../features/registration/document_upload_page.dart';
@@ -13,7 +13,6 @@ import '../features/registration/bank_details_page.dart';
 import '../features/registration/kyc_success_page.dart';
 import '../features/registration/kyc_pending_page.dart';
 import '../features/registration/rejection_page.dart';
-import '../features/ride/pages/incoming_ride_page.dart';
 import '../features/ride/pages/incoming_requests_page.dart';
 import '../features/ride/pages/on_ride_page.dart';
 import '../features/ride/pages/invoice_page.dart';
@@ -22,7 +21,6 @@ import '../features/earnings/pages/earnings_page.dart';
 import '../features/history/pages/history_page.dart';
 import '../features/wallet/pages/wallet_page.dart';
 import '../features/notifications/pages/notification_page.dart';
-import '../features/account/pages/account_page.dart';
 import '../features/account/pages/profile_page.dart';
 import '../features/account/pages/leaderboard_page.dart';
 import '../features/account/pages/incentive_page.dart';
@@ -41,10 +39,10 @@ class AppRoutes {
     SplashPage.route:              (_) => const SplashPage(),
     OnboardingPage.route:          (_) => const OnboardingPage(),
     LoginPage.route:               (_) => const LoginPage(),
-    OtpPage.route:                 (_) => const OtpPage(),
     DriverOtpPage.route:           (_) => const DriverOtpPage(),
     HomePage.route:                (_) => const HomePage(),
     PersonalDetailsPage.route:     (_) => const PersonalDetailsPage(),
+    FaceCapturePage.route:         (_) => const FaceCapturePage(),
     VehicleSelectionPage.route:    (_) => const VehicleSelectionPage(),
     VehicleDetailsPage.route:      (_) => const VehicleDetailsPage(),
     DocumentUploadPage.route:      (_) => const DocumentUploadPage(),
@@ -52,7 +50,6 @@ class AppRoutes {
     KycSuccessPage.route:          (_) => const KycSuccessPage(),
     KycPendingPage.route:          (_) => const KycPendingPage(),
     RejectionPage.route:           (_) => const RejectionPage(),
-    IncomingRidePage.route:   (_) => const IncomingRidePage(),
     IncomingRequestsPage.route: (_) => const IncomingRequestsPage(),
     OnRidePage.route:         (_) => const OnRidePage(),
     InvoicePage.route:        (_) => const InvoicePage(),

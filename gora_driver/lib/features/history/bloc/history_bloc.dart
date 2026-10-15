@@ -1,6 +1,5 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
-import '../../../mock/mock_data.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 
@@ -8,11 +7,6 @@ abstract class HistoryEvent extends Equatable {
   @override List<Object?> get props => [];
 }
 class LoadHistoryEvent extends HistoryEvent {}
-class LoadTripDetailEvent extends HistoryEvent {
-  final String id;
-  LoadTripDetailEvent(this.id);
-  @override List<Object?> get props => [id];
-}
 
 abstract class HistoryState extends Equatable {
   @override List<Object?> get props => [];
@@ -21,19 +15,17 @@ class HistoryInitial extends HistoryState {}
 class HistoryLoading extends HistoryState {}
 class HistoryLoaded extends HistoryState {
   final List<TripModel> trips;
-  HistoryLoaded(this.trips);
-  @override List<Object?> get props => [trips];
-}
-class TripDetailLoaded extends HistoryState {
-  final TripModel trip;
-  TripDetailLoaded(this.trip);
-  @override List<Object?> get props => [trip];
+  // Set when the list below is empty because the request failed, not because
+  // the driver genuinely has no trips — history_page.dart uses this to show
+  // "couldn't load" instead of a misleading empty state.
+  final bool loadFailed;
+  HistoryLoaded(this.trips, {this.loadFailed = false});
+  @override List<Object?> get props => [trips, loadFailed];
 }
 
 class HistoryBloc extends Bloc<HistoryEvent, HistoryState> {
   HistoryBloc() : super(HistoryInitial()) {
     on<LoadHistoryEvent>(_onLoad);
-    on<LoadTripDetailEvent>(_onDetail);
   }
   Future<void> _onLoad(LoadHistoryEvent e, Emitter emit) async {
     emit(HistoryLoading());
@@ -55,6 +47,7 @@ class HistoryBloc extends Bloc<HistoryEvent, HistoryState> {
           paymentMode: (r['paymentMode'] ?? 'cash').toString(),
           duration: '${r['duration'] ?? 0} min',
           rating: ((r['riderRating'] ?? 0) as num).toDouble(),
+          userProfilePicUrl: (r['riderProfilePicUrl'] ?? '').toString(),
           service: (r['service'] ?? 'taxi').toString(),
           vehicleType: (r['vehicleType'] ?? '').toString(),
           tripType: (r['tripType'] ?? 'one_way').toString(),
@@ -65,14 +58,10 @@ class HistoryBloc extends Bloc<HistoryEvent, HistoryState> {
       }).toList();
       emit(HistoryLoaded(trips));
     } catch (_) {
-      final trips = await MockHistoryService.getHistory();
-      emit(HistoryLoaded(trips));
+      // A real driver's trip list on a network error — showing realistic-looking
+      // fake trips here would read as real ride history, not a loading failure.
+      emit(HistoryLoaded(const [], loadFailed: true));
     }
-  }
-  Future<void> _onDetail(LoadTripDetailEvent e, Emitter emit) async {
-    emit(HistoryLoading());
-    final trip = await MockHistoryService.getTripDetail(e.id);
-    emit(TripDetailLoaded(trip));
   }
 
   String _fmtDate(String? iso) {

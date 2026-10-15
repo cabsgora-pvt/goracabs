@@ -10,7 +10,9 @@ class RideCompletionArgs {
   final RideRequestModel ride;
   final num driverEarning;
   final num adminProfit; // commission taken by admin; 0 when a subscription covers it
-  const RideCompletionArgs(this.ride, {this.driverEarning = 0, this.adminProfit = 0});
+  /// Tolls the rider paid the driver back, in hand. Not earnings: no commission.
+  final num tollCollected;
+  const RideCompletionArgs(this.ride, {this.driverEarning = 0, this.adminProfit = 0, this.tollCollected = 0});
 }
 
 // "Order Complete" screen shown after a ride ends: estimated earning, the
@@ -97,6 +99,22 @@ class _InvoicePageState extends State<InvoicePage> {
                   ])),
                   _commissionBadge(data.adminProfit),
                 ]),
+                if (data.tollCollected > 0) ...[
+                  Divider(color: AppColors.divider, height: 28),
+                  Row(children: [
+                    const Icon(Icons.toll, color: AppColors.primary, size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text('Toll collected from rider',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textDark))),
+                    Text('₹${data.tollCollected.toStringAsFixed(0)}',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppColors.textDark)),
+                  ]),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text('Repays the tolls you paid — not part of your earning, no commission.',
+                        style: TextStyle(fontSize: 11.5, color: AppColors.textGrey)),
+                  ),
+                ],
                 Divider(color: AppColors.divider, height: 28),
                 Row(children: [
                   const Icon(Icons.check_circle, color: AppColors.green, size: 20),

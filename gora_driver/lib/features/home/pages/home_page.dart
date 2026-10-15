@@ -17,6 +17,7 @@ import '../../ride/pages/delivery_progress_page.dart';
 import '../../../models/models.dart';
 import '../../wallet/pages/wallet_page.dart';
 import '../../account/service_prefs.dart';
+import '../../account/pages/face_reverify_page.dart';
 import '../bloc/home_bloc.dart';
 import 'map_placeholder.dart';
 
@@ -41,7 +42,12 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (_) => HomeBloc()..add(LoadHomeDataEvent()),
-      child: BlocBuilder<HomeBloc, HomeState>(
+      child: BlocConsumer<HomeBloc, HomeState>(
+        listener: (context, state) {
+          if (state is FaceVerificationLockedState) {
+            Navigator.push(context, MaterialPageRoute(builder: (_) => FaceReverifyPage(reason: state.reason)));
+          }
+        },
         builder: (context, state) {
           final homeBloc = context.read<HomeBloc>();
           return PopScope(

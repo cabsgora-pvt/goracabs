@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../providers/driver_provider.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
+import '../../../utils/call_util.dart';
 
 // SOS / Emergency Actions for the driver (same as rider side).
 class EmergencyActionsPage extends StatefulWidget {
@@ -61,11 +61,11 @@ class _EmergencyActionsPageState extends State<EmergencyActionsPage> {
     }
   }
 
-  Future<void> _dial(String number) async {
-    if (number.trim().isEmpty) return;
-    final uri = Uri(scheme: 'tel', path: number.trim());
-    if (await canLaunchUrl(uri)) await launchUrl(uri);
-  }
+  // Routed through dialPhone: this used to launch only when canLaunchUrl said
+  // yes, which on Android 11+ without a DIAL query is always no — so Call Police
+  // and Call Safety Team silently did nothing. dialPhone never gates on it, and
+  // shows the number if the dialer cannot open.
+  Future<void> _dial(String number) => dialPhone(number, context: context);
 
   Future<void> _setDefaultContact() async {
     final ctrl = TextEditingController(text: _defaultContact);

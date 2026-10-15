@@ -61,11 +61,19 @@ class _KycPendingPageState extends State<KycPendingPage> {
           ),
         ),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+          // The content is taller than a short screen (153px over at 320x568,
+          // still 23px over at 360x640), so a plain centred Column overflowed.
+          // Scrolling keeps it centred when there is room and reachable when
+          // there is not, which is the behaviour a status screen wants.
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
                 Container(
                   width: 100,
                   height: 100,
@@ -107,9 +115,12 @@ class _KycPendingPageState extends State<KycPendingPage> {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    Text(
-                      'Waiting for admin approval...',
-                      style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13, fontWeight: FontWeight.w600),
+                    Flexible(
+                      child: Text(
+                        'Waiting for admin approval...',
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
                     ),
                   ],
                 ),
@@ -147,7 +158,10 @@ class _KycPendingPageState extends State<KycPendingPage> {
                     ),
                   ),
                 ),
-              ],
+                    ],
+                  ),
+                ),
+              ),
             ),
           ),
         ),
@@ -156,13 +170,25 @@ class _KycPendingPageState extends State<KycPendingPage> {
   }
 
   Widget _infoRow(IconData icon, String label, String value) {
+    // Both labels were bare Texts either side of a Spacer, so a long pair such
+    // as 'We will notify you' / 'Via SMS' overflowed by 136px on a 320pt
+    // screen. Expanded gives the label the slack and lets the value keep its
+    // natural width; both ellipsise rather than push past the edge.
     return Row(
       children: [
         Icon(icon, color: Colors.white70, size: 18),
         const SizedBox(width: 12),
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
-        const Spacer(),
-        Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+        Expanded(
+          child: Text(label,
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: Colors.white70, fontSize: 13)),
+        ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(value,
+            maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.right,
+            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+        ),
       ],
     );
   }

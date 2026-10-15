@@ -23,6 +23,34 @@ class DriverApiService {
     await prefs.remove('driver_token');
   }
 
+  /// Decodes an API response without ever throwing.
+  ///
+  /// Every call site used to do a bare `jsonDecode(res.body) as Map`, which
+  /// throws whenever the body is not a JSON object — and in the real world that
+  /// is common: an nginx 502 returns HTML, a 204 returns nothing, and hotel or
+  /// airport wifi captive portals return a login page for every request. The
+  /// FormatException then propagated out of whatever screen made the call.
+  ///
+  /// Callers already check `res['error']`, so failures are reported that way
+  /// instead of thrown.
+  static Map<String, dynamic> _decode(http.Response res) {
+    final body = res.body;
+    if (body.trim().isEmpty) {
+      return {'error': 'No response from server (HTTP ${res.statusCode})'};
+    }
+    try {
+      final v = jsonDecode(body);
+      if (v is Map<String, dynamic>) return v;
+      return {'error': 'Unexpected response from server'};
+    } catch (_) {
+      return {
+        'error': res.statusCode >= 500
+            ? 'Server error (${res.statusCode}). Please try again.'
+            : 'Could not read the server response. Check your connection.',
+      };
+    }
+  }
+
   static Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body, {bool auth = false}) async {
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (auth) {
@@ -34,7 +62,17 @@ class DriverApiService {
       headers: headers,
       body: jsonEncode(body),
     );
-    return jsonDecode(res.body) as Map<String, dynamic>;
+    return _decode(res);
+  }
+
+  static Future<Map<String, dynamic>> delete(String path) async {
+    final token = await getToken();
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+    final res = await http.delete(Uri.parse('$baseUrl$path'), headers: headers);
+    return _decode(res);
   }
 
   static Future<Map<String, dynamic>> get(String path) async {
@@ -44,13 +82,17 @@ class DriverApiService {
       if (token != null) 'Authorization': 'Bearer $token',
     };
     final res = await http.get(Uri.parse('$baseUrl$path'), headers: headers);
-    return jsonDecode(res.body) as Map<String, dynamic>;
+    return _decode(res);
   }
 
   static Future<String?> uploadFile(XFile file) async {
     final bytes = await file.readAsBytes();
     final uri = Uri.parse('$baseUrl/upload');
     final request = http.MultipartRequest('POST', uri);
+    // /api/upload now requires a signed-in caller — without this header every
+    // document, proof-of-delivery photo and signature upload 401s.
+    final token = await getToken();
+    if (token != null) request.headers['Authorization'] = 'Bearer $token';
     request.files.add(http.MultipartFile.fromBytes(
       'file',
       bytes,
@@ -67,6 +109,8 @@ class DriverApiService {
   static Future<String?> uploadBytes(Uint8List bytes, String filename) async {
     try {
       final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload'));
+      final token = await getToken();
+      if (token != null) request.headers['Authorization'] = 'Bearer $token';
       request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
       final res = await http.Response.fromStream(await request.send());
       final data = jsonDecode(res.body) as Map<String, dynamic>;
@@ -83,6 +127,11 @@ class DriverApiService {
       post('/auth/driver/verify-otp', {'phone': phone, 'otp': otp});
 
   static Future<Map<String, dynamic>> getProfile() => get('/auth/driver/profile');
+
+  // Real notification feed for this driver (broadcasts + anything addressed to
+  // them). The notifications screen used to be served by MockNotificationService.
+  static Future<Map<String, dynamic>> getNotifications() =>
+      get('/auth/driver/notifications');
 
   // Registration steps
   static Future<Map<String, dynamic>> savePersonal(Map<String, dynamic> data) =>
@@ -128,6 +177,27 @@ class DriverApiService {
   static Future<Map<String, dynamic>> updateLocation(double lat, double lng) =>
       post('/auth/driver/location', {'lat': lat, 'lng': lng}, auth: true);
 
+  // Road route + traffic-aware ETA for the current navigation leg.
+  // Returns { polyline, distanceKm, durationMin } (durationMin uses
+  // duration_in_traffic when Google provides it).
+  // `steps: true` also returns turn-by-turn manoeuvres, which power the in-app
+  // navigation banner. `waypoints` lets one call cover a multi-stop chain.
+  static Future<Map<String, dynamic>> getDirections({
+    required double originLat, required double originLng,
+    required double destLat, required double destLng,
+    bool steps = false,
+    List<List<double>>? waypoints,
+    /// Language of the step instructions ('en' | 'hi'); null leaves Google's default.
+    String? language,
+  }) {
+    final wp = (waypoints == null || waypoints.isEmpty)
+        ? ''
+        : '&waypoints=${Uri.encodeComponent(waypoints.map((p) => '${p[0]},${p[1]}').join('|'))}';
+    return get('/directions?originLat=$originLat&originLng=$originLng'
+        '&destLat=$destLat&destLng=$destLng${steps ? '&steps=1' : ''}$wp'
+        '${language != null ? '&language=$language' : ''}');
+  }
+
   // ── Ride flow ─────────────────────────────────────────────
   static Future<Map<String, dynamic>> getPendingRequests() =>
       get('/rides/driver/pending');
@@ -167,6 +237,20 @@ class DriverApiService {
 
   // The driver's current in-progress ride (to resume the ride screen on reopen).
   static Future<Map<String, dynamic>> getActiveRide() => get('/rides/driver/active');
+
+  // Incentives with this driver's real progress (server-computed from rides).
+  static Future<Map<String, dynamic>> getIncentives() =>
+      get('/auth/driver/incentives');
+
+  // Emergency contacts: admin-provided control-room numbers + the driver's own.
+  static Future<Map<String, dynamic>> getSosContacts() =>
+      get('/auth/driver/sos-contacts');
+
+  static Future<Map<String, dynamic>> addSosContact(Map<String, dynamic> body) =>
+      post('/auth/driver/sos-contacts', body, auth: true);
+
+  static Future<Map<String, dynamic>> deleteSosContact(String id) =>
+      delete('/auth/driver/sos-contacts/$id');
 
   // SOS alert (raised when the driver taps SOS)
   static Future<Map<String, dynamic>> sendSosAlert(Map<String, dynamic> body) =>
@@ -287,7 +371,31 @@ class DriverApiService {
   static Future<Map<String, dynamic>> deliveryAction(String rideId, Map<String, dynamic> body) =>
       post('/rides/$rideId/delivery', body, auth: true);
 
+  // Outstation tolls: {action:'add', amount, clientRef, source?, lat?, lng?} / {action:'remove', tollId}
+  static Future<Map<String, dynamic>> tollAction(String rideId, Map<String, dynamic> body) =>
+      post('/rides/$rideId/toll', body, auth: true);
+
   // Multi-stop actions: reached / resume
   static Future<Map<String, dynamic>> stopAction(String rideId, Map<String, dynamic> body) =>
       post('/rides/$rideId/stop', body, auth: true);
+
+  // ── Face verification ─────────────────────────────────────
+  // Registration-time signature — the frontal capture also becomes profilePicUrl.
+  static Future<Map<String, dynamic>> saveFaceSignature(List<double> embedding, String photoUrl) =>
+      post('/auth/driver/face-signature', {'embedding': embedding, 'photoUrl': photoUrl}, auth: true);
+
+  // { required, reason, hasSignature } — checked before letting the driver go online.
+  static Future<Map<String, dynamic>> getFaceVerificationStatus() => get('/auth/driver/face-verification-status');
+
+  // Standalone re-verify to clear a faceVerificationRequired lock.
+  static Future<Map<String, dynamic>> reverifyFace(List<double> embedding, String photoUrl) =>
+      post('/auth/driver/face-reverify', {'embedding': embedding, 'photoUrl': photoUrl}, auth: true);
+
+  // Polled during an ongoing ride: { required, attemptId?, deadlineSec?, rideCancelled? }
+  static Future<Map<String, dynamic>> checkFaceVerificationDue(String rideId) =>
+      get('/rides/driver/face-check?rideId=$rideId');
+
+  // Answer a mid-ride check: { matched, score } (or { late:true } / { alreadyResolved:true }).
+  static Future<Map<String, dynamic>> respondFaceVerification(String attemptId, List<double> embedding, String photoUrl) =>
+      post('/rides/driver/face-respond', {'attemptId': attemptId, 'embedding': embedding, 'photoUrl': photoUrl}, auth: true);
 }

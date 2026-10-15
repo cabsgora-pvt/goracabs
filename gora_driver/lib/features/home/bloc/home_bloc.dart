@@ -1,7 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../../mock/mock_data.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
@@ -33,6 +32,13 @@ class OnlineStatusChanged extends HomeState {
   OnlineStatusChanged(this.isOnline);
   @override List<Object?> get props => [isOnline];
 }
+// A mid-ride face check came back mismatched/unanswered on a previous ride —
+// the server refused to let this driver go online again until they re-verify.
+class FaceVerificationLockedState extends HomeState {
+  final String reason;
+  FaceVerificationLockedState(this.reason);
+  @override List<Object?> get props => [reason];
+}
 
 class HomeBloc extends Bloc<HomeEvent, HomeState> {
   bool isOnline = false;
@@ -52,7 +58,16 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       final prefs = await SharedPreferences.getInstance();
       isOnline = prefs.getBool('driver_online') ?? false;
     } catch (_) {}
-    final d = await MockAuthService.getProfile();
+    DriverModel d;
+    try {
+      final res = await DriverApiService.getProfile();
+      final data = res['driver'] as Map<String, dynamic>?;
+      d = data != null ? DriverModel.fromApi(data) : (driver ?? DriverModel.fromApi(const {}));
+    } catch (_) {
+      // Keep whatever was last loaded rather than wiping the driver's own
+      // name/photo/wallet off the home screen on a transient network blip.
+      d = driver ?? DriverModel.fromApi(const {});
+    }
     driver = d;
     // Real earnings summary (today / week / rides / distance)
     Map<String, String> s;
@@ -72,19 +87,30 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   }
 
   Future<void> _onToggle(ToggleOnlineEvent e, Emitter emit) async {
+    // Going online specifically can be refused server-side (face verification
+    // lock) — check that BEFORE touching local state or the foreground
+    // service, so a refusal doesn't leave the UI showing "online" anyway.
+    if (e.isOnline) {
+      try {
+        final pos = await LocationService.getCurrentLocation();
+        final lat = pos?.latitude ?? 23.0225;
+        final lng = pos?.longitude ?? 72.5714;
+        final res = await DriverApiService.setOnline(true, lat, lng);
+        if (res['faceVerificationRequired'] == true) {
+          emit(FaceVerificationLockedState((res['faceVerificationReason'] ?? 'mismatch').toString()));
+          return;
+        }
+      } catch (_) {/* network blip — proceed optimistically, same as before */}
+    } else {
+      try { await DriverApiService.setOnline(false, 0, 0); } catch (_) {}
+    }
+
     isOnline = e.isOnline;
     // Persist so it survives navigation/app restarts
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('driver_online', e.isOnline);
     } catch (_) {}
-    // Report online/offline + current location to backend
-    try {
-      final pos = await LocationService.getCurrentLocation();
-      final lat = pos?.latitude ?? 23.0225;
-      final lng = pos?.longitude ?? 72.5714;
-      await DriverApiService.setOnline(e.isOnline, lat, lng);
-    } catch (_) {/* keep UI responsive even if network fails */}
     // Start/stop the foreground service so requests keep arriving while minimized.
     try {
       if (e.isOnline) {

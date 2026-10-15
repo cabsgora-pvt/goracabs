@@ -51,9 +51,14 @@ class _Body extends StatelessWidget {
             const SizedBox(height: 8),
             Text('₹ ${balance.toStringAsFixed(2)}', style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w900, color: Colors.white)),
             const SizedBox(height: 20),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-              _actionBtn(Icons.arrow_upward, 'Withdraw', () => Navigator.push(context, MaterialPageRoute(builder: (_) => WithdrawPage(balance: balance)))),
-              _actionBtn(Icons.history, 'History', () {}),
+            // Each button carried 48px of fixed horizontal padding and could not
+            // shrink, so the pair overflowed a 320pt screen by 40px. Sharing the
+            // width lets them fit any device and keeps them the same size.
+            Row(children: [
+              Expanded(child: _actionBtn(Icons.arrow_upward, 'Withdraw',
+                () => Navigator.push(context, MaterialPageRoute(builder: (_) => WithdrawPage(balance: balance))))),
+              const SizedBox(width: 12),
+              Expanded(child: _actionBtn(Icons.history, 'History', () {})),
             ]),
           ]),
         ),
@@ -77,12 +82,14 @@ class _Body extends StatelessWidget {
   Widget _actionBtn(IconData icon, String label, VoidCallback onTap) => GestureDetector(
     onTap: onTap,
     child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(12)),
       child: Column(children: [
         Icon(icon, color: Colors.white, size: 20),
         const SizedBox(height: 4),
-        Text(label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
+        Text(label,
+          maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
       ]),
     ),
   );

@@ -10,7 +10,10 @@ import '../../../providers/driver_provider.dart';
 // Returns true via Navigator.pop when the driver confirms collection.
 class CollectFarePage extends StatefulWidget {
   final double amount;
-  const CollectFarePage({super.key, required this.amount});
+  /// What is being collected. The toll on a prepaid outstation trip is
+  /// collected on this screen too, and is not a fare.
+  final String title;
+  const CollectFarePage({super.key, required this.amount, this.title = 'Estimated Order Fare'});
   @override
   State<CollectFarePage> createState() => _CollectFarePageState();
 }
@@ -68,7 +71,9 @@ class _CollectFarePageState extends State<CollectFarePage> {
       backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white, elevation: 0.5, foregroundColor: Colors.black,
-        title: const Text('Payments', style: TextStyle(fontWeight: FontWeight.w800)),
+        // Coloured here: the theme's title style is white, for its blue app
+        // bars, and this bar is white — the title could not be seen.
+        title: const Text('Payments', style: TextStyle(fontWeight: FontWeight.w800, color: Colors.black)),
         actions: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -83,7 +88,7 @@ class _CollectFarePageState extends State<CollectFarePage> {
       ),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         const SizedBox(height: 12),
-        const Center(child: Text('Estimated Order Fare', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+        Center(child: Text(widget.title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
         const SizedBox(height: 8),
         Center(child: Text('₹${widget.amount.toStringAsFixed(1)}', style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: AppColors.green))),
         const SizedBox(height: 24),

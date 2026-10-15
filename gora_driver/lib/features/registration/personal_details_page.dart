@@ -1,10 +1,8 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/widgets/app_widgets.dart';
 import '../../services/driver_api_service.dart';
-import 'vehicle_selection_page.dart';
+import 'face_capture_page.dart';
 
 const _indianStates = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
@@ -28,16 +26,13 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
   final _email = TextEditingController();
   final _referralController = TextEditingController();
   String? _selectedState;
+  String? _selectedGender;
   String? _selectedZoneId;
   String? _selectedZoneName;
   List<Map<String, dynamic>> _zones = [];
   bool _loading = false;
   bool _zonesLoading = true;
   late String _phone;
-  XFile? _profilePhoto;
-  Uint8List? _profilePhotoBytes;
-  String _profilePicUrl = '';
-  final _picker = ImagePicker();
 
   @override
   void initState() {
@@ -56,6 +51,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       _name.text = driver['name'] as String? ?? '';
       _email.text = driver['email'] as String? ?? '';
       _selectedState = driver['state'] as String?;
+      _selectedGender = driver['gender'] as String?;
       _selectedZoneId = driver['zoneId'] as String?;
       _selectedZoneName = driver['zoneName'] as String?;
     }
@@ -70,13 +66,6 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
     }
   }
 
-  Future<void> _pickPhoto() async {
-    final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
-    if (picked == null) return;
-    final bytes = await picked.readAsBytes();
-    setState(() { _profilePhoto = picked; _profilePhotoBytes = bytes; });
-  }
-
   Future<void> _submit() async {
     if (!_form.currentState!.validate()) return;
     if (_selectedState == null) {
@@ -89,19 +78,14 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
     }
     setState(() => _loading = true);
     try {
-      // Upload profile pic if selected
-      if (_profilePhoto != null && _profilePicUrl.isEmpty) {
-        final url = await DriverApiService.uploadFile(_profilePhoto!);
-        _profilePicUrl = url ?? '';
-      }
       final res = await DriverApiService.savePersonal({
         'name': _name.text.trim(),
         'email': _email.text.trim(),
         'state': _selectedState,
         'zoneId': _selectedZoneId,
         'zoneName': _selectedZoneName,
-        'profilePicUrl': _profilePicUrl,
         'referralCode': _referralController.text.trim().toUpperCase(),
+        if (_selectedGender != null) 'gender': _selectedGender,
       });
       if (!mounted) return;
       if (res['error'] != null) {
@@ -109,7 +93,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       } else {
         Navigator.pushNamed(
           context,
-          VehicleSelectionPage.route,
+          FaceCapturePage.route,
           arguments: {'zoneId': _selectedZoneId, 'zoneName': _selectedZoneName},
         );
       }
@@ -146,40 +130,23 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                     _stepIndicator(1),
                     const SizedBox(height: 24),
 
-                    // ── Profile photo picker ──
+                    // Profile photo + identity signature are captured live on
+                    // the next screen (camera, not a gallery picker) — that
+                    // shot becomes both.
                     Center(
-                      child: GestureDetector(
-                        onTap: _pickPhoto,
-                        child: Stack(
-                          children: [
-                            Container(
-                              width: 100, height: 100,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: AppColors.cardBg,
-                                border: Border.all(color: AppColors.primary.withAlpha(80), width: 3),
-                              ),
-                              child: ClipOval(
-                                child: _profilePhotoBytes != null
-                                    ? Image.memory(_profilePhotoBytes!, fit: BoxFit.cover)
-                                    : const Icon(Icons.person_rounded, size: 52, color: AppColors.primary),
-                              ),
-                            ),
-                            Positioned(
-                              bottom: 0, right: 0,
-                              child: Container(
-                                padding: const EdgeInsets.all(7),
-                                decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-                                child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 16),
-                              ),
-                            ),
-                          ],
+                      child: Container(
+                        width: 100, height: 100,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppColors.cardBg,
+                          border: Border.all(color: AppColors.primary.withAlpha(80), width: 3),
                         ),
+                        child: const Icon(Icons.camera_alt_rounded, size: 40, color: AppColors.primary),
                       ),
                     ),
                     const SizedBox(height: 6),
                     Center(
-                      child: Text('Upload Profile Photo', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
+                      child: Text("You'll take your profile photo on the next screen", style: TextStyle(fontSize: 12, color: AppColors.textGrey), textAlign: TextAlign.center),
                     ),
                     const SizedBox(height: 20),
 
@@ -225,13 +192,39 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                       ),
                     ),
                     const SizedBox(height: 16),
+                    // Optional and self-declared — used only so a rider who asks
+                    // for a female driver can actually be matched with one; never
+                    // shown publicly and never required to keep driving.
+                    DropdownButtonFormField<String>(
+                      value: _selectedGender,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Gender (optional)',
+                        prefixIcon: Icon(Icons.wc_rounded, color: AppColors.primary),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'female', child: Text('Female')),
+                        DropdownMenuItem(value: 'male', child: Text('Male')),
+                        DropdownMenuItem(value: 'other', child: Text('Other')),
+                      ],
+                      onChanged: (v) => setState(() => _selectedGender = v),
+                    ),
+                    const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
                       value: _selectedState,
+                      // Without isExpanded the dropdown sizes to its longest
+                      // item, so a name like 'Andaman and Nicobar Islands'
+                      // next to the prefix icon overflowed a 320pt screen by
+                      // 95px. Expanding it makes the label ellipsise instead.
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'State *',
                         prefixIcon: Icon(Icons.map_rounded, color: AppColors.primary),
                       ),
-                      items: _indianStates.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                      items: _indianStates.map((s) => DropdownMenuItem(
+                        value: s,
+                        child: Text(s, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      )).toList(),
                       onChanged: (v) => setState(() => _selectedState = v),
                     ),
                     const SizedBox(height: 16),
@@ -239,13 +232,15 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                         ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
                         : DropdownButtonFormField<String>(
                             value: _selectedZoneId,
+                            isExpanded: true,
                             decoration: const InputDecoration(
                               labelText: 'Zone *',
                               prefixIcon: Icon(Icons.location_city_rounded, color: AppColors.primary),
                             ),
                             items: _zones.map((z) => DropdownMenuItem(
                               value: z['_id'] as String? ?? z['id'] as String?,
-                              child: Text(z['name'] as String? ?? ''),
+                              child: Text(z['name'] as String? ?? '',
+                                maxLines: 1, overflow: TextOverflow.ellipsis),
                             )).toList(),
                             onChanged: (v) {
                               final zone = _zones.firstWhere(

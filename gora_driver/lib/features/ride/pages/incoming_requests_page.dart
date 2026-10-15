@@ -203,6 +203,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
       key: ValueKey(r.id),
       ride: r,
       serviceColor: meta.color,
+      serviceLabel: meta.label,
       enabled: !_accepting,
       driverLat: _driverLat,
       driverLng: _driverLng,
@@ -241,6 +242,8 @@ Widget _fareWithTip(RideRequestModel r) {
 class _RequestCard extends StatefulWidget {
   final RideRequestModel ride;
   final Color serviceColor;
+  /// PARCEL, OUTSTATION… — shown for every service but a plain taxi ride.
+  final String serviceLabel;
   final bool enabled;
   final double? driverLat, driverLng;
   final VoidCallback onAccept;
@@ -249,6 +252,7 @@ class _RequestCard extends StatefulWidget {
     super.key,
     required this.ride,
     required this.serviceColor,
+    required this.serviceLabel,
     required this.enabled,
     required this.driverLat,
     required this.driverLng,
@@ -260,14 +264,31 @@ class _RequestCard extends StatefulWidget {
 }
 
 class _RequestCardState extends State<_RequestCard> {
-  static const int _total = 15; // seconds before the request auto-skips
-  int _left = _total;
+  // Fallback window for a request that was never offered exclusively (the open
+  // pool). When the server DID offer this ride to us it sends offerExpiresAt,
+  // and we count down to that instead — a fixed 15s here disagreed with the
+  // server's 20s offer window, so the ring expired while the offer was still
+  // ours to take.
+  static const int _fallbackTotal = 15;
+  late final int _total;
+  late int _left;
   Timer? _t;
   bool _handled = false;
+
+  int _secondsLeft() {
+    final until = widget.ride.offerExpiresAt;
+    if (until == null) return _fallbackTotal;
+    final s = until.difference(DateTime.now()).inSeconds;
+    // Clamp: a clock-skewed or already-lapsed offer should not render a
+    // negative ring, and should not sit there forever either.
+    return s.clamp(1, 120);
+  }
 
   @override
   void initState() {
     super.initState();
+    _total = _secondsLeft();
+    _left = _total;
     _t = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       if (_left <= 1) _fire(widget.onReject);
@@ -322,6 +343,22 @@ class _RequestCardState extends State<_RequestCard> {
                       style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textDark)),
                 ]),
               ),
+              // What kind of job this is. The label was worked out for every
+              // service and never shown, so a parcel or a 300 km outstation
+              // trip looked exactly like a ride across town.
+              if (r.service != 'taxi') ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: widget.serviceColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(widget.serviceLabel,
+                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11.5,
+                          letterSpacing: 0.4, color: widget.serviceColor)),
+                ),
+              ],
             ]),
           ),
           // Big fare + tip
@@ -329,6 +366,11 @@ class _RequestCardState extends State<_RequestCard> {
             padding: const EdgeInsets.fromLTRB(14, 6, 14, 12),
             child: _fareWithTip(r),
           ),
+          if (r.service == 'delivery')
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: _parcelLine(r),
+            ),
           // Route (pickup → drop)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -392,11 +434,41 @@ class _RequestCardState extends State<_RequestCard> {
     );
   }
 
+  // What the parcel is, before the driver takes it on: a bike will not carry
+  // every carton, and a fragile or cash-on-delivery job asks more of them.
+  Widget _parcelLine(RideRequestModel r) {
+    String kg(double w) => w == w.roundToDouble() ? '${w.round()} kg' : '${w.toStringAsFixed(1)} kg';
+    final facts = [
+      r.itemType.isNotEmpty ? r.itemType : 'Parcel',
+      if (r.weightKg > 0) kg(r.weightKg),
+      if (r.packageSize.isNotEmpty) 'Size ${r.packageSize}',
+    ];
+    Widget chip(String text, Color color) => Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(6)),
+      child: Text(text, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: color)),
+    );
+    return Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.inventory_2_outlined, size: 16, color: widget.serviceColor),
+        const SizedBox(width: 6),
+        Flexible(child: Text(facts.join(' · '),
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textDark))),
+      ]),
+      if (r.isFragile) chip('Fragile', AppColors.orange),
+      if (r.codAmount > 0) chip('COD ₹${r.codAmount.toStringAsFixed(0)}', Colors.teal),
+    ]);
+  }
+
   // Driver → pickup distance heading. Prefers a backend-supplied value;
   // otherwise computes it from the driver's location and the pickup coords.
   String _pickupKm() {
     final r = widget.ride;
-    if (r.pickupDistanceKm > 0) return '${r.pickupDistanceKm.toStringAsFixed(1)} Km';
+    // Server value is road-corrected and carries the learned-speed ETA with it.
+    if (r.pickupDistanceKm > 0) {
+      final km = '${r.pickupDistanceKm.toStringAsFixed(1)} Km';
+      return r.eta != '—' ? '$km · ${r.eta}' : km;
+    }
     if (widget.driverLat != null && widget.driverLng != null && r.pickupLat != 0 && r.pickupLng != 0) {
       final m = Geolocator.distanceBetween(widget.driverLat!, widget.driverLng!, r.pickupLat, r.pickupLng);
       return '${(m / 1000).toStringAsFixed(1)} Km';
@@ -422,8 +494,10 @@ class _RequestCardState extends State<_RequestCard> {
       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         if (km.isNotEmpty)
           Text(km, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: AppColors.textDark)),
-        RichText(
-          text: TextSpan(children: [
+        // Text.rich, not RichText: it follows the theme's font and the
+        // driver's text size setting like the rest of the card.
+        Text.rich(
+          TextSpan(children: [
             TextSpan(text: name, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: AppColors.textDark)),
             if (rest.isNotEmpty)
               TextSpan(text: ' - $rest', style: TextStyle(fontWeight: FontWeight.w400, fontSize: 12.5, color: AppColors.textGrey)),

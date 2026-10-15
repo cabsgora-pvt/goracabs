@@ -547,8 +547,6 @@ class _AdminChatPageState extends State<AdminChatPage> {
   );
 }
 
-class _Msg { final String text; final bool isMe; const _Msg(this.text, this.isMe); }
-
 // ── Subscription Page ─────────────────────────────────
 class SubscriptionPage extends StatefulWidget {
   static const route = '/subscription';
