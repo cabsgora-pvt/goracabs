@@ -32,5 +32,21 @@ export function requireAuth(req: NextRequest) {
 export function requireDriverAuth(req: NextRequest) {
   const token = getDriverTokenFromRequest(req)
   if (!token) return null
-  try { return verifyToken(token) as any } catch { return null }
+  try {
+    const p = verifyToken(token) as any
+    // A rider token is signed with the same secret; never let it pass as a driver.
+    return p?.type === 'user' ? null : p
+  } catch { return null }
+}
+
+// Admin tokens (auth/login) carry a role and no `type`; rider and driver tokens
+// are typed 'user' / 'driver'. All three share one secret, so a valid signature
+// alone does not make the caller an admin.
+export function isAdminPayload(p: any): boolean {
+  return !!p?.id && !p.type
+}
+
+export function requireAdmin(req: NextRequest) {
+  const p = requireAuth(req) as any
+  return isAdminPayload(p) ? p : null
 }

@@ -409,6 +409,13 @@ class _OutstationScreenState extends State<OutstationScreen> {
     try {
       final oneWay = await oneWayF;
       final round = await roundF;
+      if (oneWay['available'] == false) {
+        if (!mounted) return;
+        setState(() { _vehicles = []; _loadingFares = false; });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text((oneWay['message'] as String?) ?? 'Outstation not available from here')));
+        return;
+      }
       // Fetch actual road polyline so the map shows the real city-to-city route
       final dir = await ApiService.getDirections(
         originLat: _fromLat!, originLng: _fromLng!,

@@ -6,7 +6,7 @@ import Driver from '@/models/Driver'
 import Zone from '@/models/Zone'
 import Transaction from '@/models/Transaction'
 import User from '@/models/User'
-import { requireAuth, requireDriverAuth } from '@/lib/auth'
+import { requireAuth, requireDriverAuth, isAdminPayload } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 
 export async function OPTIONS() { return corsOptions() }
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const isDriver = !!asDriver?.id && !!ride.driverId && String(ride.driverId) === String(asDriver.id)
     const isRider = !!asRider?.id && !!ride.riderId && String(ride.riderId) === String(asRider.id)
     // Admin force-complete forwards here for stranded rides (see force-complete).
-    const isAdminOverride = req.headers.get('x-admin-override') === '1' && !!asRider?.id
+    const isAdminOverride = req.headers.get('x-admin-override') === '1' && isAdminPayload(asRider)
     if (!isDriver && !isRider && !isAdminOverride) return withCors({ error: 'Unauthorized' }, 401)
 
     const driver: any = await Driver.findById(ride.driverId)

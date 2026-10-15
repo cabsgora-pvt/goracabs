@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import SOSAlert from '@/models/SOSAlert'
-import { requireAuth } from '@/lib/auth'
+import { requireAuth, requireAdmin } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 
 export async function OPTIONS() {
@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   try {
-    if (!requireAuth(req)) return withCors({ error: 'Unauthorized' }, 401)
+    if (!requireAdmin(req)) return withCors({ error: 'Unauthorized' }, 401)
     await connectDB()
     const alerts = await SOSAlert.find()
       .sort({ createdAt: -1 })

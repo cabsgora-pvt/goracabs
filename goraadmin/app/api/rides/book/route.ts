@@ -178,7 +178,11 @@ export async function POST(req: NextRequest) {
       const check = verifyQuote(b.quoteToken, {
         service,
         vehicleType: b.vehicleType,
-        cell: quoteCell(b.pickupLat, b.pickupLng, b.dropLat, b.dropLng),
+        // Hire is priced on hours alone, so /fare/estimate signs it without a
+        // drop; the rider app still sends one (pickup again), so ignore it here.
+        cell: service === 'hire_driver'
+          ? quoteCell(b.pickupLat, b.pickupLng, null, null)
+          : quoteCell(b.pickupLat, b.pickupLng, b.dropLat, b.dropLng),
       })
       if (check.ok) {
         computedFare = check.fare        // authoritative: exactly what was quoted

@@ -17,6 +17,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await connectDB()
     const ride: any = await Ride.findById(params.id)
     if (!ride) return withCors({ error: 'Ride not found' }, 404)
+    // Only the assigned driver, and only before the trip has started.
+    if (!ride.driverId || String(ride.driverId) !== String(payload.id)) {
+      return withCors({ error: 'Not your ride' }, 403)
+    }
+    if (!['accepted', 'arrived'].includes(ride.status)) {
+      return withCors({ error: `Ride cannot be started (status: ${ride.status})` }, 400)
+    }
 
     if (String(otp) !== String(ride.otp)) return withCors({ error: 'Invalid OTP' }, 400)
 

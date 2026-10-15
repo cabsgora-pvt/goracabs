@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth, requireDriverAuth } from './auth'
+import { requireAuth, requireDriverAuth, requireAdmin, isAdminPayload } from './auth'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Admin-only API guard.
@@ -22,8 +22,7 @@ import { requireAuth, requireDriverAuth } from './auth'
 
 /** Returns a 401 response when the caller is not a signed-in admin, else null. */
 export function guardAdmin(req: NextRequest): NextResponse | null {
-  const admin = requireAuth(req) as any
-  if (admin?.id) return null
+  if (requireAdmin(req)) return null
   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 }
 
@@ -48,7 +47,7 @@ export function guardRideActor(
   const isRider = !!asUser?.id && !!ride.riderId && String(ride.riderId) === String(asUser.id)
   // An admin token also satisfies requireAuth but will not match riderId; allow
   // it explicitly so support staff can act on a ride from the dashboard.
-  const isAdmin = !!asUser?.id && req.headers.get('x-admin-override') === '1'
+  const isAdmin = isAdminPayload(asUser) && req.headers.get('x-admin-override') === '1'
   if (isDriver || isRider || isAdmin) return null
   return NextResponse.json({ error: 'Not a participant in this ride' }, { status: 403 })
 }

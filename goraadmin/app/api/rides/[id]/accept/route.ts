@@ -4,6 +4,7 @@ import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
 import { requireDriverAuth } from '@/lib/auth'
+import Settings from '@/models/Settings'
 import { crowKm, getEtaFactor, predictEtaMin, ETA_CONFIG } from '@/lib/eta'
 import { withCors, corsOptions } from '@/lib/cors'
 import { pushToUserAsync } from '@/lib/push'
@@ -20,9 +21,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const driver: any = await Driver.findById(payload.id).lean()
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
 
-    // Atomic claim: only succeeds if still pending
+    // Same wallet block the pending feed applies — the feed only hides rides,
+    // so without this a blocked driver could still accept one by id.
+    const settings: any = await Settings.findOne({ key: 'global' }).lean()
+    const da = settings?.driverApp || {}
+    const maxNeg = Math.abs(Number(da.maxNegativeWallet ?? 500))
+    if (da.walletBlockEnabled !== false && (driver.walletBalance || 0) < -maxNeg) {
+      return withCors({ error: `Low wallet balance (₹${Math.round(driver.walletBalance || 0)}). Please recharge to accept rides.` }, 403)
+    }
+
+    // Atomic claim: only succeeds if still pending, and only for the vehicle
+    // type the rider booked (the feed is filtered the same way).
     const ride: any = await Ride.findOneAndUpdate(
-      { _id: params.id, status: 'pending' },
+      { _id: params.id, status: 'pending', vehicleType: driver.selectedVehicleTypeName },
       {
         $set: {
           status: 'accepted',
@@ -38,6 +49,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!ride) {
       const exists = await Ride.findById(params.id).lean()
       if (!exists) return withCors({ error: 'Ride not found' }, 404)
+      if ((exists as any).vehicleType !== driver.selectedVehicleTypeName) {
+        return withCors({ error: 'This ride is for a different vehicle type' }, 403)
+      }
       return withCors({ error: 'Ride already taken' }, 409)
     }
 

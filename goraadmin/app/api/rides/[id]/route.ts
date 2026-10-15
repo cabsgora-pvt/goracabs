@@ -6,14 +6,36 @@ import Driver from '@/models/Driver'
 import { uiPhaseFor, waitingSecondsFor } from '@/lib/ride-phase'
 import User from '@/models/User'
 import { rentalExtras, hireExtras } from '@/lib/ride-extras'
+import { requireAuth, requireDriverAuth, isAdminPayload } from '@/lib/auth'
 
 // GET ride by id — also returns hydrated driver + rider sub-objects
 // (driver photo, plate, model, rating; rider photo) so both apps can render rich cards.
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const asUser = requireAuth(req) as any
+    const asDriver = requireDriverAuth(req) as any
+    if (!asUser?.id && !asDriver?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
     await connectDB()
     const ride: any = await Ride.findById(params.id).lean()
     if (!ride) return NextResponse.json({ error: 'Ride not found' }, { status: 404 })
+
+    // Who may read it: an admin and the rider see everything; the assigned
+    // driver, or any driver while the request is still open, see it without
+    // the OTPs (the rider reads those out — a driver who could fetch them would
+    // make the check pointless). Anyone else gets nothing.
+    const isAdmin = isAdminPayload(asUser)
+    const isRider = asUser?.type === 'user' && String(ride.riderId || '') === String(asUser.id)
+    const isDriver = asDriver?.type === 'driver'
+    const isAssigned = isDriver && String(ride.driverId || '') === String(asDriver.id)
+    if (!isAdmin && !isRider && !isAssigned && !(isDriver && ride.status === 'pending')) {
+      return NextResponse.json({ error: 'Not a participant in this ride' }, { status: 403 })
+    }
+    if (!isAdmin && !isRider) {
+      delete ride.otp
+      delete ride.dropOtp
+      if (!isAssigned) delete ride.riderPhone
+    }
 
     if (ride.driverId) {
       const d: any = await Driver.findById(ride.driverId)
@@ -50,7 +72,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       if (u) ride.rider = {
         id: u._id,
         name: u.name,
-        phone: u.phone,
+        phone: isAdmin || isRider || isAssigned ? u.phone : undefined,
         profilePicUrl: u.profilePicUrl,
       }
     }

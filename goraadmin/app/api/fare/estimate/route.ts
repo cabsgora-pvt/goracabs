@@ -127,6 +127,16 @@ export async function POST(req: NextRequest) {
           pickupZone = z; break
         }
       }
+      // Trips start only from a city we operate in — same 25 km grace as the
+      // other services — otherwise vehicle-default prices were quoted anywhere.
+      if (!pickupZone) {
+        let nd = Infinity
+        for (const z of zonesAll) {
+          const d = distanceKm({ lat: pickupLat, lng: pickupLng }, { lat: z.centerLat || 0, lng: z.centerLng || 0 })
+          if (d < nd) { nd = d; pickupZone = z }
+        }
+        if (!pickupZone || nd > 25) return withCors({ available: false, message: 'Outstation not available from here' })
+      }
       const outstationPricing = (pickupZone?.pricing || []).filter((p: any) => p.service === 'outstation')
 
       // Outstation-accepting drivers, ETA-ranked by vehicle type. Outstation
