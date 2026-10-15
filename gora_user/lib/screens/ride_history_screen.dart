@@ -57,6 +57,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                 : '',
             'from': r['pickupAddress'] ?? '',
             'to': r['dropAddress'] ?? '',
+            'riderName': (r['riderName'] ?? '').toString(),
             'driver': (dr?['name'] ?? r['driverName'] ?? '—').toString(),
             'driverPic': driverPic.isEmpty ? '' : AppConfig.imageUrl(driverPic),
             'driverVehicleModel': (dr?['vehicleModel'] ?? '').toString(),
@@ -556,23 +557,12 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                 Expanded(
                   child: TextButton.icon(
                     onPressed: () {
-                      final String originalVehicle = (ride['vehicle'] as String?) ?? '';
-                      final String mappedVehicle = originalVehicle == 'Gora Go'
-                          ? 'Bike'
-                          : originalVehicle == 'Gora Sedan'
-                              ? 'Cab Economy'
-                              : originalVehicle == 'Gora SUV'
-                                  ? 'SUV'
-                                  : originalVehicle.isNotEmpty
-                                      ? originalVehicle
-                                      : 'Cab Economy';
+                      // The invoice renders this real ride (and refreshes it
+                      // from GET /rides/:id) — no more vehicle-name price table.
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => InvoiceScreen(
-                            vehicleName: mappedVehicle,
-                            selectedTip: (ride['tip'] as int?) ?? 0,
-                          ),
+                          builder: (context) => InvoiceScreen(ride: ride),
                         ),
                       );
                     },
@@ -657,10 +647,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => InvoiceScreen(
-                          vehicleName: rental['vehicle'] as String,
-                          selectedTip: 0,
-                        ),
+                        builder: (context) => InvoiceScreen(ride: rental),
                       ),
                     );
                   },
@@ -744,10 +731,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => InvoiceScreen(
-                          vehicleName: 'Hire Driver',
-                          selectedTip: 0,
-                        ),
+                        builder: (context) => InvoiceScreen(ride: hire),
                       ),
                     );
                   },
@@ -834,10 +818,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => InvoiceScreen(
-                          vehicleName: outstation['vehicle'] as String,
-                          selectedTip: 0,
-                        ),
+                        builder: (context) => InvoiceScreen(ride: outstation),
                       ),
                     );
                   },

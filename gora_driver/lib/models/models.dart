@@ -43,6 +43,10 @@ class RideRequestModel {
   // guess, so the ring can no longer expire while the server still holds the
   // offer open (or linger after it has moved on).
   final DateTime? offerExpiresAt;
+  /// True when the server's current offer for this ride is addressed to this
+  /// driver (feed field offeredToMe). Used to tell a genuine re-offer apart
+  /// from a request whose countdown already ran out here.
+  final bool offeredToMe;
   /// Server-side ride status ('accepted' | 'arrived' | 'ongoing' | ...). Empty for
   /// a request not yet accepted. Lets a resumed screen start at the right step
   /// instead of always at "arrive".
@@ -113,6 +117,7 @@ class RideRequestModel {
     this.returnAt = '',
     this.numPassengers = 0,
     this.offerExpiresAt,
+    this.offeredToMe = false,
     this.status = '',
     this.waitingSec,
     this.packageHours = 0,
@@ -179,6 +184,7 @@ class RideRequestModel {
       distanceKm: (r['distance'] as num?) ?? 0,
       pickupDistanceKm: (r['pickupDistance'] as num?) ?? 0,
       offerExpiresAt: DateTime.tryParse((r['offerExpiresAt'] ?? '').toString())?.toLocal(),
+      offeredToMe: r['offeredToMe'] == true,
       status: (r['status'] ?? '').toString(),
       waitingSec: (r['waitingSec'] as num?)?.toInt(),
       durationMin: (r['duration'] as num?)?.toInt() ?? 0,

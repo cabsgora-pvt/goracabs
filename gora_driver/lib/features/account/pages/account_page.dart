@@ -15,6 +15,14 @@ class AccountPage extends StatelessWidget {
     final dp = context.watch<DriverProvider>();
     final picUrl = dp.profilePicUrl;
     final displayName = dp.name.isNotEmpty ? dp.name : 'Driver';
+    // Live figures only. Balance comes from GET /auth/driver/wallet — the same
+    // call the Wallet page shows — via DriverProvider.refreshBalance (it was a
+    // hardcoded '₹ 2,450'). Rating is the driver's server-side average, which
+    // /rides/:id/rate recomputes; the home screen refreshes the profile each
+    // time this tab is opened so a new rating shows without a restart.
+    final ratingNum = double.tryParse(dp.rating) ?? 0;
+    final ratingLabel = ratingNum > 0 ? ratingNum.toStringAsFixed(1) : 'New';
+    final balanceLabel = dp.balanceLoaded ? '₹ ${dp.walletBalance.toStringAsFixed(2)}' : '—';
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -141,7 +149,7 @@ class AccountPage extends StatelessWidget {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               _HeaderChip(icon: Icons.star_rounded, iconColor: AppColors.orange,
-                                label: dp.rating.toString() == '0' ? 'New' : dp.rating),
+                                label: ratingLabel),
                               const SizedBox(width: 8),
                               _HeaderChip(icon: Icons.directions_car_rounded, iconColor: Colors.white,
                                 label: '${dp.totalRides} rides'),
@@ -161,9 +169,9 @@ class AccountPage extends StatelessWidget {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 // Quick stats
                 Row(children: [
-                  Expanded(child: _QuickStat(label: 'Balance', value: '₹ 2,450', icon: Icons.account_balance_wallet, color: AppColors.green)),
+                  Expanded(child: _QuickStat(label: 'Balance', value: balanceLabel, icon: Icons.account_balance_wallet, color: AppColors.green)),
                   const SizedBox(width: 12),
-                  Expanded(child: _QuickStat(label: 'Rating', value: dp.rating, icon: Icons.star, color: AppColors.orange)),
+                  Expanded(child: _QuickStat(label: 'Rating', value: ratingLabel, icon: Icons.star, color: AppColors.orange)),
                   const SizedBox(width: 12),
                   Expanded(child: _QuickStat(label: 'Rides', value: dp.totalRides, icon: Icons.directions_car, color: AppColors.primary)),
                 ]),
@@ -266,7 +274,10 @@ class _QuickStat extends StatelessWidget {
     child: Column(children: [
       Icon(icon, color: color, size: 20),
       const SizedBox(height: 4),
-      Text(value, style: TextStyle(fontWeight: FontWeight.w800, color: color, fontSize: 13)),
+      FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(value, maxLines: 1, style: TextStyle(fontWeight: FontWeight.w800, color: color, fontSize: 13)),
+      ),
       Text(label, style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
     ]),
   );

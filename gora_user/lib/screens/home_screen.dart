@@ -46,6 +46,10 @@ class _HomeScreenState extends State<HomeScreen>
   // Most recent completed taxi ride — for "Book Again". Pulled from the same
   // fetch _checkActiveRide already makes, so this costs nothing extra.
   Map<String, dynamic>? _lastRide;
+  // The rider's own recent drop-offs (newest first, de-duplicated), from that
+  // same ride-history fetch. Replaces a hardcoded Pune/Delhi list; the section
+  // is hidden when the rider has none.
+  List<Map<String, dynamic>> _recentDrops = const [];
   static bool _autoResumed = false; // auto-open the active ride once per app launch
   Timer? _activeTimer;
   // Current location for the home mini-map + chip
@@ -73,12 +77,6 @@ class _HomeScreenState extends State<HomeScreen>
     {'icon': 'assets/images/parcel-bluebg.png', 'label': 'Parcel', 'color': Color(0xFFFF9800), 'bgColor': Color(0xFFFFF3E0)},
     {'icon': 'assets/images/hiredriver-bluebg.png', 'label': 'Hire driver', 'color': Color(0xFF9C27B0), 'bgColor': Color(0xFFF3E5F5)},
     {'icon': 'assets/images/query-bluebg.png', 'label': 'Any inquiry', 'color': Color(0xFF4CAF50), 'bgColor': Color(0xFFE8F5E9)},
-  ];
-
-  final List<Map<String, String>> _popularLocations = [
-    {'name': 'Phoenix Mall', 'address': 'Nagar Road, Pune', 'image': 'https://images.unsplash.com/photo-1519567241046-7f570eee3ce6?w=400'},
-    {'name': 'Airport Terminal 3', 'address': 'IGI Airport, Delhi', 'image': 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=400'},
-    {'name': 'Railway Station', 'address': 'New Delhi Railway Station', 'image': 'https://images.unsplash.com/photo-1474487548417-781cb71495f3?w=400'},
   ];
 
   final List<Map<String, String>> _promos = [
@@ -200,10 +198,12 @@ class _HomeScreenState extends State<HomeScreen>
             && (r['dropAddress'] ?? '').toString().isNotEmpty,
         orElse: () => null,
       );
+      final recent = _recentDropsFrom(list);
       if (!mounted) return;
       setState(() {
         _activeRide = active == null ? null : Map<String, dynamic>.from(active as Map);
         _lastRide = lastTaxi == null ? null : Map<String, dynamic>.from(lastTaxi as Map);
+        _recentDrops = recent;
       });
       // Auto-resume the active ride once when the app is (re)opened.
       if (_activeRide != null && !_autoResumed && mounted) {
@@ -469,11 +469,13 @@ class _HomeScreenState extends State<HomeScreen>
                       const SizedBox(height: 18),
                       _buildBookAgainCard(),
                     ],
-                    const SizedBox(height: 22),
-                    // Recent locations
-                    const Text('Recent locations', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    ..._recentLocations().map((l) => _buildRecentTile(l)),
+                    // Recent locations — the rider's real recent drops; hidden when none.
+                    if (_recentDrops.isNotEmpty) ...[
+                      const SizedBox(height: 22),
+                      const Text('Recent locations', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 8),
+                      ..._recentDrops.map((l) => _buildRecentTile(l)),
+                    ],
                   ]),
                 ),
               ),
@@ -939,38 +941,62 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // Recent locations source: admin config `places` when available, else hardcoded fallback.
-  List<Map<String, String>> _recentLocations() {
-    final places = _cfg?['places'];
-    if (places is List && places.isNotEmpty) {
-      return places.whereType<Map>().map((p) {
-        return {
-          'name': (p['name'] ?? '').toString(),
-          'address': (p['address'] ?? '').toString(),
-        };
-      }).toList();
+  // Recent drop-offs from the rider's ride history (GET /rides/user, newest
+  // first): completed taxi rides with a real drop pin, one entry per address,
+  // at most three. Taxi only, like "Book Again" — the tile books a taxi to it,
+  // and a rental/hire "drop" is just the pickup again.
+  static List<Map<String, dynamic>> _recentDropsFrom(List rides) {
+    final seen = <String>{};
+    final out = <Map<String, dynamic>>[];
+    for (final r in rides) {
+      if (r is! Map) continue;
+      if ((r['status'] ?? '').toString() != 'completed') continue;
+      if ((r['service'] ?? 'taxi').toString() != 'taxi') continue;
+      final addr = (r['dropAddress'] ?? '').toString().trim();
+      final lat = (r['dropLat'] as num?)?.toDouble();
+      final lng = (r['dropLng'] as num?)?.toDouble();
+      if (addr.isEmpty || lat == null || lng == null) continue;
+      if (!seen.add(addr.toLowerCase())) continue;
+      // "Phoenix Marketcity, Viman Nagar, Pune" → title "Phoenix Marketcity",
+      // subtitle the rest; a single-part address is shown as the title only.
+      final comma = addr.indexOf(',');
+      out.add({
+        'name': comma > 0 ? addr.substring(0, comma).trim() : addr,
+        'address': comma > 0 ? addr.substring(comma + 1).trim() : '',
+        'fullAddress': addr,
+        'lat': lat,
+        'lng': lng,
+      });
+      if (out.length == 3) break;
     }
-    return _popularLocations;
+    return out;
   }
 
-  // Recent location tile (Ola-style pin + chevron) → opens normal ride to that drop
-  Widget _buildRecentTile(Map<String, String> l) {
+  // Recent location tile (Ola-style pin + chevron) → opens a normal ride with
+  // that drop already filled in (address + pin), the same way "Book Again" does.
+  Widget _buildRecentTile(Map<String, dynamic> l) {
     return InkWell(
       onTap: () {
         if (!_canBook()) return;
         Navigator.push(context, MaterialPageRoute(builder: (_) => TaxiBookingScreen(
-          fromLocation: 'Current Location', hideLocationInputs: false)));
+          fromLocation: 'Current Location',
+          toLocation: (l['fullAddress'] ?? '').toString(),
+          initialDropLat: l['lat'] as double?,
+          initialDropLng: l['lng'] as double?,
+          hideLocationInputs: false)));
       },
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
         child: Row(children: [
           Container(width: 38, height: 38, decoration: BoxDecoration(color: AppTheme.primaryBlue.withOpacity(0.08), shape: BoxShape.circle),
-            child: const Icon(Icons.location_on_outlined, size: 20, color: AppTheme.primaryBlue)),
+            child: const Icon(Icons.history, size: 20, color: AppTheme.primaryBlue)),
           const SizedBox(width: 12),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(l['name'] ?? '', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 2),
-            Text(l['address'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            Text((l['name'] ?? '').toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+            if ((l['address'] ?? '').toString().isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text((l['address'] ?? '').toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+            ],
           ])),
           Icon(Icons.chevron_right, color: Colors.grey[400]),
         ]),

@@ -26,13 +26,13 @@ class _VehicleSelectionPageState extends State<VehicleSelectionPage> {
   Future<void> _loadVehicleTypes() async {
     try {
       final types = await DriverApiService.getVehicleTypes();
-      // Filter for taxi-capable vehicles
-      final filtered = types.where((t) {
-        final services = t['services'] as List?;
-        if (services == null) return true; // show all if no filter info
-        return services.contains('taxi');
-      }).toList();
-      if (mounted) setState(() { _vehicleTypes = filtered.isEmpty ? types : filtered; _loading = false; });
+      // Every ACTIVE vehicle type, whatever services it offers. This used to
+      // keep only types offering 'taxi', so a delivery-only type (Mini Truck)
+      // could never be picked and delivery drivers could not register.
+      // isActive defaults to true on the server model, so a missing flag counts
+      // as active.
+      final active = types.where((t) => t['isActive'] != false).toList();
+      if (mounted) setState(() { _vehicleTypes = active; _loading = false; });
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
@@ -194,7 +194,7 @@ class _VehicleSelectionPageState extends State<VehicleSelectionPage> {
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  'Step 2 of 3 — Choose your vehicle category',
+                  'Step 2 of 4 — Choose your vehicle category',
                   style: TextStyle(fontSize: 13, color: Colors.white70),
                 ),
               ),

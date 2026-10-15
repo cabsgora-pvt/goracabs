@@ -10,6 +10,7 @@ import '../../../services/location_service.dart';
 import '../../earnings/pages/earnings_page.dart';
 import '../../account/pages/account_page.dart';
 import '../../ride/pages/incoming_requests_page.dart';
+import '../../ride/logic/dismissed_requests.dart';
 import '../../ride/pages/on_ride_page.dart';
 import '../../ride/pages/rental_progress_page.dart';
 import '../../ride/pages/hire_progress_page.dart';
@@ -68,7 +69,13 @@ class _HomePageState extends State<HomePage> {
                 const EarningsPage(),
                 AccountPage(),
               ]),
-              bottomNavigationBar: _BottomNav(tab: _tab, onTap: (i) => setState(() => _tab = i)),
+              bottomNavigationBar: _BottomNav(tab: _tab, onTap: (i) {
+                setState(() => _tab = i);
+                // Account tab shows rating / rides / wallet balance from the
+                // provider, which was only loaded once at startup — refresh it
+                // so a rating received this session (or a wallet change) shows.
+                if (i == 2) context.read<DriverProvider>().loadProfile();
+              }),
             ),
           );
         },
@@ -403,7 +410,11 @@ class _RidePollerState extends State<_RidePoller> {
     if (_navigating || !mounted) return;
     try {
       final res = await DriverApiService.getPendingRequests();
-      final rides = (res['rides'] as List?) ?? [];
+      // Requests whose countdown just ran out on this phone are skipped, or a
+      // lapsed offer still in the feed would reopen the screen in a loop.
+      final rides = ((res['rides'] as List?) ?? [])
+          .where((r) => r is Map && !DismissedRequests.isSuppressedJson(r))
+          .toList();
       if (rides.isEmpty) return;
       // Open the multi-request screen (shows up to 5 pending requests at once).
       if (!mounted) return;

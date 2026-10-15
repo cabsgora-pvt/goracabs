@@ -32,7 +32,7 @@ class ActiveRideScreen extends StatefulWidget {
 }
 
 class _ActiveRideScreenState extends State<ActiveRideScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   Map<String, dynamic>? _ride;
   LatLng? _driverLatLng;
   double _driverHeading = 0;
@@ -167,7 +167,14 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       },
     );
     _coupon = RideCouponStore.load(widget.rideId);
+    WidgetsBinding.instance.addObserver(this);
     _poll();
+    _startTimers();
+    Future.delayed(const Duration(seconds: 2), _eta);
+  }
+
+  void _startTimers() {
+    _statusPoll?.cancel(); _locPoll?.cancel(); _etaPoll?.cancel();
     _statusPoll = Timer.periodic(const Duration(seconds: 3), (_) => _poll());
     // Marker position stays smooth at 5s (cheap — reads our own DB).
     _locPoll = Timer.periodic(const Duration(seconds: 5), (_) => _loc());
@@ -175,11 +182,27 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
     // It used to piggyback on the 5s location poll: 12 calls/min per active
     // rider. At 30s that is 2/min, with no visible loss of accuracy.
     _etaPoll = Timer.periodic(const Duration(seconds: 30), (_) => _eta());
-    Future.delayed(const Duration(seconds: 2), _eta);
+  }
+
+  // Back from the background: the OS may have paused or frozen the process, so
+  // the screen could still be showing an old phase ("driver on the way") long
+  // after the trip started. Re-read the ride right away and restart the timers
+  // rather than waiting for — or relying on — the old ones.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    if (!mounted || _finishing || _closing) return;
+    _startTimers();
+    _poll();
+    _loc();
+    _eta();
   }
 
   @override
-  void dispose() { _statusPoll?.cancel(); _locPoll?.cancel(); _etaPoll?.cancel(); _vehicle.dispose(); _sheet.dispose(); super.dispose(); }
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _statusPoll?.cancel(); _locPoll?.cancel(); _etaPoll?.cancel(); _vehicle.dispose(); _sheet.dispose(); super.dispose();
+  }
 
   Future<void> _poll() async {
     try {

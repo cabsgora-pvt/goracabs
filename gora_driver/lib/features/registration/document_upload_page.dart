@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/widgets/app_widgets.dart';
 import '../../services/driver_api_service.dart';
-// import 'bank_details_page.dart'; // Bank details deferred — driver can add later from settings
+import 'bank_details_page.dart';
 import 'document_detail_page.dart';
-import 'kyc_success_page.dart';
 
 // Documents required at registration. Each opens its own detail page where the
 // driver enters the number (+ expiry for insurance) and uploads front/back images.
@@ -65,9 +64,11 @@ class _DocumentUploadPageState extends State<DocumentUploadPage> {
       if (res['error'] != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['error'].toString()), backgroundColor: AppColors.red));
       } else {
-        // Bank details deferred — skip directly to KYC success
-        // Navigator.pushNamed(context, BankDetailsPage.route);
-        Navigator.pushNamedAndRemoveUntil(context, KycSuccessPage.route, (_) => false);
+        // Documents saved (server: registrationStep='bank'). Bank details are
+        // the last step — /register/bank is what moves the server to
+        // registrationStep='submitted', which the splash check relies on to
+        // land a relaunched, not-yet-approved driver on "Under Review".
+        Navigator.pushNamed(context, BankDetailsPage.route);
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.red));
@@ -202,7 +203,7 @@ class _DocumentUploadPageState extends State<DocumentUploadPage> {
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  'Step 3 of 3 — Upload all required documents',
+                  'Step 3 of 4 — Upload all required documents',
                   style: TextStyle(fontSize: 13, color: Colors.white70),
                 ),
               ),
@@ -215,7 +216,7 @@ class _DocumentUploadPageState extends State<DocumentUploadPage> {
 
   Widget _stepIndicator(int current) {
     return Row(
-      children: List.generate(3, (i) => Expanded(
+      children: List.generate(4, (i) => Expanded(
         child: Container(
           height: 4,
           margin: const EdgeInsets.symmetric(horizontal: 2),

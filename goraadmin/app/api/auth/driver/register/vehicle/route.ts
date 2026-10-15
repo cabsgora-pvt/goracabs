@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
+import VehicleType from '@/models/VehicleType'
 import { requireDriverAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 
@@ -20,9 +21,16 @@ export async function POST(req: NextRequest) {
     }
 
     await connectDB()
+    // A delivery-only vehicle (Mini Truck) never gets taxi rides, and parcel
+    // requests are opt-in — without this it would receive nothing at all.
+    const vt: any = await VehicleType.findById(selectedVehicleTypeId).select('services').lean().catch(() => null)
+    const services: string[] = vt?.services || []
+    const deliveryOnly = services.includes('delivery') && !services.includes('taxi')
+
     const driver = await Driver.findByIdAndUpdate(
       payload.id,
       {
+        ...(deliveryOnly ? { acceptsDelivery: true } : {}),
         selectedVehicleTypeId,
         selectedVehicleTypeName,
         vehicleRegistrationNumber,

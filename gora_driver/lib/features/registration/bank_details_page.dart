@@ -200,7 +200,9 @@ class _BankDetailsPageState extends State<BankDetailsPage> {
             children: [
               IconButton(
                 icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
+                // maybePop: when resumed straight from splash/login this is the
+                // only route, and a bare pop would leave a blank screen.
+                onPressed: () => Navigator.maybePop(context),
               ),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),

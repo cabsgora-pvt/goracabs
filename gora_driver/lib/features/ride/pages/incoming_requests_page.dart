@@ -7,11 +7,13 @@ import '../../../config/app_config.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
+import '../logic/dismissed_requests.dart';
 import 'on_ride_page.dart';
 
 // Shows up to 5 pending ride requests at once (taxi / rental / outstation / etc.).
 // The driver can Accept or Reject any of them; rejected/taken ones drop off and
-// fresh requests fill in. Accepting one navigates to the on-ride screen.
+// fresh requests fill in. A card whose countdown runs out is only dismissed
+// locally (DismissedRequests) — it is NOT rejected on the server. Accepting one navigates to the on-ride screen.
 class IncomingRequestsPage extends StatefulWidget {
   static const route = '/incoming-requests';
   const IncomingRequestsPage({super.key});
@@ -75,6 +77,8 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
       final models = rides
           .map((e) => RideRequestModel.fromJson(Map<String, dynamic>.from(e as Map)))
           .where((m) => !_rejectedIds.contains(m.id))
+          .where((m) => !DismissedRequests.isSuppressed(m.id,
+              offeredToMe: m.offeredToMe, offerExpiresAt: m.offerExpiresAt))
           .take(_maxRequests)
           .toList();
       if (!mounted || _closed) return;
@@ -140,9 +144,23 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     }
   }
 
+  // Explicit reject (tap on ✕ or swipe left): the server records rejectedBy so
+  // this ride is not offered to this driver again.
   void _reject(RideRequestModel m) {
     _rejectedIds.add(m.id);
     DriverApiService.rejectRide(m.id); // fire-and-forget; server records rejectedBy
+    setState(() => _requests.removeWhere((x) => x.id == m.id));
+    if (_requests.isEmpty) { _close(); } else { _updateRing(); }
+  }
+
+  // Countdown ran out (also happens while the app is in the background). Not a
+  // rejection: the server's offer expiry already moves the offer on, and a
+  // reject here would hide the ride from this driver for good. Only take the
+  // card off screen, and keep it from popping straight back up on the next
+  // poll — it can still come back later if the server offers it again.
+  void _timedOut(RideRequestModel m) {
+    DismissedRequests.dismiss(m.id, offerExpiresAt: m.offerExpiresAt);
+    if (!mounted) return;
     setState(() => _requests.removeWhere((x) => x.id == m.id));
     if (_requests.isEmpty) { _close(); } else { _updateRing(); }
   }
@@ -209,6 +227,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
       driverLng: _driverLng,
       onAccept: () => _accept(r),
       onReject: () => _reject(r),
+      onTimeout: () => _timedOut(r),
     );
   }
 }
@@ -238,7 +257,8 @@ Widget _fareWithTip(RideRequestModel r) {
 // countdown ring) + a brand-coloured Accept button.
 //
 // The WHOLE card is swipeable: drag it RIGHT to accept, LEFT to reject.
-// Each card also counts down; when it reaches zero it auto-skips (reject).
+// Each card also counts down; when it reaches zero it is dismissed locally
+// (onTimeout) — not rejected on the server.
 class _RequestCard extends StatefulWidget {
   final RideRequestModel ride;
   final Color serviceColor;
@@ -248,6 +268,9 @@ class _RequestCard extends StatefulWidget {
   final double? driverLat, driverLng;
   final VoidCallback onAccept;
   final VoidCallback onReject;
+  /// Countdown reached zero. Separate from [onReject] so a timeout never
+  /// records a server-side rejection.
+  final VoidCallback onTimeout;
   const _RequestCard({
     super.key,
     required this.ride,
@@ -258,6 +281,7 @@ class _RequestCard extends StatefulWidget {
     required this.driverLng,
     required this.onAccept,
     required this.onReject,
+    required this.onTimeout,
   });
   @override
   State<_RequestCard> createState() => _RequestCardState();
@@ -291,7 +315,7 @@ class _RequestCardState extends State<_RequestCard> {
     _left = _total;
     _t = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
-      if (_left <= 1) _fire(widget.onReject);
+      if (_left <= 1) _fire(widget.onTimeout);
       else setState(() => _left--);
     });
   }

@@ -27,6 +27,10 @@ class AuthenticatedState extends AuthState {
 }
 class UnauthenticatedState extends AuthState {}
 class RegistrationSubmittedState extends AuthState {}
+// Documents saved but bank details (the last registration step) not yet —
+// server registrationStep == 'bank'. Resumes at the bank page instead of
+// sending the driver back to onboarding/login.
+class RegistrationBankPendingState extends AuthState {}
 class RejectionState extends AuthState {
   final String reason;
   final Map<String, dynamic>? driver;
@@ -62,6 +66,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             return;
           } else if (regStep == 'submitted') {
             emit(RegistrationSubmittedState());
+            return;
+          } else if (regStep == 'bank') {
+            emit(RegistrationBankPendingState());
             return;
           }
         }

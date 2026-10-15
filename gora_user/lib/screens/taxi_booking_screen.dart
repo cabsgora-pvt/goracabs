@@ -48,7 +48,7 @@ class TaxiBookingScreen extends StatefulWidget {
 
 class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     // Two animations now: the assigned vehicle's glide and the nearby fleet.
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   // Top-down sprite for the assigned vehicle, so the rider watches the
   // car/auto/bike they booked approach rather than a generic pin.
   BitmapDescriptor? _vehIcon;
@@ -108,6 +108,20 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   String _driverVehicleNumber = '';
   double _driverRating = 0;
   Timer? _pollTimer;
+  // What the current status poll reports to (finding sheet, then arriving
+  // sheet). Kept so the poll can be restarted when the app comes back from the
+  // background. Null once the ride is over or cancelled.
+  FutureOr<void> Function(String status, Map<String, dynamic> ride)? _statusHandler;
+  // One status request (and its handler) at a time - the resume refresh and
+  // the timer can otherwise overlap and both act on the same 'completed'.
+  bool _statusInFlight = false;
+  // Latest server status, for the arriving sheet's title / ETA line.
+  String _rideStatus = 'pending';
+  // Bumped whenever ride/ETA state changes. A modal sheet is its own route and
+  // does not rebuild on this State's setState, so the arriving sheet listens to
+  // this instead - it used to keep saying "Your taxi on the way" (with a frozen
+  // ETA) for the whole trip.
+  final ValueNotifier<int> _sheetTick = ValueNotifier(0);
   Timer? _driverLocTimer;
   Timer? _etaTimer;
   Timer? _fareRefreshTimer;
@@ -230,6 +244,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       },
     );
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _fleet = AmbientVehicleFleet(
       vsync: this,
       duration: const Duration(seconds: 4),
@@ -317,6 +332,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _sheetTick.dispose();
     _nearbyTimer?.cancel();
     _fleet.dispose();
     _vehicle.dispose();
@@ -549,6 +566,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
           _driverDistanceKm = km;
         }
       });
+      _sheetTick.value++;
     } catch (_) {/* keep last */}
   }
 
@@ -700,38 +718,78 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   }
 
   // Poll ride status; invokes [onStatus] with the latest status string
-  void _startStatusPolling(void Function(String status, Map<String, dynamic> ride) onStatus) {
+  void _startStatusPolling(FutureOr<void> Function(String status, Map<String, dynamic> ride) onStatus) {
     _pollTimer?.cancel();
+    _statusHandler = onStatus;
     if (_rideId == null) return;
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       if (!mounted) { timer.cancel(); return; }
-      try {
-        final ride = await ApiService.getRide(_rideId!);
-        final status = (ride['status'] ?? 'pending').toString();
-        if (ride['driverName'] != null) _driverName = ride['driverName'].toString();
-        if (ride['driverPhone'] != null) _driverPhone = ride['driverPhone'].toString();
-        // Pick up extra driver details (vehicle, pic, rating) as soon as driver is assigned
-        final dr = ride['driver'] as Map<String, dynamic>?;
-        if (dr != null) {
-          _driverVehicleModel = (dr['vehicleModel'] ?? _driverVehicleModel).toString();
-          _driverVehicleNumber = (dr['vehicleNumber'] ?? dr['vehicleRegistrationNumber'] ?? _driverVehicleNumber).toString();
-          final pic = (dr['profilePicUrl'] ?? '').toString();
-          if (pic.isNotEmpty) _driverPicUrl = AppConfig.imageUrl(pic);
-          final r = dr['rating'];
-          if (r is num) _driverRating = r.toDouble();
-        }
-        // Once a driver is assigned (status >= accepted), start live driver-location + ETA polling
-        if (status != 'pending' && _driverLocTimer == null) {
-          _startDriverLocationPolling();
-          _startEtaPolling();
-        }
-        // Online gating: driver requested payment → prompt rider to pay, then complete.
-        if (ride['awaitingPayment'] == true && status != 'completed') {
-          promptOnlinePayment(context, _rideId, ride);
-        }
-        onStatus(status, ride);
-      } catch (_) {}
+      _pollStatusOnce();
     });
+  }
+
+  // The ride is over (completed / cancelled): stop polling and forget the
+  // handler, so coming back from the background does not restart it.
+  void _stopStatusPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _statusHandler = null;
+  }
+
+  Future<void> _pollStatusOnce() async {
+    final onStatus = _statusHandler;
+    if (_rideId == null || onStatus == null || _statusInFlight) return;
+    _statusInFlight = true;
+    try {
+      final ride = await ApiService.getRide(_rideId!);
+      if (!mounted) return;
+      final status = (ride['status'] ?? 'pending').toString();
+      if (ride['driverName'] != null) _driverName = ride['driverName'].toString();
+      if (ride['driverPhone'] != null) _driverPhone = ride['driverPhone'].toString();
+      // Pick up extra driver details (vehicle, pic, rating) as soon as driver is assigned
+      final dr = ride['driver'] as Map<String, dynamic>?;
+      if (dr != null) {
+        _driverVehicleModel = (dr['vehicleModel'] ?? _driverVehicleModel).toString();
+        _driverVehicleNumber = (dr['vehicleNumber'] ?? dr['vehicleRegistrationNumber'] ?? _driverVehicleNumber).toString();
+        final pic = (dr['profilePicUrl'] ?? '').toString();
+        if (pic.isNotEmpty) _driverPicUrl = AppConfig.imageUrl(pic);
+        final r = dr['rating'];
+        if (r is num) _driverRating = r.toDouble();
+      }
+      _rideStatus = status;
+      _sheetTick.value++;
+      // Once a driver is assigned (status >= accepted), start live driver-location + ETA polling
+      if (status != 'pending' && _driverLocTimer == null) {
+        _startDriverLocationPolling();
+        _startEtaPolling();
+      }
+      // Online gating: driver requested payment → prompt rider to pay, then complete.
+      if (ride['awaitingPayment'] == true && status != 'completed') {
+        promptOnlinePayment(context, _rideId, ride);
+      }
+      await onStatus(status, ride);
+    } catch (_) {
+      // keep polling on transient errors
+    } finally {
+      _statusInFlight = false;
+    }
+  }
+
+  // Back from the background: the timers may have been paused or the process
+  // frozen, so the screen could still show "Your taxi on the way" long after
+  // the trip started. Re-read the ride immediately and restart the timers.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    final handler = _statusHandler;
+    if (_rideId == null || handler == null) return; // no live ride being tracked
+    _startStatusPolling(handler);
+    _pollStatusOnce();
+    if (_driverLocTimer != null) {
+      _startDriverLocationPolling();
+      _startEtaPolling();
+      _fetchEtaOnce();
+    }
   }
 
   // Build Google Maps marker set
@@ -1986,7 +2044,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
               _showDriverArrivingDialog();
             }
           } else if (status == 'cancelled') {
-            _pollTimer?.cancel();
+            _stopStatusPolling();
           }
         });
 
@@ -2054,18 +2112,21 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
             if (Navigator.canPop(context)) {
               Navigator.of(context).pop();
             }
-            _pollTimer?.cancel();
+            _stopStatusPolling();
             setState(() {
               _showFullTripMap = false;
               _showArrivingButtons = false;
             });
             _showRideCompletedDialog();
           } else if (status == 'cancelled') {
-            _pollTimer?.cancel();
+            _stopStatusPolling();
           }
         });
 
-        return Container(
+        // Rebuilt on every status / ETA update (see _sheetTick).
+        return ValueListenableBuilder<int>(
+          valueListenable: _sheetTick,
+          builder: (context, tick, child) => Container(
           padding: EdgeInsets.only(
             left: 20, right: 20, top: 20,
             // Honour system bottom inset (gesture-bar) so the cancel button never overflows
@@ -2095,7 +2156,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                   ),
                 ),
                 Text(
-                  'Your taxi on the way',
+                  _rideStatus == 'ongoing'
+                      ? 'On the way to your destination'
+                      : _rideStatus == 'arrived'
+                          ? 'Your taxi has arrived'
+                          : 'Your taxi on the way',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
                 ),
               const SizedBox(height: 12),
@@ -2128,7 +2193,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                     const Icon(Icons.access_time_filled, color: Color(0xFF1C2656), size: 18),
                     const SizedBox(width: 8),
                     Text(
-                      _driverEtaMin != null ? 'Arriving in $_driverEtaMin min' : 'Calculating ETA…',
+                      _rideStatus == 'ongoing'
+                          ? (_tripEtaMin != null ? 'Reaching in $_tripEtaMin min' : 'Calculating ETA…')
+                          : (_driverEtaMin != null ? 'Arriving in $_driverEtaMin min' : 'Calculating ETA…'),
                       style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
                     ),
                     const SizedBox(width: 12),
@@ -2304,7 +2371,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
             ],
           ),
           ),
-        );
+        ));
       },
     );
   }
@@ -2375,7 +2442,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                     width: double.infinity,
                     child: ElevatedButton(
                       onPressed: selectedReason == null ? null : () async {
-                        _pollTimer?.cancel();
+                        _stopStatusPolling();
                         if (_rideId != null) {
                           try {
                             await ApiService.cancelRide(_rideId!, selectedReason!);

@@ -8,6 +8,7 @@ import '../../../providers/driver_provider.dart';
 import '../../../services/driver_api_service.dart';
 import '../../home/pages/home_page.dart';
 import '../../registration/kyc_pending_page.dart';
+import '../../registration/bank_details_page.dart';
 import '../../registration/rejection_page.dart';
 import '../../registration/personal_details_page.dart';
 
@@ -91,6 +92,9 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
         );
       } else if (result['registrationStep'] == 'submitted') {
         Navigator.pushNamedAndRemoveUntil(context, KycPendingPage.route, (_) => false);
+      } else if (result['registrationStep'] == 'bank') {
+        // Documents already on file — only the bank step is left.
+        Navigator.pushNamedAndRemoveUntil(context, BankDetailsPage.route, (_) => false);
       } else {
         Navigator.pushNamedAndRemoveUntil(
           context,
