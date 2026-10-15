@@ -44,6 +44,12 @@ const VEHICLES = [
     baseFare: 30, perKm: 11, perMin: 1, minFare: 45 },
   { name: 'Cab', capacity: 4, sortOrder: 3, services: ['taxi', 'rental', 'outstation', 'hire_driver'],
     baseFare: 50, perKm: 13, perMin: 1.5, minFare: 90 },
+  { name: 'Prime Sedan', capacity: 4, sortOrder: 4, services: ['taxi', 'rental', 'outstation', 'hire_driver'],
+    baseFare: 60, perKm: 15, perMin: 1.5, minFare: 110, image: '/uploads/vehicles/prime-sedan.png' },
+  { name: 'Prime SUV', capacity: 6, sortOrder: 5, services: ['taxi', 'rental', 'outstation', 'hire_driver'],
+    baseFare: 80, perKm: 18, perMin: 2, minFare: 150, image: '/uploads/vehicles/prime-suv.png' },
+  { name: 'Mini Truck', capacity: 1, sortOrder: 6, services: ['delivery'],
+    baseFare: 150, perKm: 20, perMin: 1.5, minFare: 250, image: '/uploads/vehicles/mini-truck.png' },
 ]
 
 // ── Per-zone pricing ────────────────────────────────────────────────────────
@@ -55,17 +61,29 @@ const PRICING = [
   { service: 'taxi', vehicle: 'Bike', baseFare: 20, perKm: 6, perMin: 0.5, minFare: 30 },
   { service: 'taxi', vehicle: 'Auto', baseFare: 30, perKm: 11, perMin: 1, minFare: 45 },
   { service: 'taxi', vehicle: 'Cab', baseFare: 50, perKm: 13, perMin: 1.5, minFare: 90 },
+  { service: 'taxi', vehicle: 'Prime Sedan', baseFare: 60, perKm: 15, perMin: 1.5, minFare: 110 },
+  { service: 'taxi', vehicle: 'Prime SUV', baseFare: 80, perKm: 18, perMin: 2, minFare: 150 },
   // Parcel (the app caps parcels at 20 kg)
   { service: 'delivery', vehicle: 'Bike', baseFare: 30, perKm: 7, perMin: 0.5, perKg: 2, minFare: 40 },
   { service: 'delivery', vehicle: 'Auto', baseFare: 60, perKm: 12, perMin: 1, perKg: 1, minFare: 80 },
-  // Hire a driver (rider's own car): base + hours × perHour (+ return charge one way)
+  { service: 'delivery', vehicle: 'Mini Truck', baseFare: 150, perKm: 20, perMin: 1.5, perKg: 0, minFare: 250 },
+  // Hire a driver (rider's own car, by its class): base + hours × perHour
+  // (+ return charge one way)
   { service: 'hire_driver', vehicle: 'Cab', baseFare: 100, perHour: 120, hireReturnCharge: 100, minFare: 250 },
+  { service: 'hire_driver', vehicle: 'Prime Sedan', baseFare: 100, perHour: 130, hireReturnCharge: 100, minFare: 280 },
+  { service: 'hire_driver', vehicle: 'Prime SUV', baseFare: 120, perHour: 150, hireReturnCharge: 120, minFare: 320 },
   // Outstation: one way = base + km × perKm, plus emptyReturnPercent for the
   // driver's empty drive back; round trip uses the rt* rates. Driver
   // allowance is per day; night halt only on round trips with a 6h+ leg.
   { service: 'outstation', vehicle: 'Cab', baseFare: 300, perKm: 10, minFare: 1000,
     emptyReturnPercent: 25, rtBaseFare: 300, rtPerKm: 9, nightHaltCharge: 300,
     driverAllowance: 300, kmLimitPerDay: 300, extraKmRate: 10, gstPercent: 0 },
+  { service: 'outstation', vehicle: 'Prime Sedan', baseFare: 300, perKm: 12, minFare: 1200,
+    emptyReturnPercent: 25, rtBaseFare: 300, rtPerKm: 11, nightHaltCharge: 300,
+    driverAllowance: 300, kmLimitPerDay: 300, extraKmRate: 12, gstPercent: 0 },
+  { service: 'outstation', vehicle: 'Prime SUV', baseFare: 400, perKm: 15, minFare: 1500,
+    emptyReturnPercent: 25, rtBaseFare: 400, rtPerKm: 14, nightHaltCharge: 350,
+    driverAllowance: 350, kmLimitPerDay: 300, extraKmRate: 15, gstPercent: 0 },
 ]
 
 const RENTAL_PACKAGES = [
@@ -79,6 +97,18 @@ const RENTAL_PACKAGES = [
   { vehicle: 'Cab', hours: 4, km: 40, basePrice: 849, extraHourRate: 150, extraKmRate: 12, nightCharge: 200 },
   { vehicle: 'Cab', hours: 8, km: 80, basePrice: 1599, extraHourRate: 150, extraKmRate: 12, nightCharge: 200 },
   { vehicle: 'Cab', hours: 12, km: 120, basePrice: 2299, extraHourRate: 150, extraKmRate: 12, nightCharge: 200 },
+  // Prime Sedan
+  { vehicle: 'Prime Sedan', hours: 1, km: 10, basePrice: 299, extraHourRate: 180, extraKmRate: 14, nightCharge: 250 },
+  { vehicle: 'Prime Sedan', hours: 2, km: 20, basePrice: 549, extraHourRate: 180, extraKmRate: 14, nightCharge: 250 },
+  { vehicle: 'Prime Sedan', hours: 4, km: 40, basePrice: 999, extraHourRate: 180, extraKmRate: 14, nightCharge: 250 },
+  { vehicle: 'Prime Sedan', hours: 8, km: 80, basePrice: 1899, extraHourRate: 180, extraKmRate: 14, nightCharge: 250 },
+  { vehicle: 'Prime Sedan', hours: 12, km: 120, basePrice: 2699, extraHourRate: 180, extraKmRate: 14, nightCharge: 250 },
+  // Prime SUV
+  { vehicle: 'Prime SUV', hours: 1, km: 10, basePrice: 399, extraHourRate: 220, extraKmRate: 17, nightCharge: 300 },
+  { vehicle: 'Prime SUV', hours: 2, km: 20, basePrice: 699, extraHourRate: 220, extraKmRate: 17, nightCharge: 300 },
+  { vehicle: 'Prime SUV', hours: 4, km: 40, basePrice: 1299, extraHourRate: 220, extraKmRate: 17, nightCharge: 300 },
+  { vehicle: 'Prime SUV', hours: 8, km: 80, basePrice: 2399, extraHourRate: 220, extraKmRate: 17, nightCharge: 300 },
+  { vehicle: 'Prime SUV', hours: 12, km: 120, basePrice: 3399, extraHourRate: 220, extraKmRate: 17, nightCharge: 300 },
 ]
 
 const COMMISSION_PERCENT = 20
@@ -119,15 +149,21 @@ async function main() {
   // Vehicle types
   const vtByName = {}
   for (const v of VEHICLES) {
-    const { name, ...fields } = v
-    const onInsert = { imageUrl: '', baseDistance: 2, waitingCharge: 1, isAcceptShareRide: false, createdAt: now }
+    const { name, image, ...fields } = v
+    const onInsert = { imageUrl: image || '', baseDistance: 2, waitingCharge: 1, isAcceptShareRide: false, createdAt: now }
     const update = FORCE
       ? { $set: { ...fields, isActive: true, updatedAt: now }, $setOnInsert: onInsert }
       : { $setOnInsert: { ...fields, ...onInsert, isActive: true, updatedAt: now } }
     const res = await db.collection('vehicletypes').findOneAndUpdate(
       { name }, update, { upsert: true, returnDocument: 'after' },
     )
-    const doc = res.value || res
+    let doc = res.value || res
+    // Give an existing type the bundled image only if it has none, so a photo
+    // uploaded from the admin panel is never replaced.
+    if (image && !doc.imageUrl) {
+      await db.collection('vehicletypes').updateOne({ _id: doc._id }, { $set: { imageUrl: image } })
+      doc = { ...doc, imageUrl: image }
+    }
     vtByName[name] = doc
     console.log(`vehicle ${name.padEnd(5)} services=${doc.services.join(',')} image=${doc.imageUrl || '(none — add in admin panel)'}`)
   }
