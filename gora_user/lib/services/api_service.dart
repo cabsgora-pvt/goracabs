@@ -77,7 +77,34 @@ class ApiService {
       headers: headers,
       body: jsonEncode(body),
     );
-    return jsonDecode(res.body) as Map<String, dynamic>;
+    return _decode(res);
+  }
+
+  /// Decodes an API response without ever throwing.
+  ///
+  /// The core post/get used a bare `jsonDecode(res.body) as Map`, which throws
+  /// whenever the body is not a JSON object — common in the real world: an
+  /// nginx 502 returns HTML, a 204 returns nothing, and captive-portal wifi
+  /// returns a login page for every request. The FormatException then
+  /// propagated out of whichever screen made the call.
+  ///
+  /// Callers already check `res['error']`, so failures are surfaced that way.
+  static Map<String, dynamic> _decode(http.Response res) {
+    final body = res.body;
+    if (body.trim().isEmpty) {
+      return {'error': 'No response from server (HTTP ${res.statusCode})'};
+    }
+    try {
+      final v = jsonDecode(body);
+      if (v is Map<String, dynamic>) return v;
+      return {'error': 'Unexpected response from server'};
+    } catch (_) {
+      return {
+        'error': res.statusCode >= 500
+            ? 'Server error (${res.statusCode}). Please try again.'
+            : 'Could not read the server response. Check your connection.',
+      };
+    }
   }
 
   static Future<Map<String, dynamic>> get(String path) async {
@@ -87,7 +114,7 @@ class ApiService {
       if (token != null) 'Authorization': 'Bearer $token',
     };
     final res = await http.get(Uri.parse('$baseUrl$path'), headers: headers);
-    return jsonDecode(res.body) as Map<String, dynamic>;
+    return _decode(res);
   }
 
   // ── App config (admin-managed content) ───────────────────
@@ -99,6 +126,22 @@ class ApiService {
       _appConfigCache = (res['config'] as Map?)?.cast<String, dynamic>() ?? {};
     } catch (_) { _appConfigCache = {}; }
     return _appConfigCache!;
+  }
+
+  // ── Nearby drivers (live vehicles on map) ────────────────
+  // Returns a list of {id, lat, lng, heading, vehicleType} — no PII.
+  static Future<List<Map<String, dynamic>>> getNearbyDrivers(
+      double lat, double lng, {double radiusKm = 5, String? vehicleType}) async {
+    try {
+      final vt = (vehicleType != null && vehicleType.isNotEmpty)
+          ? '&vehicleType=${Uri.encodeQueryComponent(vehicleType)}'
+          : '';
+      final res = await get('/rides/nearby-drivers?lat=$lat&lng=$lng&radius=$radiusKm$vt');
+      final list = (res['drivers'] as List?) ?? const [];
+      return list.map((e) => (e as Map).cast<String, dynamic>()).toList();
+    } catch (_) {
+      return const [];
+    }
   }
 
   // ── Wallet ───────────────────────────────────────────────
@@ -157,6 +200,22 @@ class ApiService {
 
   static Future<Map<String, dynamic>> getProfile() => get('/auth/user/profile');
 
+  // ── Referral (own code + live stats) ──────────────────────
+  static Future<Map<String, dynamic>> getReferral() => get('/auth/user/referral');
+
+  // ── Split fare ─────────────────────────────────────────────
+  static Future<Map<String, dynamic>> getSplit(String rideId) => get('/rides/$rideId/split');
+  static Future<Map<String, dynamic>> createSplit(String rideId, List<Map<String, String>> contacts) =>
+      post('/rides/$rideId/split', {'contacts': contacts}, auth: true);
+  static Future<Map<String, dynamic>> getSplitRequests() => get('/rides/split-requests');
+  static Future<Map<String, dynamic>> paySplitShare(String rideId) =>
+      post('/rides/$rideId/split/pay', {}, auth: true);
+
+  // What cancelling this ride right now would cost — the same rule the
+  // server applies when the cancel actually goes through, checked upfront.
+  static Future<Map<String, dynamic>> getCancelFee(String rideId) =>
+      get('/rides/$rideId/cancel-fee');
+
   // ── Rental packages (for pickup zone) ─────────────────────
   static Future<Map<String, dynamic>> getRentalPackages({
     required double pickupLat, required double pickupLng,
@@ -208,6 +267,11 @@ class ApiService {
   static Future<Map<String, dynamic>> sendRideMessage(String rideId, String text) =>
       post('/rides/$rideId/messages', {'sender': 'user', 'text': text}, auth: true);
 
+  // Report a toll the driver entered on an outstation trip; opens a support ticket.
+  // reason: 'no_toll' | 'wrong_amount' | 'other'
+  static Future<Map<String, dynamic>> reportToll(String rideId, String tollId, String reason, String note) =>
+      post('/rides/$rideId/toll', {'action': 'report', 'tollId': tollId, 'reason': reason, if (note.isNotEmpty) 'note': note}, auth: true);
+
   static Future<Map<String, dynamic>> cancelRide(String id, String reason) =>
       post('/rides/$id/cancel', {'cancelledBy': 'rider', 'reason': reason}, auth: true);
 
@@ -224,6 +288,9 @@ class ApiService {
       final Uint8List bytes = await xfile.readAsBytes();
       final uri = Uri.parse('$baseUrl/upload');
       final request = http.MultipartRequest('POST', uri);
+      // /api/upload now requires a signed-in caller.
+      final token = await getToken();
+      if (token != null) request.headers['Authorization'] = 'Bearer $token';
       request.files.add(http.MultipartFile.fromBytes(
         'file', bytes,
         filename: xfile.name.isNotEmpty ? xfile.name : 'profile.jpg',
@@ -243,6 +310,8 @@ class ApiService {
     try {
       final Uint8List bytes = await xfile.readAsBytes();
       final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload'));
+      final token = await getToken();
+      if (token != null) request.headers['Authorization'] = 'Bearer $token';
       request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: xfile.name.isNotEmpty ? xfile.name : 'parcel.jpg'));
       final res = await http.Response.fromStream(await request.send());
       final data = jsonDecode(res.body) as Map<String, dynamic>;

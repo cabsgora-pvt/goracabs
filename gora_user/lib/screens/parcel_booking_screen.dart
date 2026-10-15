@@ -2,22 +2,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:share_plus/share_plus.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
+import '../utils/vehicle_marker.dart';
+import '../utils/map_markers.dart';
 import '../services/location_service.dart';
-import '../services/payment_service.dart';
 import '../theme/app_theme.dart';
-import '../utils/call_util.dart';
-import 'ride_chat_screen.dart';
-import 'parcel_bill_screen.dart';
+import '../utils/ride_booking.dart';
 import '../widgets/payment_coupon_bar.dart';
-import '../widgets/payment_method_picker.dart';
-import '../widgets/sos_button.dart';
-import '../widgets/online_payment.dart';
-import '../widgets/finding_driver_view.dart';
-import 'home_screen.dart';
-import 'rating_screen.dart';
+import 'active_ride_screen.dart';
 
 // Parcel / Delivery — sender books a driver to carry a package to a receiver.
 // Two OTPs: pickup OTP (sender → driver to collect) + drop OTP (receiver → driver to hand over).
@@ -38,7 +31,6 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   bool _isFragile = false;
   bool _cod = false;
   String _paymentMode = 'cash';
-  num _payableFare = 0;
   String _couponCode = '';
   int _couponDiscount = 0;
   DateTime? _scheduledAt;   // null = deliver now
@@ -61,26 +53,22 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   GoogleMapController? _mapCtrl;
   String _mapAddr = '';
 
-  String? _rideId, _pickupOtp, _dropOtp;
-  String _driverName = 'Driver', _driverPhone = '', _driverPic = '', _vModel = '', _vNumber = '';
-  double _driverRating = 0;
-  String _deliveryPhase = 'pending';
-  Timer? _poll, _locPoll;
-  void Function(void Function())? _dialogSet;
-  // Live driver tracking
-  LatLng? _driverLatLng;
-  double _driverHeading = 0;
-  int? _etaMin;
+  // A parcel booked here is tracked on ActiveRideScreen (see _confirmParcel),
+  // so this screen holds no live ride state.
+
   // Send / Receive tabs
   String _tab = 'Send';
   List<Map<String, dynamic>> _myParcels = [];
   bool _loadingParcels = false;
 
   @override
-  void initState() { super.initState(); _initLocation(); }
+  void initState() {
+    super.initState();
+    _initLocation();
+  }
 
   @override
-  void dispose() { _poll?.cancel(); _locPoll?.cancel(); _debounce?.cancel(); _dialogSet = null;
+  void dispose() { _debounce?.cancel();
     for (final c in [_pickupCtrl, _dropCtrl, _senderName, _senderPhone, _receiverName, _receiverPhone, _weight, _itemValue, _codAmount]) { c.dispose(); }
     super.dispose(); }
 
@@ -128,15 +116,16 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     } catch (_) { setState(() { _loading = false; _error = 'Failed to load'; }); }
   }
 
-  Future<void> _book() async {
+  /// Books the parcel and returns the server's answer; [bookAndTrack] reports a
+  /// failure and opens the live ride screen on success.
+  Future<Map<String, dynamic>> _book() async {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
     final num fare = (v['fare'] as num?) ?? 0;
-    _payableFare = (fare - _couponDiscount).clamp(0, fare);
-    try {
-      final res = await ApiService.bookRide({
+    return ApiService.bookRide({
         'pickupAddress': _pickupCtrl.text, 'dropAddress': _dropCtrl.text,
         'pickupLat': _pLat, 'pickupLng': _pLng, 'dropLat': _dLat ?? _pLat, 'dropLng': _dLng ?? _pLng,
         'service': 'delivery', 'vehicleType': _selectedVehicle, 'fare': (fare - _couponDiscount).clamp(0, fare),
+        'quoteToken': v['quoteToken'],
         'senderName': _senderName.text, 'senderPhone': _senderPhone.text,
         'receiverName': _receiverName.text, 'receiverPhone': _receiverPhone.text,
         'itemType': _itemType, 'weightKg': double.tryParse(_weight.text) ?? 0,
@@ -145,49 +134,33 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         'codAmount': _cod ? (double.tryParse(_codAmount.text) ?? 0) : 0,
         'parcelPhotos': _photoUrls,
         'scheduledAt': _scheduledAt?.toIso8601String(),
-        'paymentMode': _cod ? 'cod' : _paymentMode,
+        // 'cash', not 'cod'. The server only accepts cash / wallet / online, so
+        // every parcel booked with COD on failed validation — and the failure was
+        // swallowed, leaving the sender on "Finding your driver" for a parcel
+        // that was never booked. With COD on, the fare has always been charged
+        // as cash; the booking now says the same thing.
+        'paymentMode': _cod ? 'cash' : _paymentMode,
         'couponCode': _couponCode,
         'couponDiscount': _couponDiscount,
       });
-      if (res['ride'] != null) { _rideId = res['ride']['id']?.toString(); _pickupOtp = res['ride']['otp']?.toString(); _dropOtp = res['ride']['dropOtp']?.toString(); }
-    } catch (_) {}
   }
 
-  void _startPolling() {
-    _poll?.cancel();
-    if (_rideId == null) return;
-    _poll = Timer.periodic(const Duration(seconds: 3), (t) async {
-      if (!mounted) { t.cancel(); return; }
-      try {
-        final ride = await ApiService.getRide(_rideId!);
-        final status = (ride['status'] ?? 'pending').toString();
-        if (ride['awaitingPayment'] == true && status != 'completed') { promptOnlinePayment(context, _rideId, ride); }
-        if (ride['driverName'] != null) _driverName = ride['driverName'].toString();
-        if (ride['driverPhone'] != null) _driverPhone = ride['driverPhone'].toString();
-        final dr = ride['driver'] as Map<String, dynamic>?;
-        if (dr != null) {
-          _vModel = (dr['vehicleModel'] ?? _vModel).toString(); _vNumber = (dr['vehicleNumber'] ?? _vNumber).toString();
-          final p = (dr['profilePicUrl'] ?? '').toString(); if (p.isNotEmpty) _driverPic = AppConfig.imageUrl(p);
-          if (dr['rating'] is num) _driverRating = (dr['rating'] as num).toDouble();
-        }
-        if (ride['dropOtp'] != null) _dropOtp = ride['dropOtp'].toString();
-        _deliveryPhase = (ride['deliveryPhase'] ?? _deliveryPhase).toString();
-        _dialogSet?.call(() {});
-        if (status == 'accepted' || status == 'arrived' || status == 'ongoing') {
-          if (_locPoll == null) _startDriverLocation();
-          if (Navigator.canPop(context)) { Navigator.pop(context); _showAssigned(); }
-        } else if (status == 'completed') {
-          await PaymentService.charge(context, method: _cod ? 'cash' : _paymentMode, amount: _payableFare, rideId: _rideId);
-          if (!mounted) return;
-          t.cancel(); if (!mounted) return;
-          Navigator.of(context, rootNavigator: true).popUntil((r) => r.isFirst);
-          // Ola-style bill screen, then rating
-          await Navigator.push(context, MaterialPageRoute(builder: (_) => ParcelBillScreen(amount: _payableFare, vehicleName: _selectedVehicle ?? 'Delivery')));
-          if (!mounted) return;
-          Navigator.push(context, MaterialPageRoute(builder: (_) => RatingScreen(driverName: _driverName, vehicleName: _selectedVehicle ?? 'Delivery', selectedTip: 0, rideId: _rideId)));
-        }
-      } catch (_) {}
-    });
+  /// Book once, from the button — never from a sheet builder — then track the
+  /// parcel on the live ride screen. The coupon is stored with the ride: the
+  /// server keeps a parcel's full quoted fare, so the discount is applied when
+  /// the ride is charged.
+  Future<void> _confirmParcel() => bookAndTrack(
+    context,
+    book: _book,
+    couponDiscount: _couponDiscount,
+  );
+
+  /// A parcel the rider sent opens on the live ride screen, like any ride.
+  void _openSentParcel(Map<String, dynamic> p) {
+    final id = (p['_id'] ?? p['id'] ?? '').toString();
+    if (id.isEmpty) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveRideScreen(rideId: id)))
+        .then((_) { if (mounted) _loadMyParcels(); });
   }
 
   Future<void> _addPhoto() async {
@@ -197,31 +170,6 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     final url = await ApiService.uploadImage(x);
     if (!mounted) return;
     setState(() { if (url != null) _photoUrls.add(url); _uploading = false; });
-  }
-
-  // Poll driver live position every 5s + recompute ETA to the relevant point
-  void _startDriverLocation() {
-    _locPoll?.cancel();
-    if (_rideId == null) return;
-    _locPoll = Timer.periodic(const Duration(seconds: 5), (t) async {
-      if (!mounted) { t.cancel(); return; }
-      try {
-        final res = await ApiService.getDriverLocation(_rideId!);
-        final d = res['driver'] as Map<String, dynamic>?;
-        if (d == null || d['lat'] == null) return;
-        final dLat = (d['lat'] as num).toDouble(), dLng = (d['lng'] as num).toDouble();
-        // Before collection → ETA to pickup; after → ETA to drop
-        final toDrop = _deliveryPhase == 'in_transit';
-        final destLat = toDrop ? (_dLat ?? _pLat!) : _pLat!;
-        final destLng = toDrop ? (_dLng ?? _pLng!) : _pLng!;
-        final dir = await ApiService.getDirections(originLat: dLat, originLng: dLng, destLat: destLat, destLng: destLng);
-        if (!mounted) return;
-        _driverLatLng = LatLng(dLat, dLng);
-        _driverHeading = (d['heading'] as num?)?.toDouble() ?? 0;
-        _etaMin = (dir['durationMin'] as num?)?.toInt();
-        _dialogSet?.call(() {});
-      } catch (_) {}
-    });
   }
 
   bool get _formValid => _pLat != null && _dLat != null && _selectedVehicle != null
@@ -321,18 +269,30 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   Widget _parcelTile(Map<String, dynamic> p, {required bool incoming}) {
       final status = (p['status'] ?? '').toString();
       final phase = (p['deliveryPhase'] ?? '').toString();
-      final done = status == 'completed' || phase == 'delivered';
+      // A returned parcel is finished, but it is NOT delivered. Both used to
+      // fall under `done`, so a parcel that came back to the sender showed them
+      // a green DELIVERED badge — the one thing they most need to not be told.
+      final returned = phase == 'returned' || phase == 'failed';
+      final delivered = !returned && (phase == 'delivered' || status == 'completed');
+      final done = delivered || returned;
       final active = !done && (status == 'accepted' || status == 'arrived' || status == 'ongoing');
+      final failReason = (p['failReason'] ?? '').toString();
       return GestureDetector(
-        onTap: active ? () => _trackLive(p) : null,
+        // The receiver is not the ride's rider: they get the view-only tracker,
+        // without cancel or payment. The sender gets the full ride screen.
+        onTap: active ? () => incoming ? _trackLive(p) : _openSentParcel(p) : null,
         child: Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[200]!)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: done ? Colors.green[50] : Colors.blue[50], borderRadius: BorderRadius.circular(6)),
-              child: Text(done ? 'DELIVERED' : (phase.isNotEmpty ? phase.toUpperCase() : status.toUpperCase()),
-                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: done ? Colors.green : AppTheme.primaryBlue))),
+              decoration: BoxDecoration(
+                color: returned ? Colors.orange[50] : (delivered ? Colors.green[50] : Colors.blue[50]),
+                borderRadius: BorderRadius.circular(6)),
+              child: Text(
+                returned ? 'RETURNED' : (delivered ? 'DELIVERED' : (phase.isNotEmpty ? phase.toUpperCase() : status.toUpperCase())),
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800,
+                  color: returned ? Colors.orange[800] : (delivered ? Colors.green : AppTheme.primaryBlue)))),
             const Spacer(),
             Text('₹${p['totalFare'] ?? p['fare'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
           ]),
@@ -351,6 +311,25 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
                   child: Text((p['dropOtp'] ?? '----').toString(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 3, color: Color(0xFF1C2656))))]))),
           if (active) const Padding(padding: EdgeInsets.only(top: 6), child: Row(children: [Icon(Icons.my_location, size: 13, color: AppTheme.primaryBlue), SizedBox(width: 4),
             Text('Tap to track live', style: TextStyle(fontSize: 11, color: AppTheme.primaryBlue, fontWeight: FontWeight.w600))])),
+          // A RETURNED badge on its own tells the sender their parcel came back
+          // but not why, so say it plainly, and note that no COD was taken.
+          if (returned) Padding(padding: const EdgeInsets.only(top: 8),
+            child: Container(padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(color: Colors.orange[50], borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.orange[200]!)),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(Icons.assignment_return, size: 18, color: Colors.orange[800]),
+                const SizedBox(width: 8),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(incoming ? 'Returned to sender' : 'Returned to you',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.orange[900])),
+                  if (failReason.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 2),
+                    child: Text(failReason, style: const TextStyle(fontSize: 11, color: Colors.black54))),
+                  if (((p['codAmount'] as num?) ?? 0) > 0) Padding(padding: const EdgeInsets.only(top: 2),
+                    child: Text('No COD was collected — the receiver did not accept the parcel.',
+                      style: TextStyle(fontSize: 11, color: Colors.orange[900]))),
+                ])),
+              ]))),
           if (done && !incoming) Align(alignment: Alignment.centerRight, child: TextButton.icon(
             onPressed: () => _reportIssue(p), icon: const Icon(Icons.report_problem, size: 14, color: Colors.orange),
             label: const Text('Report Issue', style: TextStyle(fontSize: 12, color: Colors.orange)))),
@@ -365,6 +344,10 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     final dLat = (p['dropLat'] as num?)?.toDouble() ?? 0, dLng = (p['dropLng'] as num?)?.toDouble() ?? 0;
     LatLng? drv; double hd = 0; int? eta;
     Timer? lt;
+    // The parcel's own vehicle sprite. This borrowed the sender's booking-flow
+    // icon, which was only ever loaded if they had just booked in this session.
+    BitmapDescriptor? vehIcon;
+    VehicleMarkers.descriptorFor((p['vehicleType'] ?? '').toString()).then((ic) => vehIcon = ic);
     showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
@@ -384,14 +367,14 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Row(children: [const Text('Live Tracking', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), const Spacer(),
               IconButton(onPressed: () { lt?.cancel(); Navigator.pop(ctx); }, icon: const Icon(Icons.close))]),
-            ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(height: 220, child: GoogleMap(
+            ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(height: 220, child: PlaceGlyphs(builder: (context, glyphs) => GoogleMap(
               initialCameraPosition: CameraPosition(target: drv ?? LatLng(pLat, pLng), zoom: 13),
               markers: {
-                Marker(markerId: const MarkerId('p'), position: LatLng(pLat, pLng), icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen)),
-                Marker(markerId: const MarkerId('d'), position: LatLng(dLat, dLng), icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed)),
-                if (drv != null) Marker(markerId: const MarkerId('drv'), position: drv!, rotation: hd, flat: true, anchor: const Offset(0.5, 0.5), icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
+                Marker(markerId: const MarkerId('p'), position: LatLng(pLat, pLng), anchor: glyphs.pickupAnchor, icon: glyphs.pickup),
+                Marker(markerId: const MarkerId('d'), position: LatLng(dLat, dLng), anchor: glyphs.dropAnchor, icon: glyphs.drop),
+                if (drv != null) Marker(markerId: const MarkerId('drv'), position: drv!, rotation: hd, flat: true, anchor: const Offset(0.5, 0.5), icon: (vehIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure))),
               },
-              zoomControlsEnabled: false, myLocationButtonEnabled: false))),
+              zoomControlsEnabled: false, myLocationButtonEnabled: false)))),
             const SizedBox(height: 10),
             if (eta != null) Text('Arriving in $eta min', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue))
             else const Text('Locating driver...', style: TextStyle(fontSize: 13, color: Colors.grey)),
@@ -549,124 +532,10 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           _row('Total', '₹${v['fare'] ?? 0}', bold: true),
           const SizedBox(height: 18),
           SizedBox(width: double.infinity, child: ElevatedButton(
-            onPressed: () { Navigator.pop(ctx); _showFinding(); },
+            onPressed: () { Navigator.pop(ctx); _confirmParcel(); },
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue, padding: const EdgeInsets.symmetric(vertical: 14)),
             child: const Text('Confirm & Find Driver', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)))),
         ])));
-  }
-
-  void _showFinding() {
-    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true,
-      backgroundColor: Colors.transparent, builder: (ctx) {
-      () async { await _book(); _startPolling(); }();
-      final etaMin = (_vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {})['etaMin'] as num?)?.toInt();
-      final pv = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
-      return SizedBox(height: MediaQuery.of(ctx).size.height, child: FindingDriverView(
-        pickupLat: _pLat ?? 0, pickupLng: _pLng ?? 0,
-        dropLat: _dLat, dropLng: _dLng,
-        pickupAddress: _pickupCtrl.text, dropAddress: _dropCtrl.text,
-        fareText: pv['fare'] != null ? '₹${(((pv['fare'] as num?) ?? 0) - _couponDiscount).clamp(0, ((pv['fare'] as num?) ?? 0))}' : null,
-        serviceLabel: 'Parcel', serviceIcon: Icons.local_shipping, etaMin: etaMin,
-        onCancel: () => _cancelSearch(ctx),
-      ));
-    });
-  }
-
-  void _cancelSearch(BuildContext sheetCtx) {
-    const reasons = ['Taking too long', 'Booked by mistake', 'Plan changed', 'Wrong details', 'Other'];
-    showModalBottomSheet(context: context, backgroundColor: Theme.of(context).cardColor,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (rc) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Padding(padding: EdgeInsets.all(16), child: Text('Why are you cancelling?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-        ...reasons.map((r) => ListTile(title: Text(r), onTap: () async {
-          Navigator.pop(rc);
-          _poll?.cancel();
-          if (_rideId != null) await ApiService.cancelRide(_rideId!, r);
-          if (mounted && Navigator.canPop(sheetCtx)) Navigator.pop(sheetCtx);
-          if (mounted) Navigator.pop(context);
-        })),
-        const SizedBox(height: 8),
-      ])));
-  }
-
-  void _openChat() {
-    if (_rideId == null) return;
-    Navigator.push(context, MaterialPageRoute(builder: (_) => RideChatScreen(rideId: _rideId!, otherName: _driverName)));
-  }
-
-  void _showAssigned() {
-    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
-        _dialogSet = setSheet;
-        final collected = _deliveryPhase == 'in_transit';
-        return Padding(padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(collected ? 'Parcel in Transit' : 'Delivery Partner Assigned', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          // Live driver map + ETA
-          if (_driverLatLng != null) ...[
-            ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(height: 150, child: GoogleMap(
-              initialCameraPosition: CameraPosition(target: _driverLatLng!, zoom: 14),
-              markers: {
-                Marker(markerId: const MarkerId('driver'), position: _driverLatLng!, rotation: _driverHeading, flat: true, anchor: const Offset(0.5, 0.5), icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
-                Marker(markerId: const MarkerId('dest'), position: collected ? LatLng(_dLat ?? _pLat!, _dLng ?? _pLng!) : LatLng(_pLat!, _pLng!), icon: BitmapDescriptor.defaultMarkerWithHue(collected ? BitmapDescriptor.hueRed : BitmapDescriptor.hueGreen)),
-              },
-              zoomControlsEnabled: false, myLocationButtonEnabled: false, liteModeEnabled: true,
-            ))),
-            const SizedBox(height: 8),
-            if (_etaMin != null) Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(color: AppTheme.primaryBlue.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [const Icon(Icons.access_time, size: 14, color: AppTheme.primaryBlue), const SizedBox(width: 4),
-                Text(collected ? 'Reaching receiver in $_etaMin min' : 'Reaching pickup in $_etaMin min', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue))])),
-            const SizedBox(height: 12),
-          ],
-          // Two OTPs — pickup (sender) shown until collected, then drop (receiver)
-          _otpBox(collected ? 'DELIVERY OTP — receiver shares to confirm handover' : 'PICKUP OTP — give to driver to collect',
-            collected ? (_dropOtp ?? '----') : (_pickupOtp ?? '----')),
-          const SizedBox(height: 14),
-          Row(children: [
-            CircleAvatar(radius: 26, backgroundColor: AppTheme.primaryBlue.withOpacity(0.1),
-              backgroundImage: _driverPic.isNotEmpty ? NetworkImage(_driverPic) : null,
-              child: _driverPic.isEmpty ? Text(_driverName.isNotEmpty ? _driverName[0].toUpperCase() : 'D', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)) : null),
-            const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(_driverName, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-              Row(children: [const Icon(Icons.star, color: Colors.amber, size: 15), const SizedBox(width: 3),
-                Text(_driverRating > 0 ? _driverRating.toStringAsFixed(1) : '—', style: const TextStyle(fontSize: 12, color: Colors.grey))]),
-              if (_vNumber.isNotEmpty) Text([_vModel, _vNumber].where((s) => s.isNotEmpty).join(' • '), style: const TextStyle(fontSize: 11, color: Colors.grey)),
-            ])),
-          ]),
-          const SizedBox(height: 14),
-          sosButton(context, _rideId),
-          const SizedBox(height: 12),
-          if (!_cod)
-            paymentMethodRow(context, _paymentMode, () async {
-              final m = await showPaymentPicker(context, _paymentMode);
-              if (m != null) { setState(() => _paymentMode = m); _dialogSet?.call(() {}); }
-            }),
-          const SizedBox(height: 16),
-          Row(children: [
-            Expanded(child: ElevatedButton.icon(
-              onPressed: () => dialPhone(_driverPhone),
-              icon: const Icon(Icons.call, color: Colors.white), label: const Text('Call', style: TextStyle(color: Colors.white)),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4CAF50), padding: const EdgeInsets.symmetric(vertical: 14)))),
-            const SizedBox(width: 10),
-            Expanded(child: ElevatedButton.icon(
-              onPressed: _openChat,
-              icon: const Icon(Icons.message, color: Colors.white), label: const Text('Message', style: TextStyle(color: Colors.white)),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14)))),
-            const SizedBox(width: 10),
-            Expanded(child: ElevatedButton.icon(
-              onPressed: () { if (_rideId != null) Share.share('Track my parcel live: ${AppConfig.serverBaseUrl}/track/$_rideId'); },
-              icon: const Icon(Icons.share, color: Colors.white), label: const Text('Share', style: TextStyle(color: Colors.white)),
-              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue, padding: const EdgeInsets.symmetric(vertical: 14)))),
-          ]),
-          const SizedBox(height: 10),
-          Center(child: TextButton(onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (r) => false),
-            child: const Text('Close', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)))),
-        ]));
-      }));
   }
 
   Widget _buildMapPicker() {
@@ -703,14 +572,6 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   Widget _title(String t) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(t, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)));
   Widget _info(String t) => Container(padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: Colors.orange[50], borderRadius: BorderRadius.circular(10)),
     child: Row(children: [Icon(Icons.info_outline, color: Colors.orange[700], size: 18), const SizedBox(width: 8), Expanded(child: Text(t, style: TextStyle(fontSize: 13, color: Colors.orange[800])))]));
-
-  Widget _otpBox(String label, String otp) => Container(padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF1C2656).withOpacity(0.3))),
-    child: Row(children: [const Icon(Icons.lock_outline, color: Color(0xFF1C2656)), const SizedBox(width: 10),
-      Expanded(child: Text(label, style: const TextStyle(fontSize: 11, color: Colors.black54))),
-      Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1C2656))),
-        child: Text(otp, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 3, color: Color(0xFF1C2656))))]));
 
   Widget _locField(IconData i, Color c, TextEditingController ctrl, String hint, {required bool pickup}) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),

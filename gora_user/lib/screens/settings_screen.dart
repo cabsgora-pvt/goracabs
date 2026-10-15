@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/theme_provider.dart';
+import '../utils/emergency_contacts_store.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -153,10 +154,15 @@ class EmergencyContactsScreen extends StatefulWidget {
 }
 
 class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
-  final List<Map<String, String>> _contacts = [
-    {'name': 'John Doe', 'phone': '+91 98765 43210', 'relation': 'Father'},
-    {'name': 'Jane Doe', 'phone': '+91 98765 43211', 'relation': 'Mother'},
-  ];
+  List<Map<String, String>> _contacts = [];
+
+  @override
+  void initState() {
+    super.initState();
+    EmergencyContactsStore.load().then((c) {
+      if (mounted) setState(() => _contacts = c);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -224,7 +230,10 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
                         ),
                       ),
                       IconButton(
-                        onPressed: () => setState(() => _contacts.removeAt(i)),
+                        onPressed: () {
+                          setState(() => _contacts.removeAt(i));
+                          EmergencyContactsStore.save(_contacts);
+                        },
                         icon: const Icon(Icons.delete_outline, color: Colors.red),
                       ),
                     ],
@@ -285,6 +294,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
                     'relation': relationController.text.isEmpty ? 'Other' : relationController.text,
                   });
                 });
+                EmergencyContactsStore.save(_contacts);
                 Navigator.pop(context);
               }
             },

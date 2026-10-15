@@ -218,6 +218,10 @@ class _InquiryScreenState extends State<InquiryScreen> {
           ),
         ),
         DropdownButtonFormField<String>(
+          // Without isExpanded a dropdown sizes to its LONGEST item, so a long
+          // option overflowed the field on narrow screens. Expanding it makes
+          // the selected label ellipsise inside the decoration instead.
+          isExpanded: true,
           value: currentValue,
           items: items.map((String value) {
             return DropdownMenuItem<String>(

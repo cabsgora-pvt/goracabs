@@ -20,11 +20,13 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
   int _couponDiscount = 0;
   bool _walletEnabled = true;
   bool _onlineEnabled = false;
+  num? _walletBalance;
 
   @override
   void initState() {
     super.initState();
     _loadPaymentConfig();
+    _loadWalletBalance();
   }
 
   Future<void> _loadPaymentConfig() async {
@@ -34,6 +36,16 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
       _walletEnabled = cfg['walletEnabled'] != false;
       _onlineEnabled = (cfg['razorpay'] is Map) && (cfg['razorpay']['enabled'] == true);
     });
+  }
+
+  // Shown up front so a rider isn't only told their wallet was short at the
+  // very end of the ride — the actual insufficient-balance check still runs
+  // for real, server-side, at charge time; this is just an earlier heads-up.
+  Future<void> _loadWalletBalance() async {
+    try {
+      final res = await ApiService.getWallet();
+      if (mounted) setState(() => _walletBalance = (res['balance'] as num?) ?? 0);
+    } catch (_) {}
   }
 
   void _notify() => widget.onChanged(_paymentMode, _couponCode, _couponDiscount);
@@ -60,20 +72,27 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
   }
 
   Future<void> _pickPayment() async {
-    Widget tile(String mode, IconData ic, String label, String sub) => ListTile(
+    final balance = _walletBalance;
+    final short = balance != null && balance < widget.baseFare;
+    Widget tile(String mode, IconData ic, String label, String sub, {Color? subColor}) => ListTile(
       leading: Icon(ic, color: widget.accent),
       title: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
-      subtitle: Text(sub, style: const TextStyle(fontSize: 11)),
+      subtitle: Text(sub, style: TextStyle(fontSize: 11, color: subColor, fontWeight: subColor != null ? FontWeight.w700 : null)),
       trailing: _paymentMode == mode ? Icon(Icons.check_circle, color: widget.accent) : null,
       onTap: () => Navigator.pop(context, mode),
     );
+    final walletSub = balance == null
+        ? 'Pay from your wallet balance'
+        : short
+            ? 'Only ₹${balance.toStringAsFixed(0)} available — ₹${(widget.baseFare - balance).toStringAsFixed(0)} short of the fare'
+            : '₹${balance.toStringAsFixed(0)} available';
     final m = await showModalBottomSheet<String>(
       context: context, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Column(mainAxisSize: MainAxisSize.min, children: [
         const Padding(padding: EdgeInsets.all(8), child: Text('Payment method', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
         tile('cash', Icons.payments_outlined, 'Cash', 'Pay the driver directly'),
-        if (_walletEnabled) tile('wallet', Icons.account_balance_wallet_outlined, 'Gora Wallet', 'Pay from your wallet balance'),
+        if (_walletEnabled) tile('wallet', Icons.account_balance_wallet_outlined, 'Gora Wallet', walletSub, subColor: short ? Colors.orange[800] : null),
         if (_onlineEnabled) tile('online', Icons.credit_card, 'Online', 'UPI / card / net banking'),
       ])),
     );

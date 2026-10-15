@@ -5,8 +5,6 @@ import 'outstation_screen.dart';
 import 'rental_screen.dart';
 import 'hire_driver_screen.dart';
 import 'parcel_booking_screen.dart';
-import 'mini_ride_screen.dart';
-import 'prime_ride_screen.dart';
 import 'inquiry_screen.dart';
 import 'support_screen.dart';
 
@@ -96,10 +94,14 @@ class ServiceSelectionScreen extends StatelessWidget {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const HireDriverScreen()));
         } else if (service['label'] == 'Parcel') {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const ParcelBookingScreen()));
-        } else if (service['label'] == 'Mini Ride') {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const MiniRideScreen()));
-        } else if (service['label'] == 'Prime Ride') {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const PrimeRideScreen()));
+        } else if (service['label'] == 'Mini Ride' || service['label'] == 'Prime Ride') {
+          // Both used to open MiniRideScreen / PrimeRideScreen, which are pure
+          // mockups — no ApiService call anywhere, hardcoded ₹ prices and ETAs,
+          // and no ride is ever created. They are vehicle tiers of the ordinary
+          // in-city flow, so they route to the real booking screen, which lists
+          // the admin-configured vehicles with server fares and live ETAs.
+          Navigator.push(context, MaterialPageRoute(
+            builder: (_) => TaxiBookingScreen(fromLocation: 'Current Location', hideLocationInputs: false)));
         } else if (service['label'] == 'Any inquiry') {
           Navigator.push(context, MaterialPageRoute(builder: (_) => const InquiryScreen()));
         }

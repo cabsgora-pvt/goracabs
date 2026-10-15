@@ -4,19 +4,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
-import '../services/payment_service.dart';
-import '../theme/app_theme.dart';
-import '../utils/call_util.dart';
-import 'ride_chat_screen.dart';
-import 'ride_history_screen.dart';
-import 'home_screen.dart';
-import 'rating_screen.dart';
-import 'rental_booking_details_screen.dart';
+import '../utils/ride_booking.dart';
 import '../widgets/payment_coupon_bar.dart';
-import '../widgets/payment_method_picker.dart';
-import '../widgets/sos_button.dart';
-import '../widgets/online_payment.dart';
-import '../widgets/finding_driver_view.dart';
 
 class RentalScreen extends StatefulWidget {
   const RentalScreen({super.key});
@@ -32,8 +21,6 @@ class _RentalScreenState extends State<RentalScreen> {
   final _dropController = TextEditingController();
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
-  bool _isSearching = false;
-  bool _driverAssigned = false;
 
   // ── Backend-wired state ──
   double? _pickupLat, _pickupLng;
@@ -56,27 +43,11 @@ class _RentalScreenState extends State<RentalScreen> {
 
   // ── Payment + coupon (UI-only) ──
   String _paymentMode = 'cash';
-  num _payableFare = 0;
   String _couponCode = '';
   int _couponDiscount = 0;
 
-  // Live ride state
-  String? _rideId;
-  String? _rideOtp;
-  String _driverName = 'Pilot';
-  String _driverPhone = '';
-  String _driverPicUrl = '';
-  String _driverVehicleModel = '';
-  String _driverVehicleNumber = '';
-  double _driverRating = 0;
-  Timer? _pollTimer;
-  // Live rental status (from backend during ride)
-  String _rentalPhase = 'pending';
-  List<Map<String, dynamic>> _rentalStops = []; // destinations the rider adds during the ride
-  bool _addingStop = false;
-  double _liveHours = 0, _liveKm = 0;
-  int _pkgHrs = 0, _pkgKm = 0;
-  void Function(void Function())? _dialogSetState; // rebuilds the assigned dialog live
+  // The booked rental is tracked on ActiveRideScreen (see _confirmRental), so
+  // this screen holds no live ride state.
 
   @override
   void initState() {
@@ -86,9 +57,7 @@ class _RentalScreenState extends State<RentalScreen> {
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
     _searchDebounce?.cancel();
-    _dialogSetState = null;
     _pickupController.dispose();
     _dropController.dispose();
     super.dispose();
@@ -169,18 +138,20 @@ class _RentalScreenState extends State<RentalScreen> {
     setState(() { _pickingPickup = forPickup; _pickerCenter = start; _pickerAddress = ''; _showMapPicker = true; });
   }
 
-  Future<void> _bookRental() async {
-    if (_pickupLat == null || _selectedPackage == null || _selectedVehicle == null) return;
+  /// Books the rental and returns the server's answer; [bookAndTrack] reports a
+  /// failure and opens the live ride screen on success.
+  Future<Map<String, dynamic>> _bookRental() async {
+    if (_pickupLat == null || _selectedPackage == null || _selectedVehicle == null) {
+      return {'error': 'Choose a pickup point and a package first'};
+    }
     final p = _selectedPackage!;
     DateTime? startAt;
     if (_selectedDate != null) {
       final t = _selectedTime ?? const TimeOfDay(hour: 9, minute: 0);
       startAt = DateTime(_selectedDate!.year, _selectedDate!.month, _selectedDate!.day, t.hour, t.minute);
     }
-    try {
-      final fare = _scaledPrice(p);         // hours × per-hour rate
-      _payableFare = (fare - _couponDiscount).clamp(0, fare);
-      final res = await ApiService.bookRide({
+    final fare = _scaledPrice(p);         // hours × per-hour rate
+    return ApiService.bookRide({
         'pickupAddress': _pickupController.text,
         'dropAddress': _dropController.text,
         'pickupLat': _pickupLat, 'pickupLng': _pickupLng,
@@ -198,97 +169,29 @@ class _RentalScreenState extends State<RentalScreen> {
         'couponCode': _couponCode,
         'couponDiscount': _couponDiscount,
       });
-      if (res['ride'] != null) {
-        _rideId = res['ride']['id']?.toString();
-        _rideOtp = res['ride']['otp']?.toString();
+  }
+
+  /// Book once, from the button — never from a sheet builder — then track the
+  /// rental on the live ride screen.
+  ///
+  /// No coupon is stored for the ride: a rental's coupon is applied by the
+  /// server at booking, so its fare already includes the discount.
+  Future<void> _confirmRental() => bookAndTrack(
+    context,
+    book: _bookRental,
+    onBooked: (res) {
+      // Tell the rider if their coupon was rejected instead of quietly
+      // charging them full price. The messenger outlives this screen, so the
+      // notice shows over the ride screen that replaces it.
+      final promo = res['promo'];
+      if (promo is Map && promo['applied'] != true && (promo['reason'] ?? '').toString().isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Coupon not applied: ${promo['reason']}'),
+          backgroundColor: Colors.orange,
+        ));
       }
-    } catch (_) {/* polling will just find nothing */}
-  }
-
-  void _startStatusPolling(void Function(String status, Map<String, dynamic> ride) onStatus) {
-    _pollTimer?.cancel();
-    if (_rideId == null) return;
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (t) async {
-      if (!mounted) { t.cancel(); return; }
-      try {
-        final ride = await ApiService.getRide(_rideId!);
-        final status = (ride['status'] ?? 'pending').toString();
-        if (ride['awaitingPayment'] == true && status != 'completed') { promptOnlinePayment(context, _rideId, ride); }
-        if (ride['driverName'] != null) _driverName = ride['driverName'].toString();
-        if (ride['driverPhone'] != null) _driverPhone = ride['driverPhone'].toString();
-        final dr = ride['driver'] as Map<String, dynamic>?;
-        if (dr != null) {
-          _driverVehicleModel = (dr['vehicleModel'] ?? _driverVehicleModel).toString();
-          _driverVehicleNumber = (dr['vehicleNumber'] ?? _driverVehicleNumber).toString();
-          final pic = (dr['profilePicUrl'] ?? '').toString();
-          if (pic.isNotEmpty) _driverPicUrl = AppConfig.imageUrl(pic);
-          final r = dr['rating'];
-          if (r is num) _driverRating = r.toDouble();
-        }
-        // Capture live rental fields
-        _rentalPhase = (ride['rentalPhase'] ?? _rentalPhase).toString();
-        _liveHours = (ride['actualHours'] as num?)?.toDouble() ?? _liveHours;
-        _liveKm = (ride['actualKm'] as num?)?.toDouble() ?? _liveKm;
-        _pkgHrs = (ride['packageHours'] as num?)?.toInt() ?? _pkgHrs;
-        _pkgKm = (ride['packageKm'] as num?)?.toInt() ?? _pkgKm;
-        _rentalStops = ((ride['rentalStops'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
-        _dialogSetState?.call(() {}); // refresh the assigned dialog live
-        // Completion → show final bill, then rating
-        if (status == 'completed') {
-          await PaymentService.charge(this.context, method: _paymentMode, amount: _payableFare, rideId: _rideId);
-          if (!mounted) return;
-          t.cancel(); _pollTimer = null;
-          if (!mounted) return;
-          Navigator.of(this.context, rootNavigator: true).popUntil((r) => r.isFirst);
-          _showFinalBill(ride);
-          return;
-        }
-        onStatus(status, ride);
-      } catch (_) {}
-    });
-  }
-
-  // Final bill breakdown on rental completion → then rating
-  void _showFinalBill(Map<String, dynamic> ride) {
-    final base = (ride['fare'] as num?)?.toInt() ?? 0;
-    final exHr = (ride['extraHoursCharge'] as num?)?.toInt() ?? 0;
-    final exKm = (ride['extraKmCharge'] as num?)?.toInt() ?? 0;
-    final night = (ride['nightChargeRental'] as num?)?.toInt() ?? 0;
-    final total = (ride['finalFare'] as num?)?.toInt() ?? (base + exHr + exKm + night);
-    Widget row(String l, String v, {bool bold = false, Color? c}) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text(l, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w500, color: c)),
-        Text(v, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: c)),
-      ]),
-    );
-    showModalBottomSheet(context: this.context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Theme.of(this.context).cardColor,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Rental Bill', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 14),
-          row('Used', '${(ride['actualHours'] ?? 0).toStringAsFixed(1)} hr / ${(ride['actualKm'] ?? 0).toStringAsFixed(1)} km'),
-          row('Package', '${ride['packageHours'] ?? 0} hr / ${ride['packageKm'] ?? 0} km'),
-          const Divider(),
-          row('Base fare', '₹$base'),
-          if (exHr > 0) row('Extra hours', '₹$exHr', c: Colors.orange),
-          if (exKm > 0) row('Extra km', '₹$exKm', c: Colors.orange),
-          if (night > 0) row('Night charge', '₹$night'),
-          const Divider(),
-          row('Total', '₹$total', bold: true, c: const Color(0xFF1C2656)),
-          const SizedBox(height: 18),
-          SizedBox(width: double.infinity, child: ElevatedButton(
-            onPressed: () { Navigator.pop(ctx); Navigator.of(this.context).push(MaterialPageRoute(builder: (_) => RatingScreen(
-              driverName: _driverName, vehicleName: _selectedVehicle ?? 'Rental', selectedTip: 0, rideId: _rideId))); },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14)),
-            child: const Text('Rate your trip', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-          )),
-        ]),
-      ),
-    );
-  }
+    },
+  );
 
   // Picks the package for the selected vehicle whose hours best matches _selectedHours
   void _pickPackageForVehicle(String vehicle) {
@@ -475,9 +378,16 @@ class _RentalScreenState extends State<RentalScreen> {
                             }
                           },
                           icon: const Icon(Icons.calendar_today, size: 18),
-                          label: Text(_selectedDate == null 
-                            ? 'Select Date' 
-                            : '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}'),
+                          // Ellipsis: an icon plus a date label in half a 320pt
+                          // screen overflowed the button. OutlinedButton.icon already
+                          // wraps its label in a Flexible, so the Text is given
+                          // directly — a second Flexible is an invalid layout.
+                          label: Text(
+                            _selectedDate == null
+                              ? 'Select Date'
+                              : '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}',
+                            maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false,
+                          ),
                           style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
                         ),
                       ),
@@ -494,9 +404,12 @@ class _RentalScreenState extends State<RentalScreen> {
                             }
                           },
                           icon: const Icon(Icons.access_time, size: 18),
-                          label: Text(_selectedTime == null 
-                            ? 'Select Time' 
-                            : _selectedTime!.format(context)),
+                          label: Text(
+                            _selectedTime == null
+                              ? 'Select Time'
+                              : _selectedTime!.format(context),
+                            maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false,
+                          ),
                           style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
                         ),
                       ),
@@ -515,10 +428,18 @@ class _RentalScreenState extends State<RentalScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Select Hours',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                        // The label sat unbounded next to an unbounded stepper,
+                        // so the pair overflowed by 67px at 320pt and 27px at
+                        // 360pt. Expanded gives the stepper its natural width
+                        // and lets the label take whatever is left.
+                        const Expanded(
+                          child: Text(
+                            'Select Hours',
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+                          ),
                         ),
+                        const SizedBox(width: 8),
                         Row(
                           children: [
                             GestureDetector(
@@ -612,7 +533,11 @@ class _RentalScreenState extends State<RentalScreen> {
                               child: const Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 20),
                             ),
                             const SizedBox(width: 8),
-                            const Text('Package Benefits', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                            const Expanded(
+                              child: Text('Package Benefits',
+                                maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                            ),
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -1108,7 +1033,7 @@ class _RentalScreenState extends State<RentalScreen> {
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.pop(context);
-                      _showFindingDriverDialog();
+                      _confirmRental();
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1C2656),
@@ -1122,420 +1047,6 @@ class _RentalScreenState extends State<RentalScreen> {
                   ),
                 ),
               ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _cancelSearch(BuildContext sheetCtx) {
-    const reasons = ['Taking too long', 'Booked by mistake', 'Plan changed', 'Found another ride', 'Other'];
-    showModalBottomSheet(context: context, backgroundColor: Theme.of(context).cardColor,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (rc) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Padding(padding: EdgeInsets.all(16), child: Text('Why are you cancelling?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-        ...reasons.map((r) => ListTile(title: Text(r), onTap: () async {
-          Navigator.pop(rc);
-          _pollTimer?.cancel();
-          if (_rideId != null) await ApiService.cancelRide(_rideId!, r);
-          if (mounted && Navigator.canPop(sheetCtx)) Navigator.pop(sheetCtx);
-          if (mounted) Navigator.pop(context);
-        })),
-        const SizedBox(height: 8),
-      ])));
-  }
-
-  void _showFindingDriverDialog() {
-    setState(() {
-      _isSearching = true;
-    });
-
-    showModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (BuildContext context) {
-        // Book the rental then poll for driver assignment
-        () async {
-          await _bookRental();
-          _startStatusPolling((status, ride) {
-            if (status == 'accepted' || status == 'arrived' || status == 'ongoing') {
-              if (Navigator.canPop(context)) {
-                Navigator.of(context).pop();
-                _showDriverAssignedDialog();
-              }
-            } else if (status == 'cancelled') {
-              _pollTimer?.cancel();
-            }
-          });
-        }();
-
-        return SizedBox(
-          height: MediaQuery.of(context).size.height,
-          child: FindingDriverView(
-            pickupLat: _pickupLat ?? _pickerCenter.latitude,
-            pickupLng: _pickupLng ?? _pickerCenter.longitude,
-            dropLat: _dropLat,
-            dropLng: _dropLng,
-            pickupAddress: _pickupController.text,
-            dropAddress: _dropController.text,
-            fareText: _selectedPackage != null ? '₹${(_scaledPrice(_selectedPackage!) - _couponDiscount).clamp(0, _scaledPrice(_selectedPackage!))}' : null,
-            serviceLabel: 'Rental',
-            serviceIcon: Icons.timer,
-            etaMin: (_selectedPackage?['etaMin'] as num?)?.toInt(),
-            onCancel: () => _cancelSearch(context),
-          ),
-        );
-      },
-    );
-  }
-
-  void _openChat() {
-    if (_rideId == null) return;
-    Navigator.push(context, MaterialPageRoute(builder: (_) => RideChatScreen(rideId: _rideId!, otherName: _driverName)));
-  }
-
-  // Destinations the rider adds during the rental (one by one, or several).
-  Widget _rentalDestinationsSection() {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[200]!)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          const Icon(Icons.route, size: 18, color: Color(0xFF1C2656)),
-          const SizedBox(width: 8),
-          const Text('Where to?', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-          const Spacer(),
-          Text('${_rentalStops.length} added', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
-        ]),
-        if (_rentalStops.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          ..._rentalStops.asMap().entries.map((e) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(children: [
-                  CircleAvatar(radius: 11, backgroundColor: const Color(0xFF1C2656),
-                      child: Text('${e.key + 1}', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold))),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text(e.value['address']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12.5))),
-                ]),
-              )),
-        ],
-        const SizedBox(height: 10),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: _addingStop ? null : _showAddDestinationSheet,
-            icon: _addingStop
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1C2656)))
-                : const Icon(Icons.add_location_alt_outlined, size: 18),
-            label: Text(_rentalStops.isEmpty ? 'Add destination' : 'Add another destination'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF1C2656),
-              side: const BorderSide(color: Color(0xFF1C2656)),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-          ),
-        ),
-      ]),
-    );
-  }
-
-  // Search sheet to pick a destination to add to the ongoing rental.
-  void _showAddDestinationSheet() {
-    final ctrl = TextEditingController();
-    List<Map<String, dynamic>> sugg = [];
-    Timer? deb;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setS) => Padding(
-        padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: MediaQuery.of(ctx).viewInsets.bottom + 16),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Add destination', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 4),
-          Text('Driver will be notified of the new stop', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-          const SizedBox(height: 14),
-          TextField(
-            controller: ctrl,
-            autofocus: true,
-            decoration: InputDecoration(
-              hintText: 'Search a place',
-              prefixIcon: const Icon(Icons.search),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            onChanged: (q) {
-              deb?.cancel();
-              deb = Timer(const Duration(milliseconds: 350), () async {
-                if (q.trim().length < 2) { setS(() => sugg = []); return; }
-                final r = await ApiService.placesAutocomplete(q);
-                setS(() => sugg = r);
-              });
-            },
-          ),
-          const SizedBox(height: 8),
-          ...sugg.take(6).map((s) => ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.location_on_outlined, color: Color(0xFF1C2656)),
-                title: Text(s['description']?.toString() ?? '', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13)),
-                onTap: () async {
-                  final details = await ApiService.placeDetails(s['placeId'] as String? ?? '');
-                  if (details == null || details['lat'] == null) return;
-                  if (ctx.mounted) Navigator.pop(ctx);
-                  await _addDestination(
-                    (details['address'] ?? s['description'] ?? '').toString(),
-                    (details['lat'] as num).toDouble(),
-                    (details['lng'] as num).toDouble(),
-                  );
-                },
-              )),
-          const SizedBox(height: 8),
-        ]),
-      )),
-    );
-  }
-
-  Future<void> _addDestination(String address, double lat, double lng) async {
-    if (_rideId == null) return;
-    setState(() => _addingStop = true);
-    try {
-      await ApiService.rentalAction(_rideId!, {'action': 'addStop', 'address': address, 'lat': lat, 'lng': lng});
-      _rentalStops = [..._rentalStops, {'address': address, 'lat': lat, 'lng': lng}];
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Destination added — driver notified'), backgroundColor: Colors.green));
-    } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not add destination'), backgroundColor: Colors.red));
-    }
-    if (mounted) { setState(() => _addingStop = false); _dialogSetState?.call(() {}); }
-  }
-
-  void _showDriverAssignedDialog() {
-    setState(() {
-      _isSearching = false;
-      _driverAssigned = true;
-    });
-
-    showModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (BuildContext context) {
-        return StatefulBuilder(builder: (context, setSheet) {
-        _dialogSetState = setSheet; // let polling refresh this sheet live
-        final inProgress = _rentalPhase == 'ongoing' || _rentalPhase == 'extra_time' || _rentalPhase == 'paused';
-        final overLimit = _liveHours > _pkgHrs || _liveKm > _pkgKm;
-        return Container(
-          padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(context).viewPadding.bottom),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -2))],
-          ),
-          child: SingleChildScrollView(child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
-              Text(inProgress ? 'Rental in Progress' : 'Pilot Assigned for Rental', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
-              const SizedBox(height: 12),
-              // Live counter once the rental has started
-              if (inProgress) ...[
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: overLimit ? Colors.orange[50] : const Color(0xFF1C2656).withOpacity(0.06),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: overLimit ? Colors.orange : const Color(0xFF1C2656).withOpacity(0.3)),
-                  ),
-                  child: Column(children: [
-                    Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-                      Column(children: [
-                        Text('${_liveHours.toStringAsFixed(1)} hr', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: overLimit ? Colors.orange[800] : const Color(0xFF1C2656))),
-                        Text('of $_pkgHrs hr', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                      ]),
-                      Container(width: 1, height: 36, color: Colors.grey[300]),
-                      Column(children: [
-                        Text('${_liveKm.toStringAsFixed(1)} km', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: overLimit ? Colors.orange[800] : const Color(0xFF1C2656))),
-                        Text('of $_pkgKm km', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                      ]),
-                    ]),
-                    if (overLimit) const Padding(padding: EdgeInsets.only(top: 8),
-                      child: Text('⚠ Limit exceeded — extra charges apply', style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.w600))),
-                    if (_rentalPhase == 'paused') const Padding(padding: EdgeInsets.only(top: 8),
-                      child: Text('⏸ Driver waiting (paused)', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600))),
-                  ]),
-                ),
-                const SizedBox(height: 12),
-                _rentalDestinationsSection(),
-                const SizedBox(height: 12),
-              ],
-              // OTP box — driver asks for this to start
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF1C2656).withOpacity(0.3))),
-                child: Row(children: [
-                  const Icon(Icons.lock_outline, color: Color(0xFF1C2656), size: 22),
-                  const SizedBox(width: 10),
-                  const Expanded(child: Text('Share this PIN with the pilot to start', style: TextStyle(fontSize: 12, color: Colors.black54))),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1C2656))),
-                    child: Text(_rideOtp ?? '----', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4, color: Color(0xFF1C2656))),
-                  ),
-                ]),
-              ),
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey[200]!), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))]),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 55, height: 55,
-                      decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.grey[200], border: Border.all(color: Colors.grey[200]!, width: 2),
-                        image: _driverPicUrl.isNotEmpty ? DecorationImage(image: NetworkImage(_driverPicUrl), fit: BoxFit.cover) : null),
-                      alignment: Alignment.center,
-                      child: _driverPicUrl.isEmpty ? Text(_driverName.isNotEmpty ? _driverName[0].toUpperCase() : 'P', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black54)) : null,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(_driverName, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
-                      const SizedBox(height: 4),
-                      Row(children: [
-                        const Icon(Icons.star, color: Colors.amber, size: 16), const SizedBox(width: 4),
-                        Text(_driverRating > 0 ? _driverRating.toStringAsFixed(1) : '—', style: const TextStyle(fontSize: 13, color: Colors.grey)),
-                      ]),
-                      const SizedBox(height: 4),
-                      Text([_driverVehicleModel, _driverVehicleNumber].where((s) => s.isNotEmpty).join(' • '), style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                    ])),
-                    SizedBox(width: 70, height: 50, child: Image.asset(_vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => {'image': 'assets/images/economy.png'})['image'] as String, fit: BoxFit.contain)),
-                  ],
-                ),
-              ),
-              sosButton(context, _rideId),
-              const SizedBox(height: 12),
-              paymentMethodRow(context, _paymentMode, () async {
-                final m = await showPaymentPicker(context, _paymentMode);
-                if (m != null) setSheet(() => _paymentMode = m);
-              }),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(child: ElevatedButton.icon(onPressed: () => dialPhone(_driverPhone), icon: const Icon(Icons.call, color: Colors.green), label: Text('Call', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).cardColor, foregroundColor: Theme.of(context).colorScheme.onSurface, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2))),
-                  const SizedBox(width: 12),
-                  Expanded(child: ElevatedButton.icon(onPressed: _openChat, icon: const Icon(Icons.message, color: Color(0xFF1C2656)), label: Text('Message', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)), style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).cardColor, foregroundColor: Theme.of(context).colorScheme.onSurface, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2))),
-                ],
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    final packageData = _getPackageData();
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => RentalBookingDetailsScreen(
-                          inquiryId: 'GC-RENT-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
-                          pickupLocation: _pickupController.text.isEmpty ? 'Current Location' : _pickupController.text,
-                          dropLocation: _dropController.text.isEmpty ? 'Multiple Drops' : _dropController.text,
-                          duration: '$_selectedHours Hours',
-                          vehicle: _selectedVehicle!,
-                          price: packageData['price'],
-                          date: _selectedDate == null ? 'Today' : '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}',
-                          time: _selectedTime == null ? 'Now' : _selectedTime!.format(context),
-                          driverName: 'Vikram Singh',
-                          driverRating: '4.9 (1.2k+ trips)',
-                          driverExperience: '5 Years',
-                          vehicleNumber: 'RJ 14 CD 9012',
-                          vehicleModel: 'Toyota Innova',
-                          vehicleColor: 'White',
-                        ),
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1C2656),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: const Text('Trip Details', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              if (!inProgress)
-                Center(child: TextButton(onPressed: () => _showCancelReasonDialog(), child: const Text('Cancel Rental', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600, fontSize: 15)))),
-            ],
-          )),
-        );
-        });
-      },
-    );
-  }
-
-  void _showCancelReasonDialog() {
-    final List<String> reasons = ['Plan changed', 'Pilot is too far', 'Found another ride', 'Wait time is too long', 'Wrong location selected', 'Other'];
-    String? selectedReason;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
-                  const Text('Cancel Rental', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  const Text('Please select a reason for cancellation', style: TextStyle(fontSize: 14, color: Colors.grey)),
-                  const SizedBox(height: 20),
-                  ...reasons.map((reason) => RadioListTile<String>(title: Text(reason, style: const TextStyle(fontSize: 15)), value: reason, groupValue: selectedReason, activeColor: const Color(0xFF1C2656), contentPadding: EdgeInsets.zero, onChanged: (value) => setDialogState(() => selectedReason = value))),
-                  const SizedBox(height: 24),
-                  SizedBox(width: double.infinity, child: ElevatedButton(onPressed: selectedReason == null ? null : () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const HomeScreen()), (route) => false), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Confirm Cancellation', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)))),
-                  const SizedBox(height: 12),
-                  Center(child: TextButton(onPressed: () => Navigator.pop(context), child: const Text('Back', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)))),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showRideCompletedDialog() {
-    showModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      builder: (BuildContext context) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.check_circle, color: Colors.green, size: 64),
-              const SizedBox(height: 16),
-              const Text('Rental Completed!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('Your rental service has been completed successfully.', style: TextStyle(fontSize: 14, color: Colors.grey), textAlign: TextAlign.center),
-              const SizedBox(height: 24),
-              SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (context) => RatingScreen(driverName: 'Vikram Singh', vehicleName: _selectedVehicle!, selectedTip: 0))); }, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Rate Your Experience', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)))),
             ],
           ),
         );
@@ -1570,98 +1081,4 @@ class _RentalScreenState extends State<RentalScreen> {
     );
   }
 
-  void _showBookingSuccessDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.check_circle,
-                  color: Colors.green,
-                  size: 50,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'Booking Successful!',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'Your $_selectedHours hours rental package has been booked successfully with $_selectedVehicle vehicle.',
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.info_outline, color: Colors.blue, size: 20),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'You will receive driver details shortly',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.blue[700],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).pop(); // Close dialog
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (context) => const RideHistoryScreen()),
-                  );
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1C2656),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text(
-                  'View Ride History',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
 }

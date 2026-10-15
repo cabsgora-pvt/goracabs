@@ -4,16 +4,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
-import '../services/payment_service.dart';
-import '../utils/call_util.dart';
-import 'ride_chat_screen.dart';
+import '../utils/ride_booking.dart';
 import '../widgets/payment_coupon_bar.dart';
-import '../widgets/payment_method_picker.dart';
-import '../widgets/sos_button.dart';
-import '../widgets/online_payment.dart';
-import '../widgets/finding_driver_view.dart';
-import 'home_screen.dart';
-import 'rating_screen.dart';
 
 // Hire a Driver — customer's own car, priced by hours (pickup time → drop time).
 class HireDriverScreen extends StatefulWidget {
@@ -30,7 +22,6 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   String _transmission = 'manual';
   String _tripType = 'one_way';   // one_way | round_trip
   String _paymentMode = 'cash';
-  num _payableFare = 0;
   String _couponCode = '';
   int _couponDiscount = 0;
   String? _selectedVehicle;
@@ -46,16 +37,8 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   LatLng _center = const LatLng(23.0225, 72.5714);
   GoogleMapController? _mapCtrl;
   String _mapAddr = '';
-  // Live ride
-  String? _rideId, _rideOtp;
-  String _driverName = 'Driver', _driverPhone = '', _driverPic = '', _vModel = '', _vNumber = '';
-  double _driverRating = 0;
-  Timer? _poll;
-  // Live hire status
-  String _hirePhase = 'pending';
-  double _hireActual = 0;
-  int _hireBooked = 0;
-  void Function(void Function())? _dialogSet;
+  // The booked hire is tracked on ActiveRideScreen (see _confirmHire), so this
+  // screen holds no live ride state.
 
   int get _totalHours {
     if (_startAt == null || _endAt == null) return 0;
@@ -67,7 +50,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   void initState() { super.initState(); _initLocation(); }
 
   @override
-  void dispose() { _poll?.cancel(); _debounce?.cancel(); _dialogSet = null; _pickupCtrl.dispose(); _dropCtrl.dispose(); super.dispose(); }
+  void dispose() { _debounce?.cancel(); _pickupCtrl.dispose(); _dropCtrl.dispose(); super.dispose(); }
 
   Future<void> _initLocation() async {
     final pos = await LocationService.getCurrentLocation();
@@ -111,17 +94,18 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     } catch (_) { setState(() { _loading = false; _error = 'Failed to load'; }); }
   }
 
-  Future<void> _book() async {
+  /// Books the hire and returns the server's answer; [bookAndTrack] reports a
+  /// failure and opens the live ride screen on success.
+  Future<Map<String, dynamic>> _book() async {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
     final num fare = (v['fare'] as num?) ?? 0;
-    _payableFare = (fare - _couponDiscount).clamp(0, fare);
-    try {
-      final res = await ApiService.bookRide({
+    return ApiService.bookRide({
         'pickupAddress': _pickupCtrl.text, 'dropAddress': _dropCtrl.text,
         'pickupLat': _pickupLat, 'pickupLng': _pickupLng,
         'dropLat': _dropLat ?? _pickupLat, 'dropLng': _dropLng ?? _pickupLng,
         'service': 'hire_driver', 'vehicleType': _selectedVehicle,
         'fare': (fare - _couponDiscount).clamp(0, fare), 'hirePerHour': v['perHour'] ?? 0,
+        'quoteToken': v['quoteToken'],
         'hireTotalHours': _totalHours, 'transmission': _transmission,
         'tripType': _tripType,
         'hireStartAt': _startAt?.toIso8601String(), 'hireEndAt': _endAt?.toIso8601String(),
@@ -129,45 +113,17 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
         'couponCode': _couponCode,
         'couponDiscount': _couponDiscount,
       });
-      if (res['ride'] != null) { _rideId = res['ride']['id']?.toString(); _rideOtp = res['ride']['otp']?.toString(); }
-    } catch (_) {}
   }
 
-  void _startPolling() {
-    _poll?.cancel();
-    if (_rideId == null) return;
-    _poll = Timer.periodic(const Duration(seconds: 3), (t) async {
-      if (!mounted) { t.cancel(); return; }
-      try {
-        final ride = await ApiService.getRide(_rideId!);
-        final status = (ride['status'] ?? 'pending').toString();
-        if (ride['awaitingPayment'] == true && status != 'completed') { promptOnlinePayment(context, _rideId, ride); }
-        if (ride['driverName'] != null) _driverName = ride['driverName'].toString();
-        if (ride['driverPhone'] != null) _driverPhone = ride['driverPhone'].toString();
-        final dr = ride['driver'] as Map<String, dynamic>?;
-        if (dr != null) {
-          _vModel = (dr['vehicleModel'] ?? _vModel).toString();
-          _vNumber = (dr['vehicleNumber'] ?? _vNumber).toString();
-          final p = (dr['profilePicUrl'] ?? '').toString();
-          if (p.isNotEmpty) _driverPic = AppConfig.imageUrl(p);
-          if (dr['rating'] is num) _driverRating = (dr['rating'] as num).toDouble();
-        }
-        _hirePhase = (ride['hirePhase'] ?? _hirePhase).toString();
-        _hireActual = (ride['hireActualHours'] as num?)?.toDouble() ?? _hireActual;
-        _hireBooked = (ride['hireTotalHours'] as num?)?.toInt() ?? _hireBooked;
-        _dialogSet?.call(() {});
-        if (status == 'accepted' || status == 'arrived' || status == 'ongoing') {
-          if (Navigator.canPop(context)) { Navigator.pop(context); _showAssigned(); }
-        } else if (status == 'completed') {
-          await PaymentService.charge(context, method: _paymentMode, amount: _payableFare, rideId: _rideId);
-          if (!mounted) return;
-          t.cancel(); if (!mounted) return;
-          Navigator.of(context, rootNavigator: true).popUntil((r) => r.isFirst);
-          _showFinalBill(ride);
-        }
-      } catch (_) {}
-    });
-  }
+  /// Book once, from the button — never from a route builder — then track the
+  /// hire on the live ride screen. The coupon is stored with the ride: the
+  /// server keeps a hire's full quoted fare, so the discount is applied when the
+  /// ride is charged.
+  Future<void> _confirmHire() => bookAndTrack(
+    context,
+    book: _book,
+    couponDiscount: _couponDiscount,
+  );
 
   Future<void> _pickDateTime({required bool isStart}) async {
     final base = (isStart ? _startAt : _endAt) ?? DateTime.now();
@@ -284,153 +240,12 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
             _row('Total', '₹${v['fare'] ?? 0}', bold: true),
             const SizedBox(height: 18),
             SizedBox(width: double.infinity, child: ElevatedButton(
-              onPressed: () { Navigator.pop(ctx); _showFinding(); },
+              onPressed: () { Navigator.pop(ctx); _confirmHire(); },
               style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14)),
               child: const Text('Confirm & Find Driver', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
             )),
           ]));
       });
-  }
-
-  void _showFinding() {
-    final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
-    final int? eta = (v['etaMin'] as num?)?.toInt();
-    Navigator.push(context, MaterialPageRoute(builder: (ctx) {
-      () async { await _book(); _startPolling(); }();
-      return FindingDriverView(
-        pickupLat: _pickupLat!,
-        pickupLng: _pickupLng!,
-        dropLat: _dropLat ?? _pickupLat,
-        dropLng: _dropLng ?? _pickupLng,
-        pickupAddress: _pickupCtrl.text,
-        dropAddress: _dropCtrl.text,
-        fareText: '₹${(((v['fare'] as num?) ?? 0) - _couponDiscount).clamp(0, ((v['fare'] as num?) ?? 0))}',
-        serviceLabel: 'Hire Driver',
-        serviceIcon: Icons.person_pin_circle,
-        etaMin: eta,
-        onCancel: () => _cancelSearch(ctx),
-      );
-    }));
-  }
-
-  // Cancel while searching — pick a reason then cancel the ride
-  void _cancelSearch(BuildContext sheetCtx) {
-    const reasons = ['Taking too long', 'Booked by mistake', 'Plan changed', 'Found another ride', 'Other'];
-    showModalBottomSheet(context: context, backgroundColor: Theme.of(context).cardColor,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (rc) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Padding(padding: EdgeInsets.all(16), child: Text('Why are you cancelling?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-        ...reasons.map((r) => ListTile(title: Text(r), onTap: () async {
-          Navigator.pop(rc);
-          _poll?.cancel();
-          if (_rideId != null) await ApiService.cancelRide(_rideId!, r);
-          if (mounted && Navigator.canPop(sheetCtx)) Navigator.pop(sheetCtx);
-          if (mounted) Navigator.pop(context);
-        })),
-        const SizedBox(height: 8),
-      ])));
-  }
-
-  void _showFinalBill(Map<String, dynamic> ride) {
-    final base = (ride['fare'] as num?)?.toInt() ?? 0;
-    final extra = (ride['hireExtraCharge'] as num?)?.toInt() ?? 0;
-    final total = (ride['hireFinalFare'] as num?)?.toInt() ?? (base + extra);
-    Widget r(String l, String v, {bool b = false, Color? c}) => Padding(padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text(l, style: TextStyle(fontSize: 14, fontWeight: b ? FontWeight.w800 : FontWeight.w500, color: c)),
-        Text(v, style: TextStyle(fontSize: 14, fontWeight: b ? FontWeight.w800 : FontWeight.w600, color: c))]));
-    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Padding(padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Hire Bill', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 14),
-          r('Booked', '${ride['hireTotalHours'] ?? 0} hr'),
-          r('Worked', '${(ride['hireActualHours'] ?? 0).toStringAsFixed(1)} hr'),
-          const Divider(),
-          r('Base', '₹$base'),
-          if (extra > 0) r('Overtime (${ride['hireExtraHours'] ?? 0}hr)', '₹$extra', c: Colors.orange),
-          const Divider(),
-          r('Total', '₹$total', b: true, c: const Color(0xFF1C2656)),
-          const SizedBox(height: 18),
-          SizedBox(width: double.infinity, child: ElevatedButton(
-            onPressed: () { Navigator.pop(ctx); Navigator.push(context, MaterialPageRoute(builder: (_) => RatingScreen(driverName: _driverName, vehicleName: _selectedVehicle ?? 'Hire', selectedTip: 0, rideId: _rideId))); },
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14)),
-            child: const Text('Rate your trip', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)))),
-        ])));
-  }
-
-  void _openChat() {
-    if (_rideId == null) return;
-    Navigator.push(context, MaterialPageRoute(builder: (_) => RideChatScreen(rideId: _rideId!, otherName: _driverName)));
-  }
-
-  void _showAssigned() {
-    showModalBottomSheet(context: context, isDismissible: false, enableDrag: false, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
-        _dialogSet = setSheet;
-        final inProgress = _hirePhase == 'ongoing' || _hirePhase == 'overtime';
-        return Padding(padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(inProgress ? 'Hire in Progress' : 'Driver Assigned', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          if (inProgress) ...[
-            Container(padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(color: _hirePhase == 'overtime' ? Colors.orange[50] : const Color(0xFF1C2656).withOpacity(0.06),
-                borderRadius: BorderRadius.circular(12), border: Border.all(color: _hirePhase == 'overtime' ? Colors.orange : const Color(0xFF1C2656).withOpacity(0.3))),
-              child: Column(children: [
-                Text('${_hireActual.toStringAsFixed(1)} hr', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: _hirePhase == 'overtime' ? Colors.orange[800] : const Color(0xFF1C2656))),
-                Text('of $_hireBooked hr booked', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                if (_hirePhase == 'overtime') const Padding(padding: EdgeInsets.only(top: 6), child: Text('⚠ Overtime — extra hours billed', style: TextStyle(fontSize: 11, color: Colors.orange, fontWeight: FontWeight.w600))),
-              ])),
-            const SizedBox(height: 12),
-          ],
-          Container(padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.06), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF1C2656).withOpacity(0.3))),
-            child: Row(children: [const Icon(Icons.lock_outline, color: Color(0xFF1C2656)), const SizedBox(width: 10),
-              const Expanded(child: Text('Share PIN with driver to start', style: TextStyle(fontSize: 12, color: Colors.black54))),
-              Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1C2656))),
-                child: Text(_rideOtp ?? '----', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4, color: Color(0xFF1C2656)))),
-            ])),
-          const SizedBox(height: 14),
-          Row(children: [
-            CircleAvatar(radius: 26, backgroundColor: const Color(0xFF1C2656).withOpacity(0.1),
-              backgroundImage: _driverPic.isNotEmpty ? NetworkImage(_driverPic) : null,
-              child: _driverPic.isEmpty ? Text(_driverName.isNotEmpty ? _driverName[0].toUpperCase() : 'D', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF1C2656))) : null),
-            const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(_driverName, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-              Row(children: [const Icon(Icons.star, color: Colors.amber, size: 15), const SizedBox(width: 3),
-                Text(_driverRating > 0 ? _driverRating.toStringAsFixed(1) : '—', style: const TextStyle(fontSize: 12, color: Colors.grey))]),
-              if (_vNumber.isNotEmpty) Text([_vModel, _vNumber].where((s) => s.isNotEmpty).join(' • '), style: const TextStyle(fontSize: 11, color: Colors.grey)),
-            ])),
-          ]),
-          const SizedBox(height: 14),
-          sosButton(context, _rideId),
-          const SizedBox(height: 12),
-          paymentMethodRow(context, _paymentMode, () async {
-            final m = await showPaymentPicker(context, _paymentMode);
-            if (m != null) setSheet(() => _paymentMode = m);
-          }),
-          const SizedBox(height: 16),
-          Row(children: [
-            Expanded(child: ElevatedButton.icon(
-              onPressed: () => dialPhone(_driverPhone),
-              icon: const Icon(Icons.call, color: Colors.white), label: const Text('Call', style: TextStyle(color: Colors.white)),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF4CAF50), padding: const EdgeInsets.symmetric(vertical: 14)))),
-            const SizedBox(width: 10),
-            Expanded(child: ElevatedButton.icon(
-              onPressed: _openChat,
-              icon: const Icon(Icons.message, color: Colors.white), label: const Text('Message', style: TextStyle(color: Colors.white)),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14)))),
-          ]),
-          const SizedBox(height: 10),
-          if (!inProgress) Center(child: TextButton(onPressed: () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const HomeScreen()), (r) => false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)))),
-        ]));
-      }));
   }
 
   // ── Map picker ──

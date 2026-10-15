@@ -4,6 +4,7 @@ import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 import 'trip_detail_screen.dart';
 import '../services/api_service.dart';
+import '../utils/map_markers.dart';
 import '../utils/polyline_utils.dart';
 import 'invoice_screen.dart';
 import 'home_screen.dart';
@@ -97,6 +98,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
             'nightHaltCharge': (r['nightHaltCharge'] as num?)?.toInt() ?? 0,
             'emptyReturnCharge': (r['emptyReturnCharge'] as num?)?.toInt() ?? 0,
             'tollCharge': (r['tollCharge'] as num?)?.toInt() ?? 0,
+            'tolls': (r['tolls'] as List?) ?? const [],
             // Hire extras
             'hireTotalHours': (r['hireTotalHours'] as num?)?.toInt() ?? 0,
             'hirePerHour': (r['hirePerHour'] as num?)?.toInt() ?? 0,
@@ -167,7 +169,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                 ]),
               ),
               Expanded(
-                child: GoogleMap(
+                child: PlaceGlyphs(builder: (context, glyphs) => GoogleMap(
                   initialCameraPosition: CameraPosition(target: pickup, zoom: 13),
                   onMapCreated: (c) {
                     final b = boundsFromPoints(pts);
@@ -182,13 +184,13 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                   myLocationButtonEnabled: false,
                   zoomControlsEnabled: true,
                   markers: {
-                    Marker(markerId: const MarkerId('pickup'), position: pickup, icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen), infoWindow: InfoWindow(title: 'Pickup', snippet: ride['from']?.toString())),
-                    Marker(markerId: const MarkerId('drop'),   position: drop,   icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),   infoWindow: InfoWindow(title: 'Drop',   snippet: ride['to']?.toString())),
+                    Marker(markerId: const MarkerId('pickup'), position: pickup, anchor: glyphs.pickupAnchor, icon: glyphs.pickup, infoWindow: InfoWindow(title: 'Pickup', snippet: ride['from']?.toString())),
+                    Marker(markerId: const MarkerId('drop'),   position: drop, anchor: glyphs.dropAnchor, icon: glyphs.drop,   infoWindow: InfoWindow(title: 'Drop',   snippet: ride['to']?.toString())),
                   },
                   polylines: {
                     Polyline(polylineId: const PolylineId('route'), points: pts, color: AppTheme.primaryBlue, width: 5),
                   },
-                ),
+                )),
               ),
               Container(
                 padding: const EdgeInsets.all(16),
@@ -284,11 +286,16 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                 children: [
                   Icon(icon, color: AppTheme.primaryBlue, size: 20),
                   const SizedBox(width: 12),
-                  Text(
-                    title,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  // Expanded, not a bare Text before a Spacer: a long section
+                  // title pushed the chevron off the right edge on narrow
+                  // screens. Expanded absorbs the slack the Spacer used to.
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    ),
                   ),
-                  const Spacer(),
                   Icon(
                     isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
                     color: Colors.grey[600],

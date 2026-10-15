@@ -1,17 +1,23 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
-// Ola-style "Parcel delivered" bill screen shown when a delivery completes.
+// Ola-style bill screen shown when a delivery completes.
 class ParcelBillScreen extends StatelessWidget {
   final num amount;
   final String vehicleName;
-  const ParcelBillScreen({super.key, required this.amount, this.vehicleName = 'Delivery'});
+  /// The receiver was unavailable and the parcel came back to the sender. The
+  /// fare still stands, but the screen must not announce a delivery.
+  final bool returned;
+  const ParcelBillScreen({super.key, required this.amount, this.vehicleName = 'Delivery', this.returned = false});
 
   @override
   Widget build(BuildContext context) {
     final amt = '₹${amount.toStringAsFixed(0)}';
+    // Theme colours rather than white: in dark mode the body text is light, and
+    // on a hard-coded white page the whole bill was invisible.
+    final card = Theme.of(context).cardColor;
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Column(children: [
         // Header (delivered)
         Container(
@@ -20,10 +26,11 @@ class ParcelBillScreen extends StatelessWidget {
           decoration: const BoxDecoration(gradient: LinearGradient(colors: [AppTheme.primaryBlue, Color(0xFF3A4A8C)])),
           child: SafeArea(
             child: Center(
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: const [
-                Icon(Icons.check_circle, color: Colors.white, size: 56),
-                SizedBox(height: 8),
-                Text('Parcel Delivered', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(returned ? Icons.keyboard_return_rounded : Icons.check_circle, color: Colors.white, size: 56),
+                const SizedBox(height: 8),
+                Text(returned ? 'Parcel Returned' : 'Parcel Delivered',
+                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
               ]),
             ),
           ),
@@ -55,7 +62,7 @@ class ParcelBillScreen extends StatelessWidget {
               // Bill card
               Container(
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.shade200)),
+                decoration: BoxDecoration(color: card, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.withOpacity(0.25))),
                 child: Column(children: [
                   Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                     const Expanded(child: Text('Total Bill (with convenience fees)', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800))),
@@ -96,7 +103,7 @@ class ParcelBillScreen extends StatelessWidget {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                 child: const Text('Done', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
               ),
             ),
@@ -118,7 +125,7 @@ class _Feature extends StatelessWidget {
   const _Feature(this.icon, this.label);
   @override
   Widget build(BuildContext context) => Column(children: [
-        Icon(icon, size: 26, color: Colors.black87),
+        Icon(icon, size: 26, color: Theme.of(context).colorScheme.onSurface.withOpacity(0.87)),
         const SizedBox(height: 8),
         Text(label, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey[700], height: 1.3)),
       ]);

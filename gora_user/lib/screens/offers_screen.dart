@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 
@@ -12,12 +13,25 @@ class OffersScreen extends StatefulWidget {
 
 class _OffersScreenState extends State<OffersScreen> {
   Map<String, dynamic>? _cfg;
+  Map<String, dynamic>? _referral;
+  bool _referralFailed = false;
+  String? get _referralCode => _referral?['code'] as String?;
 
   @override
   void initState() {
     super.initState();
     ApiService.getAppConfig().then((c) {
       if (mounted) setState(() => _cfg = c);
+    });
+    ApiService.getReferral().then((r) {
+      if (!mounted) return;
+      if (r['code'] == null) {
+        setState(() => _referralFailed = true);
+      } else {
+        setState(() => _referral = r);
+      }
+    }).catchError((_) {
+      if (mounted) setState(() => _referralFailed = true);
     });
   }
 
@@ -210,19 +224,28 @@ class _OffersScreenState extends State<OffersScreen> {
                     ),
                     if (code.isNotEmpty) ...[
                       const SizedBox(height: 16),
+                      // The code chip and the validity text were both unbounded
+                      // either side of a Spacer, so a long promo code with a
+                      // long validity line overflowed by up to 176px. Both are
+                      // flexible now and ellipsise instead of pushing out.
                       Row(
                         children: [
-                          Container(
+                          Flexible(
+                            child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                             decoration: BoxDecoration(
                               color: Colors.white,
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(
+                                Flexible(
+                                  child: Text(
                                   code,
+                                  maxLines: 1, overflow: TextOverflow.ellipsis,
                                   style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
                                 ),
                                 const SizedBox(width: 8),
                                 GestureDetector(
@@ -237,11 +260,16 @@ class _OffersScreenState extends State<OffersScreen> {
                               ],
                             ),
                           ),
-                          const Spacer(),
+                          ),
+                          const SizedBox(width: 8),
                           if (validity.isNotEmpty)
-                            Text(
-                              validity,
-                              style: TextStyle(color: Colors.white.withAlpha(200), fontSize: 11),
+                            Flexible(
+                              child: Text(
+                                validity,
+                                maxLines: 1, overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.right,
+                                style: TextStyle(color: Colors.white.withAlpha(200), fontSize: 11),
+                              ),
                             ),
                         ],
                       ),
@@ -445,14 +473,14 @@ class _OffersScreenState extends State<OffersScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Text(
-                            'JOHN2024',
-                            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue, letterSpacing: 2),
+                          Text(
+                            _referralCode ?? (_referralFailed ? '—' : '…'),
+                            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue, letterSpacing: 2),
                           ),
                           const SizedBox(width: 12),
                           IconButton(
-                            onPressed: () {
-                              Clipboard.setData(const ClipboardData(text: 'JOHN2024'));
+                            onPressed: _referralCode == null ? null : () {
+                              Clipboard.setData(ClipboardData(text: _referralCode!));
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(content: Text('Referral code copied!')),
                               );
@@ -466,9 +494,10 @@ class _OffersScreenState extends State<OffersScreen> {
                 ),
                 const SizedBox(height: 16),
                 ElevatedButton.icon(
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Share functionality will be implemented')),
+                  onPressed: _referralCode == null ? null : () {
+                    Share.share(
+                      'Ride with Gora Cabs! Use my code $_referralCode when you sign up and we both earn $rewardText — download the app to get started.',
+                      subject: 'Join me on Gora Cabs',
                     );
                   },
                   icon: const Icon(Icons.share),
@@ -498,11 +527,11 @@ class _OffersScreenState extends State<OffersScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    _buildStatColumn('Total Referrals', '12', Icons.people),
+                    _buildStatColumn('Total Referrals', '${_referral?['referredCount'] ?? (_referralFailed ? '—' : '…')}', Icons.people),
                     Container(width: 1, height: 50, color: Colors.grey[300]),
-                    _buildStatColumn('Earnings', '₹1,200', Icons.currency_rupee),
+                    _buildStatColumn('Earnings', _referral != null ? '₹${_referral!['referralEarnings']}' : (_referralFailed ? '—' : '…'), Icons.currency_rupee),
                     Container(width: 1, height: 50, color: Colors.grey[300]),
-                    _buildStatColumn('Pending', '3', Icons.hourglass_empty),
+                    _buildStatColumn('Per Referral', rewardText, Icons.redeem),
                   ],
                 ),
               ],

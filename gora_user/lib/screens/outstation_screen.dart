@@ -1,23 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:share_plus/share_plus.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../utils/map_markers.dart';
+import '../utils/place_names.dart';
 import '../services/payment_service.dart';
-import '../theme/app_theme.dart';
 import '../utils/polyline_utils.dart';
-import '../utils/call_util.dart';
-import '../widgets/sos_button.dart';
-import '../widgets/online_payment.dart';
-import 'ride_chat_screen.dart';
-import 'home_screen.dart';
-import 'rating_screen.dart';
-import 'booking_screen.dart';
+import '../utils/ride_booking.dart';
 import 'booking_inquiry_screen.dart';
-import 'outstation_ride_details_screen.dart';
-import '../widgets/finding_driver_view.dart';
 
 class OutstationScreen extends StatefulWidget {
   const OutstationScreen({super.key});
@@ -39,8 +31,6 @@ class _OutstationScreenState extends State<OutstationScreen> {
   bool _showTripDetails = false;
   bool _showVehicleSelection = false;
   bool _locationConfirmed = false;
-  bool _isSearching = false;
-  bool _driverAssigned = false;
 
   // ── Backend-wired state ──
   double? _fromLat, _fromLng, _toLat, _toLng;
@@ -76,25 +66,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
   GoogleMapController? _pickerMapController;
   String _pickerAddress = '';
 
-  // Live ride state
-  String? _rideId;
-  String? _rideOtp;
-  String _driverName = 'Pilot';
-  String _driverPhone = '';
-  String _driverPicUrl = '';
-  String _driverVehicleModel = '';
-  String _driverVehicleNumber = '';
-  double _driverRating = 0;
-  // Live driver location (polled every 5s once driver assigned)
-  LatLng? _driverLatLng;
-  double _driverHeading = 0;
-  Timer? _driverLocTimer;
-  // Outstation phase from backend (enroute / at_destination / returning / completed)
-  String _outstationPhase = 'enroute';
-  String _driverVehicleImageUrl = '';
-  int _driverTotalRides = 0;
-  int _driverYearsActive = 0;
-  Timer? _pollTimer;
+  // A booked trip is tracked on ActiveRideScreen (see _confirmOutstation), so
+  // this screen holds no live ride state.
 
   // Vehicles list — populated from backend (admin-configured outstation-enabled VehicleTypes)
   List<Map<String, dynamic>> _vehicles = [];
@@ -132,29 +105,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
-    _driverLocTimer?.cancel();
     _searchDebounce?.cancel();
     super.dispose();
-  }
-
-  // Poll driver's live position every 5s during the ride; updates map marker
-  void _startDriverLocationPolling() {
-    _driverLocTimer?.cancel();
-    if (_rideId == null) return;
-    _driverLocTimer = Timer.periodic(const Duration(seconds: 5), (t) async {
-      if (!mounted) { t.cancel(); return; }
-      try {
-        final res = await ApiService.getDriverLocation(_rideId!);
-        final dr = res['driver'] as Map<String, dynamic>?;
-        if (dr == null || dr['lat'] == null || dr['lng'] == null) return;
-        if (!mounted) return;
-        setState(() {
-          _driverLatLng = LatLng((dr['lat'] as num).toDouble(), (dr['lng'] as num).toDouble());
-          _driverHeading = ((dr['heading'] as num?) ?? 0).toDouble();
-        });
-      } catch (_) {}
-    });
   }
 
   // Format DateTime as "DD/MM, h:MM AM/PM"
@@ -501,6 +453,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
             'rtBreakdown': rt?['breakdown'] ?? {},
             'extras': ow['extras'] ?? 0,
             'etaMin': ow['etaMin'],
+            // One signed quote per trip type — booking replays the matching one.
+            'owQuoteToken': ow['quoteToken'],
+            'rtQuoteToken': rt?['quoteToken'],
             'cat': cap >= 6 ? 'SUV' : (cap >= 4 ? 'Sedan' : 'Mini'),
           };
         }).toList();
@@ -512,16 +467,18 @@ class _OutstationScreenState extends State<OutstationScreen> {
     }
   }
 
-  // Book the outstation trip against the backend
-  Future<void> _bookOutstationRide() async {
-    if (_fromLat == null || _toLat == null || _selectedVehicle == null) return;
+  /// Books the outstation trip and returns the server's answer; [bookAndTrack]
+  /// reports a failure and opens the live ride screen on success.
+  Future<Map<String, dynamic>> _bookOutstationRide() async {
+    if (_fromLat == null || _toLat == null || _selectedVehicle == null) {
+      return {'error': 'Choose where from, where to and a vehicle first'};
+    }
     final isRoundTrip = _tripType == 'Round Trip';
     final selVehicle = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
     final rawFare = (isRoundTrip ? selVehicle['roundTripFare'] : selVehicle['oneWayFare']) as num? ?? 0;
     final fare = (rawFare - _couponDiscount).clamp(0, rawFare);
 
-    try {
-      final res = await ApiService.bookRide({
+    return ApiService.bookRide({
         'pickupAddress': _fromController.text,
         'dropAddress': _toController.text,
         'pickupLat': _fromLat, 'pickupLng': _fromLng,
@@ -530,10 +487,13 @@ class _OutstationScreenState extends State<OutstationScreen> {
         'tripType': isRoundTrip ? 'round_trip' : 'one_way',
         'vehicleType': _selectedVehicle,
         'fare': fare,
+        'quoteToken': isRoundTrip ? selVehicle['rtQuoteToken'] : selVehicle['owQuoteToken'],
         'distance': _distanceKm,
         'duration': _durationMin,
-        'cityFrom': _fromController.text,
-        'cityTo': _toController.text,
+        // The towns, not the addresses: these label the trip "Gurugram → Jaipur"
+        // on the ride screens, the driver's request and the admin list.
+        'cityFrom': cityOf(_fromController.text),
+        'cityTo': cityOf(_toController.text),
         'departureAt': _departureDateTime?.toIso8601String(),
         'returnAt': isRoundTrip ? _returnDateTime?.toIso8601String() : null,
         'numPassengers': _numPassengers,
@@ -545,71 +505,6 @@ class _OutstationScreenState extends State<OutstationScreen> {
         'couponDiscount': _couponDiscount,
         'bookingFor': _bookingFor,
       });
-      if (res['ride'] != null) {
-        _rideId = res['ride']['id']?.toString();
-        _rideOtp = res['ride']['otp']?.toString();
-      }
-    } catch (_) {/* polling will just find no ride */}
-  }
-
-  // Poll backend for status; closes finding-dialog when driver accepts
-  void _startStatusPolling(void Function(String status, Map<String, dynamic> ride) onStatus) {
-    _pollTimer?.cancel();
-    if (_rideId == null) return;
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (t) async {
-      if (!mounted) { t.cancel(); return; }
-      try {
-        final ride = await ApiService.getRide(_rideId!);
-        final status = (ride['status'] ?? 'pending').toString();
-        if (ride['awaitingPayment'] == true && status != 'completed') { promptOnlinePayment(context, _rideId, ride); }
-        if (ride['driverName'] != null) _driverName = ride['driverName'].toString();
-        if (ride['driverPhone'] != null) _driverPhone = ride['driverPhone'].toString();
-        final dr = ride['driver'] as Map<String, dynamic>?;
-        if (dr != null) {
-          _driverVehicleModel = (dr['vehicleModel'] ?? _driverVehicleModel).toString();
-          _driverVehicleNumber = (dr['vehicleNumber'] ?? _driverVehicleNumber).toString();
-          final pic = (dr['profilePicUrl'] ?? '').toString();
-          if (pic.isNotEmpty) _driverPicUrl = AppConfig.imageUrl(pic);
-          final r = dr['rating'];
-          if (r is num) _driverRating = r.toDouble();
-          _driverTotalRides = (dr['totalRides'] as num?)?.toInt() ?? _driverTotalRides;
-          _driverYearsActive = (dr['yearsActive'] as num?)?.toInt() ?? _driverYearsActive;
-        }
-        // Pull outstation phase from ride for the UI status card
-        final phase = (ride['outstationPhase'] as String?) ?? '';
-        if (phase.isNotEmpty) _outstationPhase = phase;
-        // Vehicle image url — read once when ride is accepted
-        final selected = _selectedVehicle;
-        if (selected != null && _driverVehicleImageUrl.isEmpty) {
-          final v = _vehicles.firstWhere((x) => x['name'] == selected, orElse: () => {});
-          final ni = (v['networkImage'] as String?) ?? '';
-          if (ni.isNotEmpty) _driverVehicleImageUrl = ni;
-        }
-        // Start live driver location polling once driver is assigned (only once)
-        if (status != 'pending' && _driverLocTimer == null) {
-          _startDriverLocationPolling();
-        }
-
-        // ── COMPLETION at SCREEN level — works no matter which dialog is open ──
-        if (status == 'completed') {
-          t.cancel();
-          _pollTimer = null;
-          _driverLocTimer?.cancel();
-          if (!mounted) return;
-          // Close any open sheets (assigned dialog, etc.) then push rating
-          Navigator.of(this.context, rootNavigator: true).popUntil((route) => route.isFirst);
-          Navigator.of(this.context).push(MaterialPageRoute(builder: (_) => RatingScreen(
-            driverName: _driverName.isNotEmpty ? _driverName : 'Pilot',
-            vehicleName: _selectedVehicle ?? 'Outstation',
-            selectedTip: 0,
-            rideId: _rideId,
-          )));
-          return;
-        }
-
-        onStatus(status, ride);
-      } catch (_) {}
-    });
   }
 
   @override
@@ -772,7 +667,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
           Expanded(
             child: Stack(
               children: [
-                GoogleMap(
+                PlaceGlyphs(builder: (context, glyphs) => GoogleMap(
                   initialCameraPosition: const CameraPosition(target: LatLng(23.0225, 72.5714), zoom: 6),
                   onMapCreated: (c) {
                     _mapController = c;
@@ -787,26 +682,17 @@ class _OutstationScreenState extends State<OutstationScreen> {
                       Marker(
                         markerId: const MarkerId('from'),
                         position: LatLng(_fromLat!, _fromLng!),
-                        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+                        anchor: glyphs.pickupAnchor,
+                        icon: glyphs.pickup,
                         infoWindow: InfoWindow(title: 'From', snippet: _fromController.text),
                       ),
                     if (_toLat != null && _toLng != null)
                       Marker(
                         markerId: const MarkerId('to'),
                         position: LatLng(_toLat!, _toLng!),
-                        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+                        anchor: glyphs.dropAnchor,
+                        icon: glyphs.drop,
                         infoWindow: InfoWindow(title: 'To', snippet: _toController.text),
-                      ),
-                    // Live driver marker once assigned
-                    if (_driverLatLng != null)
-                      Marker(
-                        markerId: const MarkerId('driver'),
-                        position: _driverLatLng!,
-                        rotation: _driverHeading,
-                        flat: true,
-                        anchor: const Offset(0.5, 0.5),
-                        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-                        infoWindow: InfoWindow(title: _driverName, snippet: _driverVehicleNumber),
                       ),
                   },
                   polylines: {
@@ -818,7 +704,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                         width: 5,
                       ),
                   },
-                ),
+                )),
                 DraggableScrollableSheet(
                   // Key forces the sheet to recreate when confirmed state flips,
                   // so initialChildSize is re-applied and the panel auto-expands
@@ -923,7 +809,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                         child: Row(children: [
                                           const Icon(Icons.event, size: 18, color: Color(0xFF1C2656)),
                                           const SizedBox(width: 10),
-                                          Expanded(child: RichText(text: TextSpan(
+                                          // Text.rich, not RichText: it follows the theme's font and
+                                          // the rider's text size setting like every other line here.
+                                          Expanded(child: Text.rich(TextSpan(
                                             style: TextStyle(fontSize: 13, color: Theme.of(context).colorScheme.onSurface),
                                             children: [
                                               const TextSpan(text: 'Booking for  '),
@@ -1744,9 +1632,12 @@ class _OutstationScreenState extends State<OutstationScreen> {
                 child: const Icon(Icons.info_outline, color: Color(0xFF1C2656), size: 20),
               ),
               const SizedBox(width: 8),
-              Text(
-                '${_tripType} Trip Conditions',
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              Expanded(
+                child: Text(
+                  '${_tripType} Trip Conditions',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ],
           ),
@@ -1863,7 +1754,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
     final num cExtraKm = (cbk['extraKmRate'] as num?) ?? 0;
     final num cGst = (cbk['gst'] as num?) ?? 0;
     final num cGstPct = (cbk['gstPercent'] as num?) ?? 0;
-    final String cityTo = _toController.text.split(',').first.trim();
+    final String cityTo = cityOf(_toController.text);
     // Dynamic Rules & Restrictions (all values come from admin zone pricing)
     final List<String> rules = [
       'Excludes toll costs, parking, permits and state tax',
@@ -2085,7 +1976,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('Estimated Distance', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                                const Expanded(child: Text('Estimated Distance', style: TextStyle(fontSize: 13, color: Colors.grey))),
                                 Text('${_distanceKm.toStringAsFixed(0)} km', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                               ],
                             ),
@@ -2093,7 +1984,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('Estimated Duration', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                                const Expanded(child: Text('Estimated Duration', style: TextStyle(fontSize: 13, color: Colors.grey))),
                                 Text(_durationMin >= 60 ? '${_durationMin ~/ 60}h ${(_durationMin % 60).toString().padLeft(2, "0")}m' : '$_durationMin min',
                                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
                               ],
@@ -2230,7 +2121,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.pop(context);
-                      _showFindingDriverDialog();
+                      _confirmOutstation();
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1C2656),
@@ -2274,394 +2165,32 @@ class _OutstationScreenState extends State<OutstationScreen> {
     );
   }
 
-  void _cancelSearch(BuildContext sheetCtx) {
-    const reasons = ['Taking too long', 'Booked by mistake', 'Plan changed', 'Found another ride', 'Other'];
-    showModalBottomSheet(context: context, backgroundColor: Theme.of(context).cardColor,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (rc) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Padding(padding: EdgeInsets.all(16), child: Text('Why are you cancelling?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-        ...reasons.map((r) => ListTile(title: Text(r), onTap: () async {
-          Navigator.pop(rc);
-          _pollTimer?.cancel();
-          if (_rideId != null) await ApiService.cancelRide(_rideId!, r);
-          if (mounted && Navigator.canPop(sheetCtx)) Navigator.pop(sheetCtx);
-          if (mounted) Navigator.pop(context);
-        })),
-        const SizedBox(height: 8),
-      ])));
-  }
-
-  Future<void> _showFindingDriverDialog() async {
-    // Charge the trip fare via the selected method before searching for a driver.
+  /// Charge, book once, then track the trip on the live ride screen.
+  ///
+  /// Outstation is paid before it is booked, as it always has been. What changes
+  /// is the failure after payment: the booking error used to be swallowed, so a
+  /// rider who had just paid was left on "Finding your driver" for a trip that
+  /// did not exist, with nothing to tell support. They are now told plainly,
+  /// told not to pay again, and stay on this screen.
+  Future<void> _confirmOutstation() async {
+    var paidUpfront = false;
     if (_selectedVehicle != null) {
       final selV = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => <String, dynamic>{});
       final rawFare = ((_tripType == 'Round Trip' ? selV['roundTripFare'] : selV['oneWayFare']) as num?) ?? 0;
       final payable = (rawFare - _couponDiscount).clamp(0, rawFare);
       final paid = await PaymentService.charge(context, method: _paymentMode, amount: payable);
-      if (!mounted) return;
-      if (!paid) return;
+      if (!mounted || !paid) return;
+      paidUpfront = _paymentMode != 'cash' && payable > 0;
     }
-    setState(() {
-      _isSearching = true;
-    });
-
-    // Selected vehicle's ETA, if reachable
-    int? etaMin;
-    if (_selectedVehicle != null) {
-      final sel = _vehicles.where((v) => v['name'] == _selectedVehicle);
-      if (sel.isNotEmpty) etaMin = (sel.first['etaMin'] as num?)?.toInt();
-    }
-
-    showModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (BuildContext context) {
-        // Actually book the outstation ride then poll backend for driver assignment + completion
-        () async {
-          await _bookOutstationRide();
-          _startStatusPolling((status, ride) {
-            if (status == 'accepted' || status == 'arrived' || status == 'ongoing') {
-              if (Navigator.canPop(context)) {
-                Navigator.of(context).pop();
-                _showDriverAssignedDialog();
-              }
-            } else if (status == 'completed') {
-              _pollTimer?.cancel();
-              if (Navigator.canPop(context)) Navigator.of(context).pop();
-              // Send user to rating/review screen straight after ride completes
-              Navigator.push(context, MaterialPageRoute(builder: (_) => RatingScreen(
-                driverName: _driverName.isNotEmpty ? _driverName : 'Pilot',
-                vehicleName: _selectedVehicle ?? 'Outstation',
-                selectedTip: 0,
-                rideId: _rideId,
-              )));
-            } else if (status == 'cancelled') {
-              _pollTimer?.cancel();
-            }
-          });
-        }();
-
-        // Full-screen Ola-style finding-driver view; takes the whole sheet so the
-        // map + radar fill the screen. Polling above still pops this sheet on accept.
-        return SizedBox(
-          height: MediaQuery.of(context).size.height,
-          child: FindingDriverView(
-            pickupLat: _fromLat!,
-            pickupLng: _fromLng!,
-            dropLat: _toLat,
-            dropLng: _toLng,
-            pickupAddress: _fromController.text,
-            dropAddress: _toController.text,
-            fareText: () {
-              final sel = _vehicles.where((v) => v['name'] == _selectedVehicle);
-              if (sel.isEmpty) return null;
-              return (_tripType == 'One Way' ? sel.first['oneWayPrice'] : sel.first['roundTripPrice'])?.toString();
-            }(),
-            serviceLabel: 'Outstation',
-            serviceIcon: Icons.map,
-            etaMin: etaMin,
-            onCancel: () => _cancelSearch(context),
-          ),
-        );
-      },
-    );
-  }
-
-  void _openChat() {
-    if (_rideId == null) return;
-    Navigator.push(context, MaterialPageRoute(builder: (_) => RideChatScreen(rideId: _rideId!, otherName: _driverName)));
-  }
-
-  void _showDriverAssignedDialog() {
-    setState(() {
-      _isSearching = false;
-      _driverAssigned = true;
-    });
-
-    showModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (BuildContext context) {
-        return Container(
-          padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(context).viewPadding.bottom),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -2))],
-          ),
-          child: SingleChildScrollView(child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
-              Text('Pilot Assigned for Outstation', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
-              const SizedBox(height: 12),
-              // Prominent OTP/PIN box — driver asks for this to start the ride
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [const Color(0xFF1C2656).withOpacity(0.08), const Color(0xFF1C2656).withOpacity(0.02)]),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF1C2656).withOpacity(0.3)),
-                ),
-                child: Row(children: [
-                  const Icon(Icons.lock_outline, color: Color(0xFF1C2656), size: 22),
-                  const SizedBox(width: 10),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('Share OTP with pilot', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600, letterSpacing: 0.3)),
-                    const SizedBox(height: 2),
-                    const Text('Driver will ask for this 4-digit PIN to start the trip', style: TextStyle(fontSize: 11, color: Colors.black54)),
-                  ])),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1C2656))),
-                    child: Text(_rideOtp ?? '----', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 4, color: Color(0xFF1C2656))),
-                  ),
-                ]),
-              ),
-              const SizedBox(height: 14),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey[200]!), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))]),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 55, height: 55,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.grey[200],
-                        border: Border.all(color: Colors.grey[200]!, width: 2),
-                        image: _driverPicUrl.isNotEmpty
-                            ? DecorationImage(image: NetworkImage(_driverPicUrl), fit: BoxFit.cover)
-                            : null,
-                      ),
-                      alignment: Alignment.center,
-                      child: _driverPicUrl.isEmpty
-                          ? Text(_driverName.isNotEmpty ? _driverName[0].toUpperCase() : 'P',
-                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black54))
-                          : null,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(_driverName, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface)),
-                      const SizedBox(height: 4),
-                      Row(children: [
-                        const Icon(Icons.star, color: Colors.amber, size: 16),
-                        const SizedBox(width: 4),
-                        Text(_rideOtp != null ? 'PIN: $_rideOtp' : 'Outstation pilot', style: const TextStyle(fontSize: 13, color: Colors.grey)),
-                      ]),
-                      const SizedBox(height: 4),
-                      Text(
-                        [_driverVehicleModel, _driverVehicleNumber].where((s) => s.isNotEmpty).join(' • '),
-                        style: const TextStyle(fontSize: 11, color: Colors.grey),
-                      ),
-                    ])),
-                    SizedBox(width: 70, height: 50, child: _driverVehicleImageUrl.isNotEmpty
-                        ? Image.network(_driverVehicleImageUrl, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.directions_car, color: Color(0xFF1C2656), size: 40))
-                        : Image.asset(_vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => {'image':'assets/images/economy.png'})['image'] as String, fit: BoxFit.contain)),
-                  ],
-                ),
-              ),
-              // Driver experience chips (years on platform + total rides)
-              if (_driverYearsActive > 0 || _driverTotalRides > 0) ...[
-                const SizedBox(height: 10),
-                Row(children: [
-                  if (_driverYearsActive > 0) Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.08), borderRadius: BorderRadius.circular(20)),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.workspace_premium, color: Color(0xFF1C2656), size: 14),
-                      const SizedBox(width: 4),
-                      Text('${_driverYearsActive}+ yr exp', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF1C2656))),
-                    ]),
-                  ),
-                  if (_driverTotalRides > 0) ...[
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(color: const Color(0xFF4CAF50).withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [
-                        const Icon(Icons.directions_car, color: Color(0xFF4CAF50), size: 14),
-                        const SizedBox(width: 4),
-                        Text('${_driverTotalRides} trips', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF4CAF50))),
-                      ]),
-                    ),
-                  ],
-                ]),
-              ],
-              // Trip phase status (only relevant for round-trip outstation in progress)
-              if (_tripType == 'Round Trip' && _outstationPhase != 'enroute') ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryBlue.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppTheme.primaryBlue.withOpacity(0.3)),
-                  ),
-                  child: Row(children: [
-                    Icon(
-                      _outstationPhase == 'at_destination' ? Icons.flag :
-                      _outstationPhase == 'returning' ? Icons.replay : Icons.directions_car,
-                      color: AppTheme.primaryBlue,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(child: Text(
-                      _outstationPhase == 'at_destination' ? 'At destination — driver waiting'
-                      : _outstationPhase == 'returning' ? 'Return journey in progress'
-                      : 'In transit',
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.primaryBlue),
-                    )),
-                  ]),
-                ),
-              ],
-              const SizedBox(height: 16),
-              sosButton(context, _rideId),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(child: ElevatedButton.icon(
-                    onPressed: () => dialPhone(_driverPhone),
-                    icon: const Icon(Icons.call, color: Colors.green), label: Text('Call', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
-                    style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).cardColor, foregroundColor: Theme.of(context).colorScheme.onSurface, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2),
-                  )),
-                  const SizedBox(width: 12),
-                  Expanded(child: ElevatedButton.icon(
-                    onPressed: _openChat,
-                    icon: const Icon(Icons.message, color: Color(0xFF1C2656)), label: Text('Message', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
-                    style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).cardColor, foregroundColor: Theme.of(context).colorScheme.onSurface, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2),
-                  )),
-                  const SizedBox(width: 12),
-                  Expanded(child: ElevatedButton.icon(
-                    onPressed: () {
-                      if (_rideId != null) {
-                        Share.share('I\'m on a Gora outstation trip — follow me: ${AppConfig.serverBaseUrl}/track/$_rideId');
-                      }
-                    },
-                    icon: const Icon(Icons.share, color: Color(0xFF1C2656)), label: Text('Share', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
-                    style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).cardColor, foregroundColor: Theme.of(context).colorScheme.onSurface, padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: Colors.grey[200]!)), elevation: 2),
-                  )),
-                ],
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    final selectedVehicleData = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
-                    final currentPrice = _tripType == 'One Way' ? selectedVehicleData['oneWayPrice'] : selectedVehicleData['roundTripPrice'];
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => OutstationRideDetailsScreen(
-                          inquiryId: _rideId != null ? 'GC-OUT-${_rideId!.substring(_rideId!.length - 6).toUpperCase()}' : 'GC-OUT-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
-                          fromLocation: _fromController.text.isEmpty ? 'Current Location' : _fromController.text,
-                          toLocation: _toController.text.isEmpty ? 'Select Destination' : _toController.text,
-                          vehicleName: _selectedVehicle!,
-                          vehicleType: selectedVehicleData['type'] as String? ?? '',
-                          capacity: selectedVehicleData['capacity'] as String? ?? '4',
-                          tripType: _tripType,
-                          departureDate: _departureDateController.text.isEmpty ? 'Today' : _departureDateController.text,
-                          departureTime: _departureTimeController.text.isEmpty ? 'Now' : _departureTimeController.text,
-                          returnDate: _tripType == 'Round Trip' ? (_returnDateController.text.isEmpty ? 'Not Set' : _returnDateController.text) : null,
-                          returnTime: _tripType == 'Round Trip' ? (_returnTimeController.text.isEmpty ? 'Not Set' : _returnTimeController.text) : null,
-                          price: currentPrice,
-                          estimatedDistance: '${_distanceKm.toStringAsFixed(0)} km',
-                          estimatedDuration: _durationMin >= 60 ? '${_durationMin ~/ 60}h ${(_durationMin % 60).toString().padLeft(2, "0")}m' : '$_durationMin min',
-                          driverName: _driverName,
-                          driverRating: _driverRating > 0 ? _driverRating.toStringAsFixed(1) : '—',
-                          driverExperience: '—',
-                          vehicleNumber: _driverVehicleNumber.isEmpty ? '—' : _driverVehicleNumber,
-                          vehicleModel: _driverVehicleModel.isEmpty ? '—' : _driverVehicleModel,
-                          vehicleColor: '—',
-                        ),
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1C2656),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: const Text('Trip Details', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Center(child: TextButton(onPressed: () => _showCancelReasonDialog(), child: const Text('Cancel Trip', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600, fontSize: 15)))),
-            ],
-          )),
-        );
-      },
-    );
-  }
-
-  void _showCancelReasonDialog() {
-    final List<String> reasons = ['Plan changed', 'Pilot is too far', 'Found another ride', 'Wait time is too long', 'Wrong location selected', 'Other'];
-    String? selectedReason;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (BuildContext context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 20), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
-                  const Text('Cancel Trip', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  const Text('Please select a reason for cancellation', style: TextStyle(fontSize: 14, color: Colors.grey)),
-                  const SizedBox(height: 20),
-                  ...reasons.map((reason) => RadioListTile<String>(title: Text(reason, style: const TextStyle(fontSize: 15)), value: reason, groupValue: selectedReason, activeColor: const Color(0xFF1C2656), contentPadding: EdgeInsets.zero, onChanged: (value) => setDialogState(() => selectedReason = value))),
-                  const SizedBox(height: 24),
-                  SizedBox(width: double.infinity, child: ElevatedButton(onPressed: selectedReason == null ? null : () => Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (context) => const HomeScreen()), (route) => false), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Confirm Cancellation', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)))),
-                  const SizedBox(height: 12),
-                  Center(child: TextButton(onPressed: () => Navigator.pop(context), child: const Text('Back', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w600)))),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showRideCompletedDialog() {
-    showModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      builder: (BuildContext context) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.check_circle, color: Colors.green, size: 64),
-              const SizedBox(height: 16),
-              const Text('Trip Completed!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('Your outstation trip has been completed successfully.', style: TextStyle(fontSize: 14, color: Colors.grey), textAlign: TextAlign.center),
-              const SizedBox(height: 24),
-              SizedBox(width: double.infinity, child: ElevatedButton(onPressed: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (context) => RatingScreen(driverName: 'Rahul Sharma', vehicleName: _selectedVehicle!, selectedTip: 0))); }, style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))), child: const Text('Rate Your Experience', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)))),
-            ],
-          ),
-        );
-      },
+    await bookAndTrack(
+      context,
+      book: _bookOutstationRide,
+      // Shown on the ride screen as the amount already paid.
+      couponDiscount: _couponDiscount,
+      failureMessage: paidUpfront
+          ? (error) => 'Your payment went through, but the trip could not be booked ($error). '
+              'Please contact support with this message. Do not pay again.'
+          : null,
     );
   }
 

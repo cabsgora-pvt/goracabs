@@ -10,6 +10,7 @@ import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 import '../providers/user_provider.dart';
 import '../services/api_service.dart';
+import '../utils/vehicle_marker.dart';
 import 'active_ride_screen.dart';
 import 'welcome_screen.dart';
 import 'taxi_booking_screen.dart';
@@ -20,13 +21,12 @@ import 'parcel_booking_screen.dart';
 import 'inquiry_screen.dart';
 import 'wallet_screen.dart';
 import 'ride_history_screen.dart';
+import 'split_requests_screen.dart';
 import 'support_screen.dart';
 import 'settings_screen.dart';
 import 'profile_screen.dart';
 import 'offers_screen.dart';
 import 'service_selection_screen.dart';
-import 'mini_ride_screen.dart';
-import 'prime_ride_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -35,19 +35,30 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   int _currentIndex = 0;
   late PageController _promoController;
   Timer? _promoTimer;
   int _currentPromoPage = 0;
   // Active ride guard — user can't book a new ride while one is in progress
   Map<String, dynamic>? _activeRide;
+  // Most recent completed taxi ride — for "Book Again". Pulled from the same
+  // fetch _checkActiveRide already makes, so this costs nothing extra.
+  Map<String, dynamic>? _lastRide;
   static bool _autoResumed = false; // auto-open the active ride once per app launch
   Timer? _activeTimer;
   // Current location for the home mini-map + chip
   LatLng? _currentLatLng;
   String _currentAddress = 'Locating…';
   GoogleMapController? _homeMapCtrl;
+  // Live nearby-vehicle markers on the home map (Rapido/Ola style)
+  // Ambient "vehicles nearby" layer. One shared ticker diffs the set by driver
+  // id so persisting vehicles drift to their new fix instead of jumping every
+  // 4s poll — rather than 40 separate animation controllers.
+  late final AmbientVehicleFleet _fleet;
+  Set<Marker> get _vehicleMarkers => _fleet.markers;
+  Timer? _vehiclesTimer;
   Map<String, String> _favourites = {}; // label ('Home'/'Work'/custom) → address
   Timer? _homeGeoDebounce;
   // Admin-managed app config (banners / places / whyChooseUs)
@@ -89,6 +100,15 @@ class _HomeScreenState extends State<HomeScreen> {
     // Re-check periodically so the banner clears when the ride completes/cancels
     _activeTimer = Timer.periodic(const Duration(seconds: 8), (_) => _checkActiveRide());
     _fetchCurrentLocation();
+    // Live vehicles on the map — first load shortly after location is known,
+    // then refresh every few seconds so they appear to move.
+    _fleet = AmbientVehicleFleet(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+      onUpdate: () { if (mounted) setState(() {}); },
+    );
+    _loadNearbyVehicles();
+    _vehiclesTimer = Timer.periodic(const Duration(seconds: 4), (_) => _loadNearbyVehicles());
     _loadFavourites();
     ApiService.getAppConfig().then((c) {
       if (mounted) setState(() => _cfg = c);
@@ -132,10 +152,31 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       setState(() => _currentLatLng = LatLng(pos.latitude, pos.longitude));
       _homeMapCtrl?.animateCamera(CameraUpdate.newLatLng(_currentLatLng!));
+      _loadNearbyVehicles(); // refresh live vehicles for the new location
+
       // Reverse-geocode for the chip label
       final addr = await ApiService.reverseGeocode(pos.latitude, pos.longitude);
       if (mounted && addr.isNotEmpty) setState(() => _currentAddress = addr);
     } catch (_) {}
+  }
+
+  // ── Live nearby vehicles on the home map ───────────────────
+  // Sprite lookup + caching now live in utils/vehicle_marker.dart so the
+  // idle layer and the assigned-driver marker share one implementation.
+  Future<void> _loadNearbyVehicles() async {
+    final at = _currentLatLng;
+    if (at == null || !mounted) return;
+    try {
+      final drivers = await ApiService.getNearbyDrivers(at.latitude, at.longitude, radiusKm: 6);
+      if (!mounted) return;
+      if (drivers.isEmpty) {
+        _fleet.clear();
+        return;
+      }
+      await _fleet.update(drivers);
+    } catch (_) {
+      // Never let the eye-candy layer break the home screen.
+    }
   }
 
   // Finds any in-progress ride (pending/accepted/arrived/ongoing) for the user
@@ -148,8 +189,22 @@ class _HomeScreenState extends State<HomeScreen> {
         (r) => activeStatuses.contains((r['status'] ?? '').toString()),
         orElse: () => null,
       );
+      // Same list, already sorted newest-first by the server — the first
+      // completed taxi ride with a real drop pin is what "Book Again" repeats.
+      // Rental/outstation/parcel/hire aren't offered here: re-running those
+      // means re-picking a package or a delivery, not a one-tap repeat.
+      final lastTaxi = list.firstWhere(
+        (r) => (r['status'] ?? '').toString() == 'completed'
+            && ((r['service'] ?? 'taxi').toString() == 'taxi')
+            && r['dropLat'] != null && r['dropLng'] != null
+            && (r['dropAddress'] ?? '').toString().isNotEmpty,
+        orElse: () => null,
+      );
       if (!mounted) return;
-      setState(() => _activeRide = active == null ? null : Map<String, dynamic>.from(active as Map));
+      setState(() {
+        _activeRide = active == null ? null : Map<String, dynamic>.from(active as Map);
+        _lastRide = lastTaxi == null ? null : Map<String, dynamic>.from(lastTaxi as Map);
+      });
       // Auto-resume the active ride once when the app is (re)opened.
       if (_activeRide != null && !_autoResumed && mounted) {
         _autoResumed = true;
@@ -196,6 +251,8 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _promoTimer?.cancel();
     _activeTimer?.cancel();
+    _vehiclesTimer?.cancel();
+    _fleet.dispose();
     _promoController.dispose();
     _homeMapCtrl?.dispose();
     super.dispose();
@@ -325,6 +382,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   myLocationButtonEnabled: false,
                   zoomControlsEnabled: false,
                   mapToolbarEnabled: false,
+                  markers: _vehicleMarkers,
                   onCameraMove: (pos) => _currentLatLng = pos.target,
                   onCameraIdle: _onHomeMapIdle,
                 ),
@@ -407,6 +465,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         itemBuilder: (_, i) => _buildServiceItem(_services[i]),
                       ),
                     ),
+                    if (_lastRide != null && _activeRide == null) ...[
+                      const SizedBox(height: 18),
+                      _buildBookAgainCard(),
+                    ],
                     const SizedBox(height: 22),
                     // Recent locations
                     const Text('Recent locations', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -585,6 +647,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const SizedBox(height: 6),
             item(Icons.person_outline, 'Profile', const ProfileScreen()),
             item(Icons.history, 'My Rides', const RideHistoryScreen()),
+            item(Icons.call_split, 'Split Requests', const SplitRequestsScreen()),
             item(Icons.account_balance_wallet_outlined, 'Wallet', const WalletScreen()),
             item(Icons.local_offer_outlined, 'Offers', const OffersScreen()),
             item(Icons.support_agent, 'Support', const SupportScreen()),
@@ -728,6 +791,101 @@ class _HomeScreenState extends State<HomeScreen> {
           child: const Text('Live', style: TextStyle(color: Color(0xFF1C2656), fontWeight: FontWeight.w800, fontSize: 12))),
       ]),
       ),
+    );
+  }
+
+  // "Book Again" — repeats the last completed taxi ride's drop with one tap.
+  // Pickup is left on the normal current-location flow (the rider has likely
+  // moved since that ride), only the destination and vehicle are pre-filled;
+  // fare, driver matching and payment all run through the same booking screen
+  // as a fresh booking, so nothing here bypasses the real fare estimate.
+  Widget _buildBookAgainCard() {
+    final r = _lastRide!;
+    final pickup = (r['pickupAddress'] ?? '').toString();
+    final drop = (r['dropAddress'] ?? '').toString();
+    final vt = (r['vehicleType'] ?? '').toString();
+    final dropLat = (r['dropLat'] as num?)?.toDouble();
+    final dropLng = (r['dropLng'] as num?)?.toDouble();
+    final vtLower = vt.toLowerCase();
+    final vehIcon = vtLower.contains('bike')
+        ? Icons.two_wheeler_rounded
+        : vtLower.contains('auto')
+            ? Icons.electric_rickshaw_rounded
+            : Icons.directions_car_rounded;
+    void go() => Navigator.push(context, MaterialPageRoute(builder: (_) => TaxiBookingScreen(
+          fromLocation: 'Current Location',
+          toLocation: drop,
+          initialDropLat: dropLat,
+          initialDropLng: dropLng,
+          preselectedVehicle: vt.isNotEmpty ? vt : null,
+          hideLocationInputs: false,
+        )));
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1C2656), Color(0xFF32447F)],
+          begin: Alignment.topLeft, end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [BoxShadow(color: const Color(0xFF1C2656).withOpacity(0.28), blurRadius: 16, offset: const Offset(0, 6))],
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(10)),
+            child: const Icon(Icons.replay_rounded, color: Colors.white, size: 18),
+          ),
+          const SizedBox(width: 10),
+          const Text('Book Again', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
+          const Spacer(),
+          if (vt.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(20)),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(vehIcon, color: Colors.white, size: 13),
+                const SizedBox(width: 4),
+                Text(vt, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+              ]),
+            ),
+        ]),
+        const SizedBox(height: 16),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Column(children: [
+              Container(width: 8, height: 8, decoration: const BoxDecoration(color: Color(0xFF6FCF97), shape: BoxShape.circle)),
+              Container(width: 1.4, height: 24, color: Colors.white.withOpacity(0.35)),
+              const Icon(Icons.location_on, color: Color(0xFFFF6B6B), size: 15),
+            ]),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(pickup.isNotEmpty ? pickup : 'Current location', maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12)),
+            const SizedBox(height: 13),
+            Text(drop, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
+          ])),
+        ]),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: go,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: const Color(0xFF1C2656),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
+            ),
+            child: const Text('Book This Ride Again', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+          ),
+        ),
+      ]),
     );
   }
 

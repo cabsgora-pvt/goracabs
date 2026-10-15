@@ -5,6 +5,8 @@ import 'package:share_plus/share_plus.dart';
 import '../theme/app_theme.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
+import '../utils/vehicle_marker.dart';
+import '../utils/map_markers.dart';
 import '../services/location_service.dart';
 import '../services/payment_service.dart';
 import '../utils/polyline_utils.dart';
@@ -15,7 +17,6 @@ import '../widgets/payment_method_picker.dart';
 import '../widgets/sos_button.dart';
 import '../widgets/online_payment.dart';
 import '../widgets/finding_driver_view.dart';
-import 'booking_screen.dart';
 import 'home_screen.dart';
 import 'outstation_screen.dart';
 import 'rating_screen.dart';
@@ -25,23 +26,57 @@ class TaxiBookingScreen extends StatefulWidget {
   final String? toLocation;
   final bool hideLocationInputs;
   final String? preselectedVehicle;
-  
+  // Real coordinates for [toLocation] — e.g. "Book Again" from a past ride —
+  // so the drop pin and fare estimate are correct from the first frame
+  // instead of waiting on a geocode of the address text.
+  final double? initialDropLat;
+  final double? initialDropLng;
+
   const TaxiBookingScreen({
     super.key,
     this.fromLocation,
     this.toLocation,
     this.hideLocationInputs = false,
     this.preselectedVehicle,
+    this.initialDropLat,
+    this.initialDropLng,
   });
 
   @override
   State<TaxiBookingScreen> createState() => _TaxiBookingScreenState();
 }
 
-class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
+class _TaxiBookingScreenState extends State<TaxiBookingScreen>
+    // Two animations now: the assigned vehicle's glide and the nearby fleet.
+    with TickerProviderStateMixin {
+  // Top-down sprite for the assigned vehicle, so the rider watches the
+  // car/auto/bike they booked approach rather than a generic pin.
+  BitmapDescriptor? _vehIcon;
+  // Glides the vehicle between server fixes instead of teleporting it.
+  late final SmoothVehicleMarker _vehicle;
+  void _loadVehIcon(String type) {
+    if (_vehIcon != null) return;
+    VehicleMarkers.descriptorFor(type).then((ic) {
+      if (mounted) setState(() => _vehIcon = ic);
+    });
+  }
   String? _selectedVehicle;
+
+  // Real available vehicles around the pickup, of the selected type. These were
+  // hard-coded Delhi coordinates, so in any other city the "nearby" vehicles a
+  // rider saw while choosing were not there at all — and in Delhi they never
+  // moved and were never real.
+  late final AmbientVehicleFleet _fleet;
+  Timer? _nearbyTimer;
+
+  // Flat pickup dot and drop square, as on every other ride map. The pickup is
+  // drawn larger here because the rider presses and drags it.
+  BitmapDescriptor? _pickupGlyph, _dropGlyph;
+  double? _glyphDpr;
+
   // ── Ola-style payment + coupon selection (UI only) ──
   String _paymentMode = 'cash';
+  bool _preferFemaleDriver = false;
   num _payableFare = 0;
   String _couponCode = '';
   int _couponDiscount = 0;
@@ -184,12 +219,33 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
 
   @override
   void initState() {
+    _vehicle = SmoothVehicleMarker(
+      vsync: this,
+      onUpdate: () {
+        if (!mounted) return;
+        setState(() {
+          _driverLatLng = _vehicle.position;
+          _driverHeading = _vehicle.bearing;
+        });
+      },
+    );
     super.initState();
+    _fleet = AmbientVehicleFleet(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+      onUpdate: () { if (mounted) setState(() {}); },
+    );
+    _nearbyTimer = Timer.periodic(const Duration(seconds: 5), (_) => _loadNearby());
     // Set default locations
     _pickupController.text = widget.fromLocation ?? 'Current Location';
     // Empty so the hint/placeholder shows; user types to search
     _dropController.text = widget.toLocation ?? '';
-    
+    // Passed in as real coordinates (not geocoded from the text) — the same
+    // field _selectSuggestion sets when the rider picks a place themselves.
+    if (widget.initialDropLat != null && widget.initialDropLng != null) {
+      _selectedMapLocation = LatLng(widget.initialDropLat!, widget.initialDropLng!);
+    }
+
     // Set preselected vehicle if provided
     if (widget.preselectedVehicle != null) {
       _selectedVehicle = widget.preselectedVehicle;
@@ -228,7 +284,42 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    if (dpr == _glyphDpr) return;
+    _glyphDpr = dpr;
+    PlaceMarkers.pickup(dpr, size: 34).then((d) { if (mounted) setState(() => _pickupGlyph = d); });
+    PlaceMarkers.drop(dpr).then((d) { if (mounted) setState(() => _dropGlyph = d); });
+  }
+
+  /// Available vehicles of the selected type near the pickup. Only while the
+  /// rider is choosing — once a driver is on the way, that driver is the map.
+  Future<void> _loadNearby() async {
+    if (!mounted) return;
+    if (_driverLatLng != null || _isTaxiComing) {
+      _fleet.clear();
+      return;
+    }
+    try {
+      final drivers = await ApiService.getNearbyDrivers(
+        _myLocation.latitude, _myLocation.longitude,
+        radiusKm: 4, vehicleType: _selectedVehicle,
+      );
+      if (!mounted) return;
+      if (drivers.isEmpty) {
+        _fleet.clear();
+      } else {
+        await _fleet.update(drivers);
+      }
+    } catch (_) {/* decoration only — never let it break booking */}
+  }
+
+  @override
   void dispose() {
+    _nearbyTimer?.cancel();
+    _fleet.dispose();
+    _vehicle.dispose();
     _pollTimer?.cancel();
     _driverLocTimer?.cancel();
     _etaTimer?.cancel();
@@ -243,55 +334,25 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     super.dispose();
   }
 
-  // Bike locations near user
-  final List<LatLng> _bikeLocations = [
-    LatLng(28.6139, 77.2090),
-    LatLng(28.6150, 77.2100),
-    LatLng(28.6120, 77.2080),
-    LatLng(28.6160, 77.2110),
-    LatLng(28.6130, 77.2070),
-    LatLng(28.6170, 77.2120),
-  ];
-
-  // Auto locations near user
-  final List<LatLng> _autoLocations = [
-    LatLng(28.6145, 77.2095),
-    LatLng(28.6155, 77.2085),
-    LatLng(28.6125, 77.2105),
-    LatLng(28.6165, 77.2075),
-    LatLng(28.6135, 77.2115),
-  ];
-
-  // Economy car locations (4 cars)
-  final List<LatLng> _economyLocations = [
-    LatLng(28.6140, 77.2095),
-    LatLng(28.6158, 77.2088),
-    LatLng(28.6122, 77.2102),
-    LatLng(28.6162, 77.2078),
-  ];
-
-  // SUV locations (2 cars)
-  final List<LatLng> _suvLocations = [
-    LatLng(28.6148, 77.2092),
-    LatLng(28.6152, 77.2098),
-  ];
-
-  // Premium car locations (1 car)
-  final List<LatLng> _premiumLocations = [
-    LatLng(28.6145, 77.2090),
-  ];
-
   List<Map<String, dynamic>> _vehicles = [
-    {'name': 'Bike', 'type': 'Quick Rides', 'price': '₹49', 'eta': '2 min', 'capacity': '1', 'icon': Icons.two_wheeler, 'color': Color(0xFF1C2656), 'image': 'assets/images/bike.png'},
-    {'name': 'Auto', 'type': 'Affordable', 'price': '₹76', 'eta': '3 min', 'capacity': '3', 'icon': Icons.electric_rickshaw, 'color': Color(0xFF1C2656), 'image': 'assets/images/auto.jpg'},
-    {'name': 'Cab Economy', 'type': 'Comfortable', 'price': '₹144', 'eta': '4 min', 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF1C2656), 'image': 'assets/images/economy.png'},
-    {'name': 'SUV', 'type': 'Spacious', 'price': '₹250', 'eta': '5 min', 'capacity': '6', 'icon': Icons.airport_shuttle, 'color': Color(0xFF1C2656), 'image': 'assets/images/texi.png'},
-    {'name': 'Premium', 'type': 'Luxury Sedan', 'price': '₹320', 'eta': '6 min', 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF1C2656), 'image': 'assets/images/texi2.png'},
+    {'name': 'Bike', 'type': 'Quick Rides', 'price': '₹49', 'eta': '—', 'capacity': '1', 'icon': Icons.two_wheeler, 'color': Color(0xFF1C2656), 'image': 'assets/images/bike.png'},
+    {'name': 'Auto', 'type': 'Affordable', 'price': '₹76', 'eta': '—', 'capacity': '3', 'icon': Icons.electric_rickshaw, 'color': Color(0xFF1C2656), 'image': 'assets/images/auto.jpg'},
+    {'name': 'Cab Economy', 'type': 'Comfortable', 'price': '₹144', 'eta': '—', 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF1C2656), 'image': 'assets/images/economy.png'},
+    {'name': 'SUV', 'type': 'Spacious', 'price': '₹250', 'eta': '—', 'capacity': '6', 'icon': Icons.airport_shuttle, 'color': Color(0xFF1C2656), 'image': 'assets/images/texi.png'},
+    {'name': 'Premium', 'type': 'Luxury Sedan', 'price': '₹320', 'eta': '—', 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF1C2656), 'image': 'assets/images/texi2.png'},
   ];
 
   // Distance + duration from latest fare estimate (used at booking)
   double _rideDistance = 0;
   int _rideDuration = 0;
+  // Trip time to SHOW the rider. Kept separate from _rideDuration because that
+  // one is sent back to /rides/book, where it feeds the fare — so it must keep
+  // its original semantics and cannot be "improved" here.
+  //
+  // Preference order: real traffic-aware Directions time > the backend's learned
+  // tripEtaMin > the crow-flies fallback. The old UI showed _rideDuration, i.e.
+  // straight-line km x 3, which is a flat 20 km/h with no detour and no traffic.
+  int _displayTripMin = 0;
 
   // Fetch real fares from admin zone pricing — uses drop coords if available
   Future<void> _loadRealFares() async {
@@ -318,6 +379,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         setState(() {
           _rideDistance = (res['distance'] as num?)?.toDouble() ?? 0;
           _rideDuration = (res['duration'] as num?)?.toInt() ?? 0;
+          _displayTripMin = (res['tripEtaMin'] as num?)?.toInt() ?? _rideDuration;
           // Build the vehicle list straight from backend (real admin VehicleType names,
           // so the booked vehicleType matches what the driver registered with).
           if (apiVehicles.isNotEmpty) {
@@ -335,6 +397,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                 'color': const Color(0xFF1C2656),
                 'image': raw.isEmpty ? _assetFor(name) : '__net__',
                 'networkImage': raw.isEmpty ? '' : AppConfig.imageUrl(raw),
+                // Server-signed price — replayed at booking so the backend only
+                // ever accepts a fare it produced itself.
+                'quoteToken': a['quoteToken'],
               };
             }).toList();
             // Keep selection valid
@@ -416,7 +481,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
           _routePoints = pts;
           // Prefer road distance + duration from Directions over Haversine
           if (d['distanceKm'] != null) _rideDistance = (d['distanceKm'] as num).toDouble();
-          if (d['durationMin'] != null) _rideDuration = (d['durationMin'] as num).toInt();
+          if (d['durationMin'] != null) {
+            _rideDuration = (d['durationMin'] as num).toInt();
+            // Measured and traffic-aware — better than any model estimate.
+            _displayTripMin = _rideDuration;
+          }
         });
         _fitMapToRoute();
       }
@@ -446,10 +515,13 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         final dr = res['driver'] as Map<String, dynamic>?;
         if (dr == null || dr['lat'] == null || dr['lng'] == null) return;
         if (!mounted) return;
-        setState(() {
-          _driverLatLng = LatLng((dr['lat'] as num).toDouble(), (dr['lng'] as num).toDouble());
-          _driverHeading = ((dr['heading'] as num?) ?? 0).toDouble();
-        });
+        // Resolve the sprite for the vehicle actually assigned to this ride.
+        _loadVehIcon((dr['vehicleTypeName'] ?? _selectedVehicle ?? '').toString());
+        // moveTo animates and calls setState itself via onUpdate.
+        _vehicle.moveTo(
+          LatLng((dr['lat'] as num).toDouble(), (dr['lng'] as num).toDouble()),
+          heading: (dr['heading'] as num?)?.toDouble(),
+        );
       } catch (_) {/* keep last known */}
     });
   }
@@ -546,6 +618,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         'paymentMode': _paymentMode,
         'couponCode': _couponCode,
         'couponDiscount': _couponDiscount,
+        'quoteToken': selectedVehicleData['quoteToken'],
+        'preferFemaleDriver': _preferFemaleDriver,
       });
       if (res['ride'] != null) {
         final r = res['ride'] as Map<String, dynamic>;
@@ -587,7 +661,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
             if (b == null) ...[
               // Pre-booking: show what we know
               row('Distance', '${_rideDistance.toStringAsFixed(1)} km'),
-              row('Duration', '$_rideDuration min'),
+              row('Duration', '$_displayTripMin min'),
               const Divider(height: 24),
               row('Estimated fare', _selectedVehicle != null
                 ? (_vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => {'price': '—'})['price'] as String)
@@ -664,12 +738,15 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   Set<Marker> _buildMapMarkers() {
     final markers = <Marker>{};
 
-    // Pickup (your location) — draggable so rider can fine-tune
+    // Pickup (your location) — draggable so rider can fine-tune.
+    // Green, as pickup is everywhere else in the app; this map alone had pickup
+    // red and drop green, the reverse of the ride screen it leads to.
     markers.add(Marker(
       markerId: const MarkerId('pickup'),
       position: _myLocation,
       draggable: true,
-      icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+      anchor: _pickupGlyph != null ? const Offset(0.5, 0.5) : const Offset(0.5, 1.0),
+      icon: _pickupGlyph ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
       infoWindow: const InfoWindow(title: 'Pickup (drag to adjust)'),
       onDragEnd: (LatLng p) async {
         setState(() => _myLocation = p);
@@ -686,27 +763,15 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
       markers.add(Marker(
         markerId: const MarkerId('drop'),
         position: _selectedMapLocation,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+        anchor: _dropGlyph != null ? const Offset(0.5, 0.5) : const Offset(0.5, 1.0),
+        icon: _dropGlyph ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
         infoWindow: InfoWindow(title: 'Drop', snippet: _dropController.text),
       ));
     }
 
-    // Nearby available vehicles for selected type (only before a driver is assigned)
-    if (_driverLatLng == null && !_isTaxiComing && _selectedVehicle != null) {
-      List<LatLng> spots = [];
-      if (_selectedVehicle == 'Bike') spots = _bikeLocations;
-      else if (_selectedVehicle == 'Auto') spots = _autoLocations;
-      else if (_selectedVehicle == 'Cab Economy') spots = _economyLocations;
-      else if (_selectedVehicle == 'SUV') spots = _suvLocations;
-      else if (_selectedVehicle == 'Premium') spots = _premiumLocations;
-      for (var i = 0; i < spots.length; i++) {
-        markers.add(Marker(
-          markerId: MarkerId('veh_$i'),
-          position: spots[i],
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-          anchor: const Offset(0.5, 0.5),
-        ));
-      }
+    // Real nearby vehicles (only before a driver is assigned)
+    if (_driverLatLng == null && !_isTaxiComing) {
+      markers.addAll(_fleet.markers);
     }
 
     // Live driver marker (with heading rotation + ETA infoWindow)
@@ -718,7 +783,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
         rotation: _driverHeading,
         flat: true,
         anchor: const Offset(0.5, 0.5),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        icon: (_vehIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
         infoWindow: InfoWindow(
           title: eta != null ? '$eta min away' : 'Driver',
           snippet: _driverName,
@@ -1583,7 +1648,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
     final pickup = _pickupController.text.trim().isEmpty ? 'Current Location' : _pickupController.text;
     final drop = _dropController.text.trim().isEmpty ? 'Drop' : _dropController.text;
     final dist = _rideDistance > 0 ? '${_rideDistance.toStringAsFixed(1)} km' : '— km';
-    final eta = _rideDuration > 0 ? '${_rideDuration} min' : '— min';
+    final eta = _displayTripMin > 0 ? '${_displayTripMin} min' : '— min';
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -1654,7 +1719,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
   Widget _buildVehicleCard(Map<String, dynamic> v) {
     final isSelected = _selectedVehicle == v['name'];
     return GestureDetector(
-      onTap: () => setState(() => _selectedVehicle = v['name']),
+      onTap: () {
+        setState(() => _selectedVehicle = v['name']);
+        // Show the chosen type's vehicles now, not at the next poll.
+        _loadNearby();
+      },
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(14),
@@ -1819,6 +1888,33 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
                       });
                     },
                   ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1C2656).withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(children: [
+                      const Icon(Icons.female_rounded, size: 20, color: Color(0xFF1C2656)),
+                      const SizedBox(width: 8),
+                      const Expanded(child: Text('Prefer a female driver', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600))),
+                      Switch(
+                        value: _preferFemaleDriver,
+                        activeThumbColor: const Color(0xFF1C2656),
+                        onChanged: (v) => setDialogState(() => setState(() => _preferFemaleDriver = v)),
+                      ),
+                    ]),
+                  ),
+                  if (_preferFemaleDriver)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(12, 2, 12, 0),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text("We'll try to match you with one nearby — if none are free, your next-best driver is offered instead.",
+                            style: TextStyle(fontSize: 11, color: Colors.grey)),
+                      ),
+                    ),
                   const SizedBox(height: 20),
                   Row(
                     children: [
@@ -1915,6 +2011,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen> {
             }(),
             serviceLabel: 'Finding your ride',
             serviceIcon: Icons.local_taxi,
+            vehicleType: _selectedVehicle ?? '',
             etaMin: etaMin,
             onCancel: () => _showCancelReasonDialog(),
           ),

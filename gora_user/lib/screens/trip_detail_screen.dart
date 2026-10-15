@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:share_plus/share_plus.dart';
 import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 import '../utils/polyline_utils.dart';
+import '../widgets/ride_service_panels.dart';
+import '../utils/map_markers.dart';
 
 // Unified trip detail page — works for taxi, bike, cab, rental, outstation.
 // Shows route map, driver card, car image, full fare breakdown + service-specific extras.
@@ -31,31 +34,40 @@ class TripDetailScreen extends StatelessWidget {
         title: Text('Trip Details', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
         elevation: 0,
         leading: IconButton(icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface), onPressed: () => Navigator.pop(context)),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.share_outlined, color: Theme.of(context).colorScheme.onSurface),
+            onPressed: () => Share.share(_receiptText(), subject: 'Your Gora Cabs receipt'),
+          ),
+        ],
       ),
       body: ListView(children: [
         // Map
         SizedBox(
           height: 200,
-          child: GoogleMap(
+          child: PlaceGlyphs(builder: (context, glyphs) => GoogleMap(
             initialCameraPosition: CameraPosition(target: pickup, zoom: 12),
             onMapCreated: (c) {
               final b = boundsFromPoints(pts);
               if (b != null) Future.delayed(const Duration(milliseconds: 300), () => c.animateCamera(CameraUpdate.newLatLngBounds(b, 50)));
             },
             markers: {
-              Marker(markerId: const MarkerId('p'), position: pickup, icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen)),
-              Marker(markerId: const MarkerId('d'), position: drop, icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed)),
+              Marker(markerId: const MarkerId('p'), position: pickup, anchor: glyphs.pickupAnchor, icon: glyphs.pickup),
+              Marker(markerId: const MarkerId('d'), position: drop, anchor: glyphs.dropAnchor, icon: glyphs.drop),
             },
             polylines: {Polyline(polylineId: const PolylineId('r'), points: pts, color: AppTheme.primaryBlue, width: 5)},
             zoomControlsEnabled: false, myLocationButtonEnabled: false,
-          ),
+          )),
         ),
 
         // Service badge + status + date
+        // The date takes what the badge leaves and wraps, rather than overflow
+        // with a long label ("OUTSTATION · One Way") at a large text size.
         _card(context, Row(children: [
           _badge(_serviceLabel(), _serviceColor()),
-          const Spacer(),
-          Text(ride['date']?.toString() ?? '', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          const SizedBox(width: 12),
+          Expanded(child: Text(ride['date']?.toString() ?? '', textAlign: TextAlign.right,
+            style: TextStyle(fontSize: 12, color: Colors.grey[600]))),
         ])),
 
         // Route
@@ -118,7 +130,16 @@ class TripDetailScreen extends StatelessWidget {
       rows.add(_fareRow(context, 'Distance', '${_d(ride['distance']).toStringAsFixed(0)} km'));
       if (_n(ride['nightHaltCharge']) > 0) rows.add(_fareRow(context, 'Night halt', '₹${_n(ride['nightHaltCharge'])}', color: Colors.orange));
       if (_n(ride['emptyReturnCharge']) > 0) rows.add(_fareRow(context, 'Empty return', '₹${_n(ride['emptyReturnCharge'])}', color: Colors.orange));
-      if (_n(ride['tollCharge']) > 0) rows.add(_fareRow(context, 'Toll', '₹${_n(ride['tollCharge'])}'));
+      // Always shown for outstation, even at ₹0. Paid to the driver directly,
+      // so it sits outside the fare and is added to the total below.
+      rows.add(_fareRow(context, 'Tolls (paid to driver)', '₹${_n(ride['tollCharge'])}'));
+      if (tollsOf(ride).isNotEmpty) {
+        final id = (ride['id'] ?? '').toString();
+        rows.add(Padding(
+          padding: const EdgeInsets.only(left: 12, bottom: 4),
+          child: TollList(ride: ride, rideId: id.isEmpty ? null : id),
+        ));
+      }
     } else if (_service == 'hire_driver') {
       rows.add(_fareRow(context, 'Transmission', ride['transmission'] == 'automatic' ? 'Automatic' : 'Manual'));
       rows.add(_fareRow(context, 'Duration', '${_n(ride['hireTotalHours'])} hr'));
@@ -140,7 +161,8 @@ class TripDetailScreen extends StatelessWidget {
 
     if (_n(ride['tip']) > 0) rows.add(_fareRow(context, 'Tip', '₹${_n(ride['tip'])}', color: Colors.green));
     rows.add(const Divider(height: 20));
-    final total = _n(ride['finalFare']) > 0 ? _n(ride['finalFare']) : _n(ride['total']);
+    final total = (_n(ride['finalFare']) > 0 ? _n(ride['finalFare']) : _n(ride['total']))
+        + (_service == 'outstation' ? _n(ride['tollCharge']) : 0);
     rows.add(_fareRow(context, 'Total Paid', '₹$total', bold: true, color: AppTheme.primaryBlue));
     rows.add(const SizedBox(height: 4));
     rows.add(Text('Payment: ${(ride['paymentMode'] ?? 'Cash').toString().toUpperCase()}', style: TextStyle(fontSize: 11, color: Colors.grey[500])));
@@ -167,6 +189,30 @@ class TripDetailScreen extends StatelessWidget {
     catch (_) { return ''; }
   }
 
+  // A plain-text version of this same receipt — same total the screen shows,
+  // computed the same way — for sharing outside the app (WhatsApp, email, etc).
+  String _receiptText() {
+    final from = ride['from']?.toString() ?? '';
+    final to = ride['to']?.toString() ?? '';
+    final driver = ride['driver']?.toString();
+    final total = (_n(ride['finalFare']) > 0 ? _n(ride['finalFare']) : _n(ride['total']))
+        + (_service == 'outstation' ? _n(ride['tollCharge']) : 0);
+    final id = (ride['id'] ?? '').toString();
+    final lines = <String>[
+      'Gora Cabs — ${_serviceLabel()}',
+      if ((ride['date'] ?? '').toString().isNotEmpty) (ride['date']).toString(),
+      '',
+      'From: $from',
+      'To: $to',
+      if (driver != null && driver.isNotEmpty && driver != '—') 'Driver: $driver',
+      '',
+      'Total paid: ₹$total',
+      'Payment: ${(ride['paymentMode'] ?? 'Cash').toString().toUpperCase()}',
+      if (id.isNotEmpty) 'Ride ID: $id',
+    ];
+    return lines.join('\n');
+  }
+
   Widget _card(BuildContext context, Widget child) => Container(
     margin: const EdgeInsets.fromLTRB(16, 12, 16, 0), padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.grey[100]!)),
@@ -184,10 +230,15 @@ class TripDetailScreen extends StatelessWidget {
       Text(addr, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
     ])),
   ]);
+  // The label takes the room left by the amount and wraps if it must: a long
+  // label ("Tolls (paid to driver)") beside an amount overflowed a narrow
+  // screen, and the amount is the part that must always show in full.
   Widget _fareRow(BuildContext context, String l, String v, {bool bold = false, Color? color}) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 5),
-    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      Text(l, style: TextStyle(fontSize: 13, fontWeight: bold ? FontWeight.w800 : FontWeight.w500, color: color ?? Theme.of(context).colorScheme.onSurface)),
+    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Expanded(child: Text(l, maxLines: 2, overflow: TextOverflow.ellipsis,
+        style: TextStyle(fontSize: 13, fontWeight: bold ? FontWeight.w800 : FontWeight.w500, color: color ?? Theme.of(context).colorScheme.onSurface))),
+      const SizedBox(width: 12),
       Text(v, style: TextStyle(fontSize: 13, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: color ?? Theme.of(context).colorScheme.onSurface)),
     ]),
   );

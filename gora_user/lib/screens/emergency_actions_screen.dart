@@ -2,15 +2,21 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:record/record.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/user_provider.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/call_util.dart';
+import '../utils/emergency_contacts_store.dart';
+import 'settings_screen.dart' show EmergencyContactsScreen;
 
 // SOS / Emergency Actions screen (Ola-style). Call Police, Siren, Record Audio,
-// Call Safety Team + an optional auto-call to a saved default contact.
+// Call Safety Team + the same emergency contacts Settings manages, with an
+// optional auto-call to the first one.
 class EmergencyActionsScreen extends StatefulWidget {
   final String? rideId; // optional — which ride this SOS is for
   const EmergencyActionsScreen({super.key, this.rideId});
@@ -23,14 +29,26 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
   static const _safetyTeamNumber = '18001234567';
   static const _policeNumber = '112'; // India single emergency number
 
-  bool _callDefault = false;
-  String _defaultContact = '';
+  List<Map<String, String>> _contacts = [];
+  bool _autoCall = false;
+  final _recorder = AudioRecorder();
+  bool _recording = false;
+  Duration _recordElapsed = Duration.zero;
+  Timer? _recordTimer;
+  String? _lastRecordingPath;
 
   @override
   void initState() {
     super.initState();
     _load();
     _raiseAlert();
+  }
+
+  @override
+  void dispose() {
+    _recordTimer?.cancel();
+    _recorder.dispose();
+    super.dispose();
   }
 
   // Notify admin + safety team the moment SOS is opened (with ride + location).
@@ -56,54 +74,81 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
     } catch (_) {}
   }
 
+  // Loads the same contacts list Settings manages — previously this screen
+  // read a separate single "default contact" pref that Settings never wrote
+  // to, so adding a contact there did nothing for what SOS would call.
   Future<void> _load() async {
+    final contacts = await EmergencyContactsStore.load();
     final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() {
-        _defaultContact = prefs.getString('sos_default_contact') ?? '';
-        _callDefault = prefs.getBool('sos_call_default') ?? false;
-      });
-    }
+    final autoCall = prefs.getBool('sos_auto_call') ?? false;
+    if (!mounted) return;
+    setState(() {
+      _contacts = contacts;
+      _autoCall = autoCall;
+    });
+    if (autoCall && contacts.isNotEmpty) dialPhone(contacts.first['phone'] ?? '');
   }
 
-  Future<void> _setDefaultContact() async {
-    final ctrl = TextEditingController(text: _defaultContact);
-    final saved = await showDialog<String>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Default emergency contact'),
-        content: TextField(
-          controller: ctrl,
-          keyboardType: TextInputType.phone,
-          decoration: const InputDecoration(hintText: 'Phone number'),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, ctrl.text.trim()), child: const Text('Save')),
-        ],
-      ),
-    );
-    if (saved == null) return;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('sos_default_contact', saved);
-    if (mounted) setState(() => _defaultContact = saved);
+  Future<void> _manageContacts() async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => const EmergencyContactsScreen()));
+    _load(); // pick up any add/remove made there
   }
 
-  Future<void> _toggleDefault(bool v) async {
-    if (v && _defaultContact.isEmpty) {
-      await _setDefaultContact();
-      if (_defaultContact.isEmpty) return; // user cancelled
+  Future<void> _toggleAutoCall(bool v) async {
+    if (v && _contacts.isEmpty) {
+      await _manageContacts();
+      if (_contacts.isEmpty) return; // still none — nothing to auto-call
     }
-    setState(() => _callDefault = v);
+    setState(() => _autoCall = v);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('sos_call_default', v);
-    if (v && _defaultContact.isNotEmpty) dialPhone(_defaultContact);
+    await prefs.setBool('sos_auto_call', v);
   }
 
   void _callPolice() => dialPhone(_policeNumber);
   void _callSafety() => dialPhone(_safetyTeamNumber);
 
   void _siren() => Navigator.push(context, MaterialPageRoute(builder: (_) => const _SirenScreen()));
+
+  // Starts/stops a local audio recording — evidence the rider can keep or
+  // share afterwards. Saved on the phone only; there is no upload yet.
+  Future<void> _toggleRecording() async {
+    if (_recording) {
+      final path = await _recorder.stop();
+      _recordTimer?.cancel();
+      _lastRecordingPath = path;
+      if (mounted) {
+        setState(() => _recording = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(path != null
+              ? 'Recording saved (${_fmtDuration(_recordElapsed)}) on your phone.'
+              : 'Recording could not be saved.'),
+          duration: const Duration(seconds: 4),
+        ));
+      }
+      return;
+    }
+    if (!await _recorder.hasPermission()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Microphone permission is needed to record audio.')),
+        );
+      }
+      return;
+    }
+    final dir = await getApplicationDocumentsDirectory();
+    final path = '${dir.path}/sos_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    await _recorder.start(const RecordConfig(), path: path);
+    setState(() { _recording = true; _recordElapsed = Duration.zero; });
+    _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _recordElapsed += const Duration(seconds: 1));
+    });
+  }
+
+  String _fmtDuration(Duration d) {
+    final m = d.inMinutes.toString().padLeft(2, '0');
+    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -117,19 +162,33 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
       body: ListView(padding: const EdgeInsets.all(16), children: [
         Text('emergency', style: TextStyle(color: Colors.grey[500], fontSize: 14)),
         const SizedBox(height: 12),
-        // Default contact toggle
+        // Emergency contacts — same list Settings manages.
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
           child: Row(children: [
-            const Expanded(child: Text('Place call to default contact', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
-            Switch(value: _callDefault, onChanged: _toggleDefault, activeColor: AppTheme.primaryBlue),
+            const Expanded(child: Text('Auto-call my first contact', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
+            Switch(value: _autoCall, onChanged: _toggleAutoCall, activeColor: AppTheme.primaryBlue),
           ]),
         ),
-        if (_defaultContact.isNotEmpty)
-          Padding(padding: const EdgeInsets.only(top: 6, left: 4),
-            child: GestureDetector(onTap: _setDefaultContact,
-              child: Text('Contact: $_defaultContact  (tap to change)', style: TextStyle(fontSize: 12, color: Colors.grey[600])))),
+        const SizedBox(height: 8),
+        ..._contacts.map((c) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                child: Row(children: [
+                  Expanded(child: Text('${c['name']} (${c['relation']})', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14))),
+                  IconButton(icon: const Icon(Icons.call, color: Colors.green), onPressed: () => dialPhone(c['phone'] ?? '')),
+                ]),
+              ),
+            )),
+        GestureDetector(
+          onTap: _manageContacts,
+          child: Padding(padding: const EdgeInsets.only(left: 4, bottom: 4),
+            child: Text(_contacts.isEmpty ? 'Add an emergency contact' : 'Manage emergency contacts',
+              style: const TextStyle(fontSize: 12, color: AppTheme.primaryBlue, fontWeight: FontWeight.w600))),
+        ),
         const SizedBox(height: 16),
         // Action grid
         GridView.count(
@@ -139,6 +198,7 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
             _actionCard(Icons.notifications_active, 'Call Police', _callPolice),
             _actionCard(Icons.volume_up, 'Siren', _siren),
             _actionCard(Icons.headset_mic, 'Call Safety Team', _callSafety),
+            _actionCard(_recording ? Icons.stop_circle : Icons.mic, _recording ? 'Stop (${_fmtDuration(_recordElapsed)})' : 'Record Audio', _toggleRecording, active: _recording),
           ],
         ),
         const SizedBox(height: 20),
@@ -149,6 +209,16 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
         _moreCard(Icons.volume_up, 'Siren', _siren),
         const SizedBox(height: 12),
         _moreCard(Icons.headset_mic, 'Call Safety Team', _callSafety),
+        const SizedBox(height: 12),
+        _moreCard(Icons.mic, 'Record Audio', _toggleRecording),
+        if (_lastRecordingPath != null) ...[
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: () => Share.shareXFiles([XFile(_lastRecordingPath!)], text: 'SOS audio recording'),
+            child: const Padding(padding: EdgeInsets.only(left: 4),
+              child: Text('Share last recording', style: TextStyle(fontSize: 12, color: AppTheme.primaryBlue, fontWeight: FontWeight.w600))),
+          ),
+        ],
         const SizedBox(height: 20),
         SizedBox(
           width: double.infinity,

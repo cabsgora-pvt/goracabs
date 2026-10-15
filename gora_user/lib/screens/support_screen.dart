@@ -219,6 +219,10 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> {
               const Text('Category', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
+                // Without isExpanded a dropdown sizes to its LONGEST item, so a long
+                // option overflowed the field on narrow screens. Expanding it makes
+                // the selected label ellipsise inside the decoration instead.
+                isExpanded: true,
                 value: _selectedCategory,
                 decoration: InputDecoration(
                   fillColor: Theme.of(context).cardColor,

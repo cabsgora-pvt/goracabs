@@ -199,10 +199,17 @@ class _ParcelHistoryScreenState extends State<ParcelHistoryScreen> with SingleTi
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'ID: ${item['id']}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
+                    // A long parcel id next to an unbounded status chip
+                    // overflowed the card by 33px; the id is the part that can
+                    // safely truncate.
+                    Expanded(
+                      child: Text(
+                        'ID: ${item['id']}',
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
+                      ),
                     ),
+                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
