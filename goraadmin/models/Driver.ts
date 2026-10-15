@@ -15,6 +15,22 @@ const DriverSchema = new Schema({
   phone: { type: String, unique: true },
   email: String,
   profilePicUrl: String,
+  // ── Face verification (identity re-check mid-ride) ──
+  // Embedding captured once at registration (MobileFaceNet-style vector from
+  // the driver app's on-device model). Later verification attempts compare
+  // their own embedding against this one server-side — never trusting the
+  // device's own "matched" claim.
+  faceSignature: { type: [Number], default: undefined },
+  faceReferencePhotoUrl: String,       // the frontal shot the signature was derived from
+  faceSignatureSavedAt: Date,
+  // Set when a mid-ride check comes back mismatched or unanswered. Blocks the
+  // driver from going online again until they pass a fresh check.
+  faceVerificationRequired: { type: Boolean, default: false },
+  faceVerificationReason: String,      // 'mismatch' | 'no_response'
+  // Self-declared at registration, optional. Undeclared (undefined) drivers are
+  // simply not matched when a rider asks for a female driver — never blocked
+  // from other rides.
+  gender: { type: String, enum: ['female', 'male', 'other'] },
   status: { type: String, enum: ['pending', 'approved', 'blocked', 'rejected'], default: 'pending' },
   isOnline: { type: Boolean, default: false },
   // Driver opts in to receive intercity outstation requests (off by default — taxi only)

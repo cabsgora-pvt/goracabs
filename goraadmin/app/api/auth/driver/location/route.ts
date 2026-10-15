@@ -4,6 +4,7 @@ import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
 import { requireDriverAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
+import { sweepOverdueFaceVerification } from '@/lib/face-sweep'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -21,6 +22,10 @@ export async function POST(req: NextRequest) {
     if (heading != null) update.currentHeading = heading
 
     await Driver.findByIdAndUpdate(payload.id, update)
+    // The foreground service keeps pinging this even if the driver force-quit
+    // the app right after a verification prompt appeared — this is what
+    // catches that silence instead of leaving the check pending forever.
+    await sweepOverdueFaceVerification(String(payload.id))
     return withCors({ success: true })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)

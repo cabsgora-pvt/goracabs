@@ -5,8 +5,11 @@ import Zone from '@/models/Zone'
 import Driver from '@/models/Driver'
 import VehicleType from '@/models/VehicleType'
 import { pointInPolygon, distanceKm } from '@/lib/geo'
+import { etaByVehicleType, getEtaFactor, displayRoadKm } from '@/lib/eta'
 import { withCors, corsOptions } from '@/lib/cors'
 import { getSettings } from '@/lib/settings'
+import { signQuote, quoteCell } from '@/lib/quote'
+import { rateLimit } from '@/lib/rate-limit'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -32,6 +35,11 @@ async function fetchDirections(originLat: number, originLng: number, destLat: nu
 // → returns zone + list of vehicles with calculated fare + real ETA (nearest driver) per vehicle type
 export async function POST(req: NextRequest) {
   try {
+    // Public, pre-auth endpoint that can trigger paid Google Directions calls
+    // (outstation) — capped per-IP so it can't be scripted into a billing spike.
+    if (!rateLimit(req, 'fare-estimate', 20, 60_000)) {
+      return withCors({ error: 'Too many requests, please slow down' }, 429)
+    }
     const { pickupLat, pickupLng, dropLat, dropLng, service = 'taxi', tripType = 'one_way', totalHours = 0, weightKg = 0, stops = [] } = await req.json()
     if (pickupLat == null || pickupLng == null) return withCors({ error: 'pickup required' }, 400)
 
@@ -54,14 +62,11 @@ export async function POST(req: NextRequest) {
       }
       const hours = Math.max(1, Math.ceil(totalHours || 0))
       const hirePricing = (zoneH.pricing || []).filter((p: any) => p.service === 'hire_driver' && p.isActive !== false)
-      const drv: any[] = await Driver.find({ status: 'approved', isOnline: true, acceptsHireDriver: true, currentLat: { $ne: null } })
-        .select('selectedVehicleTypeName currentLat currentLng').lean()
-      const nearH = new Map<string, number>()
-      for (const d of drv) {
-        const t = d.selectedVehicleTypeName; if (!t) continue
-        const km = distanceKm({ lat: pickupLat, lng: pickupLng }, { lat: d.currentLat, lng: d.currentLng })
-        if (nearH.get(t) == null || km < nearH.get(t)!) nearH.set(t, km)
-      }
+      const nearH = await etaByVehicleType(
+        Driver,
+        { lat: pickupLat, lng: pickupLng },
+        { acceptsHireDriver: true, allowHireDriver: { $ne: false }, zoneId: String(zoneH._id) },
+      )
       // Vehicle images + capacity by type name
       const vtsH: any[] = await VehicleType.find({ isActive: true }).select('name imageUrl capacity').lean()
       const vtMapH = new Map<string, any>(vtsH.map(v => [v.name, v]))
@@ -74,14 +79,21 @@ export async function POST(req: NextRequest) {
         const returnCharge = isHireRT ? 0 : (p.hireReturnCharge || 0)
         let fare = base + hourCharge + returnCharge
         fare = Math.max(p.minFare || 0, Math.round(fare))
-        const km = nearH.get(p.vehicleTypeName)
+        const eta = nearH.get(p.vehicleTypeName)
         const vt = vtMapH.get(p.vehicleTypeName)
         return {
           vehicleTypeId: p.vehicleTypeId, name: p.vehicleTypeName,
           imageUrl: vt?.imageUrl || '', capacity: vt?.capacity || 4,
           fare, perHour, baseFare: base, returnCharge, commissionPercent: p.commissionPercent ?? 20,
           breakdown: { base, perHour, hours, hourCharge, returnCharge, tripType, total: fare },
-          etaMin: km != null ? Math.max(1, Math.min(30, Math.round(km * 2))) : null,
+          // Signed so /rides/book can only accept a fare the server produced.
+          quoteToken: signQuote({
+            service: 'hire_driver', vehicleType: p.vehicleTypeName, fare,
+            cell: quoteCell(pickupLat, pickupLng, null, null),
+          }),
+          etaMin: eta?.min ?? null,
+          driverDistanceKm: eta?.km ?? null,
+          driversAvailable: eta?.available ?? 0,
         }
       })
       return withCors({ available: true, zone: { id: zoneH._id, name: zoneH.name }, service: 'hire_driver', totalHours: hours, tripType, vehicles })
@@ -117,25 +129,15 @@ export async function POST(req: NextRequest) {
       }
       const outstationPricing = (pickupZone?.pricing || []).filter((p: any) => p.service === 'outstation')
 
-      // Online outstation-accepting drivers, group nearest by vehicle type
-      const odrivers: any[] = await Driver.find({
-        status: 'approved',
-        isOnline: true,
-        acceptsOutstation: true,
-        currentLat: { $ne: null },
-        currentLng: { $ne: null },
-      }).select('selectedVehicleTypeName currentLat currentLng').lean()
-      const nearestByType = new Map<string, { km: number; min: number }>()
-      for (const d of odrivers) {
-        const t = d.selectedVehicleTypeName
-        if (!t) continue
-        const km = distanceKm({ lat: pickupLat, lng: pickupLng }, { lat: d.currentLat, lng: d.currentLng })
-        const prev = nearestByType.get(t)
-        if (!prev || km < prev.km) {
-          const min = Math.max(1, Math.min(30, Math.round(km * 2)))
-          nearestByType.set(t, { km: +km.toFixed(1), min })
-        }
-      }
+      // Outstation-accepting drivers, ETA-ranked by vehicle type. Outstation
+      // supply is sparse, so allow a wider pickup radius than in-city — but a
+      // bound all the same, instead of the old country-wide scan.
+      const nearestByType = await etaByVehicleType(
+        Driver,
+        { lat: pickupLat, lng: pickupLng },
+        { acceptsOutstation: true, allowOutstation: { $ne: false } },
+        { maxRadiusKm: 40, maxEtaMin: 90 },
+      )
 
       // Pull every active vehicle type that admin has marked as supporting outstation.
       // For each: prefer the zone's outstation override pricing; fall back to the vehicle's own
@@ -209,8 +211,13 @@ export async function POST(req: NextRequest) {
           nightHaltCharge, emptyReturnPercent,
           kmLimitPerDay: kmLimitPerDay * days, extraKmRate, driverAllowance: driverAllowance * days, gstPercent,
           extras, breakdown,
-          etaMin: eta ? eta.min : null,
-          driverDistanceKm: eta ? eta.km : null,
+          quoteToken: signQuote({
+            service: 'outstation', vehicleType: v.name, fare,
+            cell: quoteCell(pickupLat, pickupLng, dropLat, dropLng),
+          }),
+          etaMin: eta?.min ?? null,
+          driverDistanceKm: eta?.km ?? null,
+          driversAvailable: eta?.available ?? 0,
           source: p ? 'zone' : 'vehicle',
         }
       })
@@ -265,8 +272,11 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    // Distance & time (Haversine — replaced by Directions API at booking time).
-    // With multi-stops: sum each leg pickup→stop1→stop2→…→drop.
+    // ── Fare inputs: DELIBERATELY UNCHANGED ──
+    // distance/duration below feed the fare formula, so they stay bit-identical
+    // to the original (Haversine, 20 km/h) — no ETA work is allowed to move a
+    // price. Improved road-corrected figures are computed separately and
+    // returned as display-only fields.
     let distance = 5, duration = 15
     if (dropLat != null && dropLng != null) {
       const pts: Array<{ lat: number; lng: number }> = [{ lat: pickupLat, lng: pickupLng }]
@@ -280,28 +290,22 @@ export async function POST(req: NextRequest) {
       duration = Math.round(distance * 3)
     }
 
-    // Load all approved+online drivers in this zone (one query, then bucket by vehicle type)
-    const onlineDrivers: any[] = await Driver.find({
-      status: 'approved',
-      isOnline: true,
-      zoneId: String(zone._id),
-      currentLat: { $ne: null },
-      currentLng: { $ne: null },
-    }).select('selectedVehicleTypeName currentLat currentLng').lean()
+    // Display-only trip estimate, from the learned pickup-area factor.
+    // NEVER referenced by the fare formula above — `distance` and `duration`
+    // keep their original semantics so no ETA work can move a price.
+    const tripFactor = await getEtaFactor({ lat: pickupLat, lng: pickupLng })
+    const roadDistEst = displayRoadKm(distance, tripFactor)
+    // The trip leg carries no pickup overhead — the driver is already moving —
+    // so predict from the factor directly rather than via predictEtaMin.
+    const tripEtaMin = Math.max(1, Math.round(distance * tripFactor.minPerKm))
 
-    // For each vehicle type → nearest driver km + estimated min (assume ~30 km/h city avg)
-    const nearestByType = new Map<string, { km: number; min: number }>()
-    for (const d of onlineDrivers) {
-      const t = d.selectedVehicleTypeName
-      if (!t) continue
-      const km = distanceKm({ lat: pickupLat, lng: pickupLng }, { lat: d.currentLat, lng: d.currentLng })
-      const prev = nearestByType.get(t)
-      if (!prev || km < prev.km) {
-        // 30 km/h ≈ 2 min/km — clamp 1..30
-        const min = Math.max(1, Math.min(30, Math.round(km * 2)))
-        nearestByType.set(t, { km: +km.toFixed(1), min })
-      }
-    }
+    // Fresh, non-busy, in-zone drivers → ETA per vehicle type, using the
+    // learned speed profile for this cell + hour instead of a flat 30 km/h.
+    const nearestByType = await etaByVehicleType(
+      Driver,
+      { lat: pickupLat, lng: pickupLng },
+      { zoneId: String(zone._id) },
+    )
 
     // Vehicle images by type name (for delivery/taxi vehicle cards)
     const vtsAll: any[] = await VehicleType.find({ isActive: true }).select('name imageUrl capacity').lean()
@@ -329,16 +333,25 @@ export async function POST(req: NextRequest) {
           perKm: p.perKm,
           perMin: p.perMin,
           commissionPercent: p.commissionPercent ?? 20,
+          quoteToken: signQuote({
+            service, vehicleType: p.vehicleTypeName, fare,
+            cell: quoteCell(pickupLat, pickupLng, dropLat, dropLng),
+          }),
           // null = no driver currently available of this type
-          etaMin: eta ? eta.min : null,
-          driverDistanceKm: eta ? eta.km : null,
+          etaMin: eta?.min ?? null,
+          driverDistanceKm: eta?.km ?? null,
+          driversAvailable: eta?.available ?? 0,
         }
       })
 
     return withCors({
       available: true,
       zone: { id: zone._id, name: zone.name },
+      // distance/duration drive the fare — unchanged semantics.
       distance, duration, service,
+      // Display-only, more realistic trip figures. Not used in any pricing.
+      roadDistanceKmEst: roadDistEst,
+      tripEtaMin,
       vehicles,
     })
   } catch (e: any) {

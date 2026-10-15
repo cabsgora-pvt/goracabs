@@ -104,6 +104,12 @@ export default function TicketsPage() {
               {viewTicket.category && (
                 <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{viewTicket.category}</span>
               )}
+              {/* A toll complaint names its ride, so support can open it. */}
+              {viewTicket.rideId && (
+                <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full font-mono">
+                  Ride {String(viewTicket.rideId)}
+                </span>
+              )}
             </div>
             <div className="space-y-3 max-h-60 overflow-y-auto">
               {(viewTicket.messages || []).map((msg: any, i: number) => (

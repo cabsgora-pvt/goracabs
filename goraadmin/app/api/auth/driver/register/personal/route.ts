@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     const payload = requireDriverAuth(req)
     if (!payload) return withCors({ error: 'Unauthorized' }, 401)
 
-    const { name, email, state, zoneId, zoneName, profilePicUrl, referralCode } = await req.json()
+    const { name, email, state, zoneId, zoneName, profilePicUrl, referralCode, gender } = await req.json()
     if (!name || !state || !zoneId) return withCors({ error: 'Name, state and zone are required' }, 400)
 
     await connectDB()
@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
     driver.zoneId = zoneId
     driver.zoneName = zoneName
     if (profilePicUrl) driver.profilePicUrl = profilePicUrl
+    if (['female', 'male', 'other'].includes(gender)) driver.gender = gender
     driver.registrationStep = 'vehicle'
 
     // ── Apply referral once (Yash referred Manoj → both get admin-set rewards) ──

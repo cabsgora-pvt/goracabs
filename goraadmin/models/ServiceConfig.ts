@@ -1,6 +1,10 @@
 import mongoose, { Schema } from 'mongoose'
 const ServiceConfigSchema = new Schema({
-  service: { type: String, unique: true, enum: ['taxi', 'rental', 'outstation', 'delivery', 'goods'] },
+  // Must stay in step with Ride.service. 'hire_driver' was missing, so
+  // ServiceConfig.findOne({ service: 'hire_driver' }) always returned null and
+  // the service could never have a cancellation fee or any admin-set config.
+  // 'goods' is kept because the admin services page still lists it as a card.
+  service: { type: String, unique: true, enum: ['taxi', 'rental', 'outstation', 'delivery', 'hire_driver', 'goods'] },
   isActive: { type: Boolean, default: true },
   baseFare: Number,
   perKm: Number,

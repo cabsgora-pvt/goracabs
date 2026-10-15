@@ -9,6 +9,7 @@ import {
   ArrowLeft, Phone, Car, Star, TrendingUp, DollarSign,
   CheckCircle, XCircle, Mail, MapPin, CreditCard, FileText,
   Trash2, Ban, CalendarClock, ArrowDownToLine, SlidersHorizontal,
+  ShieldAlert, ShieldCheck,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -35,12 +36,32 @@ export default function DriverDetailPage() {
   const [allowDelivery, setAllowDelivery] = useState(true)
   const [prefsBusy, setPrefsBusy] = useState(false)
   const [photoBusy, setPhotoBusy] = useState(false)
+  const [faceVerifications, setFaceVerifications] = useState<any[]>([])
+  const [clearingLock, setClearingLock] = useState(false)
 
   const fetchDriver = () => {
     fetch(`/api/drivers/${id}`)
       .then(r => r.json())
       .then(d => { setDriver(d.driver); setRecentRides(d.recentRides || []); setSubs(d.subscriptions || []); setWithdrawals(d.withdrawals || []); setLoading(false) })
       .catch(() => setLoading(false))
+    fetch(`/api/drivers/${id}/face-verifications`)
+      .then(r => r.json())
+      .then(d => setFaceVerifications(d.verifications || []))
+      .catch(() => {})
+  }
+
+  const clearFaceLock = async () => {
+    setClearingLock(true)
+    try {
+      const res = await fetch(`/api/drivers/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ faceVerificationRequired: false, faceVerificationReason: null }),
+      })
+      if (res.ok) { fetchDriver(); setToast({ msg: 'Verification lock cleared', type: 'success' }) }
+      else setToast({ msg: 'Failed to clear lock', type: 'error' })
+    } catch { setToast({ msg: 'Failed to clear lock', type: 'error' }) }
+    setClearingLock(false)
   }
 
   useEffect(() => { fetchDriver() }, [id])
@@ -666,6 +687,65 @@ export default function DriverDetailPage() {
                   <p className="text-sm text-gray-400 col-span-3">No documents uploaded</p>
                 )}
               </div>
+            </div>
+
+            {/* Face Verification */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+              <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                {driver.faceVerificationRequired
+                  ? <ShieldAlert className="w-4 h-4 text-red-600" />
+                  : <ShieldCheck className="w-4 h-4" />} Face Verification
+              </h3>
+
+              {driver.faceVerificationRequired && (
+                <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 flex items-center justify-between gap-3">
+                  <p className="text-sm text-red-700">
+                    Locked — a mid-ride check came back <strong>{driver.faceVerificationReason === 'no_response' ? 'unanswered' : 'mismatched'}</strong>. This driver cannot go online until cleared.
+                  </p>
+                  <button type="button" onClick={clearFaceLock} disabled={clearingLock}
+                    className="shrink-0 px-3 py-1.5 text-sm font-medium bg-white border border-red-300 text-red-700 rounded-lg hover:bg-red-100 disabled:opacity-50">
+                    {clearingLock ? 'Clearing…' : 'Clear lock'}
+                  </button>
+                </div>
+              )}
+
+              {!driver.faceReferencePhotoUrl ? (
+                <p className="text-sm text-gray-400">No face signature on file yet — this driver registered before the feature was added, or hasn't completed registration.</p>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500 mb-2">Registration reference</p>
+                  <img src={driver.faceReferencePhotoUrl} alt="Registration reference" className="w-24 h-24 object-cover rounded-lg border border-gray-200 mb-4" />
+
+                  {faceVerifications.length > 0 && (
+                    <>
+                      <p className="text-xs text-gray-500 mb-2">Check history (most recent first)</p>
+                      <div className="space-y-3">
+                        {faceVerifications.map((v: any) => (
+                          <div key={v._id} className="flex items-center gap-3 border border-gray-200 rounded-lg p-3">
+                            {v.photoUrl ? (
+                              <img src={v.photoUrl} alt="Verification attempt" className="w-16 h-16 object-cover rounded-md border border-gray-200 shrink-0" />
+                            ) : (
+                              <div className="w-16 h-16 rounded-md bg-gray-100 flex items-center justify-center text-gray-300 text-[10px] shrink-0 text-center">No photo (no response)</div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Badge status={v.status === 'matched' ? 'verified' : v.status === 'pending' ? 'pending' : 'rejected'} />
+                                {typeof v.matchScore === 'number' && (
+                                  <span className="text-xs text-gray-500">score {v.matchScore.toFixed(2)}</span>
+                                )}
+                              </div>
+                              <p className="text-xs text-gray-500">{new Date(v.triggeredAt || v.createdAt).toLocaleString()}</p>
+                              {v.rideId && (
+                                <p className="text-xs text-gray-400 truncate">{v.rideId.pickupAddress} → {v.rideId.dropAddress}</p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
             </div>
 
             {/* Recent trips */}

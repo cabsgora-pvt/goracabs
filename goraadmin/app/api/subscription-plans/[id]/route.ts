@@ -3,12 +3,14 @@ import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import SubscriptionPlan from '@/models/SubscriptionPlan'
 import { withCors, corsOptions } from '@/lib/cors'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function OPTIONS() { return corsOptions() }
 
 // PUT /api/subscription-plans/[id] → update a plan (admin)
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const update: any = {}
@@ -25,8 +27,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 // DELETE /api/subscription-plans/[id] → remove a plan (admin)
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     await SubscriptionPlan.findByIdAndDelete(params.id)
     return withCors({ success: true })

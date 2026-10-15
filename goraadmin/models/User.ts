@@ -12,5 +12,8 @@ const UserSchema = new Schema({
   idNumber: String,
   idPhotoUrl: String,
   fcmToken: String,
+  referralCode: { type: String, unique: true, sparse: true },
+  referredCount: { type: Number, default: 0 },
+  referralEarnings: { type: Number, default: 0 },
 }, { timestamps: true })
 export default mongoose.models.User || mongoose.model('User', UserSchema)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import VehicleType from '@/models/VehicleType'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function GET() {
   try {
@@ -14,6 +15,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const type = await VehicleType.create(body)

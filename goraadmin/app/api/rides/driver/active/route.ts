@@ -4,6 +4,7 @@ import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import { requireDriverAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
+import { waitingSecondsFor, secondsSince } from '@/lib/ride-phase'
 
 export async function OPTIONS() {
   return corsOptions()
@@ -39,6 +40,39 @@ export async function GET(req: NextRequest) {
       senderName: r.senderName, senderPhone: r.senderPhone, receiverName: r.receiverName, receiverPhone: r.receiverPhone,
       itemType: r.itemType, weightKg: r.weightKg, packageSize: r.packageSize, isFragile: r.isFragile,
       codAmount: r.codAmount, parcelPhotos: r.parcelPhotos,
+      // Server-computed so the driver's resumed waiting timer is not thrown off
+      // by the phone's clock. Null unless the driver is waiting at pickup.
+      waitingSec: waitingSecondsFor(r),
+
+      // ── Where an in-progress job had got to ──
+      // A reopened ride screen used to know none of this and started each job
+      // over: a rental's clock read 0:00, a parcel already on its way asked to
+      // be collected again, a round trip at its destination asked the driver to
+      // swipe "arrived at destination" a second time, and a multi-stop ride
+      // went back to stop 1. Read-only: nothing here changes the ride.
+      awaitingPayment: !!r.awaitingPayment,
+      // Rental
+      rentalPhase: r.rentalPhase, isWaiting: !!r.isWaiting,
+      actualKm: r.actualKm, actualHours: r.actualHours,
+      rentalStops: r.rentalStops || [],
+      rentalStartedAt: r.rentalStartedAt,
+      rentalElapsedSec: secondsSince(r.rentalStartedAt),
+      // Hire
+      hirePhase: r.hirePhase, hireActualHours: r.hireActualHours,
+      hireStartedAt: r.hireStartedAt,
+      hireElapsedSec: secondsSince(r.hireStartedAt),
+      // Delivery
+      deliveryPhase: r.deliveryPhase,
+      // Outstation round trip
+      outstationPhase: r.outstationPhase, nightHaltConfirmed: !!r.nightHaltConfirmed,
+      // Multi-stop
+      currentStopIndex: r.currentStopIndex ?? 0, isWaitingAtStop: !!r.isWaitingAtStop,
+      // Outstation tolls entered so far
+      tolls: (r.tolls || []).map((t: any) => ({
+        id: String(t._id), amount: t.amount, at: t.at, source: t.source,
+        place: t.place || '', reported: !!t.reportedAt,
+      })),
+      tollCharge: r.tollCharge || 0,
     }
     return withCors({ ride })
   } catch (error: any) {

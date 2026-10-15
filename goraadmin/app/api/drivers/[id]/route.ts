@@ -4,9 +4,11 @@ import Driver from '@/models/Driver'
 import Ride from '@/models/Ride'
 import DriverSubscription from '@/models/DriverSubscription'
 import Withdrawal from '@/models/Withdrawal'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const driver = await Driver.findById(params.id).lean()
     if (!driver) return NextResponse.json({ error: 'Driver not found' }, { status: 404 })
@@ -21,6 +23,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const driver = await Driver.findByIdAndUpdate(params.id, body, { new: true }).lean()
@@ -33,6 +36,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     await Driver.findByIdAndDelete(params.id)
     return NextResponse.json({ success: true })

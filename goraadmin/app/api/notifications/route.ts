@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { guardAdmin } from '@/lib/admin-guard'
 import { connectDB } from '@/lib/mongodb'
 import PushNotification from '@/models/PushNotification'
 
-export async function GET() {
+// Admin-only: returns every notification, including ones targeted at a named
+// user, so it must not be reachable from an app. Drivers read their own feed
+// from /api/auth/driver/notifications.
+export async function GET(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const notifications = await PushNotification.find().sort({ sentAt: -1 }).limit(100).lean()
     return NextResponse.json({ notifications })
@@ -14,6 +19,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const { title, message, target, targetUserId } = body

@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
 import { withCors, corsOptions } from '@/lib/cors'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function OPTIONS() {
   return corsOptions()
@@ -9,6 +10,7 @@ export async function OPTIONS() {
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json().catch(() => ({}))
     const driver = await Driver.findByIdAndUpdate(

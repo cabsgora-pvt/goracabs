@@ -5,6 +5,7 @@ import Zone from '@/models/Zone'
 import Driver from '@/models/Driver'
 import VehicleType from '@/models/VehicleType'
 import { pointInPolygon, distanceKm } from '@/lib/geo'
+import { etaByVehicleType } from '@/lib/eta'
 import { withCors, corsOptions } from '@/lib/cors'
 
 export async function OPTIONS() { return corsOptions() }
@@ -42,26 +43,22 @@ export async function GET(req: NextRequest) {
     const packages = (zone.rentalPackages || []).filter((p: any) => p.isActive !== false)
     if (!packages.length) return withCors({ available: false, message: 'No rental packages configured for this zone' })
 
-    // Online + rental-accepting drivers, nearest per vehicle type
-    const drivers: any[] = await Driver.find({
-      status: 'approved', isOnline: true, acceptsRental: true,
-      currentLat: { $ne: null }, currentLng: { $ne: null },
-    }).select('selectedVehicleTypeName currentLat currentLng').lean()
-    const nearestByType = new Map<string, number>()
-    for (const d of drivers) {
-      const t = d.selectedVehicleTypeName
-      if (!t) continue
-      const km = distanceKm({ lat: pickupLat, lng: pickupLng }, { lat: d.currentLat, lng: d.currentLng })
-      const prev = nearestByType.get(t)
-      if (prev == null || km < prev) nearestByType.set(t, km)
-    }
+    // Rental-accepting drivers in THIS zone, ETA-ranked per vehicle type.
+    // Previously this scanned every online driver in the country with no
+    // freshness or busy filter, so it could advertise "2 min" from a driver in
+    // another state whose app had been dead for hours.
+    const etaByType = await etaByVehicleType(
+      Driver,
+      { lat: pickupLat, lng: pickupLng },
+      { acceptsRental: true, allowRental: { $ne: false }, zoneId: String(zone._id) },
+    )
 
     // Attach vehicle image + ETA to each package
     const vts: any[] = await VehicleType.find({ isActive: true }).select('name imageUrl capacity').lean()
     const vtByName = new Map<string, any>(vts.map(v => [v.name, v]))
 
     const result = packages.map((p: any) => {
-      const km = nearestByType.get(p.vehicleTypeName)
+      const eta = etaByType.get(p.vehicleTypeName)
       const vt = vtByName.get(p.vehicleTypeName)
       return {
         id: p._id,
@@ -75,8 +72,10 @@ export async function GET(req: NextRequest) {
         extraKmRate: p.extraKmRate,
         nightCharge: p.nightCharge,
         commissionPercent: p.commissionPercent ?? 20,
-        etaMin: km != null ? Math.max(1, Math.min(30, Math.round(km * 2))) : null,
-        driverDistanceKm: km != null ? +km.toFixed(1) : null,
+        // null = no realistic driver for this vehicle type right now
+        etaMin: eta?.min ?? null,
+        driverDistanceKm: eta?.km ?? null,
+        driversAvailable: eta?.available ?? 0,
       }
     })
 

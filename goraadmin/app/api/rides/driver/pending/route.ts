@@ -6,6 +6,8 @@ import Driver from '@/models/Driver'
 import User from '@/models/User'
 import Settings from '@/models/Settings'
 import { requireDriverAuth } from '@/lib/auth'
+import { getEtaFactor, crowKm, predictEtaMin, displayRoadKm } from '@/lib/eta'
+import { sweepExpiredOffers, driverMaySee } from '@/lib/dispatch'
 import { withCors, corsOptions } from '@/lib/cors'
 
 export async function OPTIONS() { return corsOptions() }
@@ -63,12 +65,48 @@ export async function GET(req: NextRequest) {
       $or: branches,
     }
 
+    // Move on any offers that lapsed, so dispatch self-heals without a scheduler.
+    await sweepExpiredOffers().catch(() => 0)
+
     // Outstation + rental stay valid up to 15 min; plain taxi keeps the 2-min freshness window
     let rides = await Ride.find(query).sort({ createdAt: -1 }).lean() as any[]
     rides = rides.filter((r: any) => {
       if (['outstation', 'rental', 'hire_driver', 'delivery'].includes(r.service)) return true
       return new Date(r.createdAt) >= twoMinAgo
     })
+
+    // Offer-based dispatch: a ride currently offered to someone else is not
+    // this driver's to take. Rides never offered, or whose ladder is spent,
+    // stay visible to everyone — the old grab-pool behaviour.
+    rides = rides.filter((r: any) => driverMaySee(r, driverId))
+
+    // ── Order the feed by ETA, not recency ──
+    // Requests this driver can reach soonest come first, so the pings that
+    // propagate first are the ones that minimise empty kilometres. Falls back
+    // to recency when the driver has no location fix.
+    const pickupEta = new Map<string, number>()
+    const pickupKm = new Map<string, number>()
+    if (driver.currentLat != null && driver.currentLng != null && rides.length > 0) {
+      const from = { lat: driver.currentLat, lng: driver.currentLng }
+      const factor = await getEtaFactor(from)
+      for (const r of rides) {
+        if (r.pickupLat == null || r.pickupLng == null) continue
+        const crow = crowKm(from, { lat: r.pickupLat, lng: r.pickupLng })
+        pickupKm.set(String(r._id), displayRoadKm(crow, factor))
+        // Generous ceiling here on purpose: this only orders the driver's own
+        // feed, so a far-away request should sort last rather than vanish.
+        const min = predictEtaMin(crow, factor, { maxMin: 240 })
+        if (min != null) pickupEta.set(String(r._id), min)
+      }
+      rides.sort((a: any, b: any) => {
+        const ea = pickupEta.get(String(a._id))
+        const eb = pickupEta.get(String(b._id))
+        if (ea == null && eb == null) return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        if (ea == null) return 1
+        if (eb == null) return -1
+        return ea - eb
+      })
+    }
 
     // Batch-load rider profile pics
     const riderIds = Array.from(new Set(rides.map((r: any) => String(r.riderId)).filter(Boolean)))
@@ -93,7 +131,15 @@ export async function GET(req: NextRequest) {
         tip: r.tip,
         totalFare: r.totalFare,
         distance: r.distance,
-        duration: r.duration,
+        duration: r.duration,          // trip time pickup→drop (NOT arrival ETA)
+        pickupEtaMin: pickupEta.get(String(r._id)) ?? null,  // this driver → pickup
+        // Set when this ride was offered directly to this driver (countdown UI)
+        offeredToMe: r.offeredTo ? String(r.offeredTo) === driverId : false,
+        offerExpiresAt: r.offerExpiresAt ?? null,
+        // Road-corrected driver→pickup km. The driver card previously fell back
+        // to a client-side straight-line Geolocator.distanceBetween because the
+        // server never sent this.
+        pickupDistance: pickupKm.get(String(r._id)) ?? null,
         vehicleType: r.vehicleType,
         paymentMode: r.paymentMode,
         routePolyline: r.routePolyline,

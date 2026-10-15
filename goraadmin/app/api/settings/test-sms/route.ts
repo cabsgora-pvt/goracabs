@@ -1,11 +1,13 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { sendOtpSms, generateOtp } from '@/lib/sms'
+import { guardAdmin } from '@/lib/admin-guard'
 
 // Admin-only helper: sends a real OTP SMS using the saved provider config
 // so the admin can verify SMS delivery from the settings page.
 export async function POST(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     const { phone } = await req.json()
     if (!phone || String(phone).replace(/\D/g, '').length < 10) {
       return NextResponse.json({ success: false, message: 'Valid 10-digit phone required' }, { status: 400 })

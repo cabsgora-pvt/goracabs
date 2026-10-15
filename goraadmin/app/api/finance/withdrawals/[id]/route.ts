@@ -3,12 +3,14 @@ import { connectDB } from '@/lib/mongodb'
 import Withdrawal from '@/models/Withdrawal'
 import Driver from '@/models/Driver'
 import Transaction from '@/models/Transaction'
+import { guardAdmin } from '@/lib/admin-guard'
 
 // PUT /api/finance/withdrawals/[id]  body: { action: 'approve'|'reject', note }
 // Approve → deduct the amount from the driver's wallet + log a transaction.
 // Reject → mark rejected with a reason (note required).
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const { action, note } = await req.json()
     if (!['approve', 'reject'].includes(action)) {

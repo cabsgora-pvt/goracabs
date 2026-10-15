@@ -3,11 +3,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
 import Transaction from '@/models/Transaction'
+import { guardAdmin } from '@/lib/admin-guard'
 
 // POST /api/drivers/[id]/wallet  body: { amount, type: 'credit'|'debit', note }
 // Admin manually adds or deducts money from a driver's wallet.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const { amount, type = 'credit', note = '' } = await req.json()
     const amt = Math.round(Number(amount) || 0)

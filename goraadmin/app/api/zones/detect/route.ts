@@ -4,12 +4,14 @@ import { connectDB } from '@/lib/mongodb'
 import Zone from '@/models/Zone'
 import { pointInPolygon, distanceKm } from '@/lib/geo'
 import { withCors, corsOptions } from '@/lib/cors'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function OPTIONS() { return corsOptions() }
 
 // POST { lat, lng } → returns the zone the point falls in (or nearest active zone)
 export async function POST(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     const { lat, lng } = await req.json()
     if (lat == null || lng == null) return withCors({ error: 'lat and lng required' }, 400)
 

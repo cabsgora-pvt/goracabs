@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const driver = await Driver.findByIdAndUpdate(
       params.id,

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Withdrawal from '@/models/Withdrawal'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function GET(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const { searchParams } = new URL(req.url)
     const page = parseInt(searchParams.get('page') || '1')

@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto'
 import { connectDB } from '@/lib/mongodb'
 import Settings from '@/models/Settings'
 
@@ -103,5 +104,5 @@ export async function sendOtpSms(phone: string, otp: string): Promise<SmsResult>
 
 // 6-digit numeric OTP.
 export function generateOtp(): string {
-  return String(Math.floor(100000 + Math.random() * 900000))
+  return String(randomInt(100000, 1000000))
 }

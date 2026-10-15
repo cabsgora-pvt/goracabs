@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import FAQ from '@/models/FAQ'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const faq = await FAQ.findByIdAndUpdate(params.id, body, { new: true }).lean()
@@ -16,6 +18,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     await FAQ.findByIdAndDelete(params.id)
     return NextResponse.json({ success: true })

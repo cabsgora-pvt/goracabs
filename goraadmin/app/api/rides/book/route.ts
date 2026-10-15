@@ -6,6 +6,13 @@ import Driver from '@/models/Driver'
 import User from '@/models/User'
 import Zone from '@/models/Zone'
 import { distanceKm, pointInPolygon } from '@/lib/geo'
+// NB: local `roadDistanceKm` below is the trip distance — do not import the
+// eta.ts helper of the same name into this file.
+import { availableDriverFilter, driverBusyRides, getEtaFactor, rankCandidates, refineCandidatesWithTraffic, MATRIX_REFINE, ETA_CONFIG } from '@/lib/eta'
+import { offerNext } from '@/lib/dispatch'
+import { quoteRental, type RentalQuote } from '@/lib/rental-pricing'
+import { evaluatePromo, consumePromo, type PromoResult } from '@/lib/promo'
+import { verifyQuote, quoteCell, ENFORCE_QUOTES } from '@/lib/quote'
 import { requireAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 import { getSettings } from '@/lib/settings'
@@ -100,7 +107,13 @@ export async function POST(req: NextRequest) {
     let routePolyline = ''
     let roadDistanceKm = b.distance
     let roadDurationMin = b.duration
-    if (b.pickupLat != null && b.pickupLng != null && b.dropLat != null && b.dropLng != null) {
+    // Skip the (billed) Directions call when there is no real drop — rental
+    // sends dropLat/dropLng equal to pickup, so this was one wasted Google
+    // request per rental booking that only ever produced distance ≈ 0.
+    const hasRealDrop = b.pickupLat != null && b.pickupLng != null
+      && b.dropLat != null && b.dropLng != null
+      && !(Math.abs(b.dropLat - b.pickupLat) < 1e-6 && Math.abs(b.dropLng - b.pickupLng) < 1e-6)
+    if (hasRealDrop) {
       const dir = await fetchDirections(b.pickupLat, b.pickupLng, b.dropLat, b.dropLng)
       if (dir) {
         routePolyline = dir.polyline
@@ -130,9 +143,64 @@ export async function POST(req: NextRequest) {
       if (!b.fare) computedFare = total
     }
 
+    // ── Rental: price on the server, never from the request body ──
+    // zone.pricing never holds rental rows, so the generic block above always
+    // left the client's fare standing. Everything money-related for a rental is
+    // recomputed here from the zone's configured packages.
+    let rentalQuote: RentalQuote | null = null
+    let promo: PromoResult | null = null
+    if (service === 'rental') {
+      const startAt = b.departureAt ? new Date(b.departureAt) : new Date()
+      rentalQuote = quoteRental({
+        zone,
+        vehicleType: b.vehicleType,
+        hours: b.packageHours,
+        startAt,
+      })
+      if (!rentalQuote) {
+        return withCors({ error: 'No rental package available for this vehicle in this zone' }, 400)
+      }
+      computedFare = rentalQuote.fare
+      commissionPercent = rentalQuote.commissionPercent
+
+      // Coupons are now validated server-side against PromoCode (expiry, usage
+      // cap, minimum fare) instead of trusting the client's own subtraction.
+      promo = await evaluatePromo(b.couponCode, computedFare)
+      if (promo.discount > 0) computedFare = Math.max(0, computedFare - promo.discount)
+    }
+
+    // ── Non-rental services: the fare must be one WE signed ──
+    // book cannot recompute outstation/hire/delivery pricing without duplicating
+    // those formulas (and risking drift from the quoted price), so /fare/estimate
+    // signs the fare it just produced and we verify it here.
+    let quoteWarning: string | null = null
+    if (service !== 'rental') {
+      const check = verifyQuote(b.quoteToken, {
+        service,
+        vehicleType: b.vehicleType,
+        cell: quoteCell(b.pickupLat, b.pickupLng, b.dropLat, b.dropLng),
+      })
+      if (check.ok) {
+        computedFare = check.fare        // authoritative: exactly what was quoted
+      } else if (ENFORCE_QUOTES) {
+        return withCors({ error: `Fare quote rejected: ${check.reason}. Please refresh and try again.` }, 400)
+      } else {
+        // Rollout grace: older app builds do not send a token yet. Log loudly so
+        // the gap is visible, then flip ENFORCE_QUOTE_TOKEN=1 once they update.
+        quoteWarning = check.reason
+        console.warn('[book] unsigned fare accepted', { service, vehicleType: b.vehicleType, fare: computedFare, reason: check.reason })
+      }
+    }
+
     const fare = computedFare
     const tip = b.tip || 0
     const totalFare = fare + tip
+
+    // Installed builds of the rider app send 'cod' for a parcel with cash on
+    // delivery switched on. The Ride schema only accepts cash / wallet / online,
+    // so every such booking failed validation and was never created. With COD on,
+    // the app has always collected the fare as cash, so that is what it is.
+    const paymentMode = b.paymentMode === 'cod' ? 'cash' : (b.paymentMode || 'cash')
 
     const ride = await Ride.create({
       riderId, riderName, riderPhone,
@@ -144,8 +212,9 @@ export async function POST(req: NextRequest) {
       distance: roadDistanceKm, duration: roadDurationMin,
       routePolyline,
       fareBreakdown: breakdown,
-      paymentMode: b.paymentMode || 'cash',
+      paymentMode,
       zoneId, otp, status: 'pending',
+      preferFemaleDriver: !!b.preferFemaleDriver,
       // Outstation-only fields (silently ignored for other services)
       tripType: b.tripType || 'one_way',
       cityFrom: b.cityFrom,
@@ -156,12 +225,12 @@ export async function POST(req: NextRequest) {
       multiStops: Array.isArray(b.multiStops) ? b.multiStops : [],
       nightHaltCharge: b.nightHaltCharge || 0,
       emptyReturnCharge: b.emptyReturnCharge || 0,
-      // Rental-only fields (silently ignored for other services)
-      packageHours: b.packageHours || 0,
-      packageKm: b.packageKm || 0,
-      extraHourRate: b.extraHourRate || 0,
-      extraKmRate: b.extraKmRate || 0,
-      nightChargeRental: b.nightChargeRental || 0,
+      // Rental-only fields — all server-derived, request body is not trusted
+      packageHours: rentalQuote ? rentalQuote.hours : 0,
+      packageKm: rentalQuote ? rentalQuote.km : 0,
+      extraHourRate: rentalQuote ? rentalQuote.extraHourRate : 0,
+      extraKmRate: rentalQuote ? rentalQuote.extraKmRate : 0,
+      nightChargeRental: rentalQuote ? rentalQuote.nightCharge : 0,
       rentalPhase: service === 'rental' ? 'pending' : undefined,
       // Hire-a-driver fields
       hireStartAt: b.hireStartAt ? new Date(b.hireStartAt) : undefined,
@@ -182,22 +251,65 @@ export async function POST(req: NextRequest) {
       isFragile: !!b.isFragile,
       itemValue: b.itemValue || 0,
       codAmount: b.codAmount || 0,
-      scheduledAt: b.scheduledAt ? new Date(b.scheduledAt) : undefined,
+      // A rental booked for a future departureAt is a SCHEDULED ride. It used to
+      // land only in `departureAt` (an outstation field), leaving scheduledAt
+      // unset — so a rental booked for next week was broadcast to drivers
+      // immediately and then aged out of the feed after 15 minutes.
+      scheduledAt: b.scheduledAt
+        ? new Date(b.scheduledAt)
+        : (service === 'rental' && b.departureAt && new Date(b.departureAt).getTime() > Date.now() + 60_000
+            ? new Date(b.departureAt)
+            : undefined),
       deliveryStops: Array.isArray(b.deliveryStops) && b.deliveryStops.length ? b.deliveryStops : undefined,
     })
 
-    // Find nearest online approved driver: same zone + vehicle type
-    const drivers = await Driver.find({
-      status: 'approved', isOnline: true,
-      ...(zoneId ? { zoneId: String(zoneId) } : {}),
-      selectedVehicleTypeName: b.vehicleType,
-    }).lean() as any[]
+    // Record the redemption only once the ride actually exists.
+    if (promo?.applied) await consumePromo(promo.code)
 
-    let nearest: any = null, nd = Infinity
-    for (const d of drivers) {
-      if (d.currentLat == null) continue
-      const dist = distanceKm({ lat: b.pickupLat, lng: b.pickupLng }, { lat: d.currentLat, lng: d.currentLng })
-      if (dist < nd) { nd = dist; nearest = d }
+    // Offer the ride to the best-ranked captain and push them, instead of
+    // listing it to everyone at once. Best-effort: a dispatch failure must
+    // never fail the booking — the ride simply stays in the open pool.
+    let offeredDriverId: string | null = null
+    try { offeredDriverId = await offerNext(String(ride._id)) } catch (e) { console.error('[book] offer failed', e) }
+
+    // ── Pick the best driver by ETA, not by raw crow-flies distance ──
+    // Fresh location + not already on a ride + inside a sane pickup radius.
+    let nearest: any = null
+    let nearestKm: number | null = null
+    let nearestEtaMin: number | null = null
+
+    if (b.pickupLat != null && b.pickupLng != null) {
+      const pickup = { lat: b.pickupLat, lng: b.pickupLng }
+      const [factor, drivers] = await Promise.all([
+        getEtaFactor(pickup),
+        Driver.find(availableDriverFilter({
+          ...(zoneId ? { zoneId: String(zoneId) } : {}),
+          selectedVehicleTypeName: b.vehicleType,
+          // Matches offerNext()'s own female-first-then-everyone fallback, so
+          // this preview ETA doesn't promise a driver the real dispatch isn't
+          // actually about to look for.
+          ...(b.preferFemaleDriver ? { gender: 'female' } : {}),
+        })).lean() as Promise<any[]>,
+      ])
+
+      const byId = new Map<string, any>((drivers as any[]).map(d => [String(d._id), d]))
+      const busy = await driverBusyRides((drivers as any[]).map(d => String(d._id)))
+      let ranked = rankCandidates(drivers, pickup, factor, busy).slice(0, ETA_CONFIG.CANDIDATE_POOL)
+
+      if (ranked.length) {
+        // Same traffic refinement the real dispatch ladder uses, via the shared
+        // helper rather than a second hand-rolled copy of the matrix call. The
+        // cached leg from offerNext() above is almost always reused here, so
+        // this costs nothing extra when the flag is on.
+        if (MATRIX_REFINE.DISPATCH) {
+          ranked = await refineCandidatesWithTraffic(ranked, pickup)
+        }
+
+        const best = ranked[0]
+        nearest = byId.get(best.id) ?? null
+        nearestKm = best.km
+        nearestEtaMin = best.etaMin
+      }
     }
 
     return withCors({
@@ -206,8 +318,15 @@ export async function POST(req: NextRequest) {
         id: ride._id, otp, status: 'pending', fare, tip, totalFare, commissionPercent,
         distance: roadDistanceKm, duration: roadDurationMin, routePolyline, fareBreakdown: breakdown,
       },
+      // Lets the app show "coupon expired" rather than silently charging full price.
+      promo: promo && promo.code ? promo : null,
+      rentalPackage: rentalQuote,
+      quoteWarning,
       driverFound: !!nearest,
-      driver: nearest ? { id: nearest._id, name: nearest.name, phone: nearest.phone, distanceKm: +nd.toFixed(1) } : null,
+      offeredDriverId,
+      driver: nearest
+        ? { id: nearest._id, name: nearest.name, phone: nearest.phone, distanceKm: nearestKm, etaMin: nearestEtaMin }
+        : null,
     })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)

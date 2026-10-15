@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { guardAdmin } from '@/lib/admin-guard'
 import { connectDB } from '@/lib/mongodb'
 import User from '@/models/User'
 import WalletTransaction from '@/models/WalletTransaction'
@@ -6,6 +7,7 @@ import WalletTransaction from '@/models/WalletTransaction'
 // GET /api/wallet/admin?userId=  → { balance, transactions } (admin user-detail page)
 export async function GET(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const userId = req.nextUrl.searchParams.get('userId')
     if (!userId) return Response.json({ error: 'userId required' }, { status: 400 })
@@ -22,6 +24,7 @@ export async function GET(req: NextRequest) {
 // Admin manually increases/decreases a user's balance with a note.
 export async function POST(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const { userId, amount, type, note } = await req.json()
     const amt = Math.round(Number(amount) || 0)

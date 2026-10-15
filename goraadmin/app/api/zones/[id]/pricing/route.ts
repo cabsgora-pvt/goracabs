@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Zone from '@/models/Zone'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -15,6 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const zone = await Zone.findById(params.id)
@@ -37,6 +39,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const { pricing } = await req.json()
     const zone = await Zone.findByIdAndUpdate(params.id, { pricing }, { new: true }).lean()

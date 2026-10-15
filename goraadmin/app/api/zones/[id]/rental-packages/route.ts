@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Zone from '@/models/Zone'
+import { guardAdmin } from '@/lib/admin-guard'
 
 // GET all rental packages for a zone
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -18,6 +19,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 // PUT replace the full rental packages array (frontend sends edited list)
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const { packages } = await req.json()
     const zone: any = await Zone.findByIdAndUpdate(

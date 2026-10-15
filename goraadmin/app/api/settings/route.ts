@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Settings from '@/models/Settings'
 import { getSettings } from '@/lib/settings'
+import { guardAdmin } from '@/lib/admin-guard'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     let settings = await Settings.findOne({ key: 'global' }).lean()
     if (!settings) {
@@ -28,6 +30,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const settings = await Settings.findOneAndUpdate(

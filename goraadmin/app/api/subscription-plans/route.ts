@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import SubscriptionPlan from '@/models/SubscriptionPlan'
 import { withCors, corsOptions } from '@/lib/cors'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -10,6 +11,7 @@ export async function OPTIONS() { return corsOptions() }
 // GET /api/subscription-plans?active=1 → only active plans (driver app)
 export async function GET(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const activeOnly = req.nextUrl.searchParams.get('active') === '1'
     const filter = activeOnly ? { isActive: true } : {}
@@ -23,6 +25,7 @@ export async function GET(req: NextRequest) {
 // POST /api/subscription-plans → create a plan (admin)
 export async function POST(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const plan = await SubscriptionPlan.create({

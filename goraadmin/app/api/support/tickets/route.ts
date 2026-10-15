@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import SupportTicket from '@/models/SupportTicket'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function GET(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const { searchParams } = new URL(req.url)
     const page = parseInt(searchParams.get('page') || '1')
@@ -28,6 +30,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const ticket = await SupportTicket.create(body)

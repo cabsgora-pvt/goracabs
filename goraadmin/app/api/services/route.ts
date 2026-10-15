@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import ServiceConfig from '@/models/ServiceConfig'
+import { guardAdmin } from '@/lib/admin-guard'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const services = await ServiceConfig.find().lean()
     return NextResponse.json({ services })
@@ -14,6 +16,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const service = await ServiceConfig.findOneAndUpdate(

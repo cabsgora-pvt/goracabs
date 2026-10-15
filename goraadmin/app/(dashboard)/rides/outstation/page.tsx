@@ -104,7 +104,21 @@ export default function OutstationRidesPage() {
                   <Td>{r.vehicleType || '—'}</Td>
                   <Td>{r.numPassengers || 1}</Td>
                   <Td>{r.driverName || <span className="text-gray-400">Unassigned</span>}</Td>
-                  <Td className="font-semibold text-blue-700">₹{r.totalFare || r.fare || 0}</Td>
+                  <Td className="font-semibold text-blue-700">
+                    ₹{r.totalFare || r.fare || 0}
+                    {/* Tolls are paid to the driver directly and are not part of
+                        the fare or the revenue total above. */}
+                    {(r.tollCharge || 0) > 0 && (
+                      <div className="text-xs font-normal text-gray-500">
+                        + ₹{r.tollCharge} toll ({(r.tolls || []).length}) paid to driver
+                        {(r.tolls || []).some((t: any) => t.reportedAt) && (
+                          <span className="ml-1 text-red-600 font-semibold">
+                            · {(r.tolls || []).filter((t: any) => t.reportedAt).length} reported
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </Td>
                   <Td><span className="text-xs text-gray-500">{r.outstationPhase || '—'}</span></Td>
                   <Td>
                     <span className={`px-2 py-0.5 rounded text-xs font-semibold ${

@@ -15,8 +15,23 @@ export async function POST(req: NextRequest) {
     const { isOnline, lat, lng } = await req.json()
     await connectDB()
 
+    // A client could skip the app's own lock screen — this is the real gate.
+    if (isOnline) {
+      const existing: any = await Driver.findById(payload.id).select('faceVerificationRequired faceVerificationReason').lean()
+      if (existing?.faceVerificationRequired) {
+        return withCors({
+          error: 'Face verification required before going online',
+          faceVerificationRequired: true,
+          faceVerificationReason: existing.faceVerificationReason || 'mismatch',
+        }, 403)
+      }
+    }
+
     const update: any = { isOnline: !!isOnline }
-    if (lat != null) update.currentLat = lat
+    // Stamp freshness here too. The ETA engine and dispatch both require a
+    // recent locationUpdatedAt, so without this a driver who just tapped
+    // "go online" stays invisible until their first 15s location push.
+    if (lat != null) { update.currentLat = lat; update.locationUpdatedAt = new Date() }
     if (lng != null) update.currentLng = lng
 
     const driver: any = await Driver.findByIdAndUpdate(payload.id, update, { new: true }).lean()

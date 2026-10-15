@@ -4,6 +4,7 @@ import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import { requireAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
+import { pushToUserAsync, pushToDriverAsync } from '@/lib/push'
 
 export async function OPTIONS() {
   return corsOptions()
@@ -37,8 +38,27 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       params.id,
       { $push: { messages: msg } },
       { new: true }
-    ).select('messages').lean()
+    ).select('messages riderId driverId riderName driverName').lean()
     if (!ride) return withCors({ error: 'Ride not found' }, 404)
+
+    // Chat is poll-based on both sides, so without this a message is only seen
+    // if the other party happens to have the chat screen open.
+    if (sender === 'user') {
+      pushToDriverAsync(ride.driverId, {
+        title: ride.riderName || 'Rider',
+        body: msg.text,
+        channelId: 'ride_chat',
+        data: { type: 'ride_message', rideId: String(params.id), sender: 'user' },
+      })
+    } else {
+      pushToUserAsync(ride.riderId, {
+        title: ride.driverName || 'Driver',
+        body: msg.text,
+        channelId: 'ride_chat',
+        data: { type: 'ride_message', rideId: String(params.id), sender: 'driver' },
+      })
+    }
+
     return withCors({ success: true, messages: ride.messages || [] })
   } catch (error: any) {
     return withCors({ error: error.message || 'Server error' }, 500)

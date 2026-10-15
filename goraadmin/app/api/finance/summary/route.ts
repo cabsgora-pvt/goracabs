@@ -1,11 +1,13 @@
 export const dynamic = 'force-dynamic'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
+import { guardAdmin } from '@/lib/admin-guard'
 
 // GET → finance summary: rides, gross revenue, admin commission profit, driver payout
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
 
     const startOfDay = new Date()

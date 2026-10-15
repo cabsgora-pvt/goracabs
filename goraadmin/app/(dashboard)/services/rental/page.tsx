@@ -1,83 +1,75 @@
 'use client'
-import { useState, useEffect } from 'react'
+import Link from 'next/link'
+import { useEffect, useState } from 'react'
 import { Header } from '@/components/header'
 import { PageHeader } from '@/components/ui/page-header'
-import { Toast } from '@/components/ui/toast'
+import { MapPin, AlertTriangle } from 'lucide-react'
 
-const FIELDS = [
-  { label: 'Base Fare (₹)', key: 'baseFare' },
-  { label: 'Per KM Rate (₹)', key: 'perKm' },
-  { label: 'Per Minute Rate (₹)', key: 'perMin' },
-  { label: 'Minimum Fare (₹)', key: 'minFare' },
-  { label: 'Night Surcharge (%)', key: 'nightSurchargePercent' },
-  { label: 'Cancellation Fee (₹)', key: 'cancellationFee' },
-  { label: 'Driver Commission (%)', key: 'driverCommissionPercent' },
-]
-
+// This page used to present baseFare / perKm / perMin / minFare / night
+// surcharge / commission inputs and save them to ServiceConfig(service:'rental').
+// Nothing in the rental flow has ever read that record — rental is priced
+// entirely from Zone.rentalPackages (see /api/rental/packages and
+// lib/rental-pricing.ts). Editing it looked like it changed prices and did not.
+//
+// Rather than leave a convincing but inert form, it now points at the screen
+// that actually controls rental pricing.
 export default function RentalServicePage() {
-  const [config, setConfig] = useState<any>({
-    baseFare: 200, perKm: 10, perMin: 3, minFare: 200,
-    nightSurchargePercent: 10, cancellationFee: 50, driverCommissionPercent: 80,
-  })
+  const [zones, setZones] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
   useEffect(() => {
-    fetch('/api/services/rental')
+    fetch('/api/zones')
       .then(r => r.json())
-      .then(d => { if (!d.error) setConfig(d); setLoading(false) })
+      .then(d => { setZones(d.zones || d || []); setLoading(false) })
       .catch(() => setLoading(false))
   }, [])
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
-    const res = await fetch('/api/services/rental', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...config, service: 'rental' }),
-    })
-    setSaving(false)
-    setToast(res.ok ? { msg: 'Rental pricing saved!', type: 'success' } : { msg: 'Failed to save', type: 'error' })
-  }
-
-  if (loading) return (
-    <div><Header title="Rental Pricing" />
-      <div className="p-6 flex items-center justify-center h-64">
-        <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-      </div>
-    </div>
-  )
 
   return (
     <div>
       <Header title="Rental Pricing" />
       <div className="p-6 space-y-6">
-        <PageHeader title="Rental Service Pricing" subtitle="Configure fares for hourly rental service" />
-        <form onSubmit={handleSave}>
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {FIELDS.map(f => (
-                <div key={f.key}>
-                  <label htmlFor={`rental-${f.key}`} className="block text-sm font-medium text-gray-700 mb-1">{f.label}</label>
-                  <input id={`rental-${f.key}`} type="number" step="0.5"
-                    value={config[f.key] ?? 0}
-                    onChange={e => setConfig({ ...config, [f.key]: +e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-              ))}
-            </div>
-            <div className="mt-6 flex justify-end">
-              <button type="submit" disabled={saving}
-                className="px-8 py-2.5 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary-dark disabled:opacity-60">
-                {saving ? 'Saving...' : 'Save Pricing'}
-              </button>
-            </div>
+        <PageHeader title="Rental Pricing" subtitle="Rental is priced per zone, per vehicle, as hourly packages" />
+
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-sm text-amber-900">
+            <p className="font-semibold">Rental does not use flat per-km pricing.</p>
+            <p className="mt-1">
+              Each zone defines its own packages (e.g. 4hr/40km, 8hr/80km) per vehicle, with their
+              own extra-hour rate, extra-km rate, night charge and commission. Pick a zone below to
+              edit them.
+            </p>
           </div>
-        </form>
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm divide-y">
+          {loading && <div className="p-6 text-center text-gray-400 text-sm">Loading zones...</div>}
+          {!loading && zones.length === 0 && (
+            <div className="p-6 text-center text-gray-400 text-sm">
+              No zones yet — create one under <Link href="/zones" className="text-blue-600 underline">Zones</Link>.
+            </div>
+          )}
+          {zones.map((z: any) => (
+            <Link
+              key={z._id}
+              href={`/zones/${z._id}/pricing`}
+              className="flex items-center justify-between p-4 hover:bg-gray-50"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-blue-50 text-blue-600"><MapPin className="w-4 h-4" /></div>
+                <div>
+                  <div className="font-semibold text-gray-900 text-sm">{z.name}</div>
+                  <div className="text-xs text-gray-500">
+                    {z.city || '—'} · {(z.rentalPackages?.length ?? 0)} rental package
+                    {(z.rentalPackages?.length ?? 0) === 1 ? '' : 's'}
+                  </div>
+                </div>
+              </div>
+              <span className="text-xs font-semibold text-blue-600">Edit packages →</span>
+            </Link>
+          ))}
+        </div>
       </div>
-      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   )
 }

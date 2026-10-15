@@ -13,6 +13,8 @@ const TicketSchema = new Schema({
   zoneName: String,
   subject: String,
   category: String,
+  // The ride a complaint is about, when there is one (a reported toll).
+  rideId: { type: Schema.Types.ObjectId, ref: 'Ride' },
   priority: { type: String, enum: ['low', 'medium', 'high'], default: 'medium' },
   status: { type: String, enum: ['open', 'in_progress', 'resolved', 'closed'], default: 'open' },
   messages: [MessageSchema],

@@ -4,6 +4,7 @@ import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
 import { withCors, corsOptions } from '@/lib/cors'
+import { guardRideActor } from '@/lib/admin-guard'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -12,6 +13,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   try {
     const { by, rating, review } = await req.json()
     await connectDB()
+
+    // Only this ride's rider, its assigned driver, or an admin may act on it.
+    {
+      const _r: any = await Ride.findById(params.id).select('riderId driverId').lean()
+      if (!_r) return withCors({ error: 'Ride not found' }, 404)
+      const _denied = guardRideActor(req, _r)
+      if (_denied) return withCors(await _denied.json(), _denied.status)
+    }
     const ride: any = await Ride.findById(params.id)
     if (!ride) return withCors({ error: 'Ride not found' }, 404)
 

@@ -1,13 +1,15 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import User from '@/models/User'
 import Driver from '@/models/Driver'
 import Ride from '@/models/Ride'
 import SupportTicket from '@/models/SupportTicket'
 import Withdrawal from '@/models/Withdrawal'
+import { guardAdmin } from '@/lib/admin-guard'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const today = new Date()
     today.setHours(0, 0, 0, 0)
