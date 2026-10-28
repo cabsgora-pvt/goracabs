@@ -8,6 +8,7 @@ import Settings from '@/models/Settings'
 import { crowKm, getEtaFactor, predictEtaMin, ETA_CONFIG } from '@/lib/eta'
 import { withCors, corsOptions } from '@/lib/cors'
 import { pushToUserAsync } from '@/lib/push'
+import { driverIsBusy } from '@/lib/dispatch'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -28,6 +29,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const maxNeg = Math.abs(Number(da.maxNegativeWallet ?? 500))
     if (da.walletBlockEnabled !== false && (driver.walletBalance || 0) < -maxNeg) {
       return withCors({ error: `Low wallet balance (₹${Math.round(driver.walletBalance || 0)}). Please recharge to accept rides.` }, 403)
+    }
+
+    // A busy driver (see BUSY in lib/dispatch.ts) takes no other ride. The feed hides requests from
+    // a busy driver; this stops one accepted from a stale screen or by id.
+    // (The ride being accepted is excluded, so a repeated tap reads as before.)
+    if (await driverIsBusy(String(driver._id), params.id)) {
+      return withCors({ error: 'Finish your current ride before accepting another' }, 409)
     }
 
     // Atomic claim: only succeeds if still pending, and only for the vehicle

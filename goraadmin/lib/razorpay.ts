@@ -79,3 +79,24 @@ export async function verifyRazorpaySignature(
     return false
   }
 }
+
+// Reads an order back from Razorpay (GET /v1/orders/:id). Used to learn what a
+// verified payment actually captured — the amount and the notes we stamped on
+// the order when we created it — instead of trusting a figure from the client.
+export async function fetchRazorpayOrder(
+  orderId: string
+): Promise<{ ok: boolean; order?: any; error?: string }> {
+  const cfg = await getRazorpayConfig()
+  if (!cfg.enabled) return { ok: false, error: 'Razorpay is not enabled' }
+  const auth = Buffer.from(`${cfg.keyId}:${cfg.keySecret}`).toString('base64')
+  try {
+    const res = await fetch(`https://api.razorpay.com/v1/orders/${encodeURIComponent(orderId)}`, {
+      headers: { Authorization: `Basic ${auth}` },
+    })
+    const data = await res.json()
+    if (!res.ok) return { ok: false, error: data?.error?.description || `HTTP ${res.status}` }
+    return { ok: true, order: data }
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'Razorpay request failed' }
+  }
+}

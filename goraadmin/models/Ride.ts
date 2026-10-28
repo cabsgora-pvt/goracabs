@@ -183,6 +183,30 @@ const RideSchema = new Schema({
   faceVerifyDueAt: Date,                 // when the next poll should demand a check; set lazily on first poll
   faceVerifyTriggered: { type: Boolean, default: false }, // already asked for one this ride — don't ask twice
   cancellationFee: { type: Number, default: 0 },
+  // ── Money captured BEFORE a driver was found (outstation pays at booking) ──
+  // Recorded at booking from a server-verified source — the rider's own wallet
+  // debit row, or a signature-checked Razorpay order — never from a client
+  // amount. Exists so a ride the system closes for "No driver found" can give
+  // that money back (lib/dispatch.ts → settleNoDriverRefunds).
+  prepaidAmount: { type: Number, default: 0 },
+  prepaidVia: String,            // 'wallet' | 'online'
+  prepaidRef: String,            // WalletTransaction _id, or Razorpay payment id
+  // The rider was charged upfront but the payment could not be tied to this
+  // ride (old app build, gateway lookup failed). Such a ride is never closed
+  // automatically, because the system could not give the money back.
+  prepaidUnlinked: { type: Boolean, default: false },
+  // Refund bookkeeping for any cancellation (lib/refunds.ts). refundPending is
+  // set in the same atomic update that cancels the ride, so a crash before the
+  // wallet credit is retried by the next sweep instead of being lost.
+  refundPending: { type: Boolean, default: false },
+  refundLeaseAt: Date,
+  refundedAmount: { type: Number, default: 0 },
+  // The status the ride was cancelled FROM (pending / accepted / arrived /
+  // ongoing). Decides what lib/refunds.ts gives back.
+  cancelledFromStatus: String,
+  // Set when a cancelled ride's upfront payment must be refunded by an admin
+  // rather than automatically: 'prepay_unlinked' | 'cancelled_mid_trip'.
+  refundReview: String,
   driverRating: Number,
   riderRating: Number,
   riderReview: String,

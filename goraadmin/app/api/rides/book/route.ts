@@ -8,8 +8,9 @@ import Zone from '@/models/Zone'
 import { distanceKm, pointInPolygon } from '@/lib/geo'
 // NB: local `roadDistanceKm` below is the trip distance — do not import the
 // eta.ts helper of the same name into this file.
-import { availableDriverFilter, driverBusyRides, getEtaFactor, rankCandidates, refineCandidatesWithTraffic, MATRIX_REFINE, ETA_CONFIG } from '@/lib/eta'
-import { offerNext } from '@/lib/dispatch'
+import { availableDriverFilter, getEtaFactor, rankCandidates, refineCandidatesWithTraffic, MATRIX_REFINE, ETA_CONFIG } from '@/lib/eta'
+import { offerNext, withoutBusyDrivers, busyDriverIds } from '@/lib/dispatch'
+import { chargedAtBooking, linkPrepayment } from '@/lib/prepay'
 import { quoteRental, type RentalQuote } from '@/lib/rental-pricing'
 import { evaluatePromo, consumePromo, type PromoResult } from '@/lib/promo'
 import { verifyQuote, quoteCell, ENFORCE_QUOTES } from '@/lib/quote'
@@ -265,7 +266,16 @@ export async function POST(req: NextRequest) {
             ? new Date(b.departureAt)
             : undefined),
       deliveryStops: Array.isArray(b.deliveryStops) && b.deliveryStops.length ? b.deliveryStops : undefined,
+      // Charged before booking (outstation wallet/online): presumed NOT yet tied
+      // to a verified payment until linkPrepayment below proves otherwise. Kept
+      // true on any failure, so the ride is never auto-closed without a refund.
+      prepaidUnlinked: chargedAtBooking(service, paymentMode),
     })
+
+    // Tie an upfront payment to this ride from a server-verified source, so a
+    // ride the system closes for "No driver found" can give it back.
+    // Authenticated rider only: the debit or order must be provably theirs.
+    await linkPrepayment(ride, auth?.id, b)
 
     // Record the redemption only once the ride actually exists.
     if (promo?.applied) await consumePromo(promo.code)
@@ -297,8 +307,10 @@ export async function POST(req: NextRequest) {
       ])
 
       const byId = new Map<string, any>((drivers as any[]).map(d => [String(d._id), d]))
-      const busy = await driverBusyRides((drivers as any[]).map(d => String(d._id)))
-      let ranked = rankCandidates(drivers, pickup, factor, busy).slice(0, ETA_CONFIG.CANDIDATE_POOL)
+      const busy = await busyDriverIds((drivers as any[]).map(d => String(d._id)))
+      // Same rule as the dispatch ladder: a driver with an active ride is not a
+      // candidate at all, so this preview never names one the ladder won't offer.
+      let ranked = rankCandidates(withoutBusyDrivers(drivers, busy), pickup, factor).slice(0, ETA_CONFIG.CANDIDATE_POOL)
 
       if (ranked.length) {
         // Same traffic refinement the real dispatch ladder uses, via the shared

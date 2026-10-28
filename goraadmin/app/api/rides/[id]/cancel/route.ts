@@ -2,10 +2,11 @@ export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
-import ServiceConfig from '@/models/ServiceConfig'
 import { withCors, corsOptions } from '@/lib/cors'
 import { pushToUserAsync, pushToDriverAsync } from '@/lib/push'
 import { guardRideActor } from '@/lib/admin-guard'
+import { cancelRide } from '@/lib/refunds'
+import { requireAuth, requireDriverAuth, isAdminPayload } from '@/lib/auth'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -21,35 +22,25 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await connectDB()
 
     // Only this ride's rider, its assigned driver, or an admin may act on it.
-    {
-      const _r: any = await Ride.findById(params.id).select('riderId driverId').lean()
-      if (!_r) return withCors({ error: 'Ride not found' }, 404)
-      const _denied = guardRideActor(req, _r)
-      if (_denied) return withCors(await _denied.json(), _denied.status)
-    }
+    const _r: any = await Ride.findById(params.id).select('riderId driverId').lean()
+    if (!_r) return withCors({ error: 'Ride not found' }, 404)
+    const _denied = guardRideActor(req, _r)
+    if (_denied) return withCors(await _denied.json(), _denied.status)
 
-    const ride: any = await Ride.findById(params.id)
-    if (!ride) return withCors({ error: 'Ride not found' }, 404)
-    if (ride.status === 'completed') return withCors({ error: 'Ride already completed' }, 400)
-    if (ride.status === 'cancelled') return withCors({ success: true, alreadyCancelled: true })
-
-    const by = cancelledBy || 'rider'
-    let cancellationFee = 0
-
-    // Only charge the rider once a driver has actually committed to the trip.
-    // Cancelling a still-pending request stays free.
-    const driverWasCommitted = ['accepted', 'arrived'].includes(ride.status)
-    if (by === 'rider' && driverWasCommitted) {
-      const cfg: any = await ServiceConfig.findOne({ service: ride.service }).lean().catch(() => null)
-      cancellationFee = Math.max(0, Number(cfg?.cancellationFee) || 0)
-    }
-
-    ride.status = 'cancelled'
-    ride.cancelledBy = by
-    ride.cancellationReason = reason || ''
-    ride.cancellationFee = cancellationFee
-    ride.awaitingPayment = false
-    await ride.save()
+    // Who cancelled decides the fee and the refund, so it comes from the
+    // caller's token, never from the body: a rider sending cancelledBy:'admin'
+    // used to skip the fee (and would now get a full prepaid refund too).
+    const asDriver = requireDriverAuth(req) as any
+    const asUser = requireAuth(req) as any
+    let by: string
+    if (asDriver?.type === 'driver' && _r.driverId && String(_r.driverId) === String(asDriver.id)) by = 'driver'
+    else if (asUser?.type === 'user' && _r.riderId && String(_r.riderId) === String(asUser.id)) by = 'rider'
+    else if (isAdminPayload(asUser)) by = cancelledBy || 'admin'
+    else return withCors({ error: 'Not a participant in this ride' }, 403)
+    const out = await cancelRide(params.id, by, reason)
+    if (out.error) return withCors({ error: out.error }, out.status || 400)
+    if (out.alreadyCancelled) return withCors({ success: true, alreadyCancelled: true })
+    const { ride, cancellationFee, review, refundedAmount } = out
 
     // Notify whoever did NOT press cancel. A driver already driving to a pickup
     // is the case that matters — without this they find out by watching the
@@ -72,7 +63,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       })
     }
 
-    return withCors({ success: true, cancellationFee })
+    return withCors({ success: true, cancellationFee, refundedAmount, ...(review ? { refundReview: review } : {}) })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)
   }

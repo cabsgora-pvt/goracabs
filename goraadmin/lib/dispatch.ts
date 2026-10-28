@@ -17,17 +17,74 @@
 import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
 import {
-  availableDriverFilter, driverBusyRides, getEtaFactor, rankCandidates,
+  availableDriverFilter, getEtaFactor, rankCandidates,
   refineCandidatesWithTraffic, MATRIX_REFINE,
   type DriverCandidate,
 } from './eta'
-import { sendPushAsync } from './push'
+import { sendPushAsync, pushToUserAsync } from './push'
+import { settleCancelRefunds } from './refunds'
 
 export const DISPATCH = {
   /** How long one captain has to accept before the offer moves on. */
   OFFER_TTL_SEC: 20,
   /** How many captains to try before opening the ride to everyone. */
   MAX_ROUNDS: 4,
+}
+
+// ── Busy drivers ─────────────────────────────────────────────────────────────
+// ONE rule, used by every place that decides whether a driver may get a new
+// request: candidatesFor (the offer ladder), the /rides/book preview, the
+// driver pending feed and the /accept backstop.
+//
+// A driver is busy when they have a ride that is
+//   • arrived or ongoing, or
+//   • accepted AND due within BUSY.ACCEPTED_DUE_WITHIN_MIN (or already due).
+// "Due" is the latest of createdAt, scheduledAt, departureAt and hireStartAt.
+// So a driver who accepted tomorrow's outstation trip keeps getting other
+// requests until shortly before it.
+//
+// This replaces rankCandidates' own "busy" handling for dispatch, which kept a
+// driver finishing an ongoing trip nearby as a chained candidate. The
+// fare-screen ETA (eta.ts etaByVehicleType) is unchanged.
+export const BUSY = {
+  ACCEPTED_DUE_WITHIN_MIN: 60,
+}
+
+/** Mongo filter for rides that make their driver busy right now. */
+export function busyRideFilter(now: Date = new Date()): Record<string, any> {
+  const horizon = new Date(now.getTime() + BUSY.ACCEPTED_DUE_WITHIN_MIN * 60_000)
+  // max(a, b, c, d) <= horizon  ⇔  each of them is <= horizon (or missing).
+  const dueBy = (f: string) => ({ $or: [{ [f]: null }, { [f]: { $lte: horizon } }] })
+  return {
+    $or: [
+      { status: { $in: ['arrived', 'ongoing'] } },
+      {
+        status: 'accepted',
+        createdAt: { $lte: horizon },
+        $and: [dueBy('scheduledAt'), dueBy('departureAt'), dueBy('hireStartAt')],
+      },
+    ],
+  }
+}
+
+/** Ids of the given drivers who are busy (see BUSY). */
+export async function busyDriverIds(driverIds: string[], now: Date = new Date()): Promise<Set<string>> {
+  if (!driverIds.length) return new Set()
+  const rows: any[] = await Ride.find({ driverId: { $in: driverIds }, ...busyRideFilter(now) })
+    .select('driverId').lean()
+  return new Set(rows.map(r => String(r.driverId)))
+}
+
+/** Drops busy drivers from a candidate list. */
+export function withoutBusyDrivers<T extends { _id?: any }>(drivers: T[], busy: Set<string>): T[] {
+  return drivers.filter(d => !busy.has(String(d._id)))
+}
+
+/** True when this driver is busy, ignoring the ride `exceptRideId`. */
+export async function driverIsBusy(driverId: string, exceptRideId?: string, now: Date = new Date()): Promise<boolean> {
+  const q: Record<string, any> = { driverId, ...busyRideFilter(now) }
+  if (exceptRideId) q._id = { $ne: exceptRideId }
+  return !!(await Ride.exists(q))
 }
 
 /** Ranked, still-eligible candidates for a ride (nearest-by-ETA first). */
@@ -52,8 +109,11 @@ export async function candidatesFor(ride: any): Promise<DriverCandidate[]> {
 
     const rejected = new Set((ride.rejectedBy || []).map(String))
     const eligible = (drivers as any[]).filter(d => !rejected.has(String(d._id)))
-    const busy = await driverBusyRides(eligible.map(d => String(d._id)))
-    let ranked = rankCandidates(eligible, pickup, factor, busy)
+    // Busy drivers (see BUSY) are removed outright rather than handed to
+    // rankCandidates, which would keep one finishing a trip nearby as a chained
+    // candidate.
+    const busy = await busyDriverIds(eligible.map(d => String(d._id)))
+    let ranked = rankCandidates(withoutBusyDrivers(eligible, busy), pickup, factor)
 
     // This is the ranking that decides who is actually offered the ride, so it is
     // where a traffic-aware estimate is worth paying for: one batched call per
@@ -140,6 +200,10 @@ export async function offerNext(rideId: string): Promise<string | null> {
  * the driver feed (so it self-heals without a scheduler) and by the cron route.
  */
 export async function sweepExpiredOffers(limit = 25): Promise<number> {
+  // Close rides nobody took before re-offering anything: an overdue ride must
+  // not burn another rung of the ladder (and push another driver) first.
+  await expireUnmatchedRides(limit).catch(() => 0)
+
   const now = new Date()
   const stale: any[] = await Ride.find({
     status: 'pending',
@@ -176,4 +240,97 @@ export function driverMaySee(ride: any, driverId: string): boolean {
   if (!ride.offeredTo) return true
   if (ride.offerExpiresAt && new Date(ride.offerExpiresAt) < new Date()) return true
   return String(ride.offeredTo) === String(driverId)
+}
+
+// ── No driver found → the ride closes itself ─────────────────────────────────
+// A pending ride used to stay pending forever: the driver feed stops listing it
+// after 2 min (taxi) or 15 min (other services), and the rider watched
+// "Looking for nearby drivers" until they gave up and cancelled by hand.
+//
+// Rule: an instant ride still pending NO_DRIVER.TIMEOUT_SEC after it became due
+// is cancelled by the system. "Due" is the latest of createdAt and any
+// scheduled start the ride carries (scheduledAt; outstation/rental departureAt;
+// hire hireStartAt), so a ride booked for later is untouched until its time.
+//
+// Runs from (a) the rider's own poll of GET /rides/:id, (b) sweepExpiredOffers
+// on every driver feed poll. Atomic: one findOneAndUpdate guarded by
+// status 'pending' + the age condition, so exactly one caller wins, and an
+// accept racing it either lands first (ride no longer pending → not closed) or
+// finds the ride already cancelled (its own atomic claim on 'pending' fails).
+export const NO_DRIVER = {
+  TIMEOUT_SEC: 180,
+  REASON: 'No driver found',
+  MESSAGE: 'No drivers available right now. Please try again.',
+}
+
+/** Mongo filter: pending rides that have waited past the timeout. */
+export function noDriverOverdueFilter(now: Date = new Date()): Record<string, any> {
+  const cutoff = new Date(now.getTime() - NO_DRIVER.TIMEOUT_SEC * 1000)
+  // `{ f: null }` matches both a missing field and an explicit null.
+  const dueBy = (f: string) => ({ $or: [{ [f]: null }, { [f]: { $lte: cutoff } }] })
+  return {
+    status: 'pending',
+    createdAt: { $lte: cutoff },
+    // Charged upfront with no verified link to the payment: closing it would
+    // strand the money, so it is left as before (see lib/prepay.ts).
+    prepaidUnlinked: { $ne: true },
+    $and: [dueBy('scheduledAt'), dueBy('departureAt'), dueBy('hireStartAt')],
+  }
+}
+
+/**
+ * Closes one ride as "No driver found" if, and only if, it is overdue.
+ * Idempotent: returns true only for the single call that actually closed it.
+ */
+export async function expireIfNoDriver(rideId: any, now: Date = new Date()): Promise<boolean> {
+  const ride: any = await Ride.findOneAndUpdate(
+    { _id: rideId, ...noDriverOverdueFilter(now) },
+    {
+      $set: {
+        status: 'cancelled',
+        cancelledBy: 'system',
+        cancellationReason: NO_DRIVER.REASON,
+        cancellationFee: 0,
+        awaitingPayment: false,
+        offeredTo: null,
+        cancelledFromStatus: 'pending',
+        // Always set; settleCancelRefunds (lib/refunds.ts) clears it after
+        // refunding whatever was captured (usually nothing). Written in the
+        // same update as the cancel, so a crash between the two never loses one.
+        refundPending: true,
+      },
+      $unset: { offerExpiresAt: 1 },
+    },
+    { new: true },
+  ).select('_id riderId').lean()
+  if (!ride) return false
+
+  pushToUserAsync(ride.riderId, {
+    title: 'No driver found',
+    body: NO_DRIVER.MESSAGE,
+    channelId: 'ride_updates',
+    data: { type: 'ride_cancelled', rideId: String(ride._id), cancelledBy: 'system', reason: NO_DRIVER.REASON },
+  })
+
+  await settleCancelRefunds(ride._id).catch(e => console.error('[dispatch] no-driver refund failed', e))
+  return true
+}
+
+/** Closes every overdue pending ride (bounded), and retries unfinished refunds. */
+export async function expireUnmatchedRides(limit = 25): Promise<number> {
+  const now = new Date()
+  const overdue: any[] = await Ride.find(noDriverOverdueFilter(now)).select('_id').limit(limit).lean()
+  let closed = 0
+  for (const r of overdue) {
+    try { if (await expireIfNoDriver(r._id, now)) closed++ } catch { /* keep sweeping */ }
+  }
+
+  // A refund interrupted by a crash or a DB hiccup — from this close or from a
+  // rider/admin cancel — is picked up here.
+  const unsettled: any[] = await Ride.find({ status: 'cancelled', refundPending: true })
+    .select('_id').limit(10).lean()
+  for (const r of unsettled) {
+    try { await settleCancelRefunds(r._id) } catch { /* next sweep */ }
+  }
+  return closed
 }

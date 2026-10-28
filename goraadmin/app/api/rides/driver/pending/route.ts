@@ -7,7 +7,7 @@ import User from '@/models/User'
 import Settings from '@/models/Settings'
 import { requireDriverAuth } from '@/lib/auth'
 import { getEtaFactor, crowKm, predictEtaMin, displayRoadKm } from '@/lib/eta'
-import { sweepExpiredOffers, driverMaySee } from '@/lib/dispatch'
+import { sweepExpiredOffers, driverMaySee, driverIsBusy } from '@/lib/dispatch'
 import { withCors, corsOptions } from '@/lib/cors'
 
 export async function OPTIONS() { return corsOptions() }
@@ -39,6 +39,14 @@ export async function GET(req: NextRequest) {
 
     const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000)
     const driverId = String(driver._id)
+
+    // A busy driver (on a trip, or with an accepted ride due within the hour —
+    // see BUSY in lib/dispatch.ts) is shown no new requests, offered or open-
+    // pool. Their poll still drives the sweep, so dispatch keeps self-healing.
+    if (await driverIsBusy(driverId)) {
+      await sweepExpiredOffers().catch(() => 0)
+      return withCors({ rides: [], busy: true })
+    }
 
     // Build a $or so drivers see in-city taxi rides PLUS opt-in services (outstation, rental).
     // Taxi/delivery/hire are always shown; outstation + rental require the driver to opt in.

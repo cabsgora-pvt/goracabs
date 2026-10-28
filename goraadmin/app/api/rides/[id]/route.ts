@@ -7,6 +7,7 @@ import { uiPhaseFor, waitingSecondsFor } from '@/lib/ride-phase'
 import User from '@/models/User'
 import { rentalExtras, hireExtras } from '@/lib/ride-extras'
 import { requireAuth, requireDriverAuth, isAdminPayload } from '@/lib/auth'
+import { expireIfNoDriver } from '@/lib/dispatch'
 
 // GET ride by id — also returns hydrated driver + rider sub-objects
 // (driver photo, plate, model, rating; rider photo) so both apps can render rich cards.
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (!asUser?.id && !asDriver?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     await connectDB()
-    const ride: any = await Ride.findById(params.id).lean()
+    let ride: any = await Ride.findById(params.id).lean()
     if (!ride) return NextResponse.json({ error: 'Ride not found' }, { status: 404 })
 
     // Who may read it: an admin and the rider see everything; the assigned
@@ -31,6 +32,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (!isAdmin && !isRider && !isAssigned && !(isDriver && ride.status === 'pending')) {
       return NextResponse.json({ error: 'Not a participant in this ride' }, { status: 403 })
     }
+    // The rider polls this every 3 s while searching, so this is where a ride
+    // nobody took is closed as "No driver found" (no-op unless overdue; see
+    // lib/dispatch.ts). Re-read so this very answer carries the new state.
+    if (ride.status === 'pending' && await expireIfNoDriver(ride._id).catch(() => false)) {
+      ride = await Ride.findById(params.id).lean()
+      if (!ride) return NextResponse.json({ error: 'Ride not found' }, { status: 404 })
+    }
+
     if (!isAdmin && !isRider) {
       delete ride.otp
       delete ride.dropOtp
