@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../config/app_config.dart';
-import '../../core/constants/app_colors.dart';
-import '../../core/widgets/app_widgets.dart';
+import '../../widgets/captain_ui/captain_ui.dart';
+import 'widgets/reg_step_scaffold.dart';
 import '../../services/driver_api_service.dart';
 import 'vehicle_details_page.dart';
 
@@ -54,152 +54,146 @@ class _VehicleSelectionPageState extends State<VehicleSelectionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        children: [
-          _buildHeader(),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-                : _vehicleTypes.isEmpty
-                    ? Center(child: Text('No vehicle types available', style: TextStyle(color: AppColors.textGrey)))
-                    : Column(
-                        children: [
-                          Expanded(
-                            child: GridView.builder(
-                              padding: const EdgeInsets.all(16),
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                crossAxisSpacing: 12,
-                                mainAxisSpacing: 12,
-                                childAspectRatio: 1.1,
-                              ),
-                              itemCount: _vehicleTypes.length,
-                              itemBuilder: (ctx, i) {
-                                final vt = _vehicleTypes[i];
-                                final vtId = (vt['_id'] ?? vt['id'] ?? '').toString();
-                                final selId = (_selected?['_id'] ?? _selected?['id'] ?? '').toString();
-                                final isSelected = vtId.isNotEmpty && vtId == selId;
-                                return GestureDetector(
-                                  onTap: () => setState(() => _selected = vt),
-                                  child: AnimatedContainer(
-                                    duration: const Duration(milliseconds: 200),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: isSelected ? AppColors.primary : AppColors.divider,
-                                        width: isSelected ? 2.5 : 1.5,
-                                      ),
-                                      boxShadow: isSelected
-                                          ? [BoxShadow(color: AppColors.primary.withOpacity(0.15), blurRadius: 8, offset: const Offset(0, 4))]
-                                          : [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4)],
-                                    ),
-                                    child: Stack(
-                                      children: [
-                                        Padding(
-                                          padding: const EdgeInsets.all(12),
-                                          child: Column(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              Builder(builder: (_) {
-                                                final raw = (vt['imageUrl'] as String? ?? '').trim();
-                                                final imgUrl = raw.isEmpty ? '' : AppConfig.imageUrl(raw);
-                                                return imgUrl.isNotEmpty
-                                                    ? Image.network(
-                                                        imgUrl,
-                                                        height: 60,
-                                                        width: double.infinity,
-                                                        fit: BoxFit.contain,
-                                                        errorBuilder: (_, __, ___) => Icon(Icons.directions_car_rounded, size: 48, color: isSelected ? AppColors.primary : AppColors.textGrey),
-                                                      )
-                                                    : Icon(Icons.directions_car_rounded, size: 52, color: isSelected ? AppColors.primary : AppColors.textGrey);
-                                              }),
-                                              const SizedBox(height: 8),
-                                              Text(
-                                                vt['name'] as String? ?? '',
-                                                style: TextStyle(
-                                                  fontWeight: FontWeight.w700,
-                                                  fontSize: 13,
-                                                  color: isSelected ? AppColors.primary : AppColors.textDark,
-                                                ),
-                                                textAlign: TextAlign.center,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        // Selected checkmark badge
-                                        if (isSelected)
-                                          Positioned(
-                                            top: 6, right: 6,
-                                            child: Container(
-                                              padding: const EdgeInsets.all(2),
-                                              decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-                                              child: const Icon(Icons.check_rounded, size: 14, color: Colors.white),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                            child: PrimaryButton(label: 'Next', onTap: _next),
-                          ),
-                        ],
-                      ),
-          ),
-        ],
+    return RegStepScaffold(
+      step: CapRegSteps.vehicle,
+      stepLabel: 'Vehicle',
+      title: 'Which vehicle will you drive?',
+      subtitle: 'Pick the type that matches your RC book. It decides which trips you get.',
+      bottom: CapButton(
+        label: 'Continue',
+        tone: _selected == null ? CapButtonTone.secondary : CapButtonTone.primary,
+        onPressed: _next,
       ),
+      children: [
+        if (_loading)
+          Padding(
+            padding: const EdgeInsets.only(top: 40),
+            child: Center(child: CircularProgressIndicator(color: Cap.accent, strokeWidth: 2.6)),
+          )
+        else if (_vehicleTypes.isEmpty)
+          const CapEmpty(icon: Icons.directions_car_rounded, title: 'No vehicle types available',
+              message: 'Please try again in a little while.')
+        else
+          // 2-column grid, Ola / Uber / Rapido Captain style: the vehicle's
+          // own image and its name — nothing else.
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              // Fixed height: every tile, and so every image, is the same size.
+              mainAxisExtent: 168,
+            ),
+            itemCount: _vehicleTypes.length,
+            itemBuilder: (_, i) {
+              final vt = _vehicleTypes[i];
+              return VehicleTypeTile(
+                vt: vt,
+                selected: _isSelected(vt),
+                onTap: () => setState(() => _selected = vt),
+              );
+            },
+          ),
+      ],
     );
   }
 
-  Widget _buildHeader() {
+  bool _isSelected(Map<String, dynamic> vt) {
+    final vtId = (vt['_id'] ?? vt['id'] ?? '').toString();
+    final selId = (_selected?['_id'] ?? _selected?['id'] ?? '').toString();
+    return vtId.isNotEmpty && vtId == selId;
+  }
+}
+
+/// The vehicle type's own image (admin-uploaded), at one fixed visual size so
+/// a bike and a truck sit in identical frames; an icon when there is none.
+class VehicleTypeImage extends StatelessWidget {
+  final Map<String, dynamic> vt;
+  final double width, height;
+  const VehicleTypeImage({super.key, required this.vt, this.width = 84, this.height = 64});
+
+  static IconData iconFor(String name) {
+    final s = name.toLowerCase();
+    if (s.contains('bike') || s.contains('moto') || s.contains('scooter')) return Icons.two_wheeler;
+    if (s.contains('auto') || s.contains('rickshaw')) return Icons.electric_rickshaw;
+    if (s.contains('truck') || s.contains('tempo')) return Icons.local_shipping;
+    if (s.contains('suv')) return Icons.airport_shuttle;
+    return Icons.directions_car_rounded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final raw = (vt['imageUrl'] as String? ?? '').trim();
+    final url = raw.isEmpty ? '' : AppConfig.imageUrl(raw);
+    final icon = Icon(iconFor((vt['name'] ?? '').toString()), size: height * 0.55, color: Cap.muted);
     return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppColors.primaryDark, AppColors.primary],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+      width: width,
+      height: height,
+      decoration: BoxDecoration(color: Cap.surface, borderRadius: BorderRadius.circular(12)),
+      padding: const EdgeInsets.all(6),
+      child: url.isEmpty
+          ? Center(child: icon)
+          : Image.network(url, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Center(child: icon)),
+    );
+  }
+}
+
+/// One selectable vehicle type: its real image, centred in a fixed-height area,
+/// and its name. Light grey card; selected = navy 2px border + check badge.
+class VehicleTypeTile extends StatelessWidget {
+  final Map<String, dynamic> vt;
+  final bool selected;
+  final VoidCallback onTap;
+  const VehicleTypeTile({super.key, required this.vt, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: Material(
+        color: selected ? Cap.accent.withValues(alpha: 0.05) : Cap.tile,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Cap.radius),
+          side: BorderSide(color: selected ? Cap.accent : Colors.transparent, width: 2),
         ),
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(32),
-          bottomRight: Radius.circular(32),
-        ),
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 16, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
-              ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'Select Vehicle Type',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(Cap.radius),
+          onTap: onTap,
+          child: Stack(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 14, 10, 10),
+              child: Column(children: [
+                // Same frame for every type, so a bike and a truck read at
+                // the same visual size.
+                SizedBox(
+                  height: 92,
+                  child: LayoutBuilder(
+                    builder: (context, box) => VehicleTypeImage(vt: vt, width: box.maxWidth, height: 92),
+                  ),
+                ),
+                const Spacer(),
+                Text((vt['name'] ?? '').toString(),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Cap.body(size: 14.5, weight: FontWeight.w800).copyWith(height: 1.2)),
+                const Spacer(),
+              ]),
+            ),
+            if (selected)
+              Positioned(
+                top: 8, right: 8,
+                child: Container(
+                  width: 22, height: 22,
+                  decoration: BoxDecoration(color: Cap.accent, shape: BoxShape.circle),
+                  child: const Icon(Icons.check_rounded, size: 15, color: Colors.white),
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'Step 2 of 4 — Choose your vehicle category',
-                  style: TextStyle(fontSize: 13, color: Colors.white70),
-                ),
-              ),
-            ],
-          ),
+          ]),
         ),
       ),
     );

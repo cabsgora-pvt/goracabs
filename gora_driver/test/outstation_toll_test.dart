@@ -351,7 +351,7 @@ void main() {
       await shell.swipe(tester, 'Swipe to collect ₹125169');
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('Fare + tolls'), findsOneWidget);
-      expect(find.text('₹125169.0'), findsOneWidget);
+      expect(find.text('₹125169'), findsOneWidget);
       await collectFare(tester);
       await tester.pump(const Duration(milliseconds: 500));
     });
@@ -367,7 +367,7 @@ void main() {
       await shell.swipe(tester, 'Swipe to collect toll & request payment');
       await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('Collect tolls from the rider'), findsOneWidget);
-      expect(find.text('₹170.0'), findsOneWidget);
+      expect(find.text('₹170'), findsOneWidget);
       expect(shell.posts(log, '/request-payment'), isEmpty, reason: 'not before the tolls are in hand');
       await collectFare(tester);
       await tester.pump(const Duration(milliseconds: 300));

@@ -65,15 +65,18 @@ class _CollectFarePageState extends State<CollectFarePage> {
     return 'upi://pay?pa=$_upiId&pn=${Uri.encodeComponent(_name)}&am=$amt&cu=INR';
   }
 
+  /// "₹40", not "₹40.0"; paise only when there are any ("₹40.50").
+  static String _money(double v) =>
+      v == v.roundToDouble() ? v.toStringAsFixed(0) : v.toStringAsFixed(2);
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white, elevation: 0.5, foregroundColor: Colors.black,
-        // Coloured here: the theme's title style is white, for its blue app
-        // bars, and this bar is white — the title could not be seen.
+        backgroundColor: Colors.white, elevation: 0, scrolledUnderElevation: 0, foregroundColor: Colors.black,
         title: const Text('Payments', style: TextStyle(fontWeight: FontWeight.w800, color: Colors.black)),
+        bottom: const PreferredSize(preferredSize: Size.fromHeight(1), child: Divider(height: 1, color: Color(0xFFE5E7EB))),
         actions: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -88,14 +91,14 @@ class _CollectFarePageState extends State<CollectFarePage> {
       ),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         const SizedBox(height: 12),
-        Center(child: Text(widget.title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
-        const SizedBox(height: 8),
-        Center(child: Text('₹${widget.amount.toStringAsFixed(1)}', style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: AppColors.green))),
+        Center(child: Text(widget.title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)))),
+        const SizedBox(height: 6),
+        Center(child: Text('₹${_money(widget.amount)}', style: const TextStyle(fontSize: 44, fontWeight: FontWeight.w900, color: Color(0xFF111111), letterSpacing: -0.5))),
         const SizedBox(height: 24),
         // QR card
         Container(
           padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(color: const Color(0xFF1C2233), borderRadius: BorderRadius.circular(20)),
+          decoration: BoxDecoration(color: const Color(0xFF111111), borderRadius: BorderRadius.circular(20)),
           child: Column(children: [
             const Text('Scan QR', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
             const SizedBox(height: 8),
@@ -126,10 +129,13 @@ class _CollectFarePageState extends State<CollectFarePage> {
         const SizedBox(height: 30),
         SizedBox(
           width: double.infinity,
-          child: OutlinedButton(
+          height: 54,
+          child: ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: OutlinedButton.styleFrom(side: BorderSide(color: Colors.grey[300]!), padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30))),
-            child: const Text('Collect Fare', style: TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.w700)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.green, foregroundColor: Colors.white, elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+            child: const Text('Collect Fare', style: TextStyle(color: Colors.white, fontSize: 16.5, fontWeight: FontWeight.w800)),
           ),
         ),
         const SizedBox(height: 16),

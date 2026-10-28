@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../providers/driver_provider.dart';
+import '../../../widgets/captain_ui/captain_ui.dart';
 
 class DocumentsPage extends StatefulWidget {
   static const route = '/documents';
@@ -44,7 +45,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: const BoxDecoration(
-                color: AppColors.primary,
+                color: Color(0xFF111111),
                 borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
               ),
               child: Row(children: [
@@ -83,18 +84,32 @@ class _DocumentsPageState extends State<DocumentsPage> {
     );
   }
 
+  CapStatus _status(String s) {
+    switch (s) {
+      case 'verified':
+      case 'approved':
+        return CapStatus.done;
+      case 'rejected':
+        return CapStatus.rejected;
+      case 'expired':
+        return CapStatus.expired;
+      default:
+        return CapStatus.review;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final dp = context.watch<DriverProvider>();
     final docs = dp.documents;
 
     return Scaffold(
-      appBar: blueAppBar('My Documents'),
-      backgroundColor: AppColors.cardBg,
+      appBar: blueAppBar('Documents'),
+      backgroundColor: Cap.tile,
       body: dp.loading && docs.isEmpty
-          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          ? const AppLoader()
           : docs.isEmpty
-              ? Center(child: Text('No documents uploaded yet', style: TextStyle(color: AppColors.textGrey)))
+              ? const CapEmpty(icon: Icons.folder_open_rounded, title: 'No documents uploaded yet')
               : ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: docs.length,
@@ -103,45 +118,38 @@ class _DocumentsPageState extends State<DocumentsPage> {
                     final doc = docs[i];
                     final name = doc['name'] as String? ?? 'Document';
                     final url = doc['fileUrl'] as String? ?? '';
+                    final number = (doc['number'] ?? '').toString();
                     final status = doc['status'] as String? ?? 'pending';
                     final color = _statusColor(status);
 
-                    return GestureDetector(
+                    return CapCard(
+                      padding: const EdgeInsets.all(12),
                       onTap: () => _previewDoc(context, name, url),
-                      child: Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: AppColors.white,
-                          borderRadius: BorderRadius.circular(14),
-                          boxShadow: [BoxShadow(color: Colors.black.withAlpha(10), blurRadius: 6)],
+                      child: Row(children: [
+                        // Thumbnail
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: url.isNotEmpty
+                              ? Image.network(
+                                  url,
+                                  width: 52, height: 52, fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => _docIcon(color),
+                                )
+                              : _docIcon(color),
                         ),
-                        child: Row(children: [
-                          // Thumbnail
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: url.isNotEmpty
-                                ? Image.network(
-                                    url,
-                                    width: 52, height: 52, fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => _docIcon(color),
-                                  )
-                                : _docIcon(color),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(name, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textDark)),
-                              const SizedBox(height: 2),
-                              Text('Tap to view', style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
-                            ]),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(color: color.withAlpha(30), borderRadius: BorderRadius.circular(8)),
-                            child: Text(status, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color)),
-                          ),
-                        ]),
-                      ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                style: Cap.body(size: 14.5, weight: FontWeight.w800)),
+                            const SizedBox(height: 2),
+                            Text(number.isNotEmpty ? number : 'Tap to view',
+                                maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12)),
+                          ]),
+                        ),
+                        const SizedBox(width: 8),
+                        CapStatusChip(_status(status), label: _status(status) == CapStatus.done ? 'Verified' : null),
+                      ]),
                     );
                   },
                 ),
@@ -150,7 +158,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
 
   Widget _docIcon(Color color) => Container(
     width: 52, height: 52,
-    decoration: BoxDecoration(color: color.withAlpha(25), borderRadius: BorderRadius.circular(10)),
-    child: Icon(Icons.description, color: color, size: 26),
+    decoration: BoxDecoration(color: Cap.tile, borderRadius: BorderRadius.circular(12)),
+    child: Icon(Icons.description_outlined, color: Cap.ink, size: 24),
   );
 }

@@ -28,14 +28,17 @@ class _ReviewPageState extends State<ReviewPage> {
         padding: const EdgeInsets.all(24),
         child: Column(children: [
           const SizedBox(height: 16),
-          CircleAvatar(radius: 40, backgroundColor: AppColors.primary,
-            child: Text(ride?.userName[0] ?? 'U', style: const TextStyle(fontSize: 34, color: Colors.white, fontWeight: FontWeight.w800))),
+          CircleAvatar(radius: 42, backgroundColor: AppColors.cardBg,
+            backgroundImage: (ride?.userProfilePicUrl ?? '').isNotEmpty ? NetworkImage(ride!.userProfilePicUrl) : null,
+            child: (ride?.userProfilePicUrl ?? '').isNotEmpty
+                ? null
+                : Text(ride?.userName[0] ?? 'U', style: TextStyle(fontSize: 34, color: AppColors.textDark, fontWeight: FontWeight.w800))),
           const SizedBox(height: 12),
-          Text(ride?.userName ?? 'Rider', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+          Text(ride?.userName ?? 'Rider', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textDark)),
           const SizedBox(height: 4),
           Text(ride?.pickupAddress ?? '', style: TextStyle(color: AppColors.textGrey, fontSize: 12), textAlign: TextAlign.center),
           const SizedBox(height: 32),
-          Text('How was your ride?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.textDark)),
+          Text('How was your rider?', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textDark)),
           const SizedBox(height: 16),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(5, (i) =>
             GestureDetector(
@@ -43,7 +46,7 @@ class _ReviewPageState extends State<ReviewPage> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 6),
                 child: Icon(i < _stars ? Icons.star_rounded : Icons.star_border_rounded,
-                  color: AppColors.orange, size: 44),
+                  color: i < _stars ? const Color(0xFFFFB300) : AppColors.divider, size: 46),
               ),
             ),
           )),
@@ -55,10 +58,12 @@ class _ReviewPageState extends State<ReviewPage> {
               label: Text(tag),
               selected: sel,
               onSelected: (v) => setState(() => v ? _selected.add(tag) : _selected.remove(tag)),
-              selectedColor: AppColors.primary.withOpacity(0.15),
+              backgroundColor: AppColors.cardBg,
+              selectedColor: AppColors.primary.withOpacity(0.10),
               checkmarkColor: AppColors.primary,
-              labelStyle: TextStyle(color: sel ? AppColors.primary : AppColors.textGrey, fontWeight: FontWeight.w500),
-              side: BorderSide(color: sel ? AppColors.primary : AppColors.divider),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              labelStyle: TextStyle(color: sel ? AppColors.primary : AppColors.textDark, fontWeight: FontWeight.w600),
+              side: BorderSide(color: sel ? AppColors.primary : Colors.transparent),
             );
           }).toList()),
           const SizedBox(height: 20),
@@ -66,8 +71,7 @@ class _ReviewPageState extends State<ReviewPage> {
             controller: _comment,
             maxLines: 3,
             decoration: const InputDecoration(
-              labelText: 'Additional comments (optional)',
-              alignLabelWithHint: true,
+              hintText: 'Add a comment (optional)',
             ),
           ),
           const SizedBox(height: 32),

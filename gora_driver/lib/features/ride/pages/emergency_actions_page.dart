@@ -104,8 +104,9 @@ class _EmergencyActionsPageState extends State<EmergencyActionsPage> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: AppColors.white, elevation: 0.5, foregroundColor: AppColors.textDark,
-        title: const Text('Emergency Actions', style: TextStyle(fontWeight: FontWeight.w700)),
+        backgroundColor: AppColors.white, elevation: 0, scrolledUnderElevation: 0, foregroundColor: AppColors.textDark,
+        bottom: PreferredSize(preferredSize: const Size.fromHeight(1), child: Container(height: 1, color: AppColors.divider)),
+        title: const Text('Emergency Actions', style: TextStyle(fontWeight: FontWeight.w800)),
       ),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         Text('emergency', style: TextStyle(color: AppColors.textGrey, fontSize: 14)),
@@ -143,7 +144,7 @@ class _EmergencyActionsPageState extends State<EmergencyActionsPage> {
           width: double.infinity,
           child: ElevatedButton(
             onPressed: () => Navigator.pop(context),
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary, elevation: 0, padding: const EdgeInsets.symmetric(vertical: 17), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
             child: const Text('Done', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
           ),
         ),

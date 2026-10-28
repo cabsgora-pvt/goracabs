@@ -4,6 +4,7 @@ import '../../core/constants/app_colors.dart';
 import '../../services/driver_api_service.dart';
 import '../../services/face_service.dart';
 import '../ride/widgets/face_camera_view.dart';
+import '../../widgets/captain_ui/captain_ui.dart';
 import 'vehicle_selection_page.dart';
 
 enum _Step { straight, sideA, sideB, tilt }
@@ -115,74 +116,139 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
     }
   }
 
+  /// Short label for the step header — "Look straight".
+  String get _stepShort => switch (_step) {
+    _Step.straight => 'Look straight',
+    _Step.sideA => 'Turn to one side',
+    _Step.sideB => 'Turn to the other side',
+    _Step.tilt => 'Tilt your head',
+  };
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(children: [
-          FaceCameraView(builder: (context, capture) => Stack(children: [
-            // Scrims behind the text/button overlays — without these, white
-            // text disappears against a bright patch of whatever the camera
-            // sees (a wall, the sky, a window) instead of a face.
-            Positioned(left: 0, right: 0, top: 0, height: 140, child: Container(
-              decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                colors: [Colors.black.withOpacity(0.55), Colors.transparent])))),
-            Positioned(left: 0, right: 0, bottom: 0, height: 160, child: Container(
-              decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.bottomCenter, end: Alignment.topCenter,
-                colors: [Colors.black.withOpacity(0.55), Colors.transparent])))),
-            // Oval guide so the driver frames their face consistently.
-            Center(
-              child: Container(
-                width: 230, height: 300,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white70, width: 3),
-                  borderRadius: BorderRadius.circular(140),
-                ),
-              ),
+      body: FaceCameraView(builder: (context, capture) => Stack(children: [
+        // Scrim behind the header so white text stays readable against a
+        // bright patch of whatever the camera sees.
+        Positioned(left: 0, right: 0, top: 0, height: 170, child: IgnorePointer(child: Container(
+          decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            colors: [Colors.black.withValues(alpha: 0.6), Colors.transparent]))))),
+        // Oval guide so the driver frames their face consistently. Sits in
+        // the band between the header and the bottom panel.
+        Positioned.fill(
+          bottom: 230,
+          child: IgnorePointer(
+            child: Center(
+              child: LayoutBuilder(builder: (context, box) {
+                final h = (box.maxHeight - 150).clamp(160.0, 310.0);
+                return Container(
+                  width: h * 0.76, height: h,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: _error != null ? AppColors.red : Colors.white, width: 3),
+                    borderRadius: BorderRadius.all(Radius.elliptical(h * 0.38, h * 0.5)),
+                  ),
+                );
+              }),
             ),
-            Positioned(
-              left: 0, right: 0, top: 24,
-              child: Column(children: [
-                Text('Step ${_step.index + 1} of 4', style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 6),
-                Text(_instruction, textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800)),
+          ),
+        ),
+        // Header: which registration step this is.
+        Positioned(
+          left: 0, right: 0, top: 0,
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Step ${CapRegSteps.face} of ${CapRegSteps.total} · Face verification',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12.5, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                const Text('Take a selfie', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800)),
               ]),
             ),
-            if (_error != null)
-              Positioned(
-                left: 24, right: 24, bottom: 140,
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: AppColors.red.withOpacity(0.9), borderRadius: BorderRadius.circular(10)),
-                  child: Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
-                ),
-              ),
-            Positioned(
-              left: 0, right: 0, bottom: 40,
-              child: Center(
-                child: _saving
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : GestureDetector(
-                        onTap: _busy ? null : () => _onCapture(capture),
-                        child: Container(
-                          width: 76, height: 76,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.white,
-                            border: Border.all(color: AppColors.primary, width: 4),
-                          ),
-                          child: _busy
-                              ? const Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator(strokeWidth: 2))
-                              : null,
-                        ),
+          ),
+        ),
+        // Bottom panel: progress dots, instruction, error, shutter.
+        Positioned(
+          left: 0, right: 0, bottom: 0,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Cap.surface,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(4, (i) {
+                    final done = i < _step.index, cur = i == _step.index;
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                      width: cur ? 22 : 8, height: 8,
+                      decoration: BoxDecoration(
+                        color: done ? Cap.green : (cur ? Cap.accent : Cap.divider),
+                        borderRadius: BorderRadius.circular(4),
                       ),
+                    );
+                  })),
+                  const SizedBox(height: 12),
+                  Text('Step ${_step.index + 1} of 4 · $_stepShort',
+                      style: Cap.body(size: 12.5, weight: FontWeight.w800, color: Cap.accent)),
+                  const SizedBox(height: 4),
+                  Text(_instruction, textAlign: TextAlign.center, style: Cap.title(size: 18)),
+                  if (_error != null) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                      decoration: BoxDecoration(color: AppColors.red.withValues(alpha: 0.09), borderRadius: BorderRadius.circular(12)),
+                      child: Row(children: [
+                        const Icon(Icons.error_outline_rounded, size: 18, color: AppColors.red),
+                        const SizedBox(width: 8),
+                        Expanded(child: Text(_error!, style: Cap.body(size: 12.5, weight: FontWeight.w600, color: AppColors.red))),
+                      ]),
+                    ),
+                  ],
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    height: 72,
+                    child: Center(
+                      child: _saving
+                          ? Row(mainAxisSize: MainAxisSize.min, children: [
+                              SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4, color: Cap.accent)),
+                              const SizedBox(width: 12),
+                              Text('Saving your photo…', style: Cap.body(size: 14)),
+                            ])
+                          : Semantics(
+                              button: true,
+                              label: 'Capture',
+                              child: GestureDetector(
+                                onTap: _busy ? null : () => _onCapture(capture),
+                                child: Container(
+                                  width: 70, height: 70,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Cap.accent,
+                                    border: Border.all(color: Cap.tile, width: 5),
+                                  ),
+                                  child: _busy
+                                      ? const Padding(padding: EdgeInsets.all(20),
+                                          child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
+                                      : const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 28),
+                                ),
+                              ),
+                            ),
+                    ),
+                  ),
+                ]),
               ),
             ),
-          ])),
-        ]),
-      ),
+          ),
+        ),
+      ])),
     );
   }
 }

@@ -61,7 +61,9 @@ class _InvoicePageState extends State<InvoicePage> {
       appBar: AppBar(
         backgroundColor: AppColors.white,
         surfaceTintColor: AppColors.white,
-        elevation: 0.5,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        bottom: PreferredSize(preferredSize: const Size.fromHeight(1), child: Container(height: 1, color: AppColors.divider)),
         automaticallyImplyLeading: false,
         title: Text('Order Complete',
             style: TextStyle(color: AppColors.textDark, fontWeight: FontWeight.w800, fontSize: 20)),
@@ -171,22 +173,22 @@ class _InvoicePageState extends State<InvoicePage> {
         ),
         // ── Done (brand colour, not yellow) ──
         Container(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+          padding: EdgeInsets.fromLTRB(16, 10, 16, 12 + MediaQuery.of(context).padding.bottom),
           decoration: BoxDecoration(
             color: AppColors.white,
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10, offset: const Offset(0, -2))],
+            border: Border(top: BorderSide(color: AppColors.divider)),
           ),
           child: SizedBox(
             width: double.infinity,
+            height: 54,
             child: ElevatedButton(
               onPressed: _submitting ? null : () => _done(ride),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
                 disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
-                padding: const EdgeInsets.symmetric(vertical: 16),
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
               child: _submitting
                   ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
@@ -212,8 +214,7 @@ class _InvoicePageState extends State<InvoicePage> {
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Text('0%', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w900, fontSize: 28, height: 1)),
           const SizedBox(height: 2),
-          Text('COMMISSION', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 8, letterSpacing: 0.5)),
-          Text('Lifetime Guarantee', style: TextStyle(color: AppColors.primary.withOpacity(0.7), fontWeight: FontWeight.w600, fontSize: 6.5)),
+          Text('COMMISSION', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 8.5, letterSpacing: 0.5)),
         ]),
       );
     }
@@ -258,7 +259,7 @@ class _Card extends StatelessWidget {
         decoration: BoxDecoration(
           color: AppColors.white,
           borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)],
+          border: Border.all(color: AppColors.divider),
         ),
         child: child,
       );

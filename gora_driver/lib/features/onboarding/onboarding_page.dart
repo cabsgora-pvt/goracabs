@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../core/constants/app_colors.dart';
-import '../../core/widgets/app_widgets.dart';
+import '../../widgets/captain_ui/captain_ui.dart';
 import '../auth/pages/login_page.dart';
 
 class OnboardingPage extends StatefulWidget {
@@ -13,92 +12,137 @@ class _OnboardingPageState extends State<OnboardingPage> {
   final _ctrl = PageController();
   int _page = 0;
 
-  final _slides = [
-    _Slide(icon: Icons.local_taxi_rounded, title: 'Accept Rides Instantly', desc: 'Get ride requests near you and accept with a single tap. More rides, more earnings.', color: AppColors.primary),
-    _Slide(icon: Icons.monetization_on_rounded, title: 'Earn More Every Day', desc: 'Track your daily and weekly earnings. Unlock bonuses and incentives for top performance.', color: AppColors.primaryDark),
-    _Slide(icon: Icons.shield_rounded, title: 'Drive Safely & Securely', desc: 'SOS support, in-app chat, and 24/7 customer service. Your safety is our priority.', color: AppColors.accent),
+  // Illustrations are the app's own bundled artwork; copy only describes
+  // features the app actually has.
+  static const _slides = [
+    _Slide(
+      image: 'assets/images/login_bg.png',
+      alignment: Alignment(0, 0.55),
+      title: 'Drive with Gora',
+      desc: 'Go online, get trip requests near you and accept them in a single tap.',
+    ),
+    _Slide(
+      image: 'assets/images/services/delivery.png',
+      alignment: Alignment.center,
+      title: 'Rides, rentals & parcels',
+      desc: 'Opt in to outstation, rental, hire-a-driver and parcel jobs whenever you want more work.',
+    ),
+    _Slide(
+      image: 'assets/images/otp_bg.png',
+      alignment: Alignment(0, 0.3),
+      title: 'Track every rupee',
+      desc: 'See today, weekly and monthly earnings, and withdraw from your wallet to your bank.',
+    ),
   ];
 
   @override
   void dispose() { _ctrl.dispose(); super.dispose(); }
 
+  void _goLogin() => Navigator.pushReplacementNamed(context, LoginPage.route);
+
   @override
   Widget build(BuildContext context) {
+    final last = _page == _slides.length - 1;
     return Scaffold(
-      body: Stack(children: [
-        PageView.builder(
-          controller: _ctrl,
-          itemCount: _slides.length,
-          onPageChanged: (i) => setState(() => _page = i),
-          itemBuilder: (_, i) => _SlideWidget(slide: _slides[i]),
-        ),
-        // Skip
-        Positioned(
-          top: 52, right: 20,
-          child: TextButton(
-            onPressed: () => Navigator.pushReplacementNamed(context, LoginPage.route),
-            child: Text('Skip', style: TextStyle(color: AppColors.textGrey, fontWeight: FontWeight.w600)),
+      backgroundColor: Cap.surface,
+      body: Column(children: [
+        Expanded(
+          child: PageView.builder(
+            controller: _ctrl,
+            itemCount: _slides.length,
+            onPageChanged: (i) => setState(() => _page = i),
+            itemBuilder: (_, i) => _SlideView(slide: _slides[i], onSkip: last ? null : _goLogin),
           ),
         ),
-        // Bottom
-        Positioned(
-          bottom: 40, left: 24, right: 24,
-          child: Column(children: [
-            // Dots
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(_slides.length, (i) => AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              width: _page == i ? 24 : 8, height: 8,
-              decoration: BoxDecoration(
-                color: _page == i ? AppColors.primary : AppColors.divider,
-                borderRadius: BorderRadius.circular(4),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(_slides.length, (i) => AnimatedContainer(
+                duration: const Duration(milliseconds: 250),
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                width: _page == i ? 22 : 7, height: 7,
+                decoration: BoxDecoration(
+                  color: _page == i ? Cap.ink : Cap.divider,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ))),
+              const SizedBox(height: 18),
+              CapButton(
+                label: last ? 'Get started' : 'Next',
+                icon: last ? null : Icons.arrow_forward_rounded,
+                onPressed: () {
+                  if (!last) {
+                    _ctrl.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+                  } else {
+                    _goLogin();
+                  }
+                },
               ),
-            ))),
-            const SizedBox(height: 24),
-            PrimaryButton(
-              label: _page == _slides.length - 1 ? 'Get Started' : 'Next',
-              onTap: () {
-                if (_page < _slides.length - 1) {
-                  _ctrl.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
-                } else {
-                  Navigator.pushReplacementNamed(context, LoginPage.route);
-                }
-              },
-            ),
-          ]),
+            ]),
+          ),
         ),
       ]),
     );
   }
 }
 
-class _Slide { final IconData icon; final String title, desc; final Color color;
-  const _Slide({required this.icon, required this.title, required this.desc, required this.color});
+class _Slide {
+  final String image, title, desc;
+  final Alignment alignment;
+  const _Slide({required this.image, required this.title, required this.desc, required this.alignment});
 }
 
-class _SlideWidget extends StatelessWidget {
+class _SlideView extends StatelessWidget {
   final _Slide slide;
-  const _SlideWidget({required this.slide});
+  final VoidCallback? onSkip;
+  const _SlideView({required this.slide, this.onSkip});
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: AppColors.background,
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Container(
-          width: 160, height: 160,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [slide.color, slide.color.withOpacity(0.6)]),
-            shape: BoxShape.circle,
+    return LayoutBuilder(builder: (context, box) {
+      // The artwork takes what the copy leaves; on a short phone it shrinks
+      // rather than pushing the title off screen.
+      final imageH = (box.maxHeight - 150).clamp(120.0, box.maxHeight * 0.68);
+      return SingleChildScrollView(
+        physics: const ClampingScrollPhysics(),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SizedBox(
+            height: imageH,
+            width: double.infinity,
+            child: Stack(fit: StackFit.expand, children: [
+              ClipRRect(
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(28)),
+                child: Image.asset(slide.image, fit: BoxFit.cover, alignment: slide.alignment,
+                    errorBuilder: (_, __, ___) => Container(color: Cap.tile)),
+              ),
+              if (onSkip != null)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 10,
+                  right: 16,
+                  child: Material(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    elevation: 2,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(20),
+                      onTap: onSkip,
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                        child: Text('Skip', style: TextStyle(color: Color(0xFF111111), fontWeight: FontWeight.w800, fontSize: 13)),
+                      ),
+                    ),
+                  ),
+                ),
+            ]),
           ),
-          child: Icon(slide.icon, size: 80, color: Colors.white),
-        ),
-        const SizedBox(height: 48),
-        Text(slide.title, textAlign: TextAlign.center, style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: AppColors.textDark)),
-        const SizedBox(height: 16),
-        Text(slide.desc, textAlign: TextAlign.center, style: TextStyle(fontSize: 15, color: AppColors.textGrey, height: 1.6)),
-        const SizedBox(height: 120),
-      ]),
-    );
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+            child: CapHeading(slide.title, subtitle: slide.desc, size: 26),
+          ),
+        ]),
+      );
+    });
   }
 }

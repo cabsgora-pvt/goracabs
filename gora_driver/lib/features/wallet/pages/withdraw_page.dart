@@ -221,18 +221,26 @@ class _WithdrawPageState extends State<WithdrawPage> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 // Balance card
                 Container(
+                  width: double.infinity,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]),
+                    color: AppColors.cardBg,
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Row(children: [
-                    const Icon(Icons.account_balance_wallet, color: Colors.white, size: 28),
+                    Icon(Icons.account_balance_wallet_outlined, color: AppColors.textDark, size: 26),
                     const SizedBox(width: 12),
-                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      const Text('Available Balance', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                      Text('₹ ${widget.balance.toStringAsFixed(2)}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white)),
-                    ]),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Available balance', style: TextStyle(color: AppColors.textGrey, fontSize: 12.5, fontWeight: FontWeight.w600)),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text('₹ ${widget.balance.toStringAsFixed(2)}',
+                              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: AppColors.textDark)),
+                        ),
+                      ]),
+                    ),
                   ]),
                 ),
                 if (_driverName.isNotEmpty) ...[
@@ -247,16 +255,16 @@ class _WithdrawPageState extends State<WithdrawPage> {
                   ]),
                 ],
                 const SizedBox(height: 28),
-                Text('Enter Amount', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                Text('Enter amount', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.textDark)),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _ctrl,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
                   inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
-                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.primary),
-                  decoration: const InputDecoration(
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: AppColors.textDark),
+                  decoration: InputDecoration(
                     prefixText: '₹ ',
-                    prefixStyle: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.primary),
+                    prefixStyle: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: AppColors.textDark),
                     hintText: '0.00',
                   ),
                 ),
@@ -265,17 +273,18 @@ class _WithdrawPageState extends State<WithdrawPage> {
                 Row(children: [100, 250, 500, 1000].map((amt) => Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: OutlinedButton(
+                    child: TextButton(
                       onPressed: () => _ctrl.text = amt.toString(),
-                      style: OutlinedButton.styleFrom(side: BorderSide(color: AppColors.divider), padding: EdgeInsets.zero, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-                      child: Text('₹$amt', style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600)),
+                      style: TextButton.styleFrom(backgroundColor: AppColors.cardBg, padding: const EdgeInsets.symmetric(vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+                      child: FittedBox(fit: BoxFit.scaleDown,
+                          child: Text('₹$amt', style: TextStyle(fontSize: 13, color: AppColors.textDark, fontWeight: FontWeight.w800))),
                     ),
                   ),
                 )).toList()),
                 const SizedBox(height: 24),
                 // Bank Account header + add
                 Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                  Text('Bank Account', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                  Flexible(child: Text('Bank account', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.textDark))),
                   TextButton.icon(
                     onPressed: _openAddBankSheet,
                     icon: const Icon(Icons.add, size: 18, color: AppColors.primary),
@@ -303,11 +312,11 @@ class _WithdrawPageState extends State<WithdrawPage> {
                     return Container(
                       margin: const EdgeInsets.only(bottom: 10),
                       decoration: BoxDecoration(
-                        color: selected ? AppColors.cardBg : Colors.white,
-                        borderRadius: BorderRadius.circular(12),
+                        color: selected ? AppColors.primary.withOpacity(0.05) : AppColors.cardBg,
+                        borderRadius: BorderRadius.circular(14),
                         border: Border.all(
-                          color: selected ? AppColors.primary : AppColors.divider,
-                          width: selected ? 1.6 : 1,
+                          color: selected ? AppColors.primary : Colors.transparent,
+                          width: 2,
                         ),
                       ),
                       child: RadioListTile<int>(
@@ -329,7 +338,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
                   }),
                 const SizedBox(height: 28),
                 PrimaryButton(
-                  label: 'Withdraw Now',
+                  label: 'Withdraw now',
                   loading: _loading,
                   onTap: hasBanks ? _withdraw : null,
                 ),

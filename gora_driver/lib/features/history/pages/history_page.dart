@@ -5,6 +5,7 @@ import '../../../core/widgets/app_widgets.dart';
 import '../../../models/models.dart';
 import '../bloc/history_bloc.dart';
 import 'trip_detail_page.dart';
+import '../../../widgets/captain_ui/captain_ui.dart';
 
 class HistoryPage extends StatelessWidget {
   static const route = '/history';
@@ -16,7 +17,7 @@ class HistoryPage extends StatelessWidget {
       create: (_) => HistoryBloc()..add(LoadHistoryEvent()),
       child: Scaffold(
         appBar: blueAppBar('Trip History'),
-        backgroundColor: AppColors.cardBg,
+        backgroundColor: Cap.tile,
         body: BlocBuilder<HistoryBloc, HistoryState>(
           builder: (context, state) {
             if (state is HistoryLoading) return const AppLoader();
@@ -55,96 +56,83 @@ class _TripCard extends StatelessWidget {
   final TripModel trip;
   const _TripCard({required this.trip});
 
+  Widget _meta(IconData icon, String text) => Row(mainAxisSize: MainAxisSize.min, children: [
+    Icon(icon, size: 14, color: Cap.muted),
+    const SizedBox(width: 4),
+    Flexible(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12))),
+  ]);
+
   @override
   Widget build(BuildContext context) {
     final isCompleted = trip.status == 'completed';
-    return GestureDetector(
+    final outstation = trip.service == 'outstation';
+    final serviceLabel = outstation
+        ? 'OUTSTATION · ${trip.tripType == "round_trip" ? "Round" : "One Way"}'
+        : trip.service.toUpperCase();
+    final statusColor = isCompleted ? AppColors.green : AppColors.red;
+    return CapCard(
+      padding: const EdgeInsets.all(14),
       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => TripDetailPage(trip: trip))),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)]),
-        child: Column(children: [
-          // Service label + vehicle type on top
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: trip.service == 'outstation' ? AppColors.orange.withOpacity(0.15) : AppColors.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                trip.service == 'outstation'
-                  ? 'OUTSTATION · ${trip.tripType == "round_trip" ? "Round" : "One Way"}'
-                  : trip.service.toUpperCase(),
-                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.3,
-                  color: trip.service == 'outstation' ? AppColors.orange : AppColors.primary),
-              ),
-            ),
-            const SizedBox(width: 6),
-            if (trip.vehicleType.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(6)),
-                child: Text(trip.vehicleType, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.textGrey)),
-              ),
-            const Spacer(),
-            if (trip.numPassengers > 0) ...[
-              Icon(Icons.group, size: 12, color: AppColors.textGrey),
-              const SizedBox(width: 3),
-              Text('${trip.numPassengers}', style: TextStyle(fontSize: 11, color: AppColors.textGrey, fontWeight: FontWeight.w600)),
-            ],
-          ]),
-          const SizedBox(height: 10),
-          Row(children: [
-            CircleAvatar(radius: 20, backgroundColor: AppColors.primary.withOpacity(0.1),
-              backgroundImage: trip.userProfilePicUrl.isNotEmpty ? NetworkImage(trip.userProfilePicUrl) : null,
-              child: trip.userProfilePicUrl.isEmpty
-                  ? Text(trip.userName[0], style: const TextStyle(fontWeight: FontWeight.w700, color: AppColors.primary))
-                  : null),
-            const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(trip.userName, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textDark)),
-              Text(trip.date, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
-              if (trip.service == 'outstation' && (trip.cityFrom.isNotEmpty || trip.cityTo.isNotEmpty))
-                Text('${trip.cityFrom} → ${trip.cityTo}',
-                  maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, color: AppColors.orange, fontWeight: FontWeight.w600)),
-            ])),
-            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text(trip.fare, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.textDark)),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: isCompleted ? AppColors.green.withOpacity(0.1) : AppColors.red.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(trip.status, style: TextStyle(fontSize: 10, color: isCompleted ? AppColors.green : AppColors.red, fontWeight: FontWeight.w600)),
-              ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Date · fare
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(trip.date, maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.body(size: 14.5, weight: FontWeight.w800)),
+              const SizedBox(height: 4),
+              Wrap(spacing: 6, runSpacing: 4, children: [
+                if (serviceLabel.isNotEmpty)
+                  CapChip(serviceLabel, color: outstation ? AppColors.orange : Cap.ink, fontSize: 10),
+                if (trip.vehicleType.isNotEmpty)
+                  CapChip(trip.vehicleType, color: Cap.muted, fontSize: 10),
+                if (trip.numPassengers > 0)
+                  CapChip('${trip.numPassengers}', color: Cap.muted, icon: Icons.group_outlined, fontSize: 10),
+              ]),
             ]),
+          ),
+          const SizedBox(width: 10),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text(trip.fare, style: Cap.body(size: 16, weight: FontWeight.w900)),
+            const SizedBox(height: 4),
+            CapChip(trip.status, color: statusColor, fontSize: 10.5),
           ]),
-          if (isCompleted) ...[
-            const SizedBox(height: 12),
-            Divider(color: AppColors.divider, height: 1),
-            const SizedBox(height: 10),
-            Row(children: [
-              Expanded(child: Row(children: [
-                Icon(Icons.route, size: 14, color: AppColors.textGrey),
-                const SizedBox(width: 4),
-                Text(trip.distance, style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-              ])),
-              Expanded(child: Row(children: [
-                Icon(Icons.timer, size: 14, color: AppColors.textGrey),
-                const SizedBox(width: 4),
-                Text(trip.duration, style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-              ])),
-              Row(children: List.generate(5, (i) => Icon(
-                i < trip.rating ? Icons.star : Icons.star_border,
-                size: 13, color: AppColors.orange,
-              ))),
-            ]),
+        ]),
+        if (outstation && (trip.cityFrom.isNotEmpty || trip.cityTo.isNotEmpty)) ...[
+          const SizedBox(height: 8),
+          Text('${trip.cityFrom} → ${trip.cityTo}',
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: Cap.body(size: 12.5, weight: FontWeight.w700, color: AppColors.orange)),
+        ],
+        if (trip.pickupAddress.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          CapRoute(pickup: trip.pickupAddress, drop: trip.dropAddress, maxLines: 1),
+        ],
+        const SizedBox(height: 12),
+        Container(height: 1, color: Cap.divider),
+        const SizedBox(height: 10),
+        // Rider, then distance · duration · rating
+        Row(children: [
+          CapAvatar(name: trip.userName.isNotEmpty ? trip.userName : '?', url: trip.userProfilePicUrl, radius: 13),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(trip.userName, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: Cap.body(size: 12.5, weight: FontWeight.w700)),
+          ),
+          if (isCompleted && trip.rating > 0) ...[
+            const SizedBox(width: 8),
+            const Icon(Icons.star_rounded, size: 15, color: Cap.amber),
+            Text(trip.rating.toStringAsFixed(trip.rating == trip.rating.roundToDouble() ? 0 : 1),
+                style: Cap.body(size: 12, weight: FontWeight.w800)),
           ],
         ]),
-      ),
+        if (isCompleted) ...[
+          const SizedBox(height: 8),
+          Wrap(spacing: 14, runSpacing: 4, children: [
+            _meta(Icons.route_outlined, trip.distance),
+            _meta(Icons.timer_outlined, trip.duration),
+          ]),
+        ],
+      ]),
     );
   }
 }

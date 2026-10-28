@@ -103,9 +103,8 @@ class _PreferencesPageState extends State<PreferencesPage> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(18),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]),
+                    color: AppColors.primary,
                     borderRadius: BorderRadius.circular(18),
-                    boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.25), blurRadius: 12, offset: const Offset(0, 4))],
                   ),
                   child: Row(children: [
                     Container(

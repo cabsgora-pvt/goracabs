@@ -6,6 +6,7 @@ import '../home/pages/home_page.dart';
 import '../registration/kyc_pending_page.dart';
 import '../registration/bank_details_page.dart';
 import '../registration/rejection_page.dart';
+import '../registration/resume_registration.dart';
 
 class SplashPage extends StatefulWidget {
   static const route = '/splash';
@@ -44,6 +45,9 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
           Navigator.pushReplacementNamed(context, KycPendingPage.route);
         } else if (state is RegistrationBankPendingState) {
           Navigator.pushReplacementNamed(context, BankDetailsPage.route);
+        } else if (state is RegistrationResumeState) {
+          openRegistrationStep(Navigator.of(context), state.step,
+              phone: (state.driver['phone'] ?? '').toString(), driver: state.driver);
         } else if (state is RejectionState) {
           Navigator.pushReplacementNamed(
             context,

@@ -31,6 +31,43 @@ class RegistrationSubmittedState extends AuthState {}
 // server registrationStep == 'bank'. Resumes at the bank page instead of
 // sending the driver back to onboarding/login.
 class RegistrationBankPendingState extends AuthState {}
+/// Registration started but not finished, at a step before bank details.
+class RegistrationResumeState extends AuthState {
+  final ResumeStep step;
+  final Map<String, dynamic> driver;
+  RegistrationResumeState(this.step, this.driver);
+  @override List<Object?> get props => [step];
+}
+
+/// Where an unfinished registration picks up again.
+enum ResumeStep { personal, face, vehicle, documents }
+
+/// The registration page to resume at for [driver], from the server's own
+/// registrationStep — the only steps it writes are 'otp' (account created),
+/// 'vehicle' (personal details saved), 'documents' (vehicle saved), 'bank'
+/// (documents saved) and 'submitted'. The selfie writes no step of its own,
+/// only faceSignatureSavedAt, so 'vehicle' without it means the selfie is
+/// still to do. Null for 'bank', 'submitted' and any value not listed here.
+ResumeStep? resumeStepFor(Map<String, dynamic>? driver) {
+  if (driver == null) return null;
+  final step = (driver['registrationStep'] ?? '').toString();
+  final faceDone = driver['faceSignatureSavedAt'] != null;
+  switch (step) {
+    case '':
+    case 'otp':
+    case 'personal':
+      return ResumeStep.personal;
+    case 'face':
+      return ResumeStep.face;
+    case 'vehicle':
+      return faceDone ? ResumeStep.vehicle : ResumeStep.face;
+    case 'documents':
+      return ResumeStep.documents;
+    default:
+      return null;
+  }
+}
+
 class RejectionState extends AuthState {
   final String reason;
   final Map<String, dynamic>? driver;
@@ -69,6 +106,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             return;
           } else if (regStep == 'bank') {
             emit(RegistrationBankPendingState());
+            return;
+          }
+          // Closed part-way through (after the selfie, after the vehicle…):
+          // resume at that step instead of sending a signed-in driver back to
+          // onboarding and login.
+          final resume = resumeStepFor(driverData);
+          if (resume != null) {
+            emit(RegistrationResumeState(resume, driverData));
             return;
           }
         }

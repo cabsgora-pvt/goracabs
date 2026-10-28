@@ -15,6 +15,29 @@ import 'driver_api_service.dart';
 const _incomingChannelId = 'incoming_ride';
 
 class RideAlertService {
+  /// The id of the full-screen "New Ride Request" heads-up. One fixed id, so
+  /// a newer request replaces it and it can be cancelled from either isolate.
+  static const incomingNotificationId = 1001;
+
+  /// Takes the "New Ride Request ₹…" heads-up off the screen and puts the
+  /// online notification back to its waiting text. Called once a request has
+  /// been dealt with — accepted, declined, timed out, or gone from the feed —
+  /// so the alert no longer sits over the app for minutes (it was swallowing
+  /// Back presses). Display only: dispatch and polling are untouched.
+  static Future<void> clearIncomingAlert() async {
+    try {
+      await FlutterLocalNotificationsPlugin().cancel(incomingNotificationId);
+    } catch (_) {}
+    try {
+      if (await FlutterForegroundTask.isRunningService) {
+        await FlutterForegroundTask.updateService(
+          notificationTitle: "You're online",
+          notificationText: 'Waiting for ride requests…',
+        );
+      }
+    } catch (_) {}
+  }
+
   // Configure the foreground service + notification channels. Call once at startup.
   static Future<void> init() async {
     FlutterForegroundTask.init(
@@ -96,6 +119,12 @@ class _RideAlertTaskHandler extends TaskHandler {
     try {
       final res = await DriverApiService.getPendingRequests();
       final rides = (res['rides'] as List?) ?? [];
+      // The request this alert was for is no longer pending (taken, accepted,
+      // cancelled): take its heads-up down.
+      if (_lastNotifiedId.isNotEmpty &&
+          !rides.any((r) => r is Map && r['id']?.toString() == _lastNotifiedId)) {
+        await _fln.cancel(RideAlertService.incomingNotificationId);
+      }
       if (rides.isEmpty) {
         _lastNotifiedId = '';
         FlutterForegroundTask.updateService(
@@ -123,7 +152,7 @@ class _RideAlertTaskHandler extends TaskHandler {
 
   Future<void> _showIncoming(String fare, String pickup, String drop) async {
     await _fln.show(
-      1001,
+      RideAlertService.incomingNotificationId,
       'New Ride Request  $fare',
       pickup.isEmpty ? 'Tap to view and accept' : '$pickup → $drop',
       const NotificationDetails(

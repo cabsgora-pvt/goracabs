@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/widgets/app_widgets.dart';
+import '../../widgets/captain_ui/captain_ui.dart';
 import '../../core/widgets/date_field.dart';
 import '../../services/driver_api_service.dart';
 
@@ -95,7 +96,7 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: const BoxDecoration(
-              color: AppColors.primary,
+              color: Color(0xFF111111),
               borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
             ),
             child: Row(children: [
@@ -149,115 +150,140 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
     final s = widget.spec;
     return Scaffold(
       appBar: blueAppBar(s.name),
-      backgroundColor: AppColors.cardBg,
-      body: ListView(padding: const EdgeInsets.all(16), children: [
-        // Number field
-        Text(s.numberLabel, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 13)),
-        const SizedBox(height: 6),
-        TextField(
-          controller: _number,
-          textCapitalization: TextCapitalization.characters,
-          decoration: InputDecoration(
-            hintText: 'Enter ${s.numberLabel}',
-            filled: true, fillColor: AppColors.white,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.divider)),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.divider)),
+      backgroundColor: Cap.surface,
+      body: ListView(padding: const EdgeInsets.fromLTRB(20, 16, 20, 24), children: [
+        // Example: what a good photo looks like.
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(color: Cap.accent.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(14)),
+          child: Row(children: [
+            Container(
+              width: 64, height: 44,
+              decoration: BoxDecoration(
+                color: Cap.surface,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Cap.green, width: 2),
+              ),
+              child: Icon(Icons.badge_outlined, color: Cap.ink, size: 24),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Upload a clear photo', style: Cap.body(size: 14, weight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                for (final tip in const ['All four corners visible', 'No glare or blur', 'Every detail readable'])
+                  Row(children: [
+                    const Icon(Icons.check_circle_rounded, size: 14, color: Cap.green),
+                    const SizedBox(width: 6),
+                    Flexible(child: Text(tip, style: Cap.caption(size: 12.5, color: Cap.ink))),
+                  ]),
+              ]),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 22),
+        CapField(
+          label: s.numberLabel,
+          required: true,
+          child: TextField(
+            controller: _number,
+            textCapitalization: TextCapitalization.characters,
+            style: Cap.body(size: 15.5, weight: FontWeight.w700).copyWith(letterSpacing: 0.8),
+            decoration: Cap.input(hint: 'Enter ${s.numberLabel}'),
           ),
         ),
         // Expiry (insurance)
         if (s.needsExpiry) ...[
-          const SizedBox(height: 16),
           DateField(label: 'Expiry Date', value: _expiry, hint: 'Select expiry date (dd-mm-yyyy)', onTap: _pickExpiry),
+          const SizedBox(height: 18),
         ],
-        const SizedBox(height: 20),
         // Images
-        _imageTile('Front Image', _frontUrl, _frontBusy, () => _pick(true), () => _remove(true)),
+        _imageTile('Front side', _frontUrl, _frontBusy, () => _pick(true), () => _remove(true)),
         if (s.needsBack) ...[
-          const SizedBox(height: 16),
-          _imageTile('Back Image', _backUrl, _backBusy, () => _pick(false), () => _remove(false)),
+          const SizedBox(height: 18),
+          _imageTile('Back side', _backUrl, _backBusy, () => _pick(false), () => _remove(false)),
         ],
-        const SizedBox(height: 28),
-        PrimaryButton(label: 'Save', onTap: _save),
-        const SizedBox(height: 16),
       ]),
+      bottomNavigationBar: CapBottomBar(child: CapButton(label: 'Save', onPressed: _save)),
     );
   }
 
   Widget _imageTile(String label, String? url, bool busy, VoidCallback onPick, VoidCallback onRemove) {
     final has = (url ?? '').isNotEmpty;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 13)),
-      const SizedBox(height: 6),
-      // Framed preview / upload dropzone
-      GestureDetector(
-        onTap: busy ? null : (has ? () => _previewImage(label, url!) : onPick),
-        child: Container(
-          height: 180,
-          width: double.infinity,
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: AppColors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: has ? AppColors.green : AppColors.divider, width: has ? 1.5 : 1),
+    final src = url ?? '';
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      CapLabel(label, required: true),
+      if (busy)
+        CapDashedBox(
+          height: 150,
+          child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.4, color: Cap.accent))),
+        )
+      else if (has)
+        GestureDetector(
+          onTap: () => _previewImage(label, src),
+          child: Container(
+            height: 170,
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: Cap.tile,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Cap.green, width: 1.5),
+            ),
+            child: Stack(fit: StackFit.expand, children: [
+              Image.network(src, fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Center(child: Icon(Icons.broken_image_rounded, color: Cap.muted, size: 36))),
+              const Positioned(top: 8, left: 8, child: CapChip('Uploaded', color: AppColors.green, icon: Icons.check_circle_rounded, solid: true)),
+              Positioned(
+                top: 8, right: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                  child: const Icon(Icons.zoom_in_rounded, color: Colors.white, size: 18),
+                ),
+              ),
+            ]),
           ),
-          child: busy
-              ? const Center(child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
-              : has
-                  ? Stack(fit: StackFit.expand, children: [
-                      Image.network(url!, fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => Center(child: Icon(Icons.broken_image_rounded, color: AppColors.textGrey, size: 40))),
-                      Positioned(
-                        top: 8, left: 8,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(color: AppColors.green, borderRadius: BorderRadius.circular(20)),
-                          child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                            Icon(Icons.check_circle_rounded, size: 13, color: Colors.white),
-                            SizedBox(width: 4),
-                            Text('Uploaded', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
-                          ]),
-                        ),
-                      ),
-                      Positioned(
-                        top: 8, right: 8,
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
-                          child: const Icon(Icons.zoom_in_rounded, color: Colors.white, size: 18),
-                        ),
-                      ),
-                    ])
-                  : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                      const Icon(Icons.cloud_upload_rounded, color: AppColors.primary, size: 40),
-                      const SizedBox(height: 8),
-                      Text('Tap to upload $label', style: TextStyle(color: AppColors.textGrey, fontSize: 13, fontWeight: FontWeight.w500)),
-                    ]),
+        )
+      else
+        CapDashedBox(
+          height: 170,
+          onTap: onPick,
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Container(
+              width: 46, height: 46,
+              decoration: BoxDecoration(color: Cap.surface, shape: BoxShape.circle),
+              child: Icon(Icons.photo_camera_rounded, color: Cap.ink, size: 22),
+            ),
+            const SizedBox(height: 10),
+            Text('Tap to upload', style: Cap.body(size: 13.5, weight: FontWeight.w800)),
+            const SizedBox(height: 2),
+            Text(label, style: Cap.caption(size: 12)),
+          ]),
         ),
-      ),
       // Change / Remove actions once an image is present
       if (has && !busy) ...[
         const SizedBox(height: 8),
         Row(children: [
           Expanded(
-            child: OutlinedButton.icon(
+            child: TextButton.icon(
               onPressed: onPick,
-              icon: const Icon(Icons.swap_horiz_rounded, size: 18, color: AppColors.primary),
-              label: const Text('Change', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: AppColors.primary.withOpacity(0.4)),
+              icon: Icon(Icons.photo_camera_outlined, size: 18, color: Cap.ink),
+              label: Text('Retake', style: Cap.body(size: 13, weight: FontWeight.w700)),
+              style: TextButton.styleFrom(
+                backgroundColor: Cap.tile,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 padding: const EdgeInsets.symmetric(vertical: 10),
               ),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           Expanded(
-            child: OutlinedButton.icon(
+            child: TextButton.icon(
               onPressed: onRemove,
               icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.red),
-              label: const Text('Remove', style: TextStyle(color: AppColors.red, fontWeight: FontWeight.w600)),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: AppColors.red.withOpacity(0.4)),
+              label: Text('Remove', style: Cap.body(size: 13, weight: FontWeight.w700, color: AppColors.red)),
+              style: TextButton.styleFrom(
+                backgroundColor: AppColors.red.withValues(alpha: 0.08),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                 padding: const EdgeInsets.symmetric(vertical: 10),
               ),

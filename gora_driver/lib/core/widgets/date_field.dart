@@ -56,30 +56,32 @@ class DateField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final has = value != null;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 13)),
-      const SizedBox(height: 6),
-      GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-          decoration: BoxDecoration(
-            color: AppColors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: has ? AppColors.primary.withOpacity(0.5) : AppColors.divider),
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text(label, style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark, fontSize: 13.5)),
+      const SizedBox(height: 8),
+      Material(
+        color: AppColors.cardBg,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: AppColors.divider),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+            child: Row(children: [
+              Icon(Icons.calendar_month_rounded, size: 20, color: AppColors.textDark),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(has ? fmtDate(value!) : hint,
+                    maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: has ? AppColors.textDark : AppColors.textGrey,
+                        fontWeight: has ? FontWeight.w700 : FontWeight.w500, fontSize: 14.5)),
+              ),
+              Icon(Icons.expand_more_rounded, color: AppColors.textGrey, size: 20),
+            ]),
           ),
-          child: Row(children: [
-            Container(
-              padding: const EdgeInsets.all(7),
-              decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(9)),
-              child: const Icon(Icons.calendar_month_rounded, size: 18, color: AppColors.primary),
-            ),
-            const SizedBox(width: 12),
-            Text(has ? fmtDate(value!) : hint,
-                style: TextStyle(color: has ? AppColors.textDark : AppColors.textGrey, fontWeight: FontWeight.w700, fontSize: 14)),
-            const Spacer(),
-            Icon(Icons.expand_more_rounded, color: AppColors.textGrey, size: 20),
-          ]),
         ),
       ),
     ]);

@@ -220,6 +220,8 @@ class _HireProgressPageState extends State<HireProgressPage> {
       vehicleType: r.rideType,
       // Hire has no fixed drop — the customer directs from their own vehicle.
       leg: NavLeg(label: 'Customer', destLat: r.pickupLat, destLng: r.pickupLng, destAddress: r.pickupAddress),
+      // On duty the customer directs the trip: no fixed place to navigate to.
+      hasDestination: false,
       phase: _priced ? 'HIRE · FINISHING' : (over ? 'HIRE · OVERTIME' : 'ON HIRE'),
       status: RideStatusStrip(
         phase: _priced ? 'Finishing' : (over ? 'Overtime' : 'On hire'),

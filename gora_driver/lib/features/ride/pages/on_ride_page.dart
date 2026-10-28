@@ -7,6 +7,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
+import '../../../utils/format_minutes.dart';
 import '../../account/pages/face_single_capture_page.dart';
 import '../bloc/ride_bloc.dart';
 import '../logic/job_settlement.dart';
@@ -240,7 +241,7 @@ class _OnRideViewState extends State<_OnRideView> {
                 phase: started ? 'On trip' : (arrived ? 'At pickup' : 'To pickup'),
                 metrics: [
                   RideStatusMetric(Icons.route, '${r.distanceKm.toStringAsFixed(1)} km'),
-                  if (r.durationMin > 0) RideStatusMetric(Icons.schedule, '${r.durationMin} min'),
+                  if (r.durationMin > 0) RideStatusMetric(Icons.schedule, formatMinutes(r.durationMin)),
                   // Once there is a toll pill, the fare gives way to it: the
                   // fare is on the rider card just below, and with both the
                   // time was cut to a bare "310" on a common phone.

@@ -73,17 +73,17 @@ class RideStatusStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final amber = overrun;
-    final fg = amber ? AppColors.orange : AppColors.primary;
-    final bg = amber
-        ? AppColors.orange.withOpacity(0.10)
-        : AppColors.primary.withOpacity(0.07);
+    // Neutral grey tile with near-black text; amber only when the job has
+    // gone past what was booked.
+    final fg = amber ? AppColors.orange : AppColors.textDark;
+    final bg = amber ? AppColors.orange.withOpacity(0.10) : AppColors.cardBg;
     final showAccruing = (accruing ?? 0) > 0;
     final phaseLabel = phase.toUpperCase();
     final pillLabel = '+₹${(accruing ?? 0).round()} $accruingLabel';
 
     final chip = Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(color: fg, borderRadius: BorderRadius.circular(6)),
+      decoration: BoxDecoration(color: amber ? AppColors.orange : const Color(0xFF111111), borderRadius: BorderRadius.circular(6)),
       child: Text(phaseLabel, maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: _chipStyle),
     );
     // Ellipsis on the label: a long label next to a long phase chip overflowed
@@ -102,8 +102,8 @@ class RideStatusStrip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: fg.withOpacity(0.25)),
+        borderRadius: BorderRadius.circular(14),
+        border: amber ? Border.all(color: fg.withOpacity(0.25)) : null,
       ),
       child: LayoutBuilder(builder: (context, box) {
         // The pill takes what it needs and the metrics everything else. Only

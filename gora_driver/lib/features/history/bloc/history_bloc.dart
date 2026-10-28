@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
+import '../../../utils/format_minutes.dart';
 
 abstract class HistoryEvent extends Equatable {
   @override List<Object?> get props => [];
@@ -45,7 +46,7 @@ class HistoryBloc extends Bloc<HistoryEvent, HistoryState> {
           date: _fmtDate(r['createdAt']?.toString()),
           status: (r['status'] ?? '').toString(),
           paymentMode: (r['paymentMode'] ?? 'cash').toString(),
-          duration: '${r['duration'] ?? 0} min',
+          duration: formatMinutes(((r['duration'] ?? 0) as num).round()),
           rating: ((r['riderRating'] ?? 0) as num).toDouble(),
           userProfilePicUrl: (r['riderProfilePicUrl'] ?? '').toString(),
           service: (r['service'] ?? 'taxi').toString(),
@@ -54,6 +55,8 @@ class HistoryBloc extends Bloc<HistoryEvent, HistoryState> {
           cityFrom: (r['cityFrom'] ?? '').toString(),
           cityTo: (r['cityTo'] ?? '').toString(),
           numPassengers: (r['numPassengers'] as num?)?.toInt() ?? 0,
+          driverEarning: (r['driverEarning'] as num?) ?? 0,
+          commission: (r['commissionAmount'] as num?) ?? 0,
         );
       }).toList();
       emit(HistoryLoaded(trips));

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
-import '../../core/widgets/app_widgets.dart';
+import '../../widgets/captain_ui/captain_ui.dart';
+import 'widgets/reg_step_scaffold.dart';
 import '../../services/driver_api_service.dart';
 import 'document_upload_page.dart';
+import 'vehicle_selection_page.dart' show VehicleTypeImage;
 
 class VehicleDetailsPage extends StatefulWidget {
   static const route = '/registration/vehicle-details';
@@ -58,126 +60,65 @@ class _VehicleDetailsPageState extends State<VehicleDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        children: [
-          _buildHeader(),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Form(
-                key: _form,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 8),
-                    _stepIndicator(2),
-                    const SizedBox(height: 20),
-                    // Vehicle type (read only)
-                    TextFormField(
-                      initialValue: _vehicle['name'] as String? ?? '',
-                      readOnly: true,
-                      decoration: InputDecoration(
-                        labelText: 'Vehicle Type',
-                        prefixIcon: Icon(Icons.directions_car_rounded, color: AppColors.textGrey),
-                      ),
-                      style: TextStyle(color: AppColors.textGrey),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _vehicleModel,
-                      decoration: const InputDecoration(
-                        labelText: 'Vehicle Name / Model *',
-                        hintText: 'e.g. Maruti Swift Dzire',
-                        prefixIcon: Icon(Icons.car_repair_rounded, color: AppColors.primary),
-                      ),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Vehicle model is required' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _regNumber,
-                      textCapitalization: TextCapitalization.characters,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9\s]')),
-                        UpperCaseTextFormatter(),
-                      ],
-                      decoration: const InputDecoration(
-                        labelText: 'Registration Number *',
-                        hintText: 'e.g. GJ01AB1234',
-                        prefixIcon: Icon(Icons.pin_rounded, color: AppColors.primary),
-                      ),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Registration number is required' : null,
-                    ),
-                    const SizedBox(height: 32),
-                    PrimaryButton(label: 'Continue', loading: _loading, onTap: _submit),
-                  ],
-                ),
+    final typeName = _vehicle['name'] as String? ?? '';
+    return RegStepScaffold(
+      step: CapRegSteps.vehicle,
+      stepLabel: 'Vehicle',
+      title: 'Vehicle details',
+      subtitle: 'Enter them exactly as on your RC book.',
+      bottom: CapButton(label: 'Continue', loading: _loading, onPressed: _submit),
+      children: [
+        Form(
+          key: _form,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (typeName.isNotEmpty) ...[
+              CapTile(
+                onTap: () => Navigator.maybePop(context),
+                padding: const EdgeInsets.all(12),
+                child: Row(children: [
+                  VehicleTypeImage(vt: _vehicle, width: 72, height: 54),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Vehicle type', style: Cap.caption(size: 12)),
+                      Text(typeName, maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: Cap.body(size: 15, weight: FontWeight.w800)),
+                    ]),
+                  ),
+                  Text('Change', style: Cap.body(size: 13, weight: FontWeight.w800, color: Cap.accent)),
+                ]),
+              ),
+              const SizedBox(height: 20),
+            ],
+            CapField(
+              label: 'Vehicle name / model',
+              required: true,
+              child: TextFormField(
+                controller: _vehicleModel,
+                textCapitalization: TextCapitalization.words,
+                decoration: Cap.input(hint: 'e.g. Maruti Swift Dzire'),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Vehicle model is required' : null,
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppColors.primaryDark, AppColors.primary],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(32),
-          bottomRight: Radius.circular(32),
-        ),
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 16, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
+            CapField(
+              label: 'Registration number',
+              required: true,
+              child: TextFormField(
+                controller: _regNumber,
+                textCapitalization: TextCapitalization.characters,
+                style: Cap.body(size: 15.5, weight: FontWeight.w800).copyWith(letterSpacing: 1.2),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9\s]')),
+                  UpperCaseTextFormatter(),
+                ],
+                decoration: Cap.input(hint: 'e.g. GJ 03 AB 1234'),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Registration number is required' : null,
               ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'Vehicle Details',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'Step 2 of 4 — Enter your vehicle info',
-                  style: TextStyle(fontSize: 13, color: Colors.white70),
-                ),
-              ),
-            ],
-          ),
+            ),
+            Text('As printed on your number plate and RC book.', style: Cap.caption(size: 12.5)),
+          ]),
         ),
-      ),
-    );
-  }
-
-  Widget _stepIndicator(int current) {
-    return Row(
-      children: List.generate(4, (i) => Expanded(
-        child: Container(
-          height: 4,
-          margin: const EdgeInsets.symmetric(horizontal: 2),
-          decoration: BoxDecoration(
-            color: i < current ? AppColors.primary : AppColors.divider,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-      )),
+      ],
     );
   }
 }

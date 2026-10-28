@@ -509,7 +509,7 @@ void main() {
     await act(() async {
       await swipe(tester, 'Swipe to finish the rental');
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('₹1479.0'), findsOneWidget);
+      expect(find.text('₹1479'), findsOneWidget);
       await collectFare(tester);
     });
     expect(posts(log, '/rental').where((c) => c.body['action'] == 'end'), isEmpty);
@@ -540,7 +540,7 @@ void main() {
     await act(() async {
       await swipe(tester, 'Swipe to end hire');
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('₹900.0'), findsOneWidget);
+      expect(find.text('₹900'), findsOneWidget);
       await collectFare(tester);
       await tester.pump(const Duration(milliseconds: 300));
     });

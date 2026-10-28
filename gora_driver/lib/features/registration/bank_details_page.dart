@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
-import '../../core/widgets/app_widgets.dart';
+import '../../widgets/captain_ui/captain_ui.dart';
+import 'widgets/reg_step_scaffold.dart';
 import '../../services/driver_api_service.dart';
 import 'kyc_success_page.dart';
 
@@ -59,184 +60,109 @@ class _BankDetailsPageState extends State<BankDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        children: [
-          _buildHeader(),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Form(
-                key: _form,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 8),
-                    _stepIndicator(4),
-                    const SizedBox(height: 20),
-                    TextFormField(
-                      controller: _holderName,
-                      decoration: const InputDecoration(
-                        labelText: 'Account Holder Name *',
-                        prefixIcon: Icon(Icons.person_rounded, color: AppColors.primary),
-                      ),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Account holder name is required' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _bankName,
-                      decoration: const InputDecoration(
-                        labelText: 'Bank Name *',
-                        prefixIcon: Icon(Icons.account_balance_rounded, color: AppColors.primary),
-                      ),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Bank name is required' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _branch,
-                      decoration: const InputDecoration(
-                        labelText: 'Branch Name',
-                        prefixIcon: Icon(Icons.location_city_rounded, color: AppColors.primary),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _accountNumber,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      decoration: const InputDecoration(
-                        labelText: 'Account Number *',
-                        prefixIcon: Icon(Icons.credit_card_rounded, color: AppColors.primary),
-                      ),
-                      validator: (v) => (v == null || v.trim().length < 9) ? 'Enter valid account number' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _ifsc,
-                      textCapitalization: TextCapitalization.characters,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
-                        UpperCaseFormatter(),
-                        LengthLimitingTextInputFormatter(11),
-                      ],
-                      decoration: const InputDecoration(
-                        labelText: 'IFSC Code *',
-                        hintText: 'e.g. SBIN0001234',
-                        prefixIcon: Icon(Icons.code_rounded, color: AppColors.primary),
-                      ),
-                      validator: (v) => (v == null || v.trim().length < 11) ? 'Enter valid 11-character IFSC code' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      // Without isExpanded a dropdown sizes to its LONGEST item, so a long
-                      // option overflowed the field on narrow screens. Expanding it makes
-                      // the selected label ellipsise inside the decoration instead.
-                      isExpanded: true,
-                      value: _accountType,
-                      decoration: const InputDecoration(
-                        labelText: 'Account Type *',
-                        prefixIcon: Icon(Icons.category_rounded, color: AppColors.primary),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'savings', child: Text('Savings')),
-                        DropdownMenuItem(value: 'current', child: Text('Current')),
-                      ],
-                      onChanged: (v) => setState(() => _accountType = v ?? 'savings'),
-                    ),
-                    const SizedBox(height: 32),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppColors.cardBg,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppColors.divider),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.lock_rounded, size: 16, color: AppColors.primary),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Your bank details are encrypted and stored securely.',
-                              style: TextStyle(fontSize: 12, color: AppColors.textGrey),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    PrimaryButton(label: 'Submit Application', loading: _loading, onTap: _submit),
-                    const SizedBox(height: 16),
-                  ],
-                ),
+    return RegStepScaffold(
+      step: CapRegSteps.bank,
+      stepLabel: 'Bank account',
+      title: 'Add your bank account',
+      subtitle: 'Your earnings are withdrawn to this account.',
+      bottom: CapButton(label: 'Submit application', loading: _loading, onPressed: _submit),
+      children: [
+        Form(
+          key: _form,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            CapField(
+              label: 'Account holder name',
+              required: true,
+              child: TextFormField(
+                controller: _holderName,
+                textCapitalization: TextCapitalization.words,
+                decoration: Cap.input(hint: 'Name as per bank records'),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Account holder name is required' : null,
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppColors.primaryDark, AppColors.primary],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(32),
-          bottomRight: Radius.circular(32),
-        ),
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 16, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                // maybePop: when resumed straight from splash/login this is the
-                // only route, and a bare pop would leave a blank screen.
-                onPressed: () => Navigator.maybePop(context),
+            CapField(
+              label: 'Account number',
+              required: true,
+              child: TextFormField(
+                controller: _accountNumber,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                style: Cap.body(size: 15.5, weight: FontWeight.w700).copyWith(letterSpacing: 1),
+                decoration: Cap.input(hint: 'Enter account number'),
+                validator: (v) => (v == null || v.trim().length < 9) ? 'Enter valid account number' : null,
               ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'Bank Details',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white),
-                ),
+            ),
+            CapField(
+              label: 'IFSC code',
+              required: true,
+              child: TextFormField(
+                controller: _ifsc,
+                textCapitalization: TextCapitalization.characters,
+                style: Cap.body(size: 15.5, weight: FontWeight.w700).copyWith(letterSpacing: 1),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
+                  UpperCaseFormatter(),
+                  LengthLimitingTextInputFormatter(11),
+                ],
+                decoration: Cap.input(hint: 'e.g. SBIN0001234'),
+                validator: (v) => (v == null || v.trim().length < 11) ? 'Enter valid 11-character IFSC code' : null,
               ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'Step 4 of 4 — For earnings withdrawal',
-                  style: TextStyle(fontSize: 13, color: Colors.white70),
-                ),
+            ),
+            CapField(
+              label: 'Bank name',
+              required: true,
+              child: TextFormField(
+                controller: _bankName,
+                textCapitalization: TextCapitalization.words,
+                decoration: Cap.input(hint: 'e.g. State Bank of India'),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Bank name is required' : null,
               ),
-            ],
-          ),
+            ),
+            CapField(
+              label: 'Branch name',
+              child: TextFormField(
+                controller: _branch,
+                textCapitalization: TextCapitalization.words,
+                decoration: Cap.input(hint: 'Optional'),
+              ),
+            ),
+            CapField(
+              label: 'Account type',
+              required: true,
+              child: Row(children: [
+                for (final t in const [('savings', 'Savings'), ('current', 'Current')]) ...[
+                  if (t.$1 == 'current') const SizedBox(width: 10),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => setState(() => _accountType = t.$1),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        height: 50,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: _accountType == t.$1 ? Cap.accent.withValues(alpha: 0.06) : Cap.tile,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _accountType == t.$1 ? Cap.accent : Cap.divider,
+                            width: _accountType == t.$1 ? 2 : 1,
+                          ),
+                        ),
+                        child: Text(t.$2, style: Cap.body(size: 14.5, weight: FontWeight.w800,
+                            color: _accountType == t.$1 ? Cap.accent : null)),
+                      ),
+                    ),
+                  ),
+                ],
+              ]),
+            ),
+            const CapBanner(
+              icon: Icons.lock_rounded,
+              tone: CapTone.neutral,
+              text: 'Your bank details are encrypted and stored securely.',
+            ),
+          ]),
         ),
-      ),
-    );
-  }
-
-  Widget _stepIndicator(int current) {
-    return Row(
-      children: List.generate(4, (i) => Expanded(
-        child: Container(
-          height: 4,
-          margin: const EdgeInsets.symmetric(horizontal: 2),
-          decoration: BoxDecoration(
-            color: i < current ? AppColors.primary : AppColors.divider,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-      )),
+      ],
     );
   }
 }

@@ -31,7 +31,12 @@ class DeliveryProgressPage extends StatefulWidget {
   /// as the way to retry if marking it collected fails.
   final bool collectOnOpen;
 
-  const DeliveryProgressPage({super.key, required this.ride, this.collectOnOpen = false});
+  /// A proof photo already taken. Only tests set it: the camera cannot run in
+  /// a widget test, and the hand-over after it is what they need to drive.
+  @visibleForTesting
+  final String? initialProofPhoto;
+
+  const DeliveryProgressPage({super.key, required this.ride, this.collectOnOpen = false, this.initialProofPhoto});
   @override
   State<DeliveryProgressPage> createState() => _DeliveryProgressPageState();
 }
@@ -58,8 +63,12 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
     final p = widget.ride.progress;
     // A parcel already on its way used to reopen at "swipe once collected",
     // and swiping again re-anchored its distance to wherever the driver was.
-    _collected = p.parcelCollected;
     _pricedEarlier = p.deliveryPhase == 'delivered' || p.deliveryPhase == 'returned';
+    // Delivered/returned implies it was collected. Reopened at 'delivered',
+    // this was false, so the map pointed back at the sender and its geofence
+    // raised "You have reached Pickup" / "collect the parcel" on the bill.
+    _collected = p.parcelCollected || _pricedEarlier;
+    _proofPhoto = widget.initialProofPhoto;
     if (_collected && !_pricedEarlier) _startPinging();
     if (widget.collectOnOpen && !_collected && !_pricedEarlier) {
       WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _markCollected(); });
@@ -204,16 +213,44 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
         title: 'Enter Delivery OTP', label: 'OTP from Receiver', hint: 'e.g. 4821', action: 'Deliver');
     if (otp == null || otp.isEmpty || !mounted) return;
     setState(() => _busy = true);
-    final res = await DriverApiService.deliveryAction(widget.ride.id, {'action': 'deliver', 'dropOtp': otp, 'proofPhoto': _proofPhoto, 'signature': _signatureUrl});
+    Map<String, dynamic> res;
+    try {
+      res = await DriverApiService.deliveryAction(widget.ride.id, {'action': 'deliver', 'dropOtp': otp, 'proofPhoto': _proofPhoto, 'signature': _signatureUrl});
+    } catch (_) {
+      res = const {'error': 'No connection'};
+    }
     if (!mounted) return;
-    setState(() => _busy = false);
     if (res['error'] != null) {
+      // The hand-over may have gone through even though this reply did not
+      // (a dropped connection after the server saved it). Ask the server: if
+      // the parcel is delivered, move on to the bill instead of leaving the
+      // driver on "enter receiver OTP" until the app is restarted.
+      if (await _deliveredOnServer()) {
+        _ping?.cancel();
+        setState(() { _busy = false; _pricedEarlier = true; });
+        await _finishEarlier();
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['error'].toString()), backgroundColor: AppColors.red));
       return;
     }
+    setState(() => _busy = false);
     _ping?.cancel();
+    // Straight to the finishing step with the server's own bill.
     setState(() => _priced = res);
     await _collectAndSettle();
+  }
+
+  Future<bool> _deliveredOnServer() async {
+    try {
+      final r = await DriverApiService.getRide(widget.ride.id);
+      final ride = r['ride'] is Map ? r['ride'] as Map : r;
+      return ride['deliveryPhase'] == 'delivered';
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> _finishEarlier() => _withBusy(() => finishPricedJob(context, widget.ride));
@@ -249,8 +286,10 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
           ? NavLeg(label: 'Receiver', destLat: r.dropLat, destLng: r.dropLng, destAddress: r.dropAddress)
           : NavLeg(label: 'Pickup', destLat: r.pickupLat, destLng: r.pickupLng, destAddress: r.pickupAddress),
       fallbackPolyline: r.routePolyline,
+      // Finishing: the parcel is handed over, there is nowhere left to go.
+      hasDestination: !finishing,
       onArrived: () {
-        if (!mounted) return;
+        if (!mounted || _pricedEarlier || _priced != null) return;
         // Straight after the OTP the driver is standing at the sender with the
         // parcel in hand: "collect the parcel" would only be noise.
         if (!_collected && widget.collectOnOpen) return;
@@ -280,7 +319,11 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
             Expanded(child: Text('COLLECT ₹${r.codAmount.toStringAsFixed(0)} CASH from receiver', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.orange)))])),
         _card('Parcel', [
           _line(Icons.inventory_2, 'Item', r.itemType.isNotEmpty ? r.itemType : 'Parcel'),
-          if (r.weightKg > 0) _line(Icons.fitness_center, 'Weight', '${r.weightKg.toStringAsFixed(0)} kg'),
+          // No weight is asked for any more (weightKg 0): then no Weight row
+          // at all. Older parcels keep theirs, with the decimal they were
+          // booked with — 0.5 kg used to round to "1 kg", 0.4 kg to "0 kg".
+          if (r.weightKg > 0) _line(Icons.fitness_center, 'Weight',
+              r.weightKg == r.weightKg.roundToDouble() ? '${r.weightKg.round()} kg' : '${r.weightKg.toStringAsFixed(1)} kg'),
           if (r.packageSize.isNotEmpty) _line(Icons.straighten, 'Size', r.packageSize),
           if (r.isFragile) _line(Icons.warning_amber, 'Care', 'FRAGILE — handle carefully'),
         ]),

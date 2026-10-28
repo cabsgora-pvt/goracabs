@@ -79,7 +79,7 @@ class _SupportPageState extends State<SupportPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: blueAppBar('Support Tickets', actions: [
-        IconButton(icon: const Icon(Icons.add, color: Colors.white), onPressed: _newTicket),
+        IconButton(icon: const Icon(Icons.add_rounded), tooltip: 'New ticket', onPressed: _newTicket),
       ]),
       backgroundColor: AppColors.cardBg,
       body: _loading

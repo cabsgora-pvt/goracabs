@@ -92,7 +92,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     backgroundImage: picUrl.isNotEmpty ? NetworkImage(picUrl) : null,
                     child: picUrl.isEmpty
                         ? Text(name[0].toUpperCase(),
-                            style: const TextStyle(fontSize: 42, color: AppColors.primary, fontWeight: FontWeight.w800))
+                            style: TextStyle(fontSize: 42, color: AppColors.textDark, fontWeight: FontWeight.w800))
                         : null,
                   ),
                   // Dim + spinner overlay while uploading
@@ -115,9 +115,9 @@ class _ProfilePageState extends State<ProfilePage> {
                     child: Container(
                       padding: const EdgeInsets.all(7),
                       decoration: BoxDecoration(
-                        color: AppColors.primary,
+                        color: const Color(0xFF111111),
                         shape: BoxShape.circle,
-                        border: Border.all(color: AppColors.white, width: 2),
+                        border: Border.all(color: AppColors.white, width: 3),
                       ),
                       child: Icon(Icons.camera_alt, color: AppColors.white, size: 16),
                     ),
@@ -129,7 +129,7 @@ class _ProfilePageState extends State<ProfilePage> {
           const SizedBox(height: 14),
           Text(name, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textDark)),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            const Icon(Icons.star, color: AppColors.orange, size: 16),
+            const Icon(Icons.star_rounded, color: Color(0xFFFFB300), size: 17),
             Text(' ${dp.rating}  •  ${dp.totalRides} trips',
                 style: TextStyle(color: AppColors.textGrey)),
           ]),
@@ -164,16 +164,21 @@ class _InfoCard extends StatelessWidget {
     decoration: BoxDecoration(
       color: AppColors.white,
       borderRadius: BorderRadius.circular(16),
-      boxShadow: [BoxShadow(color: Colors.black.withAlpha(10), blurRadius: 8)],
+      border: Border.all(color: AppColors.divider),
     ),
     child: Column(children: items.asMap().entries.map((e) => Column(children: [
       if (e.key > 0) Divider(color: AppColors.divider, height: 20),
       Row(children: [
-        Icon(e.value.icon, color: AppColors.primary, size: 18),
+        Container(
+          width: 34, height: 34,
+          decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(10)),
+          child: Icon(e.value.icon, color: AppColors.textDark, size: 18),
+        ),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(e.value.label, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
-          Text(e.value.value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textDark)),
+          Text(e.value.label, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: AppColors.textGrey)),
+          Text(e.value.value, maxLines: 2, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: AppColors.textDark)),
         ])),
       ]),
     ])).toList()),

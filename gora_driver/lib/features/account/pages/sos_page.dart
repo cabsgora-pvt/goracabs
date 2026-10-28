@@ -155,7 +155,7 @@ class _SosPageState extends State<SosPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: blueAppBar('SOS Contacts', actions: [
-        IconButton(icon: const Icon(Icons.add, color: Colors.white), onPressed: _addContact),
+        IconButton(icon: const Icon(Icons.add_rounded), tooltip: 'Add contact', onPressed: _addContact),
       ]),
       backgroundColor: AppColors.cardBg,
       body: Column(children: [

@@ -86,7 +86,8 @@ class EarningsBloc extends Bloc<EarningsEvent, EarningsState> {
     }
 
     final monthly = <PeriodStat>[];
-    for (int m = 1; m <= 12; m++) {
+    // Up to the current month only: a future month has no earnings to show.
+    for (int m = 1; m <= now.month; m++) {
       monthly.add(_agg(_mon[m - 1], '${now.year}',
           rides.where((r) => r.date.year == now.year && r.date.month == m), current: m == now.month));
     }

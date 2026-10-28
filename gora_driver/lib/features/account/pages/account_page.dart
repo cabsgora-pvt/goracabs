@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/widgets/app_widgets.dart';
 import '../../../providers/driver_provider.dart';
+import '../../../widgets/captain_ui/captain_ui.dart';
 import '../../earnings/pages/earnings_page.dart';
 import '../../history/pages/history_page.dart';
 import '../../wallet/pages/wallet_page.dart';
@@ -16,220 +16,143 @@ class AccountPage extends StatelessWidget {
     final picUrl = dp.profilePicUrl;
     final displayName = dp.name.isNotEmpty ? dp.name : 'Driver';
     // Live figures only. Balance comes from GET /auth/driver/wallet — the same
-    // call the Wallet page shows — via DriverProvider.refreshBalance (it was a
-    // hardcoded '₹ 2,450'). Rating is the driver's server-side average, which
-    // /rides/:id/rate recomputes; the home screen refreshes the profile each
-    // time this tab is opened so a new rating shows without a restart.
+    // call the Wallet page shows — via DriverProvider.refreshBalance. Rating is
+    // the driver's server-side average, which /rides/:id/rate recomputes; the
+    // home screen refreshes the profile each time this tab is opened so a new
+    // rating shows without a restart.
     final ratingNum = double.tryParse(dp.rating) ?? 0;
     final ratingLabel = ratingNum > 0 ? ratingNum.toStringAsFixed(1) : 'New';
     final balanceLabel = dp.balanceLoaded ? '₹ ${dp.walletBalance.toStringAsFixed(2)}' : '—';
+    final vehicleLine = [dp.vehicleModel, dp.vehicleType].where((s) => s.trim().isNotEmpty).join(' · ');
+
+    void go(String route) => Navigator.pushNamed(context, route);
+    void push(Widget page) => Navigator.push(context, MaterialPageRoute(builder: (_) => page));
 
     return Scaffold(
-      backgroundColor: AppColors.background,
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 260,
-            pinned: true,
-            backgroundColor: AppColors.primary,
-            automaticallyImplyLeading: false,
-            elevation: 0,
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.edit_outlined, color: Colors.white),
+      backgroundColor: Cap.tile,
+      body: SafeArea(
+        bottom: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+          children: [
+            Row(children: [
+              Expanded(child: Text('Account', style: Cap.title(size: 26))),
+              CapRoundAction(
+                icon: Icons.edit_outlined,
+                size: 40,
+                background: Cap.surface,
                 tooltip: 'Edit profile',
-                onPressed: () => Navigator.pushNamed(context, '/profile'),
+                onTap: () => go('/profile'),
               ),
-            ],
-            flexibleSpace: FlexibleSpaceBar(
-              background: Stack(
-                fit: StackFit.expand,
-                children: [
-                  // Gradient backdrop
-                  Container(
-                    decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [AppColors.primaryDark, AppColors.primary],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                    ),
-                  ),
-                  // Soft decorative circles
-                  Positioned(
-                    top: -40, right: -30,
-                    child: Container(width: 160, height: 160,
-                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.06), shape: BoxShape.circle)),
-                  ),
-                  Positioned(
-                    bottom: -50, left: -40,
-                    child: Container(width: 180, height: 180,
-                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), shape: BoxShape.circle)),
-                  ),
-                  // Profile content
-                  SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 50, 20, 16),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          // Avatar with white ring + camera badge
-                          GestureDetector(
-                            onTap: () => Navigator.pushNamed(context, '/profile'),
-                            child: Stack(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(3),
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.white, width: 2.5),
-                                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 12, offset: const Offset(0, 4))],
-                                  ),
-                                  child: CircleAvatar(
-                                    radius: 38,
-                                    backgroundColor: Colors.white.withOpacity(0.18),
-                                    backgroundImage: picUrl.isNotEmpty ? NetworkImage(picUrl) : null,
-                                    child: picUrl.isEmpty
-                                        ? Text(displayName[0].toUpperCase(),
-                                            style: const TextStyle(fontSize: 30, color: Colors.white, fontWeight: FontWeight.w800))
-                                        : null,
-                                  ),
-                                ),
-                                Positioned(
-                                  bottom: 0, right: 0,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(4),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white, shape: BoxShape.circle,
-                                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 4)],
-                                    ),
-                                    child: const Icon(Icons.camera_alt, size: 14, color: AppColors.primary),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          // Name + verified tick
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  displayName,
-                                  maxLines: 1, overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.2),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              const Icon(Icons.verified, color: Colors.white, size: 18),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          // Phone pill
-                          if (dp.phone.isNotEmpty)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.phone, size: 11, color: Colors.white70),
-                                  const SizedBox(width: 4),
-                                  Text('+91 ${dp.phone}', style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-                                ],
-                              ),
-                            ),
-                          const SizedBox(height: 10),
-                          // Rating + rides chips
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _HeaderChip(icon: Icons.star_rounded, iconColor: AppColors.orange,
-                                label: ratingLabel),
-                              const SizedBox(width: 8),
-                              _HeaderChip(icon: Icons.directions_car_rounded, iconColor: Colors.white,
-                                label: '${dp.totalRides} rides'),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
+            ]),
+            const SizedBox(height: 14),
+
+            // ── Profile header card ──
+            CapCard(
+              onTap: () => go('/profile'),
               padding: const EdgeInsets.all(16),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                // Quick stats
                 Row(children: [
-                  Expanded(child: _QuickStat(label: 'Balance', value: balanceLabel, icon: Icons.account_balance_wallet, color: AppColors.green)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _QuickStat(label: 'Rating', value: ratingLabel, icon: Icons.star, color: AppColors.orange)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _QuickStat(label: 'Rides', value: dp.totalRides, icon: Icons.directions_car, color: AppColors.primary)),
+                  CapAvatar(name: displayName, url: picUrl, radius: 32),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.title(size: 20)),
+                      if (dp.phone.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text('+91 ${dp.phone}', maxLines: 1, style: Cap.caption(size: 13)),
+                      ],
+                      const SizedBox(height: 8),
+                      Wrap(spacing: 6, runSpacing: 6, children: [
+                        _Pill(icon: Icons.star_rounded, iconColor: Cap.amber, label: ratingLabel),
+                        _Pill(icon: Icons.route_rounded, label: '${dp.totalRides} trips'),
+                      ]),
+                    ]),
+                  ),
                 ]),
-                const SizedBox(height: 20),
-
-                _Section('Activity'),
-                MenuRow(icon: Icons.history, label: 'Trip History', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryPage()))),
-                MenuRow(icon: Icons.bar_chart, label: 'Earnings', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EarningsPage()))),
-                MenuRow(icon: Icons.account_balance_wallet, label: 'Wallet', onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletPage()))),
-
-                const SizedBox(height: 8),
-                _Section('Driver Info'),
-                MenuRow(icon: Icons.person, label: 'Profile', onTap: () => Navigator.pushNamed(context, '/profile')),
-                MenuRow(icon: Icons.directions_car, label: 'Vehicle Info', onTap: () => Navigator.pushNamed(context, '/vehicle-info')),
-                MenuRow(icon: Icons.folder, label: 'Documents', onTap: () => Navigator.pushNamed(context, '/documents')),
-                MenuRow(icon: Icons.qr_code, label: 'My QR Code', onTap: () => Navigator.pushNamed(context, '/qr-code')),
-                MenuRow(icon: Icons.badge, label: 'My ID Card', onTap: () => Navigator.pushNamed(context, '/id-card')),
-
-                const SizedBox(height: 8),
-                _Section('Rewards & Growth'),
-                MenuRow(icon: Icons.leaderboard, label: 'Leaderboard', onTap: () => Navigator.pushNamed(context, '/leaderboard'), iconColor: AppColors.orange),
-                MenuRow(icon: Icons.share, label: 'Refer & Earn', onTap: () => Navigator.pushNamed(context, '/referral'), iconColor: AppColors.orange),
-
-                const SizedBox(height: 8),
-                _Section('Support'),
-                MenuRow(icon: Icons.receipt_long, label: 'Rate Card', onTap: () => Navigator.pushNamed(context, '/rate-card')),
-                MenuRow(icon: Icons.bar_chart_outlined, label: 'Reports', onTap: () => Navigator.pushNamed(context, '/reports')),
-                MenuRow(icon: Icons.chat, label: 'Chat with Support', onTap: () => Navigator.pushNamed(context, '/admin-chat')),
-                MenuRow(icon: Icons.support_agent, label: 'Support Tickets', onTap: () => Navigator.pushNamed(context, '/support-tickets')),
-
-                const SizedBox(height: 8),
-                _Section('General'),
-                MenuRow(icon: Icons.tune, label: 'Preferences', onTap: () => Navigator.pushNamed(context, '/preferences')),
-                MenuRow(icon: Icons.subscriptions, label: 'Subscription', onTap: () => Navigator.pushNamed(context, '/subscription')),
-                MenuRow(icon: Icons.settings, label: 'Settings', onTap: () => Navigator.pushNamed(context, '/settings')),
-                MenuRow(icon: Icons.logout, label: 'Logout', onTap: () => _confirmLogout(context), iconColor: AppColors.red),
-                const SizedBox(height: 32),
+                if (vehicleLine.isNotEmpty || dp.vehicleNumber.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  Container(height: 1, color: Cap.divider),
+                  const SizedBox(height: 12),
+                  Row(children: [
+                    Icon(Icons.directions_car_rounded, size: 20, color: Cap.ink),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(vehicleLine.isNotEmpty ? vehicleLine : 'Your vehicle',
+                          maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.body(size: 13.5)),
+                    ),
+                    if (dp.vehicleNumber.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      _Plate(dp.vehicleNumber),
+                    ],
+                  ]),
+                ],
               ]),
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+
+            // ── Quick stats ──
+            Row(children: [
+              Expanded(child: _QuickStat(label: 'Wallet', value: balanceLabel, onTap: () => push(const WalletPage()))),
+              const SizedBox(width: 10),
+              Expanded(child: _QuickStat(label: 'Rating', value: ratingLabel)),
+              const SizedBox(width: 10),
+              Expanded(child: _QuickStat(label: 'Trips', value: dp.totalRides, onTap: () => push(const HistoryPage()))),
+            ]),
+
+            CapMenuGroup(title: 'Earnings & money', children: [
+              CapMenuRow(icon: Icons.bar_chart_rounded, label: 'Earnings', onTap: () => push(const EarningsPage())),
+              CapMenuRow(icon: Icons.account_balance_wallet_outlined, label: 'Wallet', sub: dp.balanceLoaded ? 'Balance $balanceLabel' : null,
+                  onTap: () => push(const WalletPage())),
+              CapMenuRow(icon: Icons.history_rounded, label: 'Trip history', onTap: () => push(const HistoryPage())),
+              CapMenuRow(icon: Icons.emoji_events_outlined, label: 'Incentives', onTap: () => go('/incentives')),
+              CapMenuRow(icon: Icons.workspace_premium_outlined, label: 'Subscription', onTap: () => go('/subscription')),
+              CapMenuRow(icon: Icons.receipt_long_outlined, label: 'Rate card', onTap: () => go('/rate-card')),
+              CapMenuRow(icon: Icons.insert_chart_outlined_rounded, label: 'Reports', onTap: () => go('/reports')),
+            ]),
+
+            CapMenuGroup(title: 'Profile & vehicle', children: [
+              CapMenuRow(icon: Icons.person_outline_rounded, label: 'Profile', onTap: () => go('/profile')),
+              CapMenuRow(icon: Icons.directions_car_outlined, label: 'Vehicle', onTap: () => go('/vehicle-info')),
+              CapMenuRow(icon: Icons.folder_outlined, label: 'Documents', onTap: () => go('/documents')),
+              CapMenuRow(icon: Icons.badge_outlined, label: 'ID card', onTap: () => go('/id-card')),
+              CapMenuRow(icon: Icons.qr_code_2_rounded, label: 'Payment QR code', onTap: () => go('/qr-code')),
+            ]),
+
+            CapMenuGroup(title: 'Rewards', children: [
+              CapMenuRow(icon: Icons.leaderboard_outlined, label: 'Leaderboard', onTap: () => go('/leaderboard')),
+              CapMenuRow(icon: Icons.card_giftcard_rounded, label: 'Refer & earn', onTap: () => go('/referral')),
+            ]),
+
+            CapMenuGroup(title: 'Safety & help', children: [
+              CapMenuRow(icon: Icons.sos_rounded, label: 'SOS contacts', iconColor: AppColors.red, onTap: () => go('/sos')),
+              CapMenuRow(icon: Icons.chat_bubble_outline_rounded, label: 'Chat with support', onTap: () => go('/admin-chat')),
+              CapMenuRow(icon: Icons.support_agent_rounded, label: 'Support tickets', onTap: () => go('/support-tickets')),
+              CapMenuRow(icon: Icons.help_outline_rounded, label: 'Help & FAQ', onTap: () => go('/faq')),
+            ]),
+
+            CapMenuGroup(title: 'App', children: [
+              CapMenuRow(icon: Icons.tune_rounded, label: 'Trip preferences', onTap: () => go('/preferences')),
+              CapMenuRow(icon: Icons.settings_outlined, label: 'Settings', onTap: () => go('/settings')),
+              CapMenuRow(icon: Icons.logout_rounded, label: 'Logout', danger: true, onTap: () => _confirmLogout(context)),
+            ]),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _Section(String title) => Padding(
-    padding: const EdgeInsets.only(top: 8, bottom: 8),
-    child: Text(title, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textGrey, letterSpacing: 0.5)),
-  );
-
   void _confirmLogout(BuildContext context) {
     showDialog(context: context, builder: (_) => AlertDialog(
-      title: const Text('Logout?', style: TextStyle(fontWeight: FontWeight.w700)),
+      title: const Text('Logout?'),
       content: const Text('Are you sure you want to logout?'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(_), child: const Text('Cancel')),
         ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: AppColors.red),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.red,
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          ),
           onPressed: () => Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false),
           child: const Text('Logout', style: TextStyle(color: Colors.white)),
         ),
@@ -238,47 +161,61 @@ class AccountPage extends StatelessWidget {
   }
 }
 
-class _HeaderChip extends StatelessWidget {
+class _Pill extends StatelessWidget {
   final IconData icon;
-  final Color iconColor;
+  final Color? iconColor;
   final String label;
-  const _HeaderChip({required this.icon, required this.iconColor, required this.label});
+  const _Pill({required this.icon, required this.label, this.iconColor});
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-    decoration: BoxDecoration(
-      color: Colors.white.withOpacity(0.18),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: Colors.white24, width: 0.5),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: iconColor, size: 14),
-        const SizedBox(width: 5),
-        Text(label, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
-      ],
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+    decoration: BoxDecoration(color: Cap.tile, borderRadius: BorderRadius.circular(14)),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, color: iconColor ?? Cap.ink, size: 14),
+      const SizedBox(width: 4),
+      Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: Cap.body(size: 12, weight: FontWeight.w800))),
+    ]),
+  );
+}
+
+/// Number-plate styled box.
+class _Plate extends StatelessWidget {
+  final String number;
+  const _Plate(this.number);
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 140),
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.dark ? Colors.white10 : const Color(0xFFFFFDF2),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Cap.ink, width: 1.4),
+      ),
+      child: Text(number.toUpperCase(),
+          maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: Cap.body(size: 12.5, weight: FontWeight.w900).copyWith(letterSpacing: 1)),
     ),
   );
 }
 
 class _QuickStat extends StatelessWidget {
   final String label, value;
-  final IconData icon;
-  final Color color;
-  const _QuickStat({required this.label, required this.value, required this.icon, required this.color});
+  final VoidCallback? onTap;
+  const _QuickStat({required this.label, required this.value, this.onTap});
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-    decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-    child: Column(children: [
-      Icon(icon, color: color, size: 20),
-      const SizedBox(height: 4),
+  Widget build(BuildContext context) => CapCard(
+    onTap: onTap,
+    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       FittedBox(
         fit: BoxFit.scaleDown,
-        child: Text(value, maxLines: 1, style: TextStyle(fontWeight: FontWeight.w800, color: color, fontSize: 13)),
+        alignment: Alignment.centerLeft,
+        child: Text(value, maxLines: 1, style: Cap.title(size: 17)),
       ),
-      Text(label, style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
+      const SizedBox(height: 2),
+      Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12)),
     ]),
   );
 }

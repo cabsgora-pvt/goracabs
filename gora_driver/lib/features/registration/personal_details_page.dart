@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../providers/driver_provider.dart';
 import '../../core/constants/app_colors.dart';
-import '../../core/widgets/app_widgets.dart';
+import '../../widgets/captain_ui/captain_ui.dart';
+import 'widgets/reg_step_scaffold.dart';
 import '../../services/driver_api_service.dart';
 import 'face_capture_page.dart';
 
@@ -40,18 +43,38 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
     _loadZones();
   }
 
+  bool _prefilled = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // Once only. didChangeDependencies runs again whenever the route's status
+    // changes — e.g. when the State/Zone dropdown menu closes — and re-applying
+    // the prefill then reset _selectedState to the driver's old value (or null)
+    // while the dropdown still showed the new choice: "Gujarat" on screen,
+    // "Please select a state" on Continue.
+    if (_prefilled) return;
+    _prefilled = true;
     final args = ModalRoute.of(context)?.settings.arguments as Map?;
-    _phone = args?['phone'] as String? ?? '';
     // Pre-fill if resubmitting
     final driver = args?['driver'] as Map?;
+    // A resubmission arrives without 'phone' (only the driver record), which
+    // left the locked mobile field reading just "+91".
+    _phone = args?['phone'] as String? ??
+        (driver?['phone'] ?? '').toString();
+    if (_phone.isEmpty) {
+      try { _phone = Provider.of<DriverProvider>(context, listen: false).phone; } catch (_) {}
+    }
     if (driver != null) {
       _name.text = driver['name'] as String? ?? '';
       _email.text = driver['email'] as String? ?? '';
-      _selectedState = driver['state'] as String?;
-      _selectedGender = driver['gender'] as String?;
+      // Only values the dropdowns actually offer: a value missing from the
+      // items fails Flutter's dropdown assertion, and one shown but not bound
+      // is exactly the "select a state" trap.
+      final st = (driver['state'] ?? '').toString().trim().toLowerCase();
+      _selectedState = _indianStates.where((x) => x.toLowerCase() == st).firstOrNull;
+      final g = (driver['gender'] ?? '').toString();
+      _selectedGender = const ['female', 'male', 'other'].contains(g) ? g : null;
       _selectedZoneId = driver['zoneId'] as String?;
       _selectedZoneName = driver['zoneName'] as String?;
     }
@@ -60,7 +83,17 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
   Future<void> _loadZones() async {
     try {
       final zones = await DriverApiService.getZones();
-      if (mounted) setState(() { _zones = zones; _zonesLoading = false; });
+      if (mounted) {
+        setState(() {
+          _zones = zones;
+          _zonesLoading = false;
+          // A prefilled zone that no longer exists is not a selection.
+          if (_selectedZoneId != null && !zones.any((z) => (z['_id'] ?? z['id']) == _selectedZoneId)) {
+            _selectedZoneId = null;
+            _selectedZoneName = null;
+          }
+        });
+      }
     } catch (_) {
       if (mounted) setState(() => _zonesLoading = false);
     }
@@ -114,216 +147,130 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Column(
-        children: [
-          _buildHeader(),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Form(
-                key: _form,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 8),
-                    _stepIndicator(1),
-                    const SizedBox(height: 24),
-
-                    // Profile photo + identity signature are captured live on
-                    // the next screen (camera, not a gallery picker) — that
-                    // shot becomes both.
-                    Center(
-                      child: Container(
-                        width: 100, height: 100,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.cardBg,
-                          border: Border.all(color: AppColors.primary.withAlpha(80), width: 3),
-                        ),
-                        child: const Icon(Icons.camera_alt_rounded, size: 40, color: AppColors.primary),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Center(
-                      child: Text("You'll take your profile photo on the next screen", style: TextStyle(fontSize: 12, color: AppColors.textGrey), textAlign: TextAlign.center),
-                    ),
-                    const SizedBox(height: 20),
-
-                    TextFormField(
-                      controller: _name,
-                      decoration: const InputDecoration(
-                        labelText: 'Full Name *',
-                        prefixIcon: Icon(Icons.person_rounded, color: AppColors.primary),
-                      ),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Full name is required' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      readOnly: true,
-                      initialValue: '+91 $_phone',
-                      decoration: InputDecoration(
-                        labelText: 'Mobile Number',
-                        prefixIcon: Icon(Icons.phone_rounded, color: AppColors.textGrey),
-                      ),
-                      style: TextStyle(color: AppColors.textGrey),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _email,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                        labelText: 'Email Address',
-                        prefixIcon: Icon(Icons.email_rounded, color: AppColors.primary),
-                      ),
-                      validator: (v) {
-                        if (v != null && v.isNotEmpty && !v.contains('@')) return 'Enter valid email';
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _referralController,
-                      textCapitalization: TextCapitalization.characters,
-                      decoration: const InputDecoration(
-                        labelText: 'Referral code (optional)',
-                        hintText: "Enter a friend's code",
-                        prefixIcon: Icon(Icons.card_giftcard_rounded, color: AppColors.primary),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    // Optional and self-declared — used only so a rider who asks
-                    // for a female driver can actually be matched with one; never
-                    // shown publicly and never required to keep driving.
-                    DropdownButtonFormField<String>(
-                      value: _selectedGender,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Gender (optional)',
-                        prefixIcon: Icon(Icons.wc_rounded, color: AppColors.primary),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'female', child: Text('Female')),
-                        DropdownMenuItem(value: 'male', child: Text('Male')),
-                        DropdownMenuItem(value: 'other', child: Text('Other')),
-                      ],
-                      onChanged: (v) => setState(() => _selectedGender = v),
-                    ),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      value: _selectedState,
-                      // Without isExpanded the dropdown sizes to its longest
-                      // item, so a name like 'Andaman and Nicobar Islands'
-                      // next to the prefix icon overflowed a 320pt screen by
-                      // 95px. Expanding it makes the label ellipsise instead.
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'State *',
-                        prefixIcon: Icon(Icons.map_rounded, color: AppColors.primary),
-                      ),
-                      items: _indianStates.map((s) => DropdownMenuItem(
-                        value: s,
-                        child: Text(s, maxLines: 1, overflow: TextOverflow.ellipsis),
-                      )).toList(),
-                      onChanged: (v) => setState(() => _selectedState = v),
-                    ),
-                    const SizedBox(height: 16),
-                    _zonesLoading
-                        ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
-                        : DropdownButtonFormField<String>(
-                            value: _selectedZoneId,
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Zone *',
-                              prefixIcon: Icon(Icons.location_city_rounded, color: AppColors.primary),
-                            ),
-                            items: _zones.map((z) => DropdownMenuItem(
-                              value: z['_id'] as String? ?? z['id'] as String?,
-                              child: Text(z['name'] as String? ?? '',
-                                maxLines: 1, overflow: TextOverflow.ellipsis),
-                            )).toList(),
-                            onChanged: (v) {
-                              final zone = _zones.firstWhere(
-                                (z) => (z['_id'] ?? z['id']) == v,
-                                orElse: () => {},
-                              );
-                              setState(() {
-                                _selectedZoneId = v;
-                                _selectedZoneName = zone['name'] as String?;
-                              });
-                            },
-                          ),
-                    const SizedBox(height: 32),
-                    PrimaryButton(label: 'Continue', loading: _loading, onTap: _submit),
-                    const SizedBox(height: 16),
-                  ],
-                ),
+    return RegStepScaffold(
+      step: CapRegSteps.personal,
+      stepLabel: 'Personal details',
+      title: 'Tell us about yourself',
+      subtitle: 'This is how riders and our team will know you.',
+      bottom: CapButton(label: 'Continue', loading: _loading, onPressed: _submit),
+      children: [
+        Form(
+          key: _form,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            CapField(
+              label: 'Full name',
+              required: true,
+              child: TextFormField(
+                controller: _name,
+                textCapitalization: TextCapitalization.words,
+                decoration: Cap.input(hint: 'As on your driving licence'),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Full name is required' : null,
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppColors.primaryDark, AppColors.primary],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(32),
-          bottomRight: Radius.circular(32),
-        ),
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 16, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
+            CapField(
+              label: 'Mobile number',
+              child: TextFormField(
+                readOnly: true,
+                initialValue: '+91 $_phone',
+                decoration: Cap.input(suffix: Icon(Icons.lock_outline_rounded, size: 18, color: Cap.muted)),
+                style: Cap.body(size: 15, weight: FontWeight.w600, color: Cap.muted),
               ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'Personal Details',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white),
-                ),
+            ),
+            CapField(
+              label: 'Email address',
+              child: TextFormField(
+                controller: _email,
+                keyboardType: TextInputType.emailAddress,
+                decoration: Cap.input(hint: 'name@example.com'),
+                validator: (v) {
+                  if (v != null && v.isNotEmpty && !v.contains('@')) return 'Enter valid email';
+                  return null;
+                },
               ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  'Step 1 of 4 — Tell us about yourself',
-                  style: TextStyle(fontSize: 13, color: Colors.white70),
-                ),
+            ),
+            // Optional and self-declared — used only so a rider who asks
+            // for a female driver can actually be matched with one; never
+            // shown publicly and never required to keep driving.
+            CapField(
+              label: 'Gender (optional)',
+              child: DropdownButtonFormField<String>(
+                value: _selectedGender,
+                isExpanded: true,
+                decoration: Cap.input(hint: 'Select'),
+                items: const [
+                  DropdownMenuItem(value: 'female', child: Text('Female')),
+                  DropdownMenuItem(value: 'male', child: Text('Male')),
+                  DropdownMenuItem(value: 'other', child: Text('Other')),
+                ],
+                onChanged: (v) => setState(() => _selectedGender = v),
               ),
-            ],
-          ),
+            ),
+            CapField(
+              label: 'State',
+              required: true,
+              child: DropdownButtonFormField<String>(
+                value: _selectedState,
+                // Without isExpanded the dropdown sizes to its longest
+                // item, so a long state name overflowed a 320pt screen.
+                // Expanding it makes the label ellipsise instead.
+                isExpanded: true,
+                decoration: Cap.input(hint: 'Select your state'),
+                items: _indianStates.map((s) => DropdownMenuItem(
+                  value: s,
+                  child: Text(s, maxLines: 1, overflow: TextOverflow.ellipsis),
+                )).toList(),
+                onChanged: (v) => setState(() => _selectedState = v),
+              ),
+            ),
+            CapField(
+              label: 'City / zone',
+              required: true,
+              child: _zonesLoading
+                  ? Container(
+                      height: 54,
+                      decoration: BoxDecoration(color: Cap.tile, borderRadius: BorderRadius.circular(12)),
+                      alignment: Alignment.center,
+                      child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Cap.accent)),
+                    )
+                  : DropdownButtonFormField<String>(
+                      value: _selectedZoneId,
+                      isExpanded: true,
+                      decoration: Cap.input(hint: 'Where will you drive?'),
+                      items: _zones.map((z) => DropdownMenuItem(
+                        value: z['_id'] as String? ?? z['id'] as String?,
+                        child: Text(z['name'] as String? ?? '',
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      )).toList(),
+                      onChanged: (v) {
+                        final zone = _zones.firstWhere(
+                          (z) => (z['_id'] ?? z['id']) == v,
+                          orElse: () => {},
+                        );
+                        setState(() {
+                          _selectedZoneId = v;
+                          _selectedZoneName = zone['name'] as String?;
+                        });
+                      },
+                    ),
+            ),
+            CapField(
+              label: 'Referral code (optional)',
+              child: TextFormField(
+                controller: _referralController,
+                textCapitalization: TextCapitalization.characters,
+                decoration: Cap.input(hint: "Enter a friend's code"),
+              ),
+            ),
+            // Profile photo + identity signature are captured live on the
+            // next screen (camera, not a gallery picker) — that shot becomes
+            // both.
+            const CapBanner(
+              icon: Icons.face_retouching_natural_rounded,
+              text: "Next, you'll take a quick selfie. It becomes your profile photo and keeps your account secure.",
+            ),
+          ]),
         ),
-      ),
-    );
-  }
-
-  Widget _stepIndicator(int current) {
-    return Row(
-      children: List.generate(4, (i) => Expanded(
-        child: Container(
-          height: 4,
-          margin: const EdgeInsets.symmetric(horizontal: 2),
-          decoration: BoxDecoration(
-            color: i < current ? AppColors.primary : AppColors.divider,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-      )),
+      ],
     );
   }
 }

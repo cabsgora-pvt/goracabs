@@ -327,6 +327,9 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
               destAddress: (_stops.last['address'] ?? '').toString(),
             )
           : NavLeg(label: 'Pickup', destLat: r.pickupLat, destLng: r.pickupLng, destAddress: r.pickupAddress),
+      // Under way, a rental only has somewhere to drive once the rider adds a
+      // stop; it was pointing back at the pickup ("You have reached Pickup").
+      hasDestination: !_priced && _stops.isNotEmpty,
       phase: _priced ? 'RENTAL · FINISHING' : (_waiting ? 'RENTAL · WAITING' : (extraTime ? 'RENTAL · EXTRA TIME' : 'ON RENTAL')),
       // Pinned: the driver must be able to see they are into extra time, and how
       // much it has reached, without hunting for it.

@@ -327,6 +327,11 @@ class TripModel {
   final String cityFrom;
   final String cityTo;
   final int numPassengers;
+  /// What the driver actually earned (after commission) and the commission
+  /// taken, as the server recorded them on the ride. 0 when not recorded —
+  /// then only the fare is shown, never presented as earnings.
+  final num driverEarning;
+  final num commission;
 
   const TripModel({
     required this.id, required this.userName, required this.pickupAddress, required this.dropAddress,
@@ -339,6 +344,8 @@ class TripModel {
     this.cityFrom = '',
     this.cityTo = '',
     this.numPassengers = 0,
+    this.driverEarning = 0,
+    this.commission = 0,
   });
 }
 

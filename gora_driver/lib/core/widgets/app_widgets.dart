@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import '../../widgets/captain_ui/captain_ui.dart';
 
-// Primary Button
+// Legacy shared widgets, restyled onto the captain_ui visual language so every
+// screen that still uses them picks up the new look. New code should use
+// captain_ui directly.
+
+// Primary Button — full-width navy CTA.
 class PrimaryButton extends StatelessWidget {
   final String label;
   final VoidCallback? onTap;
@@ -13,12 +18,7 @@ class PrimaryButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: width ?? double.infinity,
-      child: ElevatedButton(
-        onPressed: loading ? null : onTap,
-        child: loading
-            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-            : Text(label),
-      ),
+      child: CapButton(label: label, onPressed: onTap, loading: loading),
     );
   }
 }
@@ -33,11 +33,17 @@ class SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+        Expanded(
+          child: Text(title,
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+        ),
         if (action != null)
-          GestureDetector(onTap: onAction, child: Text(action!, style: const TextStyle(fontSize: 13, color: AppColors.primary, fontWeight: FontWeight.w600))),
+          GestureDetector(
+            onTap: onAction,
+            child: Text(action!, style: TextStyle(fontSize: 13, color: Cap.accent, fontWeight: FontWeight.w700)),
+          ),
       ],
     );
   }
@@ -55,21 +61,25 @@ class InfoTile extends StatelessWidget {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(8)),
-          child: Icon(icon, size: 18, color: AppColors.primary),
+          width: 36, height: 36,
+          decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(10)),
+          child: Icon(icon, size: 18, color: AppColors.textDark),
         ),
         const SizedBox(width: 12),
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
-          Text(value, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textDark)),
-        ]),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: TextStyle(fontSize: 11.5, color: AppColors.textGrey, fontWeight: FontWeight.w500)),
+            Text(value,
+                maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+          ]),
+        ),
       ],
     );
   }
 }
 
-// Stat Card
+// Stat Card — flat summary card with a big number.
 class StatCard extends StatelessWidget {
   final String label;
   final String value;
@@ -78,36 +88,13 @@ class StatCard extends StatelessWidget {
   const StatCard({super.key, required this.label, required this.value, required this.icon, this.color});
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [color ?? AppColors.primary, (color ?? AppColors.primary).withOpacity(0.7)],
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(icon, color: Colors.white70, size: 22),
-        const SizedBox(height: 8),
-        Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.white70)),
-      ]),
-    );
-  }
+  Widget build(BuildContext context) => CapStatCard(label: label, value: value, icon: icon, accent: color);
 }
 
-// Blue AppBar
+// App bar used by every inner screen. Kept under its old name so the many
+// call sites stay untouched; it now draws the white Uber-style bar.
 PreferredSizeWidget blueAppBar(String title, {List<Widget>? actions, bool showBack = true, BuildContext? context}) {
-  return AppBar(
-    title: Text(title),
-    backgroundColor: AppColors.primary,
-    foregroundColor: Colors.white,
-    elevation: 0,
-    automaticallyImplyLeading: showBack,
-    actions: actions,
-  );
+  return capAppBar(title, actions: actions, showBack: showBack);
 }
 
 // Loader overlay
@@ -115,7 +102,7 @@ class AppLoader extends StatelessWidget {
   const AppLoader({super.key});
   @override
   Widget build(BuildContext context) {
-    return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+    return Center(child: CircularProgressIndicator(color: Cap.accent, strokeWidth: 2.6));
   }
 }
 
@@ -126,18 +113,10 @@ class EmptyState extends StatelessWidget {
   const EmptyState({super.key, required this.message, required this.icon});
 
   @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(icon, size: 64, color: AppColors.divider),
-        const SizedBox(height: 16),
-        Text(message, style: TextStyle(color: AppColors.textGrey, fontSize: 15)),
-      ]),
-    );
-  }
+  Widget build(BuildContext context) => CapEmpty(icon: icon, title: message);
 }
 
-// Menu row for account page
+// Menu row for account-style lists.
 class MenuRow extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -151,16 +130,20 @@ class MenuRow extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+        padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 4),
         child: Row(children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            width: 36, height: 36,
             decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(10)),
-            child: Icon(icon, size: 20, color: iconColor ?? AppColors.primary),
+            child: Icon(icon, size: 19, color: iconColor ?? AppColors.textDark),
           ),
           const SizedBox(width: 14),
-          Expanded(child: Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Theme.of(context).colorScheme.onSurface))),
-          Icon(Icons.chevron_right, color: AppColors.textGrey, size: 18),
+          Expanded(
+            child: Text(label,
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+          ),
+          Icon(Icons.chevron_right_rounded, color: AppColors.textGrey, size: 22),
         ]),
       ),
     );

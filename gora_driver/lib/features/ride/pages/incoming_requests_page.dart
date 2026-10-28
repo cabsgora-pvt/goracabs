@@ -7,7 +7,10 @@ import '../../../config/app_config.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
+import '../../../services/ride_alert_service.dart';
 import '../logic/dismissed_requests.dart';
+import '../widgets/swipe_to_confirm.dart';
+import '../../../widgets/captain_ui/captain_ui.dart';
 import 'on_ride_page.dart';
 
 // Shows up to 5 pending ride requests at once (taxi / rental / outstation / etc.).
@@ -81,7 +84,12 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
               offeredToMe: m.offeredToMe, offerExpiresAt: m.offerExpiresAt))
           .take(_maxRequests)
           .toList();
-      if (!mounted || _closed) return;
+      // Re-checked after the await. A refresh already in flight when Accept was
+      // pressed comes back after the server has moved the ride out of
+      // 'pending' — it used to see an empty feed and close this page under the
+      // accept, leaving the driver on a half-closed "New trip request" screen
+      // (or back home) with the trip accepted on the server.
+      if (!mounted || _closed || _accepting) return;
       _firstLoaded = true;
       if (models.isEmpty) { _close(); return; }
       setState(() => _requests = models);
@@ -120,18 +128,47 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     _closed = true;
     _timer?.cancel();
     _stopRing();
-    if (mounted) Navigator.pop(context);
+    // Nothing left on this page (taken by someone else, no longer pending…).
+    unawaited(RideAlertService.clearIncomingAlert());
+    if (!mounted) return;
+    // Remove THIS page, wherever it is in the stack. Navigator.pop removes the
+    // top route — and when something had been pushed above this page (the
+    // trip's OTP dialog, another screen), that was what got popped: this page
+    // stayed behind, already marked closed and with its last card gone, as an
+    // empty "New trip request" screen nothing could close.
+    final route = ModalRoute.of(context);
+    if (route == null || route.isCurrent) {
+      Navigator.pop(context);
+    } else {
+      Navigator.removeRoute(context, route);
+    }
   }
 
   Future<void> _accept(RideRequestModel m) async {
     if (_accepting) return;
     setState(() => _accepting = true);
     _timer?.cancel();
-    await _stopRing();
-    final r = await DriverApiService.acceptRide(m.id);
+    // Not awaited: the ringtone stops in parallel. A stalled audio plugin call
+    // must never hold up the accept itself.
+    unawaited(_stopRing());
+    unawaited(RideAlertService.clearIncomingAlert());
+    Map<String, dynamic> r;
+    try {
+      r = await DriverApiService.acceptRide(m.id);
+    } catch (_) {
+      // A dropped connection or a non-JSON reply used to throw here and leave
+      // the page frozen with every control disabled.
+      r = const {'error': 'Could not reach the server — try again'};
+    }
     if (!mounted) return;
     if (r['success'] == true || r['ride'] != null) {
-      Navigator.pushReplacementNamed(context, OnRidePage.route, arguments: m);
+      // Nothing may close or refresh this page any more: it is being replaced.
+      _closed = true;
+      // A clean stack under the new trip: only home below it. This page could
+      // open over the last trip's Order Complete (or any other screen), and a
+      // plain replace left that screen underneath — Back from the new trip
+      // then showed the previous trip's invoice.
+      Navigator.pushNamedAndRemoveUntil(context, OnRidePage.route, (r) => r.isFirst, arguments: m);
     } else {
       // Taken by someone else or error → drop it and resume
       _rejectedIds.add(m.id);
@@ -149,6 +186,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   void _reject(RideRequestModel m) {
     _rejectedIds.add(m.id);
     DriverApiService.rejectRide(m.id); // fire-and-forget; server records rejectedBy
+    unawaited(RideAlertService.clearIncomingAlert());
     setState(() => _requests.removeWhere((x) => x.id == m.id));
     if (_requests.isEmpty) { _close(); } else { _updateRing(); }
   }
@@ -160,6 +198,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   // poll — it can still come back later if the server offers it again.
   void _timedOut(RideRequestModel m) {
     DismissedRequests.dismiss(m.id, offerExpiresAt: m.offerExpiresAt);
+    unawaited(RideAlertService.clearIncomingAlert());
     if (!mounted) return;
     setState(() => _requests.removeWhere((x) => x.id == m.id));
     if (_requests.isEmpty) { _close(); } else { _updateRing(); }
@@ -169,33 +208,31 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   Widget build(BuildContext context) {
     final single = _requests.length == 1;
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Cap.tile,
       body: SafeArea(
-        child: Column(children: [
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           // Header
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            decoration: const BoxDecoration(gradient: LinearGradient(colors: [AppColors.primaryDark, AppColors.primary])),
-            child: Column(children: [
-              Text(single ? 'New Ride Request' : '${_requests.length} New Requests',
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
-              const SizedBox(height: 2),
-              Text(single ? 'Swipe to accept or reject' : 'Swipe any request to accept / reject',
-                  style: const TextStyle(fontSize: 12, color: Colors.white70)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(single || _requests.isEmpty ? 'New trip request' : '${_requests.length} new requests',
+                  style: Cap.title(size: 24)),
+              const SizedBox(height: 4),
+              Text('Slide to accept · swipe left to decline',
+                  style: Cap.caption(size: 13)),
             ]),
           ),
           Expanded(
             child: !_firstLoaded
-                ? const Center(child: CircularProgressIndicator())
+                ? Center(child: CircularProgressIndicator(color: Cap.accent, strokeWidth: 2.6))
                 : _requests.isEmpty
                     ? const SizedBox()
                     : single
                         // 1 request → full-page single view
-                        ? SingleChildScrollView(padding: const EdgeInsets.all(14), child: _requestCard(_requests.first, big: true))
+                        ? SingleChildScrollView(padding: const EdgeInsets.fromLTRB(12, 4, 12, 16), child: _requestCard(_requests.first, big: true))
                         // multiple → scrollable list
                         : ListView.builder(
-                            padding: const EdgeInsets.all(12),
+                            padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
                             itemCount: _requests.length,
                             itemBuilder: (_, i) => _requestCard(_requests[i]),
                           ),
@@ -211,7 +248,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
       case 'rental': return (color: AppColors.primary, label: 'RENTAL');
       case 'hire_driver': return (color: Colors.indigo, label: 'HIRE DRIVER');
       case 'delivery': return (color: Colors.teal, label: 'PARCEL');
-      default: return (color: AppColors.green, label: 'TAXI');
+      default: return (color: AppColors.primary, label: 'TAXI');
     }
   }
 
@@ -238,17 +275,21 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
 Widget _fareWithTip(RideRequestModel r) {
   final base = r.baseFare > 0 ? r.baseFare : r.totalFareValue;
   final hasTip = r.tipAmount > 0;
-  return Row(
-    mainAxisSize: MainAxisSize.min,
-    crossAxisAlignment: CrossAxisAlignment.baseline,
-    textBaseline: TextBaseline.alphabetic,
-    children: [
-      Text('₹${base.toStringAsFixed(0)}',
-          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 30, color: AppColors.textDark)),
-      if (hasTip)
-        Text('  + ₹${r.tipAmount.toStringAsFixed(0)}',
-            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 24, color: AppColors.green)),
-    ],
+  return FittedBox(
+    fit: BoxFit.scaleDown,
+    alignment: Alignment.centerLeft,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.baseline,
+      textBaseline: TextBaseline.alphabetic,
+      children: [
+        Text('₹${base.toStringAsFixed(0)}',
+            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 38, color: Cap.ink, letterSpacing: -0.5)),
+        if (hasTip)
+          Text('  + ₹${r.tipAmount.toStringAsFixed(0)} tip',
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 20, color: AppColors.green)),
+      ],
+    ),
   );
 }
 
@@ -334,42 +375,56 @@ class _RequestCardState extends State<_RequestCard> {
   @override
   Widget build(BuildContext context) {
     final r = widget.ride;
+    final frac = _total > 0 ? _left / _total : 0.0;
+    final urgent = _left <= 5;
     return Dismissible(
       key: ValueKey('dis_${r.id}'),
-      direction: widget.enabled ? DismissDirection.horizontal : DismissDirection.none,
+      // Swiping the card left declines. Accepting is ONLY the slide track below
+      // — a right-swipe of the whole card accepted on a brush.
+      direction: widget.enabled ? DismissDirection.endToStart : DismissDirection.none,
       confirmDismiss: (dir) async {
         if (!widget.enabled) return false;
-        _fire(dir == DismissDirection.startToEnd ? widget.onAccept : widget.onReject);
+        _fire(widget.onReject);
         return false; // parent handles removal / navigation
       },
-      background: _swipeBg(Alignment.centerLeft, AppColors.green, Icons.check, 'ACCEPT'),
-      secondaryBackground: _swipeBg(Alignment.centerRight, AppColors.red, Icons.close, 'REJECT'),
+      background: _swipeBg(Alignment.centerRight, AppColors.red, Icons.close, 'REJECT'),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
-          color: AppColors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppColors.divider),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)],
+          color: Cap.surface,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 16, offset: const Offset(0, 4))],
         ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // Vehicle badge
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // Countdown bar across the top of the card
+          LinearProgressIndicator(
+            value: frac,
+            minHeight: 5,
+            backgroundColor: Cap.tile,
+            color: urgent ? AppColors.red : Cap.accent,
+          ),
+          // Service + vehicle chips, seconds left
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
             child: Row(children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(20)),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(_vehicleIcon(r.rideType), size: 16, color: widget.serviceColor),
-                  const SizedBox(width: 6),
-                  Text(_cap(r.rideType.isNotEmpty ? r.rideType : 'Auto'),
-                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textDark)),
-                ]),
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(color: Cap.tile, borderRadius: BorderRadius.circular(20)),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(_vehicleIcon(r.rideType), size: 16, color: Cap.ink),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(_cap(r.rideType.isNotEmpty ? r.rideType : 'Auto'),
+                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: Cap.body(size: 13, weight: FontWeight.w800)),
+                    ),
+                  ]),
+                ),
               ),
-              // What kind of job this is. The label was worked out for every
-              // service and never shown, so a parcel or a 300 km outstation
-              // trip looked exactly like a ride across town.
+              // What kind of job this is. A parcel or a 300 km outstation trip
+              // must not look like a ride across town.
               if (r.service != 'taxi') ...[
                 const SizedBox(width: 8),
                 Container(
@@ -383,72 +438,99 @@ class _RequestCardState extends State<_RequestCard> {
                           letterSpacing: 0.4, color: widget.serviceColor)),
                 ),
               ],
+              const Spacer(),
+              Text('${_left}s',
+                  style: Cap.body(size: 13, weight: FontWeight.w900, color: urgent ? AppColors.red : Cap.muted)),
             ]),
           ),
-          // Big fare + tip
+          // Big fare + tip, payment mode
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 6, 14, 12),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
             child: _fareWithTip(r),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: _paymentLine(r),
           ),
           if (r.service == 'delivery')
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               child: _parcelLine(r),
             ),
-          // Route (pickup → drop)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              _leg(Icons.radio_button_checked, AppColors.green, _pickupKm(), r.pickupAddress),
-              Padding(
-                padding: const EdgeInsets.only(left: 8),
-                child: SizedBox(height: 22, child: Column(children: [
-                  Expanded(child: Container(width: 2, color: AppColors.divider)),
-                  Icon(Icons.arrow_drop_down, size: 16, color: AppColors.textGrey),
-                ])),
-              ),
-              _leg(Icons.location_on, AppColors.red, _dropKm(), r.dropAddress),
-            ]),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Container(height: 1, color: Cap.divider),
           ),
-          // Payment
+          // Route (pickup → drop) with the dot / line / square connector.
+          // Rental and hire have no drop: then only the pickup is shown, never
+          // a "DROP 0 km" row with no address.
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
-            child: _paymentLine(r),
-          ),
-          // Actions: reject (with countdown ring) + brand-coloured Accept
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(children: [
-              GestureDetector(
-                onTap: widget.enabled ? () => _fire(widget.onReject) : null,
-                behavior: HitTestBehavior.opaque,
-                child: SizedBox(
-                  width: 54, height: 54,
-                  child: Stack(alignment: Alignment.center, children: [
-                    SizedBox(
-                      width: 54, height: 54,
-                      child: CircularProgressIndicator(
-                        value: _left / _total, strokeWidth: 3,
-                        color: AppColors.red, backgroundColor: AppColors.divider,
-                      ),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+            child: r.dropAddress.trim().isEmpty
+                ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6, left: 2, right: 2),
+                      child: Container(width: 10, height: 10,
+                          decoration: const BoxDecoration(color: AppColors.green, shape: BoxShape.circle)),
                     ),
-                    const Icon(Icons.close, color: AppColors.red, size: 24),
-                  ]),
+                    const SizedBox(width: 12),
+                    Expanded(child: _leg('Pickup', _pickupKm(), r.pickupAddress)),
+                  ])
+                : IntrinsicHeight(
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      SizedBox(
+                        width: 14,
+                        child: Column(children: [
+                          const SizedBox(height: 6),
+                          Container(width: 10, height: 10, decoration: const BoxDecoration(color: AppColors.green, shape: BoxShape.circle)),
+                          Expanded(child: Container(width: 2, margin: const EdgeInsets.symmetric(vertical: 4), color: Cap.divider)),
+                          Container(width: 10, height: 10,
+                              decoration: BoxDecoration(color: Cap.ink, borderRadius: BorderRadius.circular(1.5))),
+                          const SizedBox(height: 6),
+                        ]),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          _leg('Pickup', _pickupKm(), r.pickupAddress),
+                          const SizedBox(height: 14),
+                          _leg('Drop', _dropKm(), r.dropAddress),
+                        ]),
+                      ),
+                    ]),
+                  ),
+          ),
+          // Actions: decline + big Accept
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Row(children: [
+              Tooltip(
+                message: 'Decline',
+                child: Material(
+                  color: AppColors.red.withValues(alpha: 0.10),
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: widget.enabled ? () => _fire(widget.onReject) : null,
+                    child: const SizedBox(
+                      width: 56, height: 56,
+                      child: Icon(Icons.close, color: AppColors.red, size: 26),
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: ElevatedButton(
-                  onPressed: widget.enabled ? () => _fire(widget.onAccept) : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary, // brand colour, not yellow
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                  ),
-                  child: const Text('Accept', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                // Slide to accept (Uber / Rapido style): commits only past 85%
+                // of the track; released earlier it snaps back. Disabled while
+                // an accept is in flight, and _fire runs it exactly once.
+                child: SwipeToConfirm(
+                  key: ValueKey('accept_${r.id}'),
+                  label: 'Slide to accept',
+                  tone: SwipeTone.success,
+                  icon: Icons.keyboard_double_arrow_right_rounded,
+                  enabled: widget.enabled && !_handled,
+                  onConfirm: () async => _fire(widget.onAccept),
                 ),
               ),
             ]),
@@ -477,7 +559,7 @@ class _RequestCardState extends State<_RequestCard> {
         Icon(Icons.inventory_2_outlined, size: 16, color: widget.serviceColor),
         const SizedBox(width: 6),
         Flexible(child: Text(facts.join(' · '),
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textDark))),
+            style: Cap.body(size: 13, weight: FontWeight.w700))),
       ]),
       if (r.isFragile) chip('Fragile', AppColors.orange),
       if (r.codAmount > 0) chip('COD ₹${r.codAmount.toStringAsFixed(0)}', Colors.teal),
@@ -507,40 +589,50 @@ class _RequestCardState extends State<_RequestCard> {
     return r.distance;
   }
 
-  // One leg of the route: marker + optional big km heading + "Name - address".
-  Widget _leg(IconData icon, Color color, String km, String address) {
+  // One leg of the route: small label, big km heading, "Name - address".
+  Widget _leg(String label, String km, String address) {
     final split = address.split(' - ');
     final name = split.first.trim();
     final rest = split.length > 1 ? split.sublist(1).join(' - ').trim() : '';
-    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Padding(padding: const EdgeInsets.only(top: 2), child: Icon(icon, color: color, size: 18)),
-      const SizedBox(width: 10),
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        if (km.isNotEmpty)
-          Text(km, style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: AppColors.textDark)),
-        // Text.rich, not RichText: it follows the theme's font and the
-        // driver's text size setting like the rest of the card.
-        Text.rich(
-          TextSpan(children: [
-            TextSpan(text: name, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: AppColors.textDark)),
-            if (rest.isNotEmpty)
-              TextSpan(text: ' - $rest', style: TextStyle(fontWeight: FontWeight.w400, fontSize: 12.5, color: AppColors.textGrey)),
-          ]),
-          maxLines: 3, overflow: TextOverflow.ellipsis,
-        ),
-      ])),
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Text(label.toUpperCase(),
+            style: Cap.caption(size: 10.5).copyWith(fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+        if (km.isNotEmpty) ...[
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(km, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: Cap.body(size: 15, weight: FontWeight.w900)),
+          ),
+        ],
+      ]),
+      const SizedBox(height: 2),
+      // Text.rich, not RichText: it follows the theme's font and the
+      // driver's text size setting like the rest of the card.
+      Text.rich(
+        TextSpan(children: [
+          TextSpan(text: name, style: Cap.body(size: 14, weight: FontWeight.w800)),
+          if (rest.isNotEmpty)
+            TextSpan(text: ' - $rest', style: Cap.body(size: 12.5, weight: FontWeight.w400, color: Cap.muted)),
+        ]),
+        maxLines: 3, overflow: TextOverflow.ellipsis,
+      ),
     ]);
   }
 
   Widget _paymentLine(RideRequestModel r) {
     final cash = r.paymentMode == 'cash';
     final wallet = r.paymentMode == 'wallet';
+    final c = cash ? AppColors.green : Cap.accent;
     return Row(children: [
-      Icon(cash ? Icons.payments : (wallet ? Icons.account_balance_wallet : Icons.credit_card),
-          size: 15, color: cash ? AppColors.green : AppColors.primary),
-      const SizedBox(width: 5),
-      Text(cash ? 'Cash — collect from rider' : (wallet ? 'Paid via Wallet' : 'Paid Online'),
-          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: cash ? AppColors.green : AppColors.primary)),
+      Icon(cash ? Icons.payments_outlined : (wallet ? Icons.account_balance_wallet_outlined : Icons.credit_card),
+          size: 16, color: c),
+      const SizedBox(width: 6),
+      Flexible(
+        child: Text(cash ? 'Cash — collect from rider' : (wallet ? 'Paid via Wallet' : 'Paid Online'),
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: Cap.body(size: 12.5, weight: FontWeight.w700, color: c)),
+      ),
     ]);
   }
 
@@ -549,7 +641,7 @@ class _RequestCardState extends State<_RequestCard> {
     margin: const EdgeInsets.only(bottom: 12),
     padding: const EdgeInsets.symmetric(horizontal: 28),
     alignment: align,
-    decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(16)),
+    decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(20)),
     child: Row(mainAxisSize: MainAxisSize.min, children: [
       Icon(ic, color: Colors.white),
       const SizedBox(width: 8),

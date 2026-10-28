@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
-import '../../../core/widgets/app_widgets.dart';
+import '../../../widgets/captain_ui/captain_ui.dart';
 import '../../../providers/driver_provider.dart';
 import '../../../services/driver_api_service.dart';
 import '../../home/pages/home_page.dart';
@@ -11,6 +11,8 @@ import '../../registration/kyc_pending_page.dart';
 import '../../registration/bank_details_page.dart';
 import '../../registration/rejection_page.dart';
 import '../../registration/personal_details_page.dart';
+import '../../registration/resume_registration.dart';
+import '../bloc/auth_bloc.dart';
 
 class DriverOtpPage extends StatefulWidget {
   static const route = '/driver-otp';
@@ -55,6 +57,8 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
   Future<void> _verify() async {
     if (_otp.length != 6) return;
     final phone = ModalRoute.of(context)?.settings.arguments as String? ?? '';
+    // Taken before any await, for the resume navigation below.
+    final nav = Navigator.of(context);
     setState(() => _loading = true);
     try {
       final result = await DriverApiService.verifyOtp(phone, _otp);
@@ -96,12 +100,24 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
         // Documents already on file — only the bank step is left.
         Navigator.pushNamedAndRemoveUntil(context, BankDetailsPage.route, (_) => false);
       } else {
-        Navigator.pushNamedAndRemoveUntil(
-          context,
-          PersonalDetailsPage.route,
-          (_) => false,
-          arguments: {'phone': phone},
-        );
+        // Resume an unfinished registration at the server's step (after the
+        // selfie → vehicle, after the vehicle → documents…). A new account,
+        // or a step not listed, starts at personal details as before.
+        final driver = result['driver'] is Map
+            ? Map<String, dynamic>.from(result['driver'] as Map)
+            : <String, dynamic>{};
+        driver['registrationStep'] ??= result['registrationStep'];
+        final step = resumeStepFor(driver) ?? ResumeStep.personal;
+        if (step == ResumeStep.personal) {
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            PersonalDetailsPage.route,
+            (_) => false,
+            arguments: {'phone': phone},
+          );
+        } else {
+          openRegistrationStep(nav, step, phone: phone, driver: driver);
+        }
       }
     } catch (e) {
       if (!mounted) return;
@@ -118,70 +134,75 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
   Widget build(BuildContext context) {
     final phone = ModalRoute.of(context)?.settings.arguments as String? ?? '';
     return Scaffold(
-      body: Stack(children: [
-        // Full-screen Gora background artwork
-        Positioned.fill(
-          child: ShaderMask(
-            shaderCallback: (rect) => LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Colors.black.withAlpha(26), Colors.black.withAlpha(102),
-                Colors.black.withAlpha(102), Colors.black.withAlpha(26),
+      backgroundColor: Cap.surface,
+      appBar: AppBar(
+        backgroundColor: Cap.surface,
+        foregroundColor: Cap.ink,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: Navigator.canPop(context)
+            ? IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => Navigator.pop(context))
+            : null,
+      ),
+      body: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const CapHeading('Enter the 6-digit code', size: 26),
+            const SizedBox(height: 8),
+            Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
+              Text('Sent to +91 $phone  ', style: Cap.caption(size: 14.5)),
+              if (Navigator.canPop(context))
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Text('Change number',
+                      style: Cap.body(size: 14, weight: FontWeight.w800, color: Cap.accent)),
+                ),
+            ]),
+            const SizedBox(height: 28),
+            Row(children: [
+              for (var i = 0; i < 6; i++) ...[
+                if (i > 0) const SizedBox(width: 8),
+                Expanded(child: _buildOtpBox(i)),
               ],
-              stops: const [0.0, 0.3, 0.7, 1.0],
-            ).createShader(rect),
-            blendMode: BlendMode.dstIn,
-            child: Image.asset('assets/images/otp_bg.png', fit: BoxFit.cover),
-          ),
-        ),
-        SafeArea(
-          child: LayoutBuilder(builder: (context, constraints) {
-            return SingleChildScrollView(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Spacer(),
-                    Container(
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: AppColors.white,
-                        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-                      ),
-                      padding: const EdgeInsets.fromLTRB(24, 28, 24, 40),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('Enter OTP', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textDark)),
-                        const SizedBox(height: 8),
-                        Text('Sent to +91 $phone', style: TextStyle(fontSize: 14, color: AppColors.textGrey)),
-                        const SizedBox(height: 28),
-                        Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: List.generate(6, (i) => _buildOtpBox(i))),
-                        const SizedBox(height: 20),
-                        Center(
-                          child: _timer > 0
-                              ? Text('Resend OTP in $_timer s', style: TextStyle(color: AppColors.textGrey))
-                              : TextButton(
-                                  onPressed: () { DriverApiService.sendOtp(phone); setState(() => _timer = 30); _startTimer(); },
-                                  child: const Text('Resend OTP', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w700)),
-                                ),
-                        ),
-                        const SizedBox(height: 8),
-                        PrimaryButton(label: 'Verify & Continue', loading: _loading, onTap: _verify),
+            ]),
+            const SizedBox(height: 22),
+            _timer > 0
+                ? Row(children: [
+                    Icon(Icons.schedule_rounded, size: 16, color: Cap.muted),
+                    const SizedBox(width: 6),
+                    Flexible(child: Text('Resend code in 0:${_timer.toString().padLeft(2, '0')}', style: Cap.caption(size: 13.5))),
+                  ])
+                : GestureDetector(
+                    onTap: () { DriverApiService.sendOtp(phone); setState(() => _timer = 30); _startTimer(); },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                      decoration: BoxDecoration(color: Cap.tile, borderRadius: BorderRadius.circular(20)),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.refresh_rounded, size: 17, color: Cap.ink),
+                        const SizedBox(width: 6),
+                        Text('Resend code', style: Cap.body(size: 13.5, weight: FontWeight.w800)),
                       ]),
                     ),
-                  ]),
-                ),
-              ),
-            );
-          }),
+                  ),
+          ]),
         ),
-      ]),
+      ),
+      bottomNavigationBar: CapBottomBar(
+        child: CapButton(
+          label: 'Verify & continue',
+          loading: _loading,
+          tone: _otp.length == 6 ? CapButtonTone.primary : CapButtonTone.secondary,
+          onPressed: _verify,
+        ),
+      ),
     );
   }
 
   Widget _buildOtpBox(int i) {
     return SizedBox(
-      width: 46, height: 56,
+      height: 56,
       child: TextFormField(
         controller: _controllers[i],
         focusNode: _nodes[i],
@@ -189,14 +210,13 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
         textAlignVertical: TextAlignVertical.center,
         keyboardType: TextInputType.number,
         inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(1)],
-        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.primary),
-        decoration: InputDecoration(
-          counterText: '', isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 8),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: AppColors.divider, width: 2)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primary, width: 2)),
-          filled: true, fillColor: AppColors.cardBg,
+        style: Cap.body(size: 22, weight: FontWeight.w800),
+        decoration: Cap.input().copyWith(
+          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+          isDense: true,
         ),
         onChanged: (v) {
+          setState(() {});
           if (v.isNotEmpty && i < 5) _nodes[i + 1].requestFocus();
           if (v.isEmpty && i > 0) _nodes[i - 1].requestFocus();
           if (_otp.length == 6) _verify();

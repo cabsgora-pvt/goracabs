@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
+import '../../../widgets/captain_ui/captain_ui.dart';
 import '../../../config/app_config.dart';
 import '../../../providers/driver_provider.dart';
 import '../../../services/driver_api_service.dart';
@@ -96,6 +97,9 @@ class _RateCardPageState extends State<RateCardPage> {
   bool _loading = true;
   String _zone = '';
   List<Map<String, dynamic>> _cards = [];
+  /// Vehicle type name (lower-case) → its admin-uploaded image, for the card
+  /// icons. Every card used to show the same car — a bike and an auto alike.
+  Map<String, String> _images = {};
 
   @override
   void initState() { super.initState(); _load(); }
@@ -106,7 +110,24 @@ class _RateCardPageState extends State<RateCardPage> {
       _zone = (r['zone'] ?? '').toString();
       _cards = ((r['cards'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } catch (_) {}
+    try {
+      final types = await DriverApiService.getVehicleTypes();
+      _images = {
+        for (final t in types)
+          if ((t['imageUrl'] ?? '').toString().trim().isNotEmpty)
+            (t['name'] ?? '').toString().trim().toLowerCase(): AppConfig.imageUrl((t['imageUrl'] as String).trim()),
+      };
+    } catch (_) {}
     if (mounted) setState(() => _loading = false);
+  }
+
+  static IconData _iconFor(String type) {
+    final s = type.toLowerCase();
+    if (s.contains('bike') || s.contains('moto') || s.contains('scooter')) return Icons.two_wheeler;
+    if (s.contains('auto') || s.contains('rickshaw')) return Icons.electric_rickshaw;
+    if (s.contains('truck') || s.contains('tempo')) return Icons.local_shipping;
+    if (s.contains('suv') || s.contains('xl')) return Icons.airport_shuttle;
+    return Icons.directions_car;
   }
 
   @override
@@ -137,13 +158,24 @@ class _RateCardPageState extends State<RateCardPage> {
 
   Widget _rateCard(String type, List<List<String>> rates) => Container(
     padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)]),
+    decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.divider)),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
-        Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(8)),
-          child: const Icon(Icons.directions_car, color: AppColors.primary, size: 20)),
-        const SizedBox(width: 10),
-        Text(type, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.textDark)),
+        Container(
+          width: 48, height: 48,
+          decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(12)),
+          child: Builder(builder: (_) {
+            final icon = Icon(_iconFor(type), color: AppColors.textDark, size: 24);
+            final url = _images[type.trim().toLowerCase()] ?? '';
+            return url.isEmpty
+                ? icon
+                : Padding(padding: const EdgeInsets.all(4),
+                    child: Image.network(url, fit: BoxFit.contain, errorBuilder: (_, __, ___) => icon));
+          }),
+        ),
+        const SizedBox(width: 12),
+        Expanded(child: Text(type, maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15.5, color: AppColors.textDark))),
       ]),
       const SizedBox(height: 12),
       Divider(color: AppColors.divider, height: 1),
@@ -207,7 +239,7 @@ class _ReferralPageState extends State<ReferralPage> {
         child: Column(children: [
           Container(
             padding: const EdgeInsets.all(20), width: double.infinity,
-            decoration: BoxDecoration(gradient: const LinearGradient(colors: [AppColors.primary, AppColors.primaryDark]), borderRadius: BorderRadius.circular(20)),
+            decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(20)),
             child: Column(children: [
               const Icon(Icons.card_giftcard, color: Colors.white, size: 40),
               const SizedBox(height: 10),
@@ -266,51 +298,57 @@ class _ReferralPageState extends State<ReferralPage> {
 class DriverLevelsPage extends StatelessWidget {
   static const route = '/driver-levels';
   const DriverLevelsPage({super.key});
-  final _levels = const [
-    _Level('Bronze', '0 – 100 rides', AppColors.orange, Icons.military_tech, true),
-    _Level('Silver', '101 – 300 rides', Color(0xFF9E9E9E), Icons.military_tech, false),
-    _Level('Gold', '301 – 600 rides', Color(0xFFFFB300), Icons.emoji_events, false),
-    _Level('Platinum', '601+ rides', AppColors.primary, Icons.workspace_premium, false),
+  // (name, min rides, max rides or null, colour, icon)
+  static const _levels = [
+    _Level('Bronze', 0, 100, AppColors.orange, Icons.military_tech),
+    _Level('Silver', 101, 300, Color(0xFF9E9E9E), Icons.military_tech),
+    _Level('Gold', 301, 600, Color(0xFFFFB300), Icons.emoji_events),
+    _Level('Platinum', 601, null, AppColors.primary, Icons.workspace_premium),
   ];
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: blueAppBar('Driver Levels'),
-    backgroundColor: AppColors.cardBg,
-    body: ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: _levels.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (_, i) {
-        final l = _levels[i];
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: l.current ? l.color.withOpacity(0.08) : AppColors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: l.current ? Border.all(color: l.color, width: 1.5) : null,
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6)],
-          ),
-          child: Row(children: [
-            Icon(l.icon, color: l.color, size: 36),
-            const SizedBox(width: 14),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(l.name, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: l.current ? l.color : AppColors.textDark)),
-              Text(l.range, style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
-            ])),
-            if (l.current)
-              Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(color: l.color.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
-                child: Text('CURRENT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: l.color))),
-          ]),
-        );
-      },
-    ),
-  );
+  Widget build(BuildContext context) {
+    final dp = context.watch<DriverProvider>();
+    // Only mark a level once the real trip count is known.
+    final rides = dp.data == null ? null : int.tryParse(dp.totalRides);
+    return Scaffold(
+      appBar: blueAppBar('Driver Levels'),
+      backgroundColor: AppColors.cardBg,
+      body: ListView.separated(
+        padding: const EdgeInsets.all(16),
+        itemCount: _levels.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (_, i) {
+          final l = _levels[i];
+          final current = rides != null && rides >= l.min && (l.max == null || rides <= l.max!);
+          return Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: current ? l.color.withOpacity(0.08) : AppColors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: current ? l.color : AppColors.divider, width: current ? 1.5 : 1),
+            ),
+            child: Row(children: [
+              Icon(l.icon, color: l.color, size: 34),
+              const SizedBox(width: 14),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(l.name, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: current ? l.color : AppColors.textDark)),
+                Text(l.max == null ? '${l.min}+ rides' : '${l.min} – ${l.max} rides', style: TextStyle(color: AppColors.textGrey, fontSize: 12)),
+              ])),
+              if (current)
+                Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(color: l.color.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+                  child: Text('CURRENT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: l.color))),
+            ]),
+          );
+        },
+      ),
+    );
+  }
 }
 
 class _Level {
-  final String name, range; final Color color; final IconData icon; final bool current;
-  const _Level(this.name, this.range, this.color, this.icon, this.current);
+  final String name; final int min; final int? max; final Color color; final IconData icon;
+  const _Level(this.name, this.min, this.max, this.color, this.icon);
 }
 
 // ── Rewards Page ─────────────────────────────────────
@@ -320,52 +358,12 @@ class RewardsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: blueAppBar('My Rewards'),
-    backgroundColor: AppColors.cardBg,
-    body: SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(children: [
-        Container(
-          width: double.infinity, padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFFFF6D00), Color(0xFFFF9100)]), borderRadius: BorderRadius.circular(20)),
-          child: Column(children: const [
-            Icon(Icons.card_giftcard, color: Colors.white, size: 40),
-            SizedBox(height: 8),
-            Text('2,340 Points', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: Colors.white)),
-            Text('Reward Points', style: TextStyle(color: Colors.white70, fontSize: 13)),
-          ]),
-        ),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)]),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionHeader(title: 'Recent Points'),
-            const SizedBox(height: 12),
-            _rewardRow('+50 pts', 'Trip completed', 'Today'),
-            _rewardRow('+100 pts', 'Weekend bonus', 'Yesterday'),
-            _rewardRow('+25 pts', 'Perfect rating', '2 days ago'),
-            _rewardRow('-200 pts', 'Redeemed ₹ 20', '5 days ago'),
-          ]),
-        ),
-      ]),
+    body: const CapEmpty(
+      icon: Icons.card_giftcard_rounded,
+      title: 'No reward points yet',
+      message: 'Reward points will show here once they are available for your account.',
     ),
   );
-
-  Widget _rewardRow(String pts, String desc, String time) {
-    final isGain = pts.startsWith('+');
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(children: [
-        Icon(isGain ? Icons.add_circle : Icons.remove_circle, color: isGain ? AppColors.green : AppColors.red, size: 20),
-        const SizedBox(width: 10),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(desc, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: AppColors.textDark)),
-          Text(time, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
-        ])),
-        Text(pts, style: TextStyle(fontWeight: FontWeight.w700, color: isGain ? AppColors.green : AppColors.red)),
-      ]),
-    );
-  }
 }
 
 // ── Reports Page ─────────────────────────────────────
@@ -405,7 +403,7 @@ class _ReportsPageState extends State<ReportsPage> {
           : ListView(padding: const EdgeInsets.all(16), children: [
               Container(
                 width: double.infinity, padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]), borderRadius: BorderRadius.circular(20)),
+                decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(20)),
                 child: Column(children: [
                   const Text('Total Earnings', style: TextStyle(color: Colors.white70, fontSize: 13)),
                   const SizedBox(height: 6),
@@ -417,7 +415,7 @@ class _ReportsPageState extends State<ReportsPage> {
               const SizedBox(height: 16),
               Container(
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)]),
+                decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: AppColors.divider)),
                 child: Row(children: [
                   Expanded(child: _stat('Today', '₹${_today.toStringAsFixed(0)}', Icons.today)),
                   Expanded(child: _stat('This Week', '₹${_week.toStringAsFixed(0)}', Icons.calendar_today)),
@@ -503,7 +501,7 @@ class _AdminChatPageState extends State<AdminChatPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: blueAppBar('Support Chat', actions: [const Padding(padding: EdgeInsets.symmetric(horizontal: 12, vertical: 14), child: CircleAvatar(radius: 14, backgroundColor: Colors.white24, child: Icon(Icons.support_agent, color: Colors.white, size: 16)))]),
+    appBar: blueAppBar('Support Chat', actions: [Padding(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14), child: CircleAvatar(radius: 14, backgroundColor: AppColors.cardBg, child: Icon(Icons.support_agent, color: AppColors.textDark, size: 16)))]),
     body: Column(children: [
       Expanded(
         child: _loading
@@ -643,9 +641,8 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             Container(
               padding: const EdgeInsets.all(20), width: double.infinity,
               decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary], begin: Alignment.topLeft, end: Alignment.bottomRight),
-                borderRadius: BorderRadius.circular(22),
-                boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 16, offset: const Offset(0, 6))],
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(20),
               ),
               child: Column(children: [
                 Row(children: [
@@ -806,7 +803,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 6),
-            decoration: const BoxDecoration(gradient: LinearGradient(colors: [AppColors.primaryDark, AppColors.primary])),
+            decoration: const BoxDecoration(color: AppColors.primary),
             child: const Text('★  MOST POPULAR', textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 11, letterSpacing: 0.5)),
           ),
@@ -883,7 +880,7 @@ class VehicleInfoPage extends StatelessWidget {
           Container(
             width: double.infinity, padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]),
+              color: AppColors.primary,
               borderRadius: BorderRadius.circular(20),
             ),
             child: Column(children: [

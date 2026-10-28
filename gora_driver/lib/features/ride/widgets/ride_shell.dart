@@ -46,6 +46,11 @@ class RideContact {
 }
 
 class RideShell extends StatefulWidget {
+  /// How many trip screens are open right now. While one is, the home screen's
+  /// request poller does not open the request page on top of the trip.
+  static int _open = 0;
+  static bool get tripOpen => _open > 0;
+
   final String rideId;
   final String vehicleType;
   final NavLeg leg;
@@ -75,6 +80,12 @@ class RideShell extends StatefulWidget {
   /// stayed open over all but the top 170pt of the map for the whole drive.
   final bool driving;
 
+  /// False while the job has no place to drive to right now — a rental or hire
+  /// under way (the customer directs), or any job being finished. The map then
+  /// shows only the driver: no route, no "You have reached …" banner and no
+  /// "Navigate to …" button pointing back at a pickup already left behind.
+  final bool hasDestination;
+
   const RideShell({
     super.key,
     required this.rideId,
@@ -92,6 +103,7 @@ class RideShell extends StatefulWidget {
     this.details = const [],
     this.actions = const [],
     this.driving = false,
+    this.hasDestination = true,
   });
 
   @override
@@ -104,6 +116,18 @@ class _RideShellState extends State<RideShell> {
   double _sheetHeight = 300;
   // Folded while driving — including a trip reopened mid-drive.
   late bool _detailsOpen = !widget.driving;
+
+  @override
+  void initState() {
+    super.initState();
+    RideShell._open++;
+  }
+
+  @override
+  void dispose() {
+    RideShell._open--;
+    super.dispose();
+  }
 
   @override
   void didUpdateWidget(covariant RideShell old) {
@@ -143,12 +167,17 @@ class _RideShellState extends State<RideShell> {
         Positioned.fill(
           child: NavMapPanel(
             vehicleType: widget.vehicleType,
-            leg: widget.leg,
+            // Same label (the map's marker glyph keys off it) but no target, so
+            // no route, no arrival geofence and no hand-off button.
+            leg: widget.hasDestination
+                ? widget.leg
+                : NavLeg(label: widget.leg.label, destLat: null, destLng: null),
+            showHeader: widget.hasDestination,
             fallbackPolyline: widget.fallbackPolyline,
             height: media.size.height,
             topInset: topBar + 8,
             bottomInset: _sheetHeight + 10,
-            onArrived: widget.onArrived,
+            onArrived: widget.hasDestination ? widget.onArrived : null,
             onTollRoad: widget.onTollRoad,
             onPosition: widget.onPosition,
           ),
@@ -162,24 +191,29 @@ class _RideShellState extends State<RideShell> {
     );
   }
 
-  Widget _topBar(double safeTop) => Container(
-    padding: EdgeInsets.only(top: safeTop + 8, left: 16, right: 16, bottom: 12),
-    decoration: const BoxDecoration(
-      gradient: LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]),
-    ),
+  // Floating over the map, Uber-style: a white phase pill on the left and a
+  // red SOS button on the right — no solid bar hiding the top of the map.
+  Widget _topBar(double safeTop) => Padding(
+    padding: EdgeInsets.only(top: safeTop + 8, left: 14, right: 14, bottom: 8),
     child: Row(children: [
       Flexible(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(20)),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Container(width: 8, height: 8,
-              decoration: const BoxDecoration(color: AppColors.green, shape: BoxShape.circle)),
-            const SizedBox(width: 6),
-            Flexible(child: Text(widget.phase,
-              maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white))),
-          ]),
+        child: Material(
+          color: AppColors.white,
+          elevation: 3,
+          shadowColor: Colors.black38,
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Container(width: 9, height: 9,
+                decoration: const BoxDecoration(color: AppColors.green, shape: BoxShape.circle)),
+              const SizedBox(width: 8),
+              Flexible(child: Text(widget.phase,
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, letterSpacing: 0.3,
+                    color: AppColors.textDark))),
+            ]),
+          ),
         ),
       ),
       const SizedBox(width: 12),
@@ -189,14 +223,18 @@ class _RideShellState extends State<RideShell> {
         excludeSemantics: true,
         child: Material(
           color: AppColors.red,
-          borderRadius: BorderRadius.circular(20),
+          elevation: 3,
+          shadowColor: Colors.black38,
+          shape: const CircleBorder(),
           child: InkWell(
-            borderRadius: BorderRadius.circular(20),
+            customBorder: const CircleBorder(),
             onTap: _openSos,
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              child: Text('SOS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900,
-                fontSize: 12, letterSpacing: 0.5)),
+            child: const SizedBox(
+              width: 48, height: 48,
+              child: Center(
+                child: Text('SOS', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900,
+                  fontSize: 12.5, letterSpacing: 0.5)),
+              ),
             ),
           ),
         ),
@@ -205,11 +243,11 @@ class _RideShellState extends State<RideShell> {
   );
 
   Widget _sheet(double safeBottom) => Container(
-    padding: EdgeInsets.fromLTRB(16, 8, 16, 12 + safeBottom),
+    padding: EdgeInsets.fromLTRB(16, 6, 16, 12 + safeBottom),
     decoration: BoxDecoration(
       color: AppColors.white,
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 16)],
+      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.14), blurRadius: 18, offset: const Offset(0, -4))],
     ),
     child: Column(mainAxisSize: MainAxisSize.min, children: [
       // The handle folds the details away, giving the map back to the driver.
@@ -223,7 +261,7 @@ class _RideShellState extends State<RideShell> {
           child: SizedBox(
             width: 72, height: 20,
             child: Center(child: Container(width: 40, height: 4,
-              decoration: BoxDecoration(color: AppColors.divider, borderRadius: BorderRadius.circular(2)))),
+              decoration: BoxDecoration(color: AppColors.textGrey.withValues(alpha: 0.35), borderRadius: BorderRadius.circular(2)))),
           ),
         ),
       ),
@@ -257,23 +295,23 @@ class _RideShellState extends State<RideShell> {
     final initial = c.name.trim().isNotEmpty ? c.name.trim()[0].toUpperCase() : '?';
     return Row(children: [
       CircleAvatar(
-        radius: 20,
-        backgroundColor: AppColors.primary,
+        radius: 22,
+        backgroundColor: AppColors.cardBg,
         backgroundImage: c.picUrl.isNotEmpty ? NetworkImage(c.picUrl) : null,
         child: c.picUrl.isEmpty
-            ? Text(initial, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))
+            ? Text(initial, style: TextStyle(color: AppColors.textDark, fontWeight: FontWeight.w800, fontSize: 17))
             : null,
       ),
-      const SizedBox(width: 10),
+      const SizedBox(width: 12),
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(c.name,
             maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: AppColors.textDark)),
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: AppColors.textDark)),
           if (c.role.isNotEmpty)
             Text(c.role,
               maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
+              style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: AppColors.textGrey)),
         ]),
       ),
       if (widget.contactTrailing != null) ...[
@@ -285,25 +323,26 @@ class _RideShellState extends State<RideShell> {
             child: widget.contactTrailing!),
         ),
       ],
-      const SizedBox(width: 4),
-      if (c.phone.trim().isNotEmpty)
+      const SizedBox(width: 6),
+      if (c.phone.trim().isNotEmpty) ...[
         _roundAction(
-          icon: Icons.call,
+          icon: Icons.call_rounded,
           color: AppColors.green,
           tooltip: c.role.isEmpty ? 'Call' : 'Call ${c.role.toLowerCase()}',
           onTap: () => dialPhone(c.phone, context: context),
         ),
-      const SizedBox(width: 6),
+        const SizedBox(width: 8),
+      ],
       _roundAction(
-        icon: Icons.chat_bubble_outline,
-        color: AppColors.primary,
+        icon: Icons.chat_bubble_outline_rounded,
+        color: AppColors.textDark,
         tooltip: 'Message rider',
         onTap: _openChat,
       ),
     ]);
   }
 
-  /// A 44pt tinted circle — the minimum a driver can hit reliably in a mount.
+  /// A 44pt grey circle — the minimum a driver can hit reliably in a mount.
   Widget _roundAction({
     required IconData icon,
     required Color color,
@@ -312,7 +351,7 @@ class _RideShellState extends State<RideShell> {
   }) => Tooltip(
     message: tooltip,
     child: Material(
-      color: color.withOpacity(0.12),
+      color: AppColors.cardBg,
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),

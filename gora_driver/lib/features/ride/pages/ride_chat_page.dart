@@ -83,9 +83,13 @@ class _RideChatPageState extends State<RideChatPage> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: AppColors.primary,
-        foregroundColor: Colors.white,
-        title: Text(widget.otherName, style: const TextStyle(fontWeight: FontWeight.w700)),
+        backgroundColor: AppColors.white,
+        foregroundColor: AppColors.textDark,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        bottom: PreferredSize(preferredSize: const Size.fromHeight(1), child: Container(height: 1, color: AppColors.divider)),
+        title: Text(widget.otherName, maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.textDark)),
       ),
       body: Column(children: [
         Expanded(

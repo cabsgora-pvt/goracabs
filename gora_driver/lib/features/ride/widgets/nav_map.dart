@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../../../utils/format_minutes.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -794,7 +795,7 @@ class _NavMapPanelState extends State<NavMapPanel> with WidgetsBindingObserver {
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Text('$_etaMin min',
+                            Text(formatMinutes(_etaMin!),
                                 style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppColors.primary)),
                             Text(
                               _progress != null && _progress!.remainingM > 0
@@ -857,6 +858,9 @@ class _NavMapPanelState extends State<NavMapPanel> with WidgetsBindingObserver {
         ),
 
         // ── External turn-by-turn hand-off ──
+        // Only when there is somewhere to go: a disabled "Navigate to Pickup"
+        // on a rental already under way read as an instruction.
+        if (leg.isValid)
         Positioned(
           left: 10, right: 10, bottom: widget.bottomInset,
           child: SizedBox(
@@ -865,10 +869,15 @@ class _NavMapPanelState extends State<NavMapPanel> with WidgetsBindingObserver {
               onPressed: leg.isValid ? _openExternal : null,
               icon: const Icon(Icons.assistant_direction, size: 20),
               label: Text('Navigate to ${leg.label}',
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 foregroundColor: Colors.white,
+                // The theme's 16px vertical padding left 12px for the text in
+                // this 44px button, clipping the bottom of every label.
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                minimumSize: const Size(0, 44),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),

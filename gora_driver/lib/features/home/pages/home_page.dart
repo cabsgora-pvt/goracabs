@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:provider/provider.dart';
-import '../../../core/constants/app_colors.dart';
+import '../../../widgets/captain_ui/captain_ui.dart';
 import '../../../providers/driver_provider.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
@@ -15,6 +15,7 @@ import '../../ride/pages/on_ride_page.dart';
 import '../../ride/pages/rental_progress_page.dart';
 import '../../ride/pages/hire_progress_page.dart';
 import '../../ride/pages/delivery_progress_page.dart';
+import '../../ride/widgets/ride_shell.dart';
 import '../../../models/models.dart';
 import '../../wallet/pages/wallet_page.dart';
 import '../../account/service_prefs.dart';
@@ -37,6 +38,14 @@ class _HomePageState extends State<HomePage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<DriverProvider>().loadProfile();
     });
+  }
+
+  void _openTab(int i) {
+    setState(() => _tab = i);
+    // Account tab shows rating / rides / wallet balance from the
+    // provider, which was only loaded once at startup — refresh it
+    // so a rating received this session (or a wallet change) shows.
+    if (i == 2) context.read<DriverProvider>().loadProfile();
   }
 
   @override
@@ -65,17 +74,11 @@ class _HomePageState extends State<HomePage> {
             },
             child: Scaffold(
               body: IndexedStack(index: _tab, children: [
-                _HomeTab(homeBloc: homeBloc),
+                _HomeTab(homeBloc: homeBloc, onOpenTab: _openTab),
                 const EarningsPage(),
                 AccountPage(),
               ]),
-              bottomNavigationBar: _BottomNav(tab: _tab, onTap: (i) {
-                setState(() => _tab = i);
-                // Account tab shows rating / rides / wallet balance from the
-                // provider, which was only loaded once at startup — refresh it
-                // so a rating received this session (or a wallet change) shows.
-                if (i == 2) context.read<DriverProvider>().loadProfile();
-              }),
+              bottomNavigationBar: _BottomNav(tab: _tab, onTap: _openTab),
             ),
           );
         },
@@ -84,103 +87,315 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-class _HomeTab extends StatelessWidget {
+class _HomeTab extends StatefulWidget {
   final HomeBloc homeBloc;
-  const _HomeTab({required this.homeBloc});
+  final ValueChanged<int> onOpenTab;
+  const _HomeTab({required this.homeBloc, required this.onOpenTab});
+  @override
+  State<_HomeTab> createState() => _HomeTabState();
+}
+
+class _HomeTabState extends State<_HomeTab> {
+  bool _statsOpen = false;
+
+  void _toggleOnline(bool online) => context.read<HomeBloc>().add(ToggleOnlineEvent(online));
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<HomeBloc, HomeState>(
       builder: (context, state) {
-        final isOnline = homeBloc.isOnline;
-        final summary = homeBloc.summary;
+        final isOnline = widget.homeBloc.isOnline;
+        final summary = widget.homeBloc.summary;
+        final loaded = state is HomeLoaded || state is OnlineStatusChanged;
         final dp = context.watch<DriverProvider>();
+        final safeTop = MediaQuery.of(context).padding.top;
 
         return Scaffold(
-          appBar: AppBar(
-            backgroundColor: AppColors.primary,
-            elevation: 0,
-            automaticallyImplyLeading: false,
-            titleSpacing: 4,
-            // Preference (left) → Online toggle → Notification (right)
-            leading: IconButton(
-              icon: const Icon(Icons.tune_rounded, color: Colors.white),
-              tooltip: 'Preferences',
-              onPressed: () => showServicePrefsTopSheet(context),
-            ),
-            // Online/Offline toggle — centered
-            centerTitle: true,
-            title: GestureDetector(
-              onTap: () => context.read<HomeBloc>().add(ToggleOnlineEvent(!isOnline)),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                width: 104, height: 34,
-                decoration: BoxDecoration(
-                  color: isOnline ? AppColors.green : Colors.grey.shade500,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 4, offset: const Offset(0, 2))],
-                ),
-                child: Stack(children: [
-                  AnimatedAlign(
-                    duration: const Duration(milliseconds: 250),
-                    alignment: isOnline ? Alignment.centerLeft : Alignment.centerRight,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(isOnline ? 'Online' : 'Offline',
-                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.white)),
-                    ),
-                  ),
-                  AnimatedAlign(
-                    duration: const Duration(milliseconds: 250),
-                    curve: Curves.easeOut,
-                    alignment: isOnline ? Alignment.centerRight : Alignment.centerLeft,
-                    child: Padding(
-                      padding: const EdgeInsets.all(3),
-                      child: Container(
-                        width: 28, height: 28,
-                        decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                        child: Icon(isOnline ? Icons.check : Icons.power_settings_new,
-                          size: 16, color: isOnline ? AppColors.green : Colors.grey.shade600),
+          // StackFit.expand: every visible child here is Positioned, and the
+          // only unpositioned one (the online-only poller) is zero-sized. With
+          // the default loose fit the Stack sized itself to that 0x0 child the
+          // moment the driver went online, collapsing the map and both panels
+          // to nothing — a blank home screen.
+          body: Stack(fit: StackFit.expand, children: [
+            // Full-bleed live map
+            Positioned.fill(child: MapPlaceholder(padding: EdgeInsets.only(top: safeTop + 70, bottom: 230))),
+            // Background poller for incoming ride requests (no visual change)
+            if (isOnline) const _RidePoller(),
+            // Top bar: avatar · today's earnings · notifications
+            Positioned(
+              top: safeTop + 10, left: 14, right: 14,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(children: [
+                  _AvatarButton(name: dp.name, url: dp.profilePicUrl, onTap: () => widget.onOpenTab(2)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Center(
+                      child: _EarningsPill(
+                        amount: loaded ? (summary['today'] ?? '₹ 0') : '…',
+                        open: _statsOpen,
+                        onTap: loaded ? () => setState(() => _statsOpen = !_statsOpen) : null,
                       ),
                     ),
                   ),
+                  const SizedBox(width: 10),
+                  MapCircleButton(
+                    icon: Icons.notifications_none_rounded,
+                    tooltip: 'Notifications',
+                    onTap: () => Navigator.pushNamed(context, '/notifications'),
+                  ),
                 ]),
-              ),
+                if (_statsOpen && loaded) ...[
+                  const SizedBox(height: 10),
+                  _TodayStats(summary: summary, onMore: () => widget.onOpenTab(1)),
+                ],
+                if (dp.isLowBalance) ...[
+                  const SizedBox(height: 10),
+                  _LowBalanceBanner(
+                    onTap: () => Navigator.pushNamed(context, WalletPage.route),
+                  ),
+                ],
+              ]),
             ),
-            actions: [
-              IconButton(icon: const Icon(Icons.notifications_rounded, color: Colors.white), onPressed: () => Navigator.pushNamed(context, '/notifications')),
-            ],
-          ),
-          body: Stack(children: [
-            // Map placeholder
-            const MapPlaceholder(),
-            // Background poller for incoming ride requests (no visual change)
-            if (isOnline) const _RidePoller(),
-            // Stats card at top (+ low-balance banner right below it)
-            if (state is HomeLoaded || state is OnlineStatusChanged)
-              Positioned(
-                top: 16, left: 16, right: 16,
-                child: Column(children: [
-                  _StatsCard(summary: summary),
-                  if (dp.isLowBalance) ...[
-                    const SizedBox(height: 12),
-                    _LowBalanceBanner(
-                      onTap: () => Navigator.pushNamed(context, WalletPage.route),
-                    ),
-                  ],
-                ]),
-              ),
-            // Online prompt
-            if (!isOnline)
-              Positioned(
-                bottom: 100, left: 24, right: 24,
-                child: _OfflinePrompt(onGoOnline: () => context.read<HomeBloc>().add(ToggleOnlineEvent(true))),
-              ),
-            // Resume an in-progress ride (auto on reopen + tappable banner)
-            const _ActiveRideResumer(),
+            // Bottom: resume banner · GO button · status sheet
+            Positioned(
+              left: 0, right: 0, bottom: 0,
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                // Resume an in-progress ride (auto on reopen + tappable banner)
+                const _ActiveRideResumer(),
+                if (!isOnline) ...[
+                  Center(child: _GoButton(onTap: () => _toggleOnline(true))),
+                  const SizedBox(height: 14),
+                ],
+                _StatusSheet(
+                  online: isOnline,
+                  onGoOffline: () => _toggleOnline(false),
+                  onPrefs: () => showServicePrefsTopSheet(context),
+                ),
+              ]),
+            ),
           ]),
         );
       },
+    );
+  }
+}
+
+/// Driver photo (or initial) in a white circle — opens the Account tab.
+class _AvatarButton extends StatelessWidget {
+  final String name, url;
+  final VoidCallback onTap;
+  const _AvatarButton({required this.name, required this.url, required this.onTap});
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message: 'Account',
+    child: Material(
+      color: Cap.surface,
+      elevation: 3,
+      shadowColor: Colors.black38,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(3),
+          child: CapAvatar(name: name.isNotEmpty ? name : 'D', url: url, radius: 20),
+        ),
+      ),
+    ),
+  );
+}
+
+/// "₹ 1,240 · Today" pill centred in the top bar.
+class _EarningsPill extends StatelessWidget {
+  final String amount;
+  final bool open;
+  final VoidCallback? onTap;
+  const _EarningsPill({required this.amount, required this.open, this.onTap});
+  @override
+  Widget build(BuildContext context) => Material(
+    color: const Color(0xFF111111),
+    elevation: 3,
+    shadowColor: Colors.black38,
+    borderRadius: BorderRadius.circular(26),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(26),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Flexible(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(amount, maxLines: 1,
+                    style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900)),
+              ),
+              const Text('Today', style: TextStyle(color: Colors.white60, fontSize: 10.5, fontWeight: FontWeight.w700)),
+            ]),
+          ),
+          const SizedBox(width: 4),
+          Icon(open ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 18),
+        ]),
+      ),
+    ),
+  );
+}
+
+/// Today's real summary, dropped down from the earnings pill.
+class _TodayStats extends StatelessWidget {
+  final Map<String, String> summary;
+  final VoidCallback onMore;
+  const _TodayStats({required this.summary, required this.onMore});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget stat(String label, String value) => Expanded(
+      child: Column(children: [
+        FittedBox(fit: BoxFit.scaleDown,
+            child: Text(value, maxLines: 1, style: Cap.body(size: 15.5, weight: FontWeight.w900))),
+        const SizedBox(height: 2),
+        Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 11.5)),
+      ]),
+    );
+    return Material(
+      color: Cap.surface,
+      elevation: 4,
+      shadowColor: Colors.black26,
+      borderRadius: BorderRadius.circular(Cap.radius),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 14, 12, 4),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(children: [
+            stat('Trips', summary['totalRides'] ?? '0'),
+            Container(width: 1, height: 30, color: Cap.divider),
+            stat('Distance', summary['totalDistance'] ?? '0 km'),
+            Container(width: 1, height: 30, color: Cap.divider),
+            stat('This week', summary['week'] ?? '₹0'),
+          ]),
+          TextButton(onPressed: onMore, child: const Text('See earnings')),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Big round "GO" button — the one thing to do while offline.
+class _GoButton extends StatelessWidget {
+  final VoidCallback onTap;
+  const _GoButton({required this.onTap});
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: 'Go online',
+    excludeSemantics: true,
+    child: Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Cap.navy.withValues(alpha: 0.18),
+      ),
+      child: Material(
+        color: Cap.navy,
+        shape: const CircleBorder(),
+        elevation: 6,
+        shadowColor: Cap.navy.withValues(alpha: 0.5),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: const SizedBox(
+            width: 82, height: 82,
+            child: Center(
+              child: Text('GO', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1)),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// White bottom sheet: online/offline state + trip preferences.
+class _StatusSheet extends StatelessWidget {
+  final bool online;
+  final VoidCallback onGoOffline;
+  final VoidCallback onPrefs;
+  const _StatusSheet({required this.online, required this.onGoOffline, required this.onPrefs});
+
+  @override
+  Widget build(BuildContext context) {
+    final dot = online ? Cap.green : Cap.muted;
+    return Container(
+      decoration: BoxDecoration(
+        color: Cap.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 18, offset: const Offset(0, -4))],
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const CapSheetHandle(),
+        const SizedBox(height: 12),
+        Row(children: [
+          Container(
+            width: 12, height: 12,
+            decoration: BoxDecoration(
+              color: dot, shape: BoxShape.circle,
+              boxShadow: online ? [BoxShadow(color: Cap.green.withValues(alpha: 0.45), blurRadius: 8, spreadRadius: 2)] : null,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(online ? "You're online" : "You're offline",
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.title(size: 19)),
+              const SizedBox(height: 2),
+              Text(online ? 'Finding trips near you' : 'Tap GO to start receiving trip requests',
+                  maxLines: 2, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 13)),
+            ]),
+          ),
+          if (online) ...[
+            const SizedBox(width: 10),
+            Material(
+              color: Cap.red.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(22),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(22),
+                onTap: onGoOffline,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.power_settings_new_rounded, size: 17, color: Cap.red),
+                    const SizedBox(width: 6),
+                    Text('Go offline', style: Cap.body(size: 13, weight: FontWeight.w800, color: Cap.red)),
+                  ]),
+                ),
+              ),
+            ),
+          ],
+        ]),
+        if (online) ...[
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(minHeight: 3, color: Cap.accent, backgroundColor: Cap.tile),
+          ),
+        ],
+        const SizedBox(height: 14),
+        CapTile(
+          onTap: onPrefs,
+          child: Row(children: [
+            Icon(Icons.tune_rounded, size: 20, color: Cap.ink),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Trip preferences', style: Cap.body(size: 14, weight: FontWeight.w800)),
+                Text('Rental, outstation, hire & parcel',
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12)),
+              ]),
+            ),
+            Icon(Icons.chevron_right_rounded, color: Cap.muted),
+          ]),
+        ),
+      ]),
     );
   }
 }
@@ -237,98 +452,29 @@ class _ActiveRideResumerState extends State<_ActiveRideResumer> {
   @override
   Widget build(BuildContext context) {
     if (_ride == null) return const SizedBox.shrink();
-    return Positioned(
-      bottom: 100, left: 16, right: 16,
-      child: GestureDetector(
-        onTap: _resume,
-        child: Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+      child: Material(
+        color: Cap.navy,
+        elevation: 4,
+        shadowColor: Colors.black38,
+        borderRadius: BorderRadius.circular(Cap.radius),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(Cap.radius),
+          onTap: _resume,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(children: [
+              Icon(Icons.navigation_rounded, color: Colors.white),
+              SizedBox(width: 12),
+              Expanded(child: Text('Ride in progress — tap to resume',
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800))),
+              Icon(Icons.chevron_right_rounded, color: Colors.white),
+            ]),
           ),
-          child: Row(children: const [
-            Icon(Icons.navigation_rounded, color: Colors.white),
-            SizedBox(width: 12),
-            Expanded(child: Text('Ride in progress — tap to resume', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800))),
-            Icon(Icons.chevron_right, color: Colors.white),
-          ]),
         ),
       ),
-    );
-  }
-}
-
-class _StatsCard extends StatefulWidget {
-  final Map<String, String> summary;
-  const _StatsCard({required this.summary});
-  @override State<_StatsCard> createState() => _StatsCardState();
-}
-
-class _StatsCardState extends State<_StatsCard> {
-  bool _expanded = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => setState(() => _expanded = !_expanded),
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
-        ),
-        padding: const EdgeInsets.all(16),
-        child: Column(children: [
-          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text("Today's Earnings", style: TextStyle(color: Colors.white70, fontSize: 13)),
-            Row(children: [
-              Text(widget.summary['today'] ?? '₹ 0', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
-              const SizedBox(width: 4),
-              Icon(_expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: Colors.white70, size: 18),
-            ]),
-          ]),
-          if (_expanded) ...[
-            const SizedBox(height: 12),
-            const Divider(color: Colors.white24),
-            const SizedBox(height: 8),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-              _statItem('Rides', widget.summary['totalRides'] ?? '0', Icons.directions_car),
-              _statItem('Distance', widget.summary['totalDistance'] ?? '0', Icons.route),
-              _statItem('This Week', widget.summary['week'] ?? '₹0', Icons.calendar_today),
-            ]),
-          ],
-        ]),
-      ),
-    );
-  }
-
-  Widget _statItem(String label, String value, IconData icon) => Column(children: [
-    Icon(icon, color: Colors.white60, size: 16),
-    const SizedBox(height: 4),
-    Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
-    Text(label, style: const TextStyle(color: Colors.white60, fontSize: 11)),
-  ]);
-}
-
-class _OfflinePrompt extends StatelessWidget {
-  final VoidCallback onGoOnline;
-  const _OfflinePrompt({required this.onGoOnline});
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 12)]),
-      child: Row(children: [
-        Icon(Icons.power_settings_new_rounded, color: AppColors.textGrey, size: 28),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('You are offline', style: TextStyle(fontWeight: FontWeight.w700, color: AppColors.textDark)),
-          Text('Go online to start receiving ride requests', style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
-        ])),
-        ElevatedButton(onPressed: onGoOnline, style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)), child: const Text('Go Online')),
-      ]),
     );
   }
 }
@@ -340,32 +486,34 @@ class _LowBalanceBanner extends StatelessWidget {
   const _LowBalanceBanner({required this.onTap});
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: AppColors.red,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: AppColors.red.withOpacity(0.35), blurRadius: 12, offset: const Offset(0, 4))],
+    return Material(
+      color: Cap.surface,
+      elevation: 4,
+      shadowColor: Colors.black26,
+      borderRadius: BorderRadius.circular(Cap.radius),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Cap.radius),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+          child: Row(children: [
+            Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(color: Cap.red.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
+              child: Icon(Icons.account_balance_wallet_rounded, color: Cap.red, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Low wallet balance', style: Cap.body(size: 14, weight: FontWeight.w800)),
+                Text('Your wallet balance is low. Please recharge to continue',
+                    maxLines: 2, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12)),
+              ]),
+            ),
+            const SizedBox(width: 6),
+            Icon(Icons.chevron_right_rounded, color: Cap.red, size: 22),
+          ]),
         ),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Container(
-            width: 34, height: 34,
-            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
-            child: const Icon(Icons.warning_rounded, color: Colors.white, size: 20),
-          ),
-          const SizedBox(width: 12),
-          const Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Low Balance  ⚠️', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
-              SizedBox(height: 2),
-              Text('Your wallet balance is low. Please recharge to continue',
-                  style: TextStyle(color: Colors.white70, fontSize: 12.5, height: 1.25)),
-            ]),
-          ),
-        ]),
       ),
     );
   }
@@ -408,6 +556,11 @@ class _RidePollerState extends State<_RidePoller> {
 
   Future<void> _poll() async {
     if (_navigating || !mounted) return;
+    // Not over a trip in progress. The pending feed does not leave out drivers
+    // already on a job, and opt-in services (rental, hire, outstation, parcel)
+    // stay listed for 15 minutes — so right after accepting one, the request
+    // page kept opening over the trip screen the driver had just reached.
+    if (RideShell.tripOpen) return;
     try {
       final res = await DriverApiService.getPendingRequests();
       // Requests whose countdown just ran out on this phone are skipped, or a
@@ -437,22 +590,23 @@ class _BottomNav extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 12, offset: const Offset(0, -2))],
+        color: Cap.surface,
+        border: Border(top: BorderSide(color: Cap.divider)),
       ),
       child: BottomNavigationBar(
         currentIndex: tab,
         onTap: onTap,
-        selectedItemColor: AppColors.primary,
-        unselectedItemColor: AppColors.textGrey,
+        selectedItemColor: Cap.ink,
+        unselectedItemColor: Cap.muted,
         backgroundColor: Colors.transparent,
         elevation: 0,
         type: BottomNavigationBarType.fixed,
-        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.bar_chart_rounded), label: 'Earnings'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Account'),
+          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home_rounded), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet_outlined), activeIcon: Icon(Icons.account_balance_wallet_rounded), label: 'Earnings'),
+          BottomNavigationBarItem(icon: Icon(Icons.person_outline_rounded), activeIcon: Icon(Icons.person_rounded), label: 'Account'),
         ],
       ),
     );

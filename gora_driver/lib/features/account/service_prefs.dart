@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../core/constants/app_colors.dart';
 import '../../services/driver_api_service.dart';
+import '../../widgets/captain_ui/captain_ui.dart';
 
 // Shared definitions + UI for the driver's service preferences, used by the
 // "Preference" top-sheet (opened from the home bar) and the Preferences page.
@@ -47,35 +48,31 @@ class ServiceToggleTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: AppColors.white,
+        color: on ? Cap.accent.withValues(alpha: 0.05) : Cap.tile,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: on ? AppColors.primary.withOpacity(0.4) : AppColors.divider, width: on ? 1.4 : 1),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 6)],
+        border: Border.all(color: on ? Cap.accent.withValues(alpha: 0.5) : Colors.transparent, width: 1.4),
       ),
       child: Row(children: [
         // Service image tile
         Container(
-          width: 54, height: 54,
-          decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(12)),
+          width: 50, height: 50,
+          decoration: BoxDecoration(color: Cap.surface, borderRadius: BorderRadius.circular(12)),
           clipBehavior: Clip.antiAlias,
           child: Image.asset(
             image, fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => const Icon(Icons.directions_car_rounded, color: AppColors.primary),
+            errorBuilder: (_, __, ___) => Icon(Icons.directions_car_rounded, color: Cap.accent),
           ),
         ),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+          Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.body(size: 14.5, weight: FontWeight.w800)),
           const SizedBox(height: 2),
-          Text(sub, style: TextStyle(fontSize: 11.5, color: AppColors.textGrey)),
+          Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12)),
         ])),
+        const SizedBox(width: 6),
         alwaysOn
-            ? Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(color: AppColors.green.withOpacity(0.12), borderRadius: BorderRadius.circular(20)),
-                child: const Text('Always On', style: TextStyle(color: AppColors.green, fontSize: 11, fontWeight: FontWeight.w700)),
-              )
-            : Switch(value: value, onChanged: onChanged, activeColor: AppColors.primary),
+            ? const CapChip('Always on', color: AppColors.green)
+            : Switch(value: value, onChanged: onChanged, activeTrackColor: AppColors.primary),
       ]),
     );
   }
@@ -181,31 +178,26 @@ class _ServicePrefsSheetState extends State<_ServicePrefsSheet> {
         margin: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 6, left: 10, right: 10),
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
         decoration: BoxDecoration(
-          color: AppColors.background,
+          color: Cap.surface,
           borderRadius: BorderRadius.circular(22),
           boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 20, offset: const Offset(0, 6))],
         ),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Row(children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
-              child: const Icon(Icons.tune_rounded, color: AppColors.primary, size: 20),
-            ),
-            const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Service Preferences', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textDark)),
-              Text('Choose the ride types you accept', style: TextStyle(fontSize: 11.5, color: AppColors.textGrey)),
+              Text('Trip preferences', style: Cap.title(size: 19)),
+              const SizedBox(height: 2),
+              Text('Choose the ride types you accept', style: Cap.caption(size: 12.5)),
             ])),
             if (_saving)
-              const Padding(padding: EdgeInsets.only(right: 4),
-                  child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary)))
+              Padding(padding: const EdgeInsets.only(right: 4),
+                  child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Cap.accent)))
             else
-              GestureDetector(onTap: () => Navigator.pop(context), child: Icon(Icons.close_rounded, color: AppColors.textGrey)),
+              CapRoundAction(icon: Icons.close_rounded, size: 36, tooltip: 'Close', onTap: () => Navigator.pop(context)),
           ]),
           const SizedBox(height: 16),
           if (!_loaded)
-            const Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator(color: AppColors.primary))
+            Padding(padding: const EdgeInsets.all(24), child: CircularProgressIndicator(color: Cap.accent, strokeWidth: 2.6))
           else ...[
             if (_allowTaxi)
               const ServiceToggleTile(title: 'Taxi / Cab', sub: 'Regular point-to-point rides', image: kTaxiImage, alwaysOn: true),

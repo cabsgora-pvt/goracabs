@@ -12,7 +12,10 @@ const _fallbackPos = LatLng(23.0225, 72.5714);
 
 // ─── HOME MAP — live driver location ──────────────────────────
 class MapPlaceholder extends StatefulWidget {
-  const MapPlaceholder({super.key});
+  /// Keeps Google's own controls (my-location) inside the part of the map not
+  /// covered by the home screen's floating top bar and bottom sheet.
+  final EdgeInsets padding;
+  const MapPlaceholder({super.key, this.padding = EdgeInsets.zero});
   @override
   State<MapPlaceholder> createState() => _MapPlaceholderState();
 }
@@ -85,9 +88,10 @@ class _MapPlaceholderState extends State<MapPlaceholder> {
         _ctrl = c;
         _ctrl?.animateCamera(CameraUpdate.newLatLng(_pos));
       },
+      padding: widget.padding,
       myLocationEnabled: true,
       myLocationButtonEnabled: true,
-      zoomControlsEnabled: true,
+      zoomControlsEnabled: false,
       mapToolbarEnabled: false,
       markers: {
         Marker(

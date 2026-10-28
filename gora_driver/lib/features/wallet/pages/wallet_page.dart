@@ -5,6 +5,7 @@ import '../../../core/widgets/app_widgets.dart';
 import '../bloc/wallet_bloc.dart';
 import '../../../models/models.dart';
 import 'withdraw_page.dart';
+import '../../../widgets/captain_ui/captain_ui.dart';
 
 class WalletPage extends StatelessWidget {
   static const route = '/wallet';
@@ -16,7 +17,7 @@ class WalletPage extends StatelessWidget {
       create: (_) => WalletBloc()..add(LoadWalletEvent()),
       child: Scaffold(
         appBar: blueAppBar('Wallet'),
-        backgroundColor: AppColors.cardBg,
+        backgroundColor: Cap.surface,
         body: BlocBuilder<WalletBloc, WalletState>(
           builder: (context, state) {
             if (state is WalletLoading) return const AppLoader();
@@ -36,88 +37,102 @@ class _Body extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(children: [
-        // Balance card
+    final negative = balance < 0;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      children: [
+        // Balance summary
         Container(
-          width: double.infinity, padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [AppColors.primaryDark, AppColors.primary]),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Column(children: [
-            const Text('Available Balance', style: TextStyle(color: Colors.white70, fontSize: 14)),
-            const SizedBox(height: 8),
-            Text('₹ ${balance.toStringAsFixed(2)}', style: const TextStyle(fontSize: 36, fontWeight: FontWeight.w900, color: Colors.white)),
-            const SizedBox(height: 20),
-            // Each button carried 48px of fixed horizontal padding and could not
-            // shrink, so the pair overflowed a 320pt screen by 40px. Sharing the
-            // width lets them fit any device and keeps them the same size.
-            Row(children: [
-              Expanded(child: _actionBtn(Icons.arrow_upward, 'Withdraw',
-                () => Navigator.push(context, MaterialPageRoute(builder: (_) => WithdrawPage(balance: balance))))),
-              const SizedBox(width: 12),
-              Expanded(child: _actionBtn(Icons.history, 'History', () {})),
-            ]),
-          ]),
-        ),
-        const SizedBox(height: 20),
-        // Transactions
-        Container(
-          decoration: BoxDecoration(color: AppColors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)]),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(color: Cap.tile, borderRadius: BorderRadius.circular(Cap.radius)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: SectionHeader(title: 'Transactions'),
+            Row(children: [
+              Icon(Icons.account_balance_wallet_outlined, size: 18, color: Cap.muted),
+              const SizedBox(width: 6),
+              Flexible(child: Text('Available balance', maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: Cap.caption(size: 13.5).copyWith(fontWeight: FontWeight.w700))),
+            ]),
+            const SizedBox(height: 8),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text('₹ ${balance.toStringAsFixed(2)}',
+                  style: TextStyle(fontSize: 38, fontWeight: FontWeight.w900, letterSpacing: -0.8,
+                      color: negative ? AppColors.red : Cap.ink)),
             ),
-            Divider(color: AppColors.divider, height: 1),
-            ...transactions.map((t) => _TxnRow(txn: t)),
+            if (balance <= 0) ...[
+              const SizedBox(height: 4),
+              Text('Recharge to keep receiving trips', style: Cap.caption(size: 12.5, color: AppColors.red)),
+            ],
+            const SizedBox(height: 16),
+            CapButton(
+              label: 'Withdraw',
+              icon: Icons.north_east_rounded,
+              height: 50,
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WithdrawPage(balance: balance))),
+            ),
           ]),
         ),
-      ]),
+        CapSectionTitle('Transactions',
+            trailing: transactions.isEmpty ? null : Text('${transactions.length}', style: Cap.caption(size: 13))),
+        if (transactions.isEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 28),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(Cap.radius),
+              border: Border.all(color: Cap.divider),
+            ),
+            child: Column(children: [
+              Icon(Icons.receipt_long_outlined, size: 34, color: Cap.muted),
+              const SizedBox(height: 8),
+              Text('No transactions yet', style: Cap.body(size: 14, weight: FontWeight.w700)),
+            ]),
+          )
+        else
+          Container(
+            decoration: BoxDecoration(
+              color: Cap.surface,
+              borderRadius: BorderRadius.circular(Cap.radius),
+              border: Border.all(color: Cap.divider),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(children: [
+              for (var i = 0; i < transactions.length; i++) ...[
+                if (i > 0) Padding(padding: const EdgeInsets.only(left: 66), child: Container(height: 1, color: Cap.divider)),
+                _TxnRow(txn: transactions[i]),
+              ],
+            ]),
+          ),
+      ],
     );
   }
-
-  Widget _actionBtn(IconData icon, String label, VoidCallback onTap) => GestureDetector(
-    onTap: onTap,
-    child: Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(12)),
-      child: Column(children: [
-        Icon(icon, color: Colors.white, size: 20),
-        const SizedBox(height: 4),
-        Text(label,
-          maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600)),
-      ]),
-    ),
-  );
 }
 
 class _TxnRow extends StatelessWidget {
   final WalletTransaction txn;
   const _TxnRow({required this.txn});
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-    child: Row(children: [
-      Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: txn.isCredit ? AppColors.green.withOpacity(0.1) : AppColors.red.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
+  Widget build(BuildContext context) {
+    final c = txn.isCredit ? AppColors.green : AppColors.red;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(children: [
+        Container(
+          width: 38, height: 38,
+          decoration: BoxDecoration(color: c.withValues(alpha: 0.10), shape: BoxShape.circle),
+          child: Icon(txn.isCredit ? Icons.south_west_rounded : Icons.north_east_rounded, color: c, size: 18),
         ),
-        child: Icon(txn.isCredit ? Icons.arrow_downward : Icons.arrow_upward,
-          color: txn.isCredit ? AppColors.green : AppColors.red, size: 18),
-      ),
-      const SizedBox(width: 12),
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(txn.type, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textDark)),
-        Text(txn.description, style: TextStyle(fontSize: 11, color: AppColors.textGrey)),
-        Text(txn.date, style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
-      ])),
-      Text(txn.amount, style: TextStyle(fontWeight: FontWeight.w800, color: txn.isCredit ? AppColors.green : AppColors.red, fontSize: 14)),
-    ]),
-  );
+        const SizedBox(width: 14),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(txn.type, maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.body(size: 14, weight: FontWeight.w800)),
+          if (txn.description.isNotEmpty)
+            Text(txn.description, maxLines: 2, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12)),
+          if (txn.date.isNotEmpty)
+            Text(txn.date, style: Cap.caption(size: 11)),
+        ])),
+        const SizedBox(width: 8),
+        Text(txn.amount, style: Cap.body(size: 14.5, weight: FontWeight.w900, color: txn.isCredit ? AppColors.green : null)),
+      ]),
+    );
+  }
 }
