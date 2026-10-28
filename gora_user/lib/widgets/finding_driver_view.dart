@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import '../utils/duration_format.dart';
 import '../services/api_service.dart';
 import '../utils/map_markers.dart';
 import '../utils/vehicle_marker.dart';
 import 'measure_size.dart';
+import 'ride_ui/ride_ui.dart';
 
 // "Looking for a driver" full-screen view: the pickup with a searching radar
 // over it, real nearby vehicles of the type being booked, the trip summary and
@@ -116,7 +119,11 @@ class _FindingDriverViewState extends State<FindingDriverView>
   Widget build(BuildContext context) {
     final hasDrop = widget.dropLat != null && widget.dropLng != null;
     final media = MediaQuery.of(context);
-    final topInset = media.padding.top + 60;   // clears the service chip
+    // The status bar height. Shown as a bottom sheet, this view gets a
+    // MediaQuery with the top padding removed, so SafeArea added nothing and
+    // the chip sat on the clock — read the real inset from the window.
+    final statusBar = math.max(media.padding.top, MediaQueryData.fromView(View.of(context)).padding.top);
+    final topInset = statusBar + 60;   // clears the service chip
     final visibleH = (media.size.height - topInset - _cardH).clamp(0.0, double.infinity);
 
     return Scaffold(
@@ -165,8 +172,8 @@ class _FindingDriverViewState extends State<FindingDriverView>
             child: const SearchRadar(size: _radar),
           ),
         // Service chip (top)
-        Positioned(top: 0, left: 0, right: 0, child: SafeArea(child: Padding(
-          padding: const EdgeInsets.all(12),
+        Positioned(top: 0, left: 0, right: 0, child: Padding(
+          padding: EdgeInsets.fromLTRB(12, statusBar + 12, 12, 12),
           child: Align(alignment: Alignment.centerLeft, child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(20),
@@ -179,7 +186,7 @@ class _FindingDriverViewState extends State<FindingDriverView>
                 style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800))),
             ]),
           )),
-        ))),
+        )),
         if (!_following)
           Positioned(
             right: 14,
@@ -196,70 +203,60 @@ class _FindingDriverViewState extends State<FindingDriverView>
               ),
             ),
           ),
-        // Bottom trip card
+        // Bottom trip card (Uber style): bold title, indeterminate bar right
+        // under it, then the trip summary and a quiet "Cancel Ride".
         Positioned(left: 0, right: 0, bottom: 0, child: MeasureSize(
           onChange: (s) { if (mounted && (s.height - _cardH).abs() > 1) setState(() => _cardH = s.height); },
-          child: Container(
-          decoration: BoxDecoration(color: Theme.of(context).cardColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 16, offset: const Offset(0, -4))]),
-          child: SafeArea(top: false, child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              // Heading + thin progress bar (the radar carries the motion)
-              Row(children: [
-                const Expanded(child: Text('Looking for a driver', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900))),
-                if (widget.etaMin != null) Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(color: _navy.withOpacity(0.08), borderRadius: BorderRadius.circular(20)),
-                  child: Text('~${widget.etaMin} min', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _navy))),
-              ]),
-              const SizedBox(height: 4),
-              Text('Connecting you with nearby drivers', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-              const SizedBox(height: 12),
-              ClipRRect(borderRadius: BorderRadius.circular(6),
-                child: LinearProgressIndicator(minHeight: 4, backgroundColor: _navy.withOpacity(0.10), valueColor: const AlwaysStoppedAnimation(_navy))),
-              const SizedBox(height: 16),
-              // Route: pickup → drop
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: Colors.grey.withOpacity(0.06), borderRadius: BorderRadius.circular(12)),
-                child: Column(children: [
-                  Row(children: [
-                    const Icon(Icons.radio_button_checked, size: 15, color: Color(0xFF4CAF50)),
-                    const SizedBox(width: 10),
-                    Expanded(child: Text(widget.pickupAddress.isEmpty ? 'Pickup' : widget.pickupAddress,
-                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
-                  ]),
-                  if (widget.dropAddress.isNotEmpty) ...[
-                    Padding(padding: const EdgeInsets.only(left: 6), child: Align(alignment: Alignment.centerLeft,
-                      child: Container(width: 2, height: 16, color: Colors.grey[300]))),
-                    Row(children: [
-                      const Icon(Icons.location_on, size: 15, color: Color(0xFFFF5252)),
-                      const SizedBox(width: 10),
-                      Expanded(child: Text(widget.dropAddress, maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
-                    ]),
-                  ],
-                ]),
-              ),
-              if (widget.fareText != null) ...[
-                const SizedBox(height: 12),
+          child: RideSheetContainer(
+            radius: 24,
+            child: SafeArea(top: false, child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                const SheetHandle(bottom: 14),
                 Row(children: [
-                  const Expanded(child: Text('Estimated fare', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700))),
-                  Text(widget.fareText!, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: _navy)),
+                  Expanded(child: Text('Looking for nearby drivers', style: RideUi.title(context, size: 20))),
+                  if (widget.etaMin != null) Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(color: RideUi.tile(context), borderRadius: BorderRadius.circular(20)),
+                    child: Text('~${formatMinutes(widget.etaMin!)}', style: RideUi.body(context, size: 12, weight: FontWeight.w800))),
                 ]),
-              ],
-              const SizedBox(height: 16),
-              SizedBox(width: double.infinity, child: OutlinedButton.icon(
-                onPressed: widget.onCancel,
-                icon: const Icon(Icons.close, size: 18, color: Colors.red),
-                label: const Text('Cancel Ride', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w800, fontSize: 15)),
-                style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.red), padding: const EdgeInsets.symmetric(vertical: 13), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-              )),
-            ]),
-          )),
-        ))),
+                const SizedBox(height: 12),
+                ClipRRect(borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(minHeight: 4, backgroundColor: RideUi.tile(context), valueColor: const AlwaysStoppedAnimation(_navy))),
+                const SizedBox(height: 10),
+                Text('Connecting you with nearby drivers', style: RideUi.caption(context, size: 12.5)),
+                const RideDivider(vertical: 14),
+                // Route: pickup → drop
+                TripRouteSummary(
+                  pickup: widget.pickupAddress.isEmpty ? 'Pickup' : widget.pickupAddress,
+                  drop: widget.dropAddress,
+                  fontSize: 13.5,
+                ),
+                const SizedBox(height: 14),
+                // Vehicle + fare
+                RideTile(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  child: Row(children: [
+                    Icon(widget.serviceIcon, size: 22, color: RideUi.ink(context)),
+                    const SizedBox(width: 10),
+                    Expanded(child: Text(widget.vehicleType.isNotEmpty ? widget.vehicleType : widget.serviceLabel,
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: RideUi.body(context, size: 14.5, weight: FontWeight.w800))),
+                    if (widget.fareText != null) ...[
+                      const SizedBox(width: 8),
+                      Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: [
+                        Text('Estimated fare', style: RideUi.caption(context, size: 11)),
+                        Text(widget.fareText!, style: RideUi.body(context, size: 17, weight: FontWeight.w900)),
+                      ]),
+                    ],
+                  ]),
+                ),
+                const SizedBox(height: 6),
+                RideTextAction(label: 'Cancel Ride', onPressed: widget.onCancel),
+              ]),
+            )),
+          ),
+        )),
       ]),
     );
   }

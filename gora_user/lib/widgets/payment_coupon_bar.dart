@@ -8,7 +8,22 @@ class PaymentCouponBar extends StatefulWidget {
   final num baseFare; // used to compute percentage coupons
   final void Function(String paymentMode, String couponCode, int couponDiscount) onChanged;
   final Color accent;
-  const PaymentCouponBar({super.key, required this.baseFare, required this.onChanged, this.accent = const Color(0xFF1C2656)});
+  /// What the bar shows when it opens. Display only — nothing is reported via
+  /// [onChanged] until the rider changes something, exactly as before; this
+  /// just stops a re-opened sheet from showing "Cash" when the booking already
+  /// holds another choice.
+  final String initialPaymentMode;
+  final String initialCouponCode;
+  final int initialCouponDiscount;
+  const PaymentCouponBar({
+    super.key,
+    required this.baseFare,
+    required this.onChanged,
+    this.accent = const Color(0xFF1C2656),
+    this.initialPaymentMode = 'cash',
+    this.initialCouponCode = '',
+    this.initialCouponDiscount = 0,
+  });
 
   @override
   State<PaymentCouponBar> createState() => _PaymentCouponBarState();
@@ -25,6 +40,9 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
   @override
   void initState() {
     super.initState();
+    _paymentMode = widget.initialPaymentMode;
+    _couponCode = widget.initialCouponCode;
+    _couponDiscount = widget.initialCouponDiscount;
     _loadPaymentConfig();
     _loadWalletBalance();
   }
@@ -129,23 +147,33 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
   Widget build(BuildContext context) {
     final payLabel = _paymentMode == 'online' ? 'Online' : (_paymentMode == 'wallet' ? 'Wallet' : 'Cash');
     final payIcon = _paymentMode == 'online' ? Icons.credit_card : (_paymentMode == 'wallet' ? Icons.account_balance_wallet_outlined : Icons.payments_outlined);
-    Widget item(IconData ic, String label, VoidCallback onTap, {Color? c}) => Expanded(child: InkWell(
-      onTap: onTap,
-      child: Padding(padding: const EdgeInsets.symmetric(vertical: 9),
-        child: Column(children: [
-          Icon(ic, size: 19, color: c ?? widget.accent),
-          const SizedBox(height: 4),
-          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: c)),
-        ])),
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final tile = dark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFF3F4F6);
+    final ink = dark ? Colors.white : const Color(0xFF111111);
+    // Two light-grey pills side by side, Uber style: "Cash ▾" | "Coupon ▾".
+    Widget item(IconData ic, String label, VoidCallback onTap, {Color? c}) => Expanded(child: Material(
+      color: tile,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          child: Row(children: [
+            Icon(ic, size: 19, color: c ?? ink),
+            const SizedBox(width: 8),
+            Expanded(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: c ?? ink))),
+            Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: c ?? ink),
+          ]),
+        ),
+      ),
     ));
-    Widget div() => Container(width: 1, height: 30, color: Colors.grey.withOpacity(0.2));
-    return Container(
-      decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.withOpacity(0.22))),
-      child: Row(children: [
-        item(payIcon, payLabel, _pickPayment),
-        div(),
-        item(Icons.local_offer_outlined, _couponDiscount > 0 ? '−₹$_couponDiscount' : 'Coupon', _pickCoupon, c: _couponDiscount > 0 ? Colors.green[700] : null),
-      ]),
-    );
+    return Row(children: [
+      item(payIcon, payLabel, _pickPayment),
+      const SizedBox(width: 8),
+      item(Icons.local_offer_outlined, _couponDiscount > 0 ? '−₹$_couponDiscount' : 'Coupon', _pickCoupon,
+          c: _couponDiscount > 0 ? Colors.green[700] : null),
+    ]);
   }
 }

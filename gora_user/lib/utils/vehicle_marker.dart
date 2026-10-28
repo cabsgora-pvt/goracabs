@@ -181,6 +181,16 @@ class SmoothVehicleMarker {
       ..forward();
   }
 
+  /// Forgets the vehicle (e.g. the ride was cancelled), so the next one starts
+  /// where the server first reports it instead of gliding in from the last.
+  void clear() {
+    _ctrl.stop();
+    _from = null;
+    _to = null;
+    position = null;
+    bearing = 0;
+  }
+
   void dispose() {
     _ctrl.removeListener(_tick);
     _ctrl.dispose();

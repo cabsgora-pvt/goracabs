@@ -6,6 +6,7 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../utils/ride_booking.dart';
 import '../widgets/payment_coupon_bar.dart';
+import '../widgets/ride_ui/ride_ui.dart';
 
 // Hire a Driver — customer's own car, priced by hours (pickup time → drop time).
 class HireDriverScreen extends StatefulWidget {
@@ -140,58 +141,72 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   Widget build(BuildContext context) {
     if (_showMap) return _buildMapPicker();
     return Scaffold(
-      appBar: AppBar(title: const Text('Hire a Driver'), elevation: 1),
+      backgroundColor: RideUi.surface(context),
       body: Column(children: [
-        Expanded(child: ListView(padding: const EdgeInsets.all(16), children: [
-          _section('Pickup & Drop'),
-          _locField(Icons.radio_button_checked, const Color(0xFF4CAF50), _pickupCtrl, 'Pickup location', pickup: true),
+        const ServiceBackBar(),
+        Expanded(child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
+          const ServiceTitle(title: 'Hire a driver', subtitle: 'A verified driver for your own car, paid by the hour'),
+          RouteInputBlock(rows: [
+            RouteFieldRow(
+              marker: RouteMarkerKind.pickup,
+              trailing: MapPickAction(tooltip: 'Pick pickup on map', onTap: () => _openMap(pickup: true)),
+              child: _locInput(_pickupCtrl, 'Pickup location', pickup: true),
+            ),
+            RouteFieldRow(
+              marker: RouteMarkerKind.drop,
+              trailing: MapPickAction(tooltip: 'Pick drop on map', onTap: () => _openMap(pickup: false)),
+              child: _locInput(_dropCtrl, 'Drop location', pickup: false),
+            ),
+          ]),
           ..._pickSug.map((s) => _sugTile(s, pickup: true)),
-          const SizedBox(height: 8),
-          _locField(Icons.location_on, const Color(0xFFFF5252), _dropCtrl, 'Drop location', pickup: false),
           ..._dropSug.map((s) => _sugTile(s, pickup: false)),
 
-          const SizedBox(height: 16),
-          _section('Pickup Time → Drop Time'),
-          Row(children: [
-            Expanded(child: _dtBtn('From', _startAt, () => _pickDateTime(isStart: true))),
-            const SizedBox(width: 10),
-            Expanded(child: _dtBtn('To', _endAt, () => _pickDateTime(isStart: false))),
-          ]),
-          if (_totalHours > 0) Padding(padding: const EdgeInsets.only(top: 8),
-            child: Text('Total: $_totalHours hour${_totalHours > 1 ? 's' : ''} — driver paid for this duration',
-              style: const TextStyle(fontSize: 13, color: Color(0xFF1C2656), fontWeight: FontWeight.w600))),
+          const ServiceSection('When do you need the driver?', subtitle: 'The driver is paid from pickup time to drop time'),
+          PickerPill(
+            icon: Icons.schedule,
+            label: 'Pickup time',
+            value: _startAt == null ? 'Select date & time' : serviceDateTime(_startAt!),
+            placeholder: _startAt == null,
+            onTap: () => _pickDateTime(isStart: true),
+          ),
+          const SizedBox(height: 10),
+          PickerPill(
+            icon: Icons.flag_outlined,
+            label: 'Drop time',
+            value: _endAt == null ? 'Select date & time' : serviceDateTime(_endAt!),
+            placeholder: _endAt == null,
+            onTap: () => _pickDateTime(isStart: false),
+          ),
+          if (_totalHours > 0) Padding(padding: const EdgeInsets.only(top: 10),
+            child: NoticeRow('Total: $_totalHours hour${_totalHours > 1 ? 's' : ''} — driver paid for this duration',
+              icon: Icons.timelapse)),
 
-          const SizedBox(height: 16),
-          _section('Trip Type'),
-          Row(children: [
-            Expanded(child: _tripChoice('One Way', 'one_way')),
-            const SizedBox(width: 10),
-            Expanded(child: _tripChoice('Round Trip', 'round_trip')),
-          ]),
-          Padding(padding: const EdgeInsets.only(top: 8),
-            child: Container(padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: (_tripType == 'one_way' ? Colors.orange : Colors.green).withOpacity(0.08),
-                borderRadius: BorderRadius.circular(8)),
-              child: Row(children: [
-                Icon(_tripType == 'one_way' ? Icons.info_outline : Icons.check_circle, size: 16, color: _tripType == 'one_way' ? Colors.orange : Colors.green),
-                const SizedBox(width: 8),
-                Expanded(child: Text(
-                  _tripType == 'one_way'
-                    ? 'One Way: you also pay the driver\'s return charge from the drop location.'
-                    : 'Round Trip: driver returns with you — no extra return charge.',
-                  style: TextStyle(fontSize: 11, color: _tripType == 'one_way' ? Colors.orange[800] : Colors.green[800], fontWeight: FontWeight.w600))),
-              ]))),
+          const ServiceSection('Trip type'),
+          ChoiceSegment<String>(
+            options: const [ChoiceOption('one_way', 'One Way'), ChoiceOption('round_trip', 'Round Trip')],
+            selected: _tripType,
+            onChanged: (val) { setState(() => _tripType = val); if (_totalHours > 0) _loadFares(); },
+          ),
+          const SizedBox(height: 10),
+          NoticeRow(
+            _tripType == 'one_way'
+              ? 'One Way: you also pay the driver\'s return charge from the drop location.'
+              : 'Round Trip: driver returns with you — no extra return charge.',
+            icon: _tripType == 'one_way' ? Icons.info_outline : Icons.check_circle_outline,
+            tone: _tripType == 'one_way' ? NoticeTone.warning : NoticeTone.success,
+          ),
 
-          const SizedBox(height: 16),
-          _section('Car Transmission'),
-          Row(children: [
-            Expanded(child: _choice('Manual', 'manual')),
-            const SizedBox(width: 10),
-            Expanded(child: _choice('Automatic', 'automatic')),
-          ]),
+          const ServiceSection('Car transmission'),
+          ChoiceSegment<String>(
+            options: const [
+              ChoiceOption('manual', 'Manual', icon: Icons.settings_outlined),
+              ChoiceOption('automatic', 'Automatic', icon: Icons.motion_photos_auto_outlined),
+            ],
+            selected: _transmission,
+            onChanged: (val) => setState(() => _transmission = val),
+          ),
 
-          const SizedBox(height: 16),
-          _section('Select Vehicle Type'),
+          const ServiceSection('Select vehicle type'),
           if (_loading) const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()))
           else if (_error != null) _info(_error!)
           else if (_vehicles.isEmpty) _info('Set pickup + times to see hire prices')
@@ -202,24 +217,18 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     );
   }
 
+  void _openMap({required bool pickup}) => setState(() { _pickingPickup = pickup; _mapAddr = ''; _showMap = true; });
+
   Widget _bottomBar() {
     final ready = _selectedVehicle != null && _totalHours > 0 && _pickupLat != null;
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Theme.of(context).cardColor, boxShadow: [BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, -2))]),
-      child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
-        PaymentCouponBar(
-          baseFare: (v['fare'] as num?) ?? 0,
-          onChanged: (pm, cc, cd) => setState(() { _paymentMode = pm; _couponCode = cc; _couponDiscount = cd; }),
-        ),
-        const SizedBox(height: 12),
-        SizedBox(width: double.infinity, child: ElevatedButton(
-        onPressed: ready ? _showConfirm : null,
-        style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 16), disabledBackgroundColor: Colors.grey[300]),
-        child: Text(ready ? 'Book Driver · ₹${v['fare'] ?? ''}' : 'Select time & vehicle', style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w600)),
-      )),
-      ])),
+    return PrimaryCtaBar(
+      top: PaymentCouponBar(
+        baseFare: (v['fare'] as num?) ?? 0,
+        onChanged: (pm, cc, cd) => setState(() { _paymentMode = pm; _couponCode = cc; _couponDiscount = cd; }),
+      ),
+      label: ready ? 'Book Driver · ₹${v['fare'] ?? ''}' : 'Select time & vehicle',
+      onPressed: ready ? _showConfirm : null,
     );
   }
 
@@ -228,95 +237,78 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) {
         final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
-        return Padding(padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Confirm Hire', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+        final raw = (v['imageUrl'] as String?) ?? '';
+        return SingleChildScrollView(
+          padding: EdgeInsets.only(left: 16, right: 16, top: 10, bottom: 16 + MediaQuery.of(ctx).viewPadding.bottom),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const SheetHandle(bottom: 14),
+            Text('Confirm Hire', style: RideUi.title(ctx, size: 22)),
             const SizedBox(height: 14),
-            _row('Vehicle', _selectedVehicle ?? ''),
-            _row('Transmission', _transmission == 'manual' ? 'Manual' : 'Automatic'),
-            _row('Duration', '$_totalHours hr'),
-            _row('Rate', '₹${v['perHour'] ?? 0}/hr'),
-            const Divider(),
-            _row('Total', '₹${v['fare'] ?? 0}', bold: true),
-            const SizedBox(height: 18),
-            SizedBox(width: double.infinity, child: ElevatedButton(
+            SummaryVehicleTile(
+              leading: VehicleThumb(networkUrl: raw.isEmpty ? '' : AppConfig.imageUrl(raw), fallbackIcon: Icons.directions_car, size: 48),
+              name: _selectedVehicle ?? '',
+              caption: '$_totalHours hr · ${_tripType == 'one_way' ? 'One Way' : 'Round Trip'}',
+              price: '₹${v['fare'] ?? 0}',
+            ),
+            if (_pickupCtrl.text.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              TripRouteSummary(pickup: _pickupCtrl.text, drop: _dropCtrl.text, fontSize: 13.5),
+            ],
+            const RideDivider(vertical: 12),
+            SummaryRow('Vehicle', _selectedVehicle ?? ''),
+            SummaryRow('Transmission', _transmission == 'manual' ? 'Manual' : 'Automatic'),
+            SummaryRow('Duration', '$_totalHours hr'),
+            SummaryRow('Rate', '₹${v['perHour'] ?? 0}/hr'),
+            const RideDivider(vertical: 6),
+            SummaryRow('Total', '₹${v['fare'] ?? 0}', bold: true),
+            const SizedBox(height: 16),
+            PrimaryRideButton(
+              label: 'Confirm & Find Driver',
               onPressed: () { Navigator.pop(ctx); _confirmHire(); },
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14)),
-              child: const Text('Confirm & Find Driver', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-            )),
+            ),
           ]));
       });
   }
 
   // ── Map picker ──
   Widget _buildMapPicker() {
-    return Scaffold(
-      appBar: AppBar(elevation: 0,
-        leading: IconButton(icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface), onPressed: () => setState(() => _showMap = false)),
-        title: Text(_pickingPickup ? 'Pick pickup' : 'Pick drop', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 16, fontWeight: FontWeight.w600)), centerTitle: true),
-      body: Stack(children: [
-        GoogleMap(initialCameraPosition: CameraPosition(target: _center, zoom: 14),
-          onMapCreated: (c) => _mapCtrl = c, onCameraMove: (p) => _center = p.target,
-          onCameraIdle: () async { final a = await ApiService.reverseGeocode(_center.latitude, _center.longitude); if (mounted) setState(() => _mapAddr = a); },
-          myLocationEnabled: true, myLocationButtonEnabled: false, zoomControlsEnabled: false),
-        const Center(child: Padding(padding: EdgeInsets.only(bottom: 40), child: Icon(Icons.location_on, color: Color(0xFFFF5252), size: 48))),
-        Positioned(left: 0, right: 0, bottom: 0, child: Container(padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(20))),
-          child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text(_mapAddr.isEmpty ? 'Move map to set location' : _mapAddr, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 12),
-            SizedBox(width: double.infinity, child: ElevatedButton(
-              onPressed: _mapAddr.isEmpty ? null : () {
-                setState(() {
-                  if (_pickingPickup) { _pickupLat = _center.latitude; _pickupLng = _center.longitude; _pickupCtrl.text = _mapAddr; }
-                  else { _dropLat = _center.latitude; _dropLng = _center.longitude; _dropCtrl.text = _mapAddr; }
-                  _showMap = false;
-                });
-                if (_pickingPickup && _totalHours > 0) _loadFares();
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14)),
-              child: const Text('Confirm Location', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)))),
-          ]))))]));
+    return ServiceMapPicker(
+      title: _pickingPickup ? 'Pick pickup' : 'Pick drop',
+      forPickup: _pickingPickup,
+      address: _mapAddr,
+      onBack: () => setState(() => _showMap = false),
+      onLocate: () async {
+        final pos = await LocationService.getCurrentLocation();
+        if (pos == null) return;
+        _mapCtrl?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 15));
+      },
+      map: GoogleMap(initialCameraPosition: CameraPosition(target: _center, zoom: 14),
+        onMapCreated: (c) => _mapCtrl = c, onCameraMove: (p) => _center = p.target,
+        onCameraIdle: () async { final a = await ApiService.reverseGeocode(_center.latitude, _center.longitude); if (mounted) setState(() => _mapAddr = a); },
+        myLocationEnabled: true, myLocationButtonEnabled: false, zoomControlsEnabled: false),
+      onConfirm: _mapAddr.isEmpty ? null : () {
+        setState(() {
+          if (_pickingPickup) { _pickupLat = _center.latitude; _pickupLng = _center.longitude; _pickupCtrl.text = _mapAddr; }
+          else { _dropLat = _center.latitude; _dropLng = _center.longitude; _dropCtrl.text = _mapAddr; }
+          _showMap = false;
+        });
+        if (_pickingPickup && _totalHours > 0) _loadFares();
+      },
+    );
   }
 
   // ── Small builders ──
-  Widget _section(String t) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(t, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)));
-  Widget _info(String t) => Container(padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: Colors.orange[50], borderRadius: BorderRadius.circular(10)),
-    child: Row(children: [Icon(Icons.info_outline, color: Colors.orange[700], size: 18), const SizedBox(width: 8), Expanded(child: Text(t, style: TextStyle(fontSize: 13, color: Colors.orange[800])))]));
+  Widget _info(String t) => NoticeRow(t, tone: NoticeTone.warning);
 
-  Widget _locField(IconData i, Color c, TextEditingController ctrl, String hint, {required bool pickup}) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
-    child: Row(children: [Icon(i, color: c, size: 18), const SizedBox(width: 10),
-      Expanded(child: TextField(controller: ctrl, onChanged: (q) => _search(q, pickup: pickup),
-        decoration: InputDecoration(hintText: hint, border: InputBorder.none, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 12), hintStyle: TextStyle(color: Colors.grey[500], fontSize: 14)), style: const TextStyle(fontSize: 14))),
-      IconButton(icon: Icon(Icons.map, color: c, size: 20), onPressed: () => setState(() { _pickingPickup = pickup; _mapAddr = ''; _showMap = true; }))]));
+  Widget _locInput(TextEditingController ctrl, String hint, {required bool pickup}) => TextField(
+    controller: ctrl, onChanged: (q) => _search(q, pickup: pickup),
+    textAlignVertical: TextAlignVertical.center,
+    decoration: RideUi.bareInput(context, hint), style: RideUi.body(context, size: 14.5, weight: FontWeight.w600));
 
-  Widget _sugTile(Map<String, dynamic> s, {required bool pickup}) => ListTile(dense: true,
-    leading: const Icon(Icons.location_on, color: Color(0xFFFF5252), size: 18),
-    title: Text(s['mainText']?.toString() ?? '', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-    subtitle: Text(s['secondaryText']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+  Widget _sugTile(Map<String, dynamic> s, {required bool pickup}) => PlaceSuggestionTile(
+    title: s['mainText']?.toString() ?? '',
+    subtitle: s['secondaryText']?.toString(),
     onTap: () => _pickSuggestion(s, pickup: pickup));
-
-  Widget _dtBtn(String label, DateTime? dt, VoidCallback onTap) => OutlinedButton(onPressed: onTap,
-    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-    child: Column(children: [Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-      Text(dt == null ? 'Select' : '${dt.day}/${dt.month} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600))]));
-
-  Widget _choice(String label, String val) {
-    final sel = _transmission == val;
-    return GestureDetector(onTap: () => setState(() => _transmission = val),
-      child: Container(padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(color: sel ? const Color(0xFF1C2656) : Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: sel ? const Color(0xFF1C2656) : Colors.grey[300]!)),
-        child: Center(child: Text(label, style: TextStyle(color: sel ? Colors.white : Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w600, fontSize: 14)))));
-  }
-
-  Widget _tripChoice(String label, String val) {
-    final sel = _tripType == val;
-    return GestureDetector(onTap: () { setState(() => _tripType = val); if (_totalHours > 0) _loadFares(); },
-      child: Container(padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(color: sel ? const Color(0xFF1C2656) : Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: sel ? const Color(0xFF1C2656) : Colors.grey[300]!)),
-        child: Center(child: Text(label, style: TextStyle(color: sel ? Colors.white : Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w600, fontSize: 14)))));
-  }
 
   Widget _vehicleCard(Map<String, dynamic> v) {
     final sel = _selectedVehicle == v['name'];
@@ -326,39 +318,31 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     final num base = (bk['base'] as num?) ?? 0;
     final num hourCharge = (bk['hourCharge'] as num?) ?? 0;
     final num retCharge = (bk['returnCharge'] as num?) ?? 0;
-    return GestureDetector(onTap: () => setState(() => _selectedVehicle = v['name'] as String?),
-      child: Container(margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: sel ? const Color(0xFF1C2656) : Colors.grey[200]!, width: sel ? 2 : 1)),
-        child: Column(children: [
-          Row(children: [
-            SizedBox(width: 60, height: 44, child: img.isNotEmpty ? Image.network(img, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.directions_car, color: Color(0xFF1C2656), size: 36)) : const Icon(Icons.directions_car, color: Color(0xFF1C2656), size: 36)),
-            const SizedBox(width: 14),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(v['name']?.toString() ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-              Text('₹${v['perHour'] ?? 0}/hr × $_totalHours hr', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-              if (v['etaMin'] != null) Text('Driver ~${v['etaMin']} min away', style: const TextStyle(fontSize: 11, color: Color(0xFF4CAF50))),
-            ])),
-            Text('₹${v['fare'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Color(0xFF1C2656))),
-          ]),
-          // Always-visible charge breakdown
-          if (base > 0 || hourCharge > 0) ...[
-            const Divider(height: 16),
-            _bk('Base fare', '₹${base.toStringAsFixed(0)}'),
-            _bk('Driver time ($_totalHours hr × ₹${v['perHour'] ?? 0})', '₹${hourCharge.toStringAsFixed(0)}'),
-            if (retCharge > 0) _bk('Driver return (one-way)', '₹${retCharge.toStringAsFixed(0)}', color: Colors.orange),
-            const Divider(height: 12),
-            _bk('Total', '₹${v['fare'] ?? 0}', bold: true),
-          ],
-        ])));
+    return VehicleOptionRow(
+      selected: sel,
+      onTap: () => setState(() => _selectedVehicle = v['name'] as String?),
+      leading: VehicleThumb(networkUrl: img, fallbackIcon: Icons.directions_car),
+      name: v['name']?.toString() ?? '',
+      subtitle: '₹${v['perHour'] ?? 0}/hr × $_totalHours hr',
+      tagline: v['etaMin'] != null ? 'Driver ~${v['etaMin']} min away' : null,
+      price: '₹${v['fare'] ?? 0}',
+      // The breakdown of the SELECTED vehicle only: on every card it turned the
+      // list into a wall of near-identical numbers.
+      footer: sel && (base > 0 || hourCharge > 0)
+          ? Padding(
+              padding: const EdgeInsets.only(left: 4, right: 2),
+              child: Column(children: [
+                const RideDivider(vertical: 8),
+                _bk('Base fare', '₹${base.toStringAsFixed(0)}'),
+                _bk('Driver time ($_totalHours hr × ₹${v['perHour'] ?? 0})', '₹${hourCharge.toStringAsFixed(0)}'),
+                if (retCharge > 0) _bk('Driver return (one-way)', '₹${retCharge.toStringAsFixed(0)}', color: Colors.orange),
+                const RideDivider(vertical: 6),
+                _bk('Total', '₹${v['fare'] ?? 0}', bold: true),
+              ]),
+            )
+          : null,
+    );
   }
 
-  Widget _bk(String l, String v, {bool bold = false, Color? color}) => Padding(padding: const EdgeInsets.symmetric(vertical: 3),
-    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      Text(l, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w400, color: color ?? Theme.of(context).colorScheme.onSurface)),
-      Text(v, style: TextStyle(fontSize: 12, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: color ?? (bold ? const Color(0xFF1C2656) : Theme.of(context).colorScheme.onSurface)))]));
-
-  Widget _row(String l, String v, {bool bold = false}) => Padding(padding: const EdgeInsets.symmetric(vertical: 5),
-    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      Text(l, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w500)),
-      Text(v, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: bold ? const Color(0xFF1C2656) : null))]));
+  Widget _bk(String l, String v, {bool bold = false, Color? color}) => SummaryRow(l, v, bold: bold, valueColor: color);
 }

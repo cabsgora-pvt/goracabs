@@ -3,6 +3,7 @@ import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import '../utils/place_names.dart';
 import '../utils/ride_payable.dart';
+import 'ride_ui/ride_tokens.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Service-specific content for the live ride screen.
@@ -167,7 +168,7 @@ class OutstationTripPanel extends StatelessWidget {
         Expanded(child: Text(
           '${from.isEmpty ? 'Pickup' : from}  ${roundTrip ? '⇄' : '→'}  ${to.isEmpty ? 'Drop' : to}',
           maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: RideUi.ink(context)),
         )),
         const SizedBox(width: 8),
         Container(
@@ -276,7 +277,7 @@ class _ReportTollSheetState extends State<_ReportTollSheet> {
   Widget build(BuildContext context) => Padding(
     padding: EdgeInsets.fromLTRB(20, 20, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
     child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('Report this toll', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+      Text('Report this toll', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: RideUi.ink(context))),
       const SizedBox(height: 4),
       Text(tollSummary(widget.toll), style: TextStyle(fontSize: 13, color: Colors.grey[700])),
       const SizedBox(height: 12),
@@ -349,7 +350,7 @@ class _TollListState extends State<TollList> {
             ])),
             const SizedBox(width: 8),
             Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              Text(_money(t.amount), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+              Text(_money(t.amount), style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: RideUi.ink(context))),
               if (widget.rideId != null && t.id.isNotEmpty && !t.reported && !_justReported.contains(t.id))
                 TextButton(
                   style: TextButton.styleFrom(
@@ -399,8 +400,8 @@ class OutstationTollPanel extends StatelessWidget {
         Row(children: [
           const Icon(Icons.toll, size: 18, color: AppTheme.primaryBlue),
           const SizedBox(width: 8),
-          const Expanded(child: Text('Tolls', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800))),
-          Text(_money(tollTotalOf(ride)), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900)),
+          Expanded(child: Text('Tolls', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: RideUi.ink(context)))),
+          Text(_money(tollTotalOf(ride)), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: RideUi.ink(context))),
         ]),
         const SizedBox(height: 6),
         if (tolls.isEmpty)
@@ -498,7 +499,9 @@ Future<void> showRideBill(BuildContext context, Map<String, dynamic> ride, {num 
     builder: (ctx) => Padding(
       padding: EdgeInsets.only(left: 20, right: 20, top: 20,
           bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
-      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      // The theme's body text is grey, which made the bill read as disabled.
+      child: DefaultTextStyle.merge(style: TextStyle(color: RideUi.ink(ctx)),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(isRental ? 'Rental Bill' : isOutstation ? 'Trip Bill' : 'Hire Bill',
           style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         const SizedBox(height: 14),
@@ -516,7 +519,7 @@ Future<void> showRideBill(BuildContext context, Map<String, dynamic> ride, {num 
           child: const Text('Rate your trip',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
         )),
-      ]),
+      ])),
     ),
   );
 }

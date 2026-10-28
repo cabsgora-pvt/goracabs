@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../config/app_config.dart';
+import '../utils/duration_format.dart';
 import '../services/api_service.dart';
 import '../utils/vehicle_marker.dart';
 import '../utils/polyline_utils.dart';
@@ -19,6 +20,9 @@ import '../widgets/ride_service_panels.dart';
 import '../widgets/online_payment.dart';
 import '../utils/ride_payable.dart';
 import '../widgets/rental_stops_panel.dart';
+import '../widgets/cancel_reasons_sheet.dart';
+import '../widgets/no_driver_found.dart';
+import '../widgets/ride_ui/ride_ui.dart';
 import 'emergency_actions_screen.dart';
 import 'parcel_bill_screen.dart';
 
@@ -169,6 +173,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
     _coupon = RideCouponStore.load(widget.rideId);
     WidgetsBinding.instance.addObserver(this);
     _poll();
+    _loadTypeImages();
     _startTimers();
     Future.delayed(const Duration(seconds: 2), _eta);
   }
@@ -191,7 +196,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
-    if (!mounted || _finishing || _closing) return;
+    if (!mounted || _finishing || _closing || _noDriver) return;
     _startTimers();
     _poll();
     _loc();
@@ -205,18 +210,26 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
   }
 
   Future<void> _poll() async {
+    _loadTypeImages(); // no-op once loaded; retried at most once a minute
     try {
       final r = await ApiService.getRide(widget.rideId);
       // Read before any amount is shown or charged. Already resolved after the
       // first poll, so this costs nothing from then on.
       final discount = await _coupon;
-      if (!mounted || _finishing || _closing) return;
+      if (!mounted || _finishing || _closing || _noDriver) return;
       final status = (r['status'] ?? '').toString();
       if (status == 'completed') {
         await _finish(Map<String, dynamic>.from(r), discount);
         return;
       }
-      if (status == 'cancelled') { _close(); return; }
+      if (status == 'cancelled') {
+        if (isNoDriverFound(Map<String, dynamic>.from(r))) {
+          _onNoDriverFound();
+        } else {
+          _close();
+        }
+        return;
+      }
 
       // Prefer the server's computed phase. The local fallback keeps this screen
       // working against a backend that predates uiPhase.
@@ -281,6 +294,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
         _legKey = null;
         _fitted = false;
         _eta();
+        _frameForPhase();
       }
 
       // Deliberately every poll, not only on change. The first poll runs from
@@ -362,6 +376,9 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       vehicleName: (r['vehicleType'] ?? '').toString(),
       selectedTip: 0,
       rideId: widget.rideId,
+      driverPhotoUrl: (dr?['profilePicUrl'] ?? '').toString().isNotEmpty
+          ? AppConfig.imageUrl((dr?['profilePicUrl'] ?? '').toString())
+          : '',
     )));
   }
 
@@ -489,25 +506,18 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       return;
     }
     final dest = LatLng(dLat.toDouble(), dLng.toDouble());
-    // Two points a few metres apart produce a degenerate bounds that zooms to
-    // the maximum; just centre on the driver at a street-level zoom instead.
-    const tiny = 0.0004; // ~45 m
-    if ((drv.latitude - dest.latitude).abs() < tiny &&
-        (drv.longitude - dest.longitude).abs() < tiny) {
-      _mapCtrl!.animateCamera(CameraUpdate.newLatLngZoom(drv, 17));
-      return;
+    _mapCtrl!.animateCamera(frameDriverAndTarget(drv, dest));
+  }
+
+  /// First open and every phase change: driver and destination in frame, or
+  /// the pickup at street level before there is a driver position.
+  void _frameForPhase() {
+    if (_mapCtrl == null || !_following) return;
+    if (_phase == 'finding' || _driverLatLng == null) {
+      _centerOnPickup();
+    } else {
+      _followCamera();
     }
-    final b = LatLngBounds(
-      southwest: LatLng(
-        drv.latitude < dest.latitude ? drv.latitude : dest.latitude,
-        drv.longitude < dest.longitude ? drv.longitude : dest.longitude,
-      ),
-      northeast: LatLng(
-        drv.latitude > dest.latitude ? drv.latitude : dest.latitude,
-        drv.longitude > dest.longitude ? drv.longitude : dest.longitude,
-      ),
-    );
-    _mapCtrl!.animateCamera(CameraUpdate.newLatLngBounds(b, 64));
   }
 
   /// While searching there is no driver to frame yet, so frame the pickup.
@@ -559,7 +569,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       // not spam on every poll.
       if (mins != null && _etaMin != null && mins - _etaMin! >= 3 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Traffic ahead — ETA is now $mins min (was ${_etaMin!} min)'),
+          content: Text('Traffic ahead — ETA is now ${formatMinutes(mins)} (was ${formatMinutes(_etaMin!)})'),
           duration: const Duration(seconds: 5),
         ));
       }
@@ -583,10 +593,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       // yank the camera back any more than the 5s follow does.
       if (pts.isNotEmpty && !_fitted && _following) {
         _fitted = true;
-        final b = boundsFromPoints(pts);
-        if (b != null) {
-          await _mapCtrl?.animateCamera(CameraUpdate.newLatLngBounds(b, 56));
-        }
+        final u = frameRoute(pts);
+        if (u != null) await _mapCtrl?.animateCamera(u);
       }
     } catch (_) {/* keep last known ETA and route */}
   }
@@ -598,6 +606,20 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
   /// inside that window used to pop a SECOND time — taking the home screen with
   /// it and leaving the rider on a black screen.
   bool _closing = false;
+
+  /// The server closed this ride: no driver took it in time. Stop every poll,
+  /// say so plainly, and on "Try again" leave for where the rider booked from —
+  /// the same exit as a cancel. Only reacts to server state; no client timer.
+  bool _noDriver = false;
+  Future<void> _onNoDriverFound() async {
+    if (_noDriver || _closing || !mounted) return;
+    _noDriver = true;
+    _statusPoll?.cancel(); _locPoll?.cancel(); _etaPoll?.cancel();
+    await showNoDriverFoundDialog(context);
+    if (!mounted) return;
+    _close();
+  }
+
   void _close() {
     if (_closing || !mounted) return;
     _closing = true;
@@ -626,50 +648,9 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
     } catch (_) {/* best effort: reasons sheet still works without it */}
     if (!mounted) return;
 
-    final reason = await showModalBottomSheet<String>(
-      context: context,
-      // Sized to its content. The default caps a sheet at 9/16 of the screen,
-      // which on a 640pt phone pushed "Don't cancel" below the fold.
-      isScrollControlled: true,
-      backgroundColor: Theme.of(context).cardColor,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (sheet) => SafeArea(child: SingleChildScrollView(child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text('Why are you cancelling?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          ),
-          if (cancelFee > 0)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
-                ),
-                child: Row(children: [
-                  const Icon(Icons.info_outline, size: 18, color: Colors.orange),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(
-                    'A ₹${cancelFee.toStringAsFixed(0)} cancellation fee applies — your driver is already on the way.',
-                    style: const TextStyle(fontSize: 12.5, color: Colors.orange, fontWeight: FontWeight.w600),
-                  )),
-                ]),
-              ),
-            ),
-          for (final r in reasons)
-            ListTile(title: Text(r), onTap: () => Navigator.pop(sheet, r)),
-          TextButton(
-            onPressed: () => Navigator.pop(sheet),
-            child: const Text("Don't cancel"),
-          ),
-          const SizedBox(height: 8),
-        ],
-      ))),
-    );
+    // The shared reasons sheet (same as the booking screen): pick a reason,
+    // then confirm. A reason used to cancel the moment it was tapped.
+    final reason = await showCancelReasonsSheet(context, reasons: reasons, cancelFee: cancelFee);
     if (reason == null || !mounted || _closing) return;
     final res = await ApiService.cancelRide(widget.rideId, reason);
     if (!mounted) return;
@@ -863,7 +844,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
     ),
     const SizedBox(width: 12),
     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+      Text(title, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: RideUi.ink(context))),
       const SizedBox(height: 2),
       Text(subtitle, style: TextStyle(fontSize: 12.5, color: Colors.grey[600], height: 1.3)),
     ])),
@@ -897,8 +878,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
           child: Text(initial, style: const TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w700)),
         ),
         const SizedBox(width: 12),
-        Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5))),
-        Text('₹${share.toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5)),
+        Expanded(child: Text(name, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14.5, color: RideUi.ink(context)))),
+        Text('₹${share.toStringAsFixed(0)}', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: RideUi.ink(context))),
         const SizedBox(width: 10),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -1052,8 +1033,10 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
           ),
           onMapCreated: (c) {
             _mapCtrl = c;
-            // Opening straight into a search: frame the pickup the radar sits on.
-            if (_phase == 'finding') _centerOnPickup();
+            // Frame the ride on open — the search's pickup, or the driver and
+            // where they are heading. Only searches were framed, so a ride
+            // opened at "Arriving now" kept whatever over-zoomed fit came first.
+            _frameForPhase();
           },
           onCameraMoveStarted: () {
             if (_mapPointers > 0 && _following) setState(() => _following = false);
@@ -1102,12 +1085,18 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
           maxChildSize: maxSheet,
           // Snap points stop the sheet resting at an arbitrary height.
           snap: true,
-          snapSizes: [_peek, _half, maxSheet],
+          // The SAME list instance across builds. DraggableScrollableSheet
+          // compares snapSizes by identity and, when it changes, re-snaps the
+          // sheet (goBallistic) after the frame — which cancels any drag or
+          // scroll in progress. A fresh list literal here, plus a screen that
+          // rebuilds every animation frame while the driver marker glides,
+          // meant the sheet could be neither dragged nor scrolled on a device.
+          snapSizes: _snapSizesFor(maxSheet),
           builder: (ctx, scrollCtrl) => Container(
             decoration: BoxDecoration(
               color: Theme.of(context).cardColor,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 16, offset: const Offset(0, -3))],
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 18, offset: const Offset(0, -4))],
             ),
             child: ListView(
               controller: scrollCtrl,
@@ -1169,22 +1158,14 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
   /// the sheet for every phase of a taxi ride that isn't over yet.
   Widget _splitFareRow(Map<String, dynamic> r) => Padding(
     padding: const EdgeInsets.only(top: 14),
-    child: InkWell(
-      borderRadius: BorderRadius.circular(12),
+    child: RideTile(
       onTap: () => _splitFareDialog(r),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppTheme.primaryBlue.withOpacity(0.06),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(children: [
-          const Icon(Icons.call_split, size: 18, color: AppTheme.primaryBlue),
-          const SizedBox(width: 10),
-          const Expanded(child: Text('Split this fare with friends', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5))),
-          Icon(Icons.chevron_right, size: 18, color: Colors.grey[500]),
-        ]),
-      ),
+      child: Row(children: [
+        Icon(Icons.call_split, size: 19, color: RideUi.ink(context)),
+        const SizedBox(width: 10),
+        Expanded(child: Text('Split this fare with friends', style: RideUi.body(context, size: 13.5, weight: FontWeight.w700))),
+        Icon(Icons.chevron_right_rounded, size: 20, color: RideUi.muted(context)),
+      ]),
     ),
   );
 
@@ -1228,7 +1209,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
         Flexible(
           child: Text(label,
             maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: RideUi.ink(context))),
         ),
       ]),
     ),
@@ -1248,43 +1229,72 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
   // outside, or halfway to the destination. Each phase now shows the one thing
   // that matters at that moment, and hides what does not.
 
-  Widget _handle() => Center(
-    child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 14),
-      decoration: BoxDecoration(color: Colors.grey[400], borderRadius: BorderRadius.circular(2))),
+  Widget _handle() => const SheetHandle(bottom: 12);
+
+  // Bold near-black heading. [color] stays null unless the phase asks for one
+  // (an overrunning rental/hire turns it orange).
+  Widget _title(String text, {Widget? trailing, Color? color, String? subtitle}) => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // The heading colour unless a caller overrides it (orange past the
+        // package). Left null it inherited the theme's bodyMedium — the grey
+        // used for secondary text — so every phase title looked disabled.
+        Text(text, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: -0.2,
+            color: color ?? RideUi.ink(context))),
+        if (subtitle != null && subtitle.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: RideUi.caption(context, size: 13)),
+        ],
+      ])),
+      if (trailing != null) ...[const SizedBox(width: 10), trailing],
+    ],
   );
 
-  Widget _title(String text, {Widget? trailing, Color? color}) => Row(children: [
-    Expanded(child: Text(text, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color))),
-    if (trailing != null) trailing,
-  ]);
+  List<double>? _snapSizes;
+  List<double> _snapSizesFor(double maxSheet) {
+    final s = _snapSizes;
+    if (s != null && s.last == maxSheet) return s;
+    return _snapSizes = List.unmodifiable([_peek, _half, maxSheet]);
+  }
 
+  /// A driver this close to the pickup — or a minute or less out — is
+  /// arriving: "0 min" in a badge under "Driver on the way" read as a fault.
+  static const double _arrivingKm = 0.15;
+  bool _driverArrivingNow(Map<String, dynamic> r) {
+    if (_etaMin != null && _etaMin! <= 1) return true;
+    final d = _driverLatLng;
+    final la = (r['pickupLat'] as num?)?.toDouble();
+    final ln = (r['pickupLng'] as num?)?.toDouble();
+    if (d == null || la == null || ln == null) return false;
+    return polylineLengthMeters([d, LatLng(la, ln)]) / 1000 < _arrivingKm;
+  }
+
+  /// The ETA badge, only for a real number of minutes — never "0 min".
+  Widget? _etaTrailing() => (_etaMin == null || _etaMin! <= 0) ? null : _etaBadge();
+
+  // Big ETA ("3 min") on navy, Uber style.
   Widget _etaBadge() => _etaMin == null ? const SizedBox.shrink() : Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
     decoration: BoxDecoration(
-      color: AppTheme.primaryBlue.withOpacity(0.1),
-      borderRadius: BorderRadius.circular(8)),
-    child: Text('$_etaMin min',
-      style: const TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.w800)),
+      color: AppTheme.primaryBlue,
+      borderRadius: BorderRadius.circular(12)),
+    child: Text(formatMinutes(_etaMin!),
+      style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
   );
 
   /// Compact PIN row, used while the driver is still travelling.
   ///
   /// [label] lets a parcel say which PIN this is: the pickup PIN before the
   /// parcel is collected, the delivery PIN once it is on its way.
-  Widget _otpRow(String otp, {String label = 'Share PIN with driver to start'}) => Container(
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: const Color(0xFF1C2656).withOpacity(0.06),
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: const Color(0xFF1C2656).withOpacity(0.3))),
+  Widget _otpRow(String otp, {String label = 'Share PIN with driver to start'}) => RideTile(
+    padding: const EdgeInsets.all(10),
     child: Row(children: [
-      const Icon(Icons.lock_outline, color: Color(0xFF1C2656)),
-      const SizedBox(width: 10),
+      PinChip(otp),
+      const SizedBox(width: 12),
       Expanded(child: Text(label,
         maxLines: 2, overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 12, color: Colors.black54))),
-      Text(otp, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900,
-        letterSpacing: 4, color: Color(0xFF1C2656))),
+        style: RideUi.body(context, size: 12.5, weight: FontWeight.w600))),
     ]),
   );
 
@@ -1292,19 +1302,18 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
   /// digits aloud, so here the PIN stops being a row and becomes the panel.
   Widget _otpHero(String otp, {String label = 'SHARE THIS PIN WITH YOUR DRIVER'}) => Container(
     width: double.infinity,
-    padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+    padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
     decoration: BoxDecoration(
-      color: const Color(0xFF1C2656).withOpacity(0.07),
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: const Color(0xFF1C2656).withOpacity(0.35))),
+      color: AppTheme.primaryBlue,
+      borderRadius: BorderRadius.circular(RideUi.radius)),
     child: Column(children: [
       Text(label,
         textAlign: TextAlign.center,
         style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800,
-          letterSpacing: 1.1, color: Colors.black54)),
-      const SizedBox(height: 10),
-      Text(otp, style: const TextStyle(fontSize: 44, fontWeight: FontWeight.w900,
-        letterSpacing: 12, color: Color(0xFF1C2656))),
+          letterSpacing: 1.1, color: Colors.white70)),
+      const SizedBox(height: 8),
+      Text(otp, style: const TextStyle(fontSize: 42, fontWeight: FontWeight.w900,
+        letterSpacing: 12, color: Colors.white)),
     ]),
   );
 
@@ -1318,105 +1327,129 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.green.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.green.withOpacity(0.3)),
+        color: Colors.green.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(children: [
         const Icon(Icons.verified_user_outlined, color: Colors.green, size: 20),
         const SizedBox(width: 10),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Verify before boarding', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+          Text('Verify before boarding', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: RideUi.ink(context))),
           const SizedBox(height: 2),
           Text("Check the driver's photo and plate number below match your car.",
             style: TextStyle(fontSize: 11, color: Colors.grey[700])),
         ])),
         if (plate.isNotEmpty) ...[
           const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.green)),
-            child: Text(plate, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1)),
-          ),
+          Flexible(child: PlateBox(plate, fontSize: 12)),
         ],
       ]),
     );
   }
 
+  /// Generic artwork for the booked vehicle type, shown beside the plate. A
+  /// hired driver drives the rider's own car, so there is nothing to show.
+  /// Admin's vehicle-type photos (name, lower-cased → image path), from the
+  /// public /vehicles/types list. Loaded once per screen.
+  Map<String, String> _typeImages = const {};
+  DateTime? _typeImagesTried;
+
+  /// Called from initState and each poll; fetches until it has the list, at
+  /// most once a minute after a failure.
+  Future<void> _loadTypeImages() async {
+    if (_typeImages.isNotEmpty) return;
+    final last = _typeImagesTried;
+    if (last != null && DateTime.now().difference(last) < const Duration(minutes: 1)) return;
+    _typeImagesTried = DateTime.now();
+    try {
+      final res = await ApiService.get('/vehicles/types');
+      final list = (res['types'] as List?) ?? const [];
+      final m = <String, String>{
+        for (final t in list.whereType<Map>())
+          if ((t['name'] ?? '').toString().trim().isNotEmpty && (t['imageUrl'] ?? '').toString().isNotEmpty)
+            (t['name'] as Object).toString().trim().toLowerCase(): t['imageUrl'].toString(),
+      };
+      if (mounted && m.isNotEmpty) setState(() => _typeImages = m);
+    } catch (_) {/* neutral icon until a later poll succeeds */}
+  }
+
+  /// The photo of the ride's ACTUAL vehicle type (the driver's registered type,
+  /// else the booked one), as admin uploaded it. It used to be guessed from the
+  /// type's name with bundled assets — and the fallback for any car was an SUV
+  /// photo, so a "Maruti Dzire" Cab showed an SUV. Unknown → a neutral icon.
+  Widget? _vehicleArt(Map<String, dynamic> r) {
+    if ((r['service'] ?? '') == 'hire_driver') return null;
+    final dr = r['driver'] as Map<String, dynamic>?;
+    final name = (dr?['vehicleTypeName'] ?? r['vehicleType'] ?? '').toString().trim().toLowerCase();
+    final neutral = Icon(Icons.directions_car_outlined, size: 30, color: RideUi.muted(context));
+    final path = _typeImages[name];
+    if (name.isEmpty || path == null) return neutral;
+    return Image.network(AppConfig.imageUrl(path), fit: BoxFit.contain,
+        errorBuilder: (_, _, _) => neutral);
+  }
+
+  /// Driver photo (with rating badge), name, vehicle and plate. The full card
+  /// adds the Call / Message / Share / Safety row; the compact one (trip under
+  /// way) keeps just message and call beside the name so the map keeps the
+  /// screen.
   Widget _driverCard(Map<String, dynamic> r, Map<String, dynamic> dr, String pic,
-      {bool compact = false}) => Container(
-    padding: EdgeInsets.all(compact ? 10 : 14),
-    decoration: BoxDecoration(
-      color: Theme.of(context).cardColor,
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: Colors.grey[200]!)),
-    child: Row(children: [
-      CircleAvatar(
-        radius: compact ? 20 : 26,
-        backgroundColor: AppTheme.primaryBlue.withOpacity(0.1),
-        backgroundImage: pic.isNotEmpty ? NetworkImage(AppConfig.imageUrl(pic)) : null,
-        child: pic.isEmpty
-          ? Text((dr['name'] ?? 'D').toString()[0].toUpperCase(),
-              style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue))
-          : null),
-      const SizedBox(width: 12),
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text((dr['name'] ?? 'Driver').toString(),
-          maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: compact ? 14 : 16, fontWeight: FontWeight.bold)),
-        Text([dr['vehicleModel'], dr['vehicleNumber']]
-              .where((s) => (s as String?)?.isNotEmpty == true).join(' - '),
-          maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-        // Every service's own sheet showed the driver's rating; this card did
-        // not, so moving rentals, hires and parcels here would have dropped it.
-        if (_driverStats(dr) case final stats?)
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Row(children: [
-              // A star beside "12 trips" alone would read as a rating of 12.
-              if (((dr['rating'] as num?) ?? 0) > 0) ...[
-                const Icon(Icons.star_rounded, size: 14, color: Colors.amber),
-                const SizedBox(width: 2),
-              ],
-              Flexible(child: Text(stats,
-                maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 11.5, color: Colors.grey[700], fontWeight: FontWeight.w600))),
-            ]),
-          ),
-      ])),
-      // Chat was not reachable from this screen at all — RideChatScreen was
-      // linked from five booking screens but not from the one a rider actually
-      // sits on during the ride, so "I'm at gate 2" had nowhere to go.
-      _roundAction(
-        icon: Icons.chat_bubble_outline,
-        color: AppTheme.primaryBlue,
-        tooltip: 'Message driver',
-        onTap: () => Navigator.push(context, MaterialPageRoute(
-          builder: (_) => RideChatScreen(
-            rideId: widget.rideId,
-            otherName: (dr['name'] ?? 'Driver').toString(),
-          ),
-        )),
+      {bool compact = false}) {
+    final name = (dr['name'] ?? 'Driver').toString();
+    final model = (dr['vehicleModel'] ?? '').toString();
+    final plate = (dr['vehicleNumber'] ?? '').toString();
+    final rating = (dr['rating'] as num?)?.toDouble() ?? 0;
+    final photo = pic.isNotEmpty ? AppConfig.imageUrl(pic) : '';
+    // Chat was not reachable from this screen at all — RideChatScreen was
+    // linked from five booking screens but not from the one a rider actually
+    // sits on during the ride, so "I'm at gate 2" had nowhere to go.
+    void chat() => Navigator.push(context, MaterialPageRoute(
+          builder: (_) => RideChatScreen(rideId: widget.rideId, otherName: name),
+        ));
+    // This used to show the number in a snackbar, leaving the rider to read it
+    // and dial by hand. It now opens the dialer, and falls back to copying the
+    // number when a dialer is not available. The live Driver record first; the
+    // copy stamped on the ride at accept time only as a fallback.
+    void call() => dialPhone((dr['phone'] ?? r['driverPhone'] ?? '').toString(), context: context);
+
+    if (compact) {
+      return DriverInfoCard(
+        compact: true,
+        name: name,
+        photoUrl: photo,
+        rating: rating > 0 ? rating : null,
+        vehicleModel: [model, plate].where((s) => s.isNotEmpty).join(' · '),
+        stats: _driverStats(dr),
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          _roundAction(icon: Icons.chat_bubble_outline, color: AppTheme.primaryBlue, tooltip: 'Message driver', onTap: chat),
+          const SizedBox(width: 8),
+          _roundAction(icon: Icons.call, color: Colors.green, tooltip: 'Call driver', onTap: call),
+        ]),
+      );
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      DriverInfoCard(
+        name: name,
+        photoUrl: photo,
+        rating: rating > 0 ? rating : null,
+        vehicleModel: model,
+        plate: plate,
+        stats: _driverStats(dr),
+        vehicleImage: _vehicleArt(r),
       ),
-      const SizedBox(width: 8),
-      // This used to show the number in a snackbar, leaving the rider to read
-      // it and dial by hand. It now opens the dialer, and falls back to copying
-      // the number when a dialer is not available.
-      _roundAction(
-        icon: Icons.call,
-        color: Colors.green,
-        tooltip: 'Call driver',
-        onTap: () => dialPhone(
-          // The live Driver record first; the copy stamped on the ride at accept
-          // time only as a fallback.
-          (dr['phone'] ?? r['driverPhone'] ?? '').toString(),
-          context: context,
-        ),
-      ),
-    ]),
-  );
+      const SizedBox(height: 14),
+      Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+        RoundActionButton(icon: Icons.call_rounded, label: 'Call', color: const Color(0xFF16A34A),
+            tooltip: 'Call driver', onTap: call),
+        RoundActionButton(icon: Icons.chat_bubble_rounded, label: 'Message',
+            tooltip: 'Message driver', onTap: chat),
+        // The floating bar above carries the "Share trip" / "Emergency SOS"
+        // tooltips; these are the same actions within thumb reach.
+        RoundActionButton(icon: Icons.ios_share_rounded, label: 'Share', onTap: () => _shareTrip(r)),
+        RoundActionButton(icon: Icons.shield_rounded, label: 'Safety', color: Colors.white,
+            background: const Color(0xFFD32F2F), onTap: _sos),
+      ]),
+    ]);
+  }
 
   /// "4.8 · 1,240 trips", or null when the driver has neither yet. A new driver
   /// with no rating shows nothing rather than a "0.0" that reads as terrible.
@@ -1443,7 +1476,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
   }) => Tooltip(
     message: tooltip,
     child: Material(
-      color: color.withOpacity(0.12),
+      color: color.withValues(alpha: 0.12),
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
@@ -1453,22 +1486,19 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
     ),
   );
 
+  // Pickup → drop with the dot–line–square connector. A rental or hire booked
+  // without a destination has no drop to show.
   List<Widget> _addresses(Map<String, dynamic> r) => [
-    Padding(padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(children: [
-        const Icon(Icons.radio_button_checked, size: 14, color: Colors.green),
-        const SizedBox(width: 8),
-        Expanded(child: Text((r['pickupAddress'] ?? '').toString(),
-          style: const TextStyle(fontSize: 12)))])),
-    // A rental or hire booked without a destination has no drop to show; a bare
-    // red pin with no text beside it looked like an address failed to load.
-    if ((r['dropAddress'] ?? '').toString().trim().isNotEmpty)
-    Padding(padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(children: [
-        const Icon(Icons.location_on, size: 14, color: Colors.red),
-        const SizedBox(width: 8),
-        Expanded(child: Text((r['dropAddress'] ?? '').toString(),
-          style: const TextStyle(fontSize: 12)))])),
+    Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 4),
+      child: TripRouteSummary(
+        pickup: (r['pickupAddress'] ?? '').toString(),
+        drop: (r['dropAddress'] ?? '').toString().trim(),
+        fontSize: 12,
+        // Full addresses, as before: on the live ride the rider reads them.
+        maxLines: null,
+      ),
+    ),
   ];
 
   /// How far along this leg the driver is. Renders nothing until a baseline
@@ -1482,34 +1512,32 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
         borderRadius: BorderRadius.circular(6),
         child: LinearProgressIndicator(
           value: f,
-          minHeight: 7,
-          backgroundColor: AppTheme.primaryBlue.withOpacity(0.12),
+          minHeight: 6,
+          backgroundColor: RideUi.tile(context),
           valueColor: const AlwaysStoppedAnimation(AppTheme.primaryBlue)),
       ),
       const SizedBox(height: 6),
       Text('${(f * 100).round()}% covered - ${leftKm.toStringAsFixed(1)} km to go',
-        style: TextStyle(fontSize: 11.5, color: Colors.grey[600], fontWeight: FontWeight.w600)),
+        style: RideUi.caption(context, size: 11.5)),
     ]);
   }
 
   Widget _cancelButton() => Padding(
-    padding: const EdgeInsets.only(top: 18),
-    child: SizedBox(width: double.infinity, child: ElevatedButton.icon(
-      onPressed: _cancel,
-      icon: const Icon(Icons.close, color: Colors.white),
-      label: const Text('Cancel Ride',
-        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.red, padding: const EdgeInsets.symmetric(vertical: 14)),
-    )),
+    padding: const EdgeInsets.only(top: 10),
+    child: RideTextAction(label: 'Cancel Ride', onPressed: _cancel),
   );
+
+  /// "Arrive by 9:42 AM" from the live ETA, or null while it is unknown.
+  String? _arriveBy() => _etaMin == null
+      ? null
+      : 'Arrive by ${RideUi.clock(DateTime.now().add(Duration(minutes: _etaMin!)))}';
 
   List<Widget> _sheetChildren(Map<String, dynamic> r, Map<String, dynamic>? dr,
       String pic, String otp, String status) {
     final heading = _phaseLabel.isNotEmpty
         ? _phaseLabel
         : (const {
-            'finding': 'Finding your driver',
+            'finding': 'Looking for nearby drivers',
             'assigned': 'Driver on the way',
             'arrived': 'Driver has arrived',
             'ongoing': 'Trip in progress',
@@ -1519,6 +1547,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
     final parcel = svc == 'delivery';
     // Billed on time (and km) used rather than a fixed trip to a destination.
     final metered = svc == 'rental' || svc == 'hire_driver';
+    final drop = (r['dropAddress'] ?? '').toString().trim();
+    final dropShort = drop.contains(',') ? drop.substring(0, drop.indexOf(',')).trim() : drop;
 
     switch (_phase) {
       // A ride booked for later is 'pending' until it is dispatched, which may be
@@ -1531,20 +1561,17 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
           _handle(),
           _title('Ride scheduled'),
           const SizedBox(height: 14),
-          Container(
+          RideTile(
             padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppTheme.primaryBlue.withOpacity(0.07),
-              borderRadius: BorderRadius.circular(14)),
             child: Row(children: [
               const Icon(Icons.event_available_rounded, color: AppTheme.primaryBlue, size: 28),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(_formatWhen(at),
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.primaryBlue)),
+                  style: RideUi.body(context, size: 16, weight: FontWeight.w800)),
                 const SizedBox(height: 2),
                 Text("We'll assign a driver before your pickup time and let you know.",
-                  style: TextStyle(fontSize: 12.5, color: Colors.grey[700])),
+                  style: RideUi.caption(context, size: 12.5)),
               ])),
             ]),
           ),
@@ -1556,25 +1583,42 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
 
       // Nothing to show but reassurance and a way out.
       case 'finding':
+        final fare = riderPayable(r, couponDiscount: _couponDiscount);
+        final vt = (r['vehicleType'] ?? '').toString();
         return [
           _handle(),
-          _title(heading),
-          const SizedBox(height: 14),
+          // Same words as the booking screen's search view, whatever label the
+          // server sends ("Finding a driver"): one booking, one name for it.
+          _title('Looking for nearby drivers'),
+          const SizedBox(height: 12),
           // The radar on the map carries the "searching" signal; a large
           // spinner here as well would compete with it.
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               minHeight: 4,
-              backgroundColor: AppTheme.primaryBlue.withOpacity(0.12),
+              backgroundColor: RideUi.tile(context),
               valueColor: const AlwaysStoppedAnimation(AppTheme.primaryBlue),
             ),
           ),
           const SizedBox(height: 10),
-          Text('Connecting you to a nearby driver',
-            style: TextStyle(fontSize: 13, color: Colors.grey[600])),
-          const SizedBox(height: 14),
+          Text('Connecting you with nearby drivers', style: RideUi.caption(context, size: 13)),
+          const RideDivider(vertical: 12),
           ..._addresses(r),
+          if (vt.isNotEmpty || fare > 0) ...[
+            const SizedBox(height: 10),
+            RideTile(
+              child: Row(children: [
+                Icon(Icons.local_taxi_rounded, size: 20, color: RideUi.ink(context)),
+                const SizedBox(width: 10),
+                Expanded(child: Text(vt.isNotEmpty ? vt : _serviceLabel(svc), maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: RideUi.body(context, size: 14, weight: FontWeight.w800))),
+                if (fare > 0)
+                  Text('${String.fromCharCode(0x20B9)}${fare.round()}',
+                      style: RideUi.body(context, size: 16, weight: FontWeight.w900)),
+              ]),
+            ),
+          ],
           _cancelButton(),
         ];
 
@@ -1612,14 +1656,22 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       // would end a three-hour rental without paying for it; every ride app
       // removes the button at this point. SOS, call and chat all remain.
       case 'ongoing':
+        final arrive = metered ? null : _arriveBy();
         return [
           _handle(),
           // A rental or hire has no destination to be N minutes from. Past the
           // package ("Extra time", "Overtime") the heading turns orange, matching
           // the extra charges accruing in the panel below it.
           _title(heading,
-            trailing: metered ? null : _etaBadge(),
-            color: _phaseOverrun ? Colors.orange[800] : null),
+            trailing: metered ? null : _etaTrailing(),
+            color: _phaseOverrun ? Colors.orange[800] : null,
+            // Shown with the live ETA, like the badge beside it.
+            subtitle: arrive == null
+                ? null
+                : [
+                    if (dropShort.isNotEmpty) 'Heading to $dropShort',
+                    arrive,
+                  ].join(' · ')),
           const SizedBox(height: 14),
           // What a metered trip's rider watches is the package being used up and
           // what it will cost, not distance to a drop they may not have.
@@ -1664,15 +1716,15 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 18),
             decoration: BoxDecoration(
-              color: AppTheme.primaryBlue.withOpacity(0.07),
-              borderRadius: BorderRadius.circular(16)),
+              color: RideUi.tile(context),
+              borderRadius: BorderRadius.circular(RideUi.radius)),
             child: Column(children: [
-              Text(prepaid ? 'PAID AT BOOKING' : 'AMOUNT DUE', style: const TextStyle(fontSize: 11,
-                fontWeight: FontWeight.w800, letterSpacing: 1.1, color: Colors.black54)),
+              Text(prepaid ? 'PAID AT BOOKING' : 'AMOUNT DUE', style: RideUi.caption(context, size: 11).copyWith(
+                fontWeight: FontWeight.w800, letterSpacing: 1.1)),
               const SizedBox(height: 6),
               Text('${String.fromCharCode(0x20B9)}${due.round()}',
-                style: const TextStyle(fontSize: 38,
-                  fontWeight: FontWeight.w900, color: AppTheme.primaryBlue)),
+                style: TextStyle(fontSize: 38,
+                  fontWeight: FontWeight.w900, color: RideUi.ink(context))),
             ])),
           const SizedBox(height: 12),
           // The sheet said "Payment due" and offered no way to pay. The prompt
@@ -1687,16 +1739,12 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
                 ? 'Please pay ${String.fromCharCode(0x20B9)}${due.round()} to your driver in cash — fare plus ${String.fromCharCode(0x20B9)}${toll.round()} tolls.'
                 : 'Please pay ${String.fromCharCode(0x20B9)}${due.round()} to your driver in cash.')
           else
-            SizedBox(width: double.infinity, child: ElevatedButton.icon(
+            PrimaryRideButton(
               onPressed: () => promptOnlinePayment(
                   context, widget.rideId, Map<String, dynamic>.from(r), amount: due),
-              icon: const Icon(Icons.lock_outline, color: Colors.white, size: 18),
-              label: Text('Pay ${String.fromCharCode(0x20B9)}${due.round()}',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryBlue,
-                padding: const EdgeInsets.symmetric(vertical: 14)),
-            )),
+              icon: Icons.lock_outline,
+              label: 'Pay ${String.fromCharCode(0x20B9)}${due.round()}',
+            ),
           const SizedBox(height: 14),
           if (svc == 'outstation') ...[
             OutstationTollPanel(ride: r, rideId: widget.rideId, onReported: _poll),
@@ -1712,8 +1760,11 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       default:
         return [
           _handle(),
-          _title(heading, trailing: _etaBadge()),
-          const SizedBox(height: 12),
+          if (_driverArrivingNow(r))
+            _title('Arriving now', subtitle: 'Meet at the pickup point')
+          else
+            _title(heading, trailing: _etaTrailing(), subtitle: 'Meet at the pickup point'),
+          const SizedBox(height: 14),
           if (otp.isNotEmpty) parcel
               ? _otpRow(otp, label: 'Pickup PIN — give it to the driver when they collect')
               : _otpRow(otp),
@@ -1815,4 +1866,32 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       style: TextStyle(fontSize: 13, color: Colors.grey[700], fontWeight: FontWeight.w600)),
   );
 
+}
+
+/// Closer than this, two points are framed at a fixed street-level zoom
+/// instead of fitted: fitting bounds a few metres across zooms the map to its
+/// maximum — a plain grey road with no car or pin in view — which is exactly
+/// what a rider saw when the driver was at the pickup ("Arriving now").
+const double kFrameMinSpanMeters = 300;
+const double kFrameCloseZoom = 16;
+
+/// Driver and where they are heading, in one frame. Close together, centres on
+/// the destination (the pickup, while the driver is coming) at street level.
+@visibleForTesting
+CameraUpdate frameDriverAndTarget(LatLng driver, LatLng target, {double padding = 64}) {
+  if (polylineLengthMeters([driver, target]) < kFrameMinSpanMeters) {
+    return CameraUpdate.newLatLngZoom(target, kFrameCloseZoom);
+  }
+  return CameraUpdate.newLatLngBounds(boundsFromPoints([driver, target])!, padding);
+}
+
+/// A route's one-time fit, with the same floor for a route only metres long.
+@visibleForTesting
+CameraUpdate? frameRoute(List<LatLng> pts, {double padding = 56}) {
+  final b = boundsFromPoints(pts);
+  if (b == null) return null;
+  if (polylineLengthMeters([b.southwest, b.northeast]) < kFrameMinSpanMeters) {
+    return CameraUpdate.newLatLngZoom(pts.last, kFrameCloseZoom);
+  }
+  return CameraUpdate.newLatLngBounds(b, padding);
 }

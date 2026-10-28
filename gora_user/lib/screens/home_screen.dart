@@ -11,6 +11,7 @@ import '../theme/app_theme.dart';
 import '../providers/user_provider.dart';
 import '../services/api_service.dart';
 import '../utils/vehicle_marker.dart';
+import '../widgets/ride_ui/ride_ui.dart';
 import 'active_ride_screen.dart';
 import 'welcome_screen.dart';
 import 'taxi_booking_screen.dart';
@@ -68,15 +69,17 @@ class _HomeScreenState extends State<HomeScreen>
   // Admin-managed app config (banners / places / whyChooseUs)
   Map<String, dynamic>? _cfg;
 
+  // 'tile' is the transparent 3D artwork shown on the home grid (Uber-style
+  // grey tile); 'icon' stays as the legacy artwork used elsewhere.
   final List<Map<String, dynamic>> _services = [
-    {'icon': 'assets/images/bike-bluebg.png', 'label': 'Bike ride', 'color': Color(0xFF1C2656), 'bgColor': Color(0xFFE3F2FD)},
-    {'icon': 'assets/images/auto-bluebg.png', 'label': 'Auto ride', 'color': Color(0xFF4CAF50), 'bgColor': Color(0xFFE8F5E9)},
-    {'icon': 'assets/images/texi2-bluebg.png', 'label': 'Cab ride', 'color': Color(0xFFFF9800), 'bgColor': Color(0xFFFFF3E0)},
-    {'icon': 'assets/images/rental-bluebg.png', 'label': 'Rentals', 'color': Color(0xFF9C27B0), 'bgColor': Color(0xFFF3E5F5)},
-    {'icon': 'assets/images/out-station-bluebg.png', 'label': 'Outstation', 'color': Color(0xFF1C2656), 'bgColor': Color(0xFFE3F2FD)},
-    {'icon': 'assets/images/parcel-bluebg.png', 'label': 'Parcel', 'color': Color(0xFFFF9800), 'bgColor': Color(0xFFFFF3E0)},
-    {'icon': 'assets/images/hiredriver-bluebg.png', 'label': 'Hire driver', 'color': Color(0xFF9C27B0), 'bgColor': Color(0xFFF3E5F5)},
-    {'icon': 'assets/images/query-bluebg.png', 'label': 'Any inquiry', 'color': Color(0xFF4CAF50), 'bgColor': Color(0xFFE8F5E9)},
+    {'icon': 'assets/images/bike-bluebg.png', 'tile': 'assets/images/services/bike.png', 'short': 'Bike', 'label': 'Bike ride', 'color': Color(0xFF1C2656), 'bgColor': Color(0xFFE3F2FD)},
+    {'icon': 'assets/images/auto-bluebg.png', 'tile': 'assets/images/services/auto.png', 'short': 'Auto', 'label': 'Auto ride', 'color': Color(0xFF4CAF50), 'bgColor': Color(0xFFE8F5E9)},
+    {'icon': 'assets/images/texi2-bluebg.png', 'tile': 'assets/images/services/cab.png', 'short': 'Cab', 'label': 'Cab ride', 'color': Color(0xFFFF9800), 'bgColor': Color(0xFFFFF3E0)},
+    {'icon': 'assets/images/rental-bluebg.png', 'tile': 'assets/images/services/rental.png', 'short': 'Rental', 'label': 'Rentals', 'color': Color(0xFF9C27B0), 'bgColor': Color(0xFFF3E5F5)},
+    {'icon': 'assets/images/out-station-bluebg.png', 'tile': 'assets/images/services/outstation.png', 'short': 'Outstation', 'label': 'Outstation', 'color': Color(0xFF1C2656), 'bgColor': Color(0xFFE3F2FD)},
+    {'icon': 'assets/images/parcel-bluebg.png', 'tile': 'assets/images/services/parcel.png', 'short': 'Parcel', 'label': 'Parcel', 'color': Color(0xFFFF9800), 'bgColor': Color(0xFFFFF3E0)},
+    {'icon': 'assets/images/hiredriver-bluebg.png', 'tile': 'assets/images/services/hire_driver.png', 'short': 'Hire driver', 'label': 'Hire driver', 'color': Color(0xFF9C27B0), 'bgColor': Color(0xFFF3E5F5)},
+    {'icon': 'assets/images/query-bluebg.png', 'tileIcon': Icons.support_agent_rounded, 'short': 'Inquiry', 'label': 'Any inquiry', 'color': Color(0xFF4CAF50), 'bgColor': Color(0xFFE8F5E9)},
   ];
 
   final List<Map<String, String>> _promos = [
@@ -356,185 +359,190 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // Uber/Ola-style home: a full-bleed live map on top with floating controls,
+  // and a white draggable sheet holding "Where to?", recent drops, services
+  // and offers.
   Widget _buildHomePage() {
-    final user = context.watch<UserProvider>();
-    final picUrl = user.profilePicUrl;
-    final displayName = user.name.isNotEmpty ? user.name : (user.phone.isNotEmpty ? user.phone : 'Guest');
-
-    final mapH = MediaQuery.of(context).size.height * 0.42;
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Column(
-        children: [
-          // ── Map on top (movable, live pin) with overlaid bar ──
-          SizedBox(
-            height: mapH,
-            child: Stack(children: [
-              Positioned.fill(
-                child: GoogleMap(
-                  key: ValueKey(_currentLatLng?.toString() ?? 'home-map'),
-                  initialCameraPosition: CameraPosition(
-                    target: _currentLatLng ?? const LatLng(26.2389, 73.0243),
-                    zoom: 16,
-                  ),
-                  onMapCreated: (c) => _homeMapCtrl = c,
-                  myLocationEnabled: true,
-                  myLocationButtonEnabled: false,
-                  zoomControlsEnabled: false,
-                  mapToolbarEnabled: false,
-                  markers: _vehicleMarkers,
-                  onCameraMove: (pos) => _currentLatLng = pos.target,
-                  onCameraIdle: _onHomeMapIdle,
-                ),
+      backgroundColor: RideUi.surface(context),
+      body: LayoutBuilder(builder: (context, box) {
+        final h = box.maxHeight;
+        final topInset = MediaQuery.of(context).padding.top;
+        // The sheet rests at ~half the screen; the map owns the rest.
+        const sheetMin = 0.5;
+        const overlap = 24.0; // the sheet's rounded top sits over the map
+        final mapH = h * (1 - sheetMin) + overlap;
+        // Expanded sheet stops below the floating top controls.
+        final sheetMax = (1 - (topInset + 64) / h).clamp(sheetMin + 0.05, 1.0).toDouble();
+        return Stack(children: [
+          // ── Live map (movable, centre pin) ──
+          Positioned(
+            top: 0, left: 0, right: 0, height: mapH,
+            child: GoogleMap(
+              // A STABLE key. It used to be keyed on _currentLatLng, which
+              // onCameraMove rewrites: every rebuild after the camera moved (the
+              // vehicle layer rebuilds every few seconds) threw the map away and
+              // made a new one — a blank white map recreated every ~1.5s, its
+              // centre creeping off the rider each time. The camera is moved
+              // through the controller instead.
+              key: const ValueKey('home-map'),
+              initialCameraPosition: CameraPosition(
+                target: _currentLatLng ?? const LatLng(26.2389, 73.0243),
+                zoom: 16,
               ),
-              // Live centre pin
-              const IgnorePointer(
-                child: Center(
-                  child: Padding(
-                    padding: EdgeInsets.only(bottom: 40),
-                    child: Icon(Icons.location_on, size: 46, color: AppTheme.primaryBlue),
-                  ),
-                ),
-              ),
-              // Top bar: menu · location · favourite(heart)
-              SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                  child: Row(children: [
-                    _circleIcon(Icons.menu, _openMenu),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(24),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 6)],
-                        ),
-                        child: Text(_currentAddress, maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    _circleIcon(Icons.favorite_border, _openSaveFavourite),
-                  ]),
-                ),
-              ),
-              // Recenter
-              Positioned(
-                right: 14, bottom: 22,
-                child: GestureDetector(
-                  onTap: _fetchCurrentLocation,
-                  child: const CircleAvatar(backgroundColor: Colors.white, child: Icon(Icons.my_location, color: AppTheme.primaryBlue)),
-                ),
-              ),
-            ]),
+              onMapCreated: (c) {
+                _homeMapCtrl = c;
+                // The GPS fix may have landed before the map existed.
+                final at = _currentLatLng;
+                if (at != null) c.moveCamera(CameraUpdate.newLatLng(at));
+              },
+              myLocationEnabled: true,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              mapToolbarEnabled: false,
+              // Centre the camera target in the part of the map the sheet does
+              // not cover, which is where the pin is drawn.
+              padding: const EdgeInsets.only(bottom: overlap),
+              markers: _vehicleMarkers,
+              onCameraMove: (pos) => _currentLatLng = pos.target,
+              onCameraIdle: _onHomeMapIdle,
+            ),
           ),
-          // ── Bottom sheet content ──
-          Expanded(
-            child: Transform.translate(
-              offset: const Offset(0, -16),
-              child: Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-                ),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    // Search
-                    _homeSearchBar(),
-                    const SizedBox(height: 16),
-                    // Favourites
-                    if (_favourites.isNotEmpty) ...[
-                      Wrap(spacing: 10, runSpacing: 10, children: _favourites.entries.map((e) => _favChip(e.key, e.value)).toList()),
-                      const SizedBox(height: 18),
-                    ],
-                    // Active ride banner — between favourites and services (cancel etc. from here)
-                    if (_activeRide != null) ...[_buildActiveRideBanner(), const SizedBox(height: 18)],
-                    // Services — horizontal scroll
-                    const Text('Our services', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          // Live centre pin. Its TIP sits on the camera target: the map's
+          // bottom padding puts the target at the centre of the uncovered band
+          // (0 … mapH - overlap), and the pin is lifted so the point of the
+          // glyph, not the middle of the icon, lands there.
+          Positioned(
+            top: 0, left: 0, right: 0, height: mapH - overlap,
+            child: const IgnorePointer(
+              child: Center(child: CentrePin(key: ValueKey('home-centre-pin'))),
+            ),
+          ),
+          // Recenter on the rider's GPS position
+          Positioned(
+            right: 14, top: mapH - overlap - 14 - 46,
+            child: MapCircleButton(icon: Icons.my_location, tooltip: 'My location', onTap: _fetchCurrentLocation,
+                foreground: AppTheme.primaryBlue),
+          ),
+          // ── Bottom sheet ──
+          DraggableScrollableSheet(
+            initialChildSize: sheetMin,
+            minChildSize: sheetMin,
+            maxChildSize: sheetMax,
+            builder: (context, scrollCtrl) => RideSheetContainer(
+              radius: 24,
+              child: ListView(
+                controller: scrollCtrl,
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
+                children: [
+                  const SheetHandle(bottom: 14),
+                  // Live ride / Book Again lead the sheet when present.
+                  if (_activeRide != null) ...[_buildActiveRideBanner(), const SizedBox(height: 14)],
+                  if (_lastRide != null && _activeRide == null) ...[_buildBookAgainCard(), const SizedBox(height: 14)],
+                  _homeSearchBar(),
+                  if (_favourites.isNotEmpty) ...[
                     const SizedBox(height: 12),
-                    SizedBox(
-                      height: 96,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _services.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 14),
-                        itemBuilder: (_, i) => _buildServiceItem(_services[i]),
-                      ),
-                    ),
-                    if (_lastRide != null && _activeRide == null) ...[
-                      const SizedBox(height: 18),
-                      _buildBookAgainCard(),
+                    Wrap(spacing: 8, runSpacing: 8, children: _favourites.entries.map((e) => _favChip(e.key, e.value)).toList()),
+                  ],
+                  // Recent drops — the rider's real recent destinations; hidden when none.
+                  if (_recentDrops.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    for (var i = 0; i < _recentDrops.length; i++) ...[
+                      if (i > 0) const RideDivider(indent: 54),
+                      _buildRecentTile(_recentDrops[i]),
                     ],
-                    // Recent locations — the rider's real recent drops; hidden when none.
-                    if (_recentDrops.isNotEmpty) ...[
-                      const SizedBox(height: 22),
-                      const Text('Recent locations', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 8),
-                      ..._recentDrops.map((l) => _buildRecentTile(l)),
-                    ],
-                  ]),
-                ),
+                  ],
+                  const SizedBox(height: 22),
+                  const RideSectionTitle('Services'),
+                  const SizedBox(height: 12),
+                  _buildServicesGrid(),
+                  _buildBannerRow(),
+                ],
               ),
             ),
           ),
-        ],
-      ),
+          // ── Floating top controls: menu · current address · save favourite ──
+          Positioned(
+            top: 0, left: 0, right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                child: Row(children: [
+                  MapCircleButton(icon: Icons.menu_rounded, tooltip: 'Menu', onTap: _openMenu),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: RideUi.surface(context),
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 8)],
+                      ),
+                      child: Row(children: [
+                        const Icon(Icons.circle, size: 9, color: Color(0xFF16A34A)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(_currentAddress, maxLines: 1, overflow: TextOverflow.ellipsis,
+                              style: RideUi.body(context, size: 13.5, weight: FontWeight.w700)),
+                        ),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  MapCircleButton(icon: Icons.favorite_border_rounded, tooltip: 'Save as favourite', onTap: _openSaveFavourite),
+                ]),
+              ),
+            ),
+          ),
+        ]);
+      }),
     );
   }
 
-  // Small white circular icon button used on the map overlay.
-  Widget _circleIcon(IconData icon, VoidCallback onTap) => GestureDetector(
-        onTap: onTap,
-        child: Container(
-          width: 44, height: 44,
-          decoration: BoxDecoration(
-            color: Colors.white, shape: BoxShape.circle,
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 6)],
-          ),
-          child: Icon(icon, color: Colors.black87),
-        ),
-      );
+  void _openSearch() => Navigator.push(context, MaterialPageRoute(
+      builder: (_) => TaxiBookingScreen(fromLocation: 'Current Location', hideLocationInputs: false)));
 
-  Widget _homeSearchBar() => GestureDetector(
-        onTap: () => Navigator.push(context, MaterialPageRoute(
-            builder: (_) => TaxiBookingScreen(fromLocation: 'Current Location', hideLocationInputs: false))),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: AppTheme.primaryBlue.withOpacity(0.4), width: 1.5),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)],
+  // Big grey "Where to?" pill with a "Now" chip on the right. Taxi rides are
+  // booked for now (there is no scheduling in the taxi flow), so the chip
+  // opens the same search.
+  Widget _homeSearchBar() => Material(
+        color: RideUi.tile(context),
+        borderRadius: BorderRadius.circular(30),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(30),
+          onTap: _openSearch,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 8, 8, 8),
+            child: Row(children: [
+              Icon(Icons.search_rounded, color: RideUi.ink(context), size: 26),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text('Where to?', maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: RideUi.title(context, size: 19)),
+              ),
+              RidePillChip(
+                icon: Icons.schedule_rounded,
+                label: 'Now',
+                background: RideUi.surface(context),
+                onTap: _openSearch,
+              ),
+            ]),
           ),
-          child: Row(children: [
-            const Icon(Icons.search, color: Colors.black87, size: 22),
-            const SizedBox(width: 10),
-            Text('Enter Destination', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Colors.grey[800])),
-          ]),
         ),
       );
 
   Widget _favChip(String label, String address) {
-    final icon = label == 'Home' ? Icons.home_outlined : label == 'Work' ? Icons.work_outline : Icons.favorite_border;
-    return GestureDetector(
+    final icon = label == 'Home' ? Icons.home_rounded : label == 'Work' ? Icons.work_rounded : Icons.favorite_rounded;
+    return RidePillChip(
+      icon: icon,
+      label: label,
+      showChevron: false,
       onTap: () {
         if (!_canBook()) return;
         Navigator.push(context, MaterialPageRoute(
             builder: (_) => TaxiBookingScreen(fromLocation: 'Current Location', hideLocationInputs: false)));
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(color: const Color(0xFFF3F5F9), borderRadius: BorderRadius.circular(24)),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 18, color: AppTheme.primaryBlue),
-          const SizedBox(width: 8),
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
-        ]),
-      ),
     );
   }
 
@@ -762,36 +770,43 @@ class _HomeScreenState extends State<HomeScreen>
     else if (vt.contains('auto')) { svcAsset = 'assets/images/auto-bluebg.png'; svcIcon = Icons.electric_rickshaw; }
     else { svcAsset = 'assets/images/texi2-bluebg.png'; svcIcon = Icons.directions_car; }
     final rideId = (r['_id'] ?? r['id'] ?? '').toString();
-    return GestureDetector(
-      onTap: rideId.isEmpty ? null : () async {
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveRideScreen(rideId: rideId)));
-        _checkActiveRide(); // refresh after returning (may have completed/cancelled)
-      },
-      child: Container(
-      margin: const EdgeInsets.only(top: 16),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(colors: [Color(0xFF1C2656), Color(0xFF1C2656)]),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [BoxShadow(color: const Color(0xFF1C2656).withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4))],
-      ),
-      child: Row(children: [
-        ClipRRect(borderRadius: BorderRadius.circular(12),
-          child: Image.asset(svcAsset, width: 48, height: 48, fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => Container(width: 48, height: 48, alignment: Alignment.center,
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-              child: Icon(svcIcon, color: const Color(0xFF1C2656), size: 24)))),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('$svcName · $label', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-          const SizedBox(height: 2),
-          Text('${r['pickupAddress'] ?? ''} → ${r['dropAddress'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: Colors.white70, fontSize: 11)),
-        ])),
-        Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
-          child: const Text('Live', style: TextStyle(color: Color(0xFF1C2656), fontWeight: FontWeight.w800, fontSize: 12))),
-      ]),
+    return Material(
+      color: RideUi.navy,
+      borderRadius: BorderRadius.circular(RideUi.radius),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(RideUi.radius),
+        onTap: rideId.isEmpty ? null : () async {
+          await Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveRideScreen(rideId: rideId)));
+          _checkActiveRide(); // refresh after returning (may have completed/cancelled)
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(children: [
+            ClipRRect(borderRadius: BorderRadius.circular(12),
+              child: Image.asset(svcAsset, width: 52, height: 52, fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Container(width: 52, height: 52, alignment: Alignment.center,
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                  child: Icon(svcIcon, color: RideUi.navy, size: 24)))),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15.5)),
+              const SizedBox(height: 2),
+              Text(svcName, style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600, fontSize: 12)),
+              const SizedBox(height: 2),
+              Text('${r['pickupAddress'] ?? ''} → ${r['dropAddress'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white70, fontSize: 11.5)),
+            ])),
+            const SizedBox(width: 8),
+            Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+              child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.circle, size: 7, color: Color(0xFF16A34A)),
+                SizedBox(width: 5),
+                Text('Live', style: TextStyle(color: RideUi.navy, fontWeight: FontWeight.w800, fontSize: 12)),
+              ])),
+          ]),
+        ),
       ),
     );
   }
@@ -823,70 +838,36 @@ class _HomeScreenState extends State<HomeScreen>
           hideLocationInputs: false,
         )));
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1C2656), Color(0xFF32447F)],
-          begin: Alignment.topLeft, end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [BoxShadow(color: const Color(0xFF1C2656).withOpacity(0.28), blurRadius: 16, offset: const Offset(0, 6))],
+        color: RideUi.surface(context),
+        borderRadius: BorderRadius.circular(RideUi.radius),
+        border: Border.all(color: RideUi.divider(context)),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 3))],
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(10)),
-            child: const Icon(Icons.replay_rounded, color: Colors.white, size: 18),
-          ),
-          const SizedBox(width: 10),
-          const Text('Book Again', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15)),
-          const Spacer(),
+          Icon(Icons.replay_rounded, color: RideUi.ink(context), size: 20),
+          const SizedBox(width: 8),
+          Expanded(child: Text('Book Again', style: RideUi.title(context, size: 16))),
           if (vt.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(color: Colors.white.withOpacity(0.15), borderRadius: BorderRadius.circular(20)),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(vehIcon, color: Colors.white, size: 13),
-                const SizedBox(width: 4),
-                Text(vt, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
-              ]),
+            Flexible(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(color: RideUi.tile(context), borderRadius: BorderRadius.circular(20)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(vehIcon, color: RideUi.ink(context), size: 14),
+                  const SizedBox(width: 4),
+                  Flexible(child: Text(vt, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: RideUi.body(context, size: 11.5, weight: FontWeight.w700))),
+                ]),
+              ),
             ),
         ]),
-        const SizedBox(height: 16),
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 3),
-            child: Column(children: [
-              Container(width: 8, height: 8, decoration: const BoxDecoration(color: Color(0xFF6FCF97), shape: BoxShape.circle)),
-              Container(width: 1.4, height: 24, color: Colors.white.withOpacity(0.35)),
-              const Icon(Icons.location_on, color: Color(0xFFFF6B6B), size: 15),
-            ]),
-          ),
-          const SizedBox(width: 10),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(pickup.isNotEmpty ? pickup : 'Current location', maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12)),
-            const SizedBox(height: 13),
-            Text(drop, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
-          ])),
-        ]),
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: go,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: const Color(0xFF1C2656),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(11)),
-            ),
-            child: const Text('Book This Ride Again', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
-          ),
-        ),
+        const SizedBox(height: 12),
+        TripRouteSummary(pickup: pickup.isNotEmpty ? pickup : 'Current location', drop: drop, fontSize: 13),
+        const SizedBox(height: 14),
+        PrimaryRideButton(label: 'Book This Ride Again', onPressed: go, height: 46),
       ]),
     );
   }
@@ -899,8 +880,8 @@ class _HomeScreenState extends State<HomeScreen>
         SizedBox(
           height: 170,
           child: GoogleMap(
-            // Rebuild the lite map once we know the real location so it recenters
-            key: ValueKey(_currentLatLng?.toString() ?? 'home-map'),
+            // Stable key — see the main home map; recentred via the controller.
+            key: const ValueKey('home-lite-map'),
             initialCameraPosition: CameraPosition(
               target: _currentLatLng ?? const LatLng(26.2389, 73.0243), // Jodhpur fallback
               zoom: 15,
@@ -972,10 +953,12 @@ class _HomeScreenState extends State<HomeScreen>
     return out;
   }
 
-  // Recent location tile (Ola-style pin + chevron) → opens a normal ride with
-  // that drop already filled in (address + pin), the same way "Book Again" does.
+  // Recent location row (Uber shortcut style: clock · title/subtitle · chevron)
+  // → opens a normal ride with that drop already filled in (address + pin), the
+  // same way "Book Again" does.
   Widget _buildRecentTile(Map<String, dynamic> l) {
     return InkWell(
+      borderRadius: BorderRadius.circular(12),
       onTap: () {
         if (!_canBook()) return;
         Navigator.push(context, MaterialPageRoute(builder: (_) => TaxiBookingScreen(
@@ -986,111 +969,168 @@ class _HomeScreenState extends State<HomeScreen>
           hideLocationInputs: false)));
       },
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         child: Row(children: [
-          Container(width: 38, height: 38, decoration: BoxDecoration(color: AppTheme.primaryBlue.withOpacity(0.08), shape: BoxShape.circle),
-            child: const Icon(Icons.history, size: 20, color: AppTheme.primaryBlue)),
-          const SizedBox(width: 12),
+          Container(
+            width: 40, height: 40,
+            decoration: BoxDecoration(color: RideUi.tile(context), shape: BoxShape.circle),
+            child: Icon(Icons.access_time_filled_rounded, size: 20, color: RideUi.ink(context)),
+          ),
+          const SizedBox(width: 14),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text((l['name'] ?? '').toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+            Text((l['name'] ?? '').toString(), maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: RideUi.body(context, size: 15, weight: FontWeight.w700)),
             if ((l['address'] ?? '').toString().isNotEmpty) ...[
               const SizedBox(height: 2),
-              Text((l['address'] ?? '').toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              Text((l['address'] ?? '').toString(), maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: RideUi.caption(context, size: 12.5)),
             ],
           ])),
-          Icon(Icons.chevron_right, color: Colors.grey[400]),
+          Icon(Icons.chevron_right_rounded, color: RideUi.muted(context)),
         ]),
       ),
     );
   }
 
-  Widget _buildServiceItem(Map<String, dynamic> s) {
-    return GestureDetector(
-      onTap: () {
-        if (!_canBook()) return; // block new booking while a ride is active
-        if (s['label'] == 'Bike ride') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => TaxiBookingScreen(
-                fromLocation: 'Current Location',
-                hideLocationInputs: false,
-                preselectedVehicle: 'Bike',
-              ),
-            ),
-          );
-        } else if (s['label'] == 'Auto ride') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => TaxiBookingScreen(
-                fromLocation: 'Current Location',
-                hideLocationInputs: false,
-                preselectedVehicle: 'Auto',
-              ),
-            ),
-          );
-        } else if (s['label'] == 'Cab ride') {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => TaxiBookingScreen(
-                fromLocation: 'Current Location',
-                hideLocationInputs: false,
-                preselectedVehicle: 'Cab Economy',
-              ),
-            ),
-          );
-        } else if (s['label'] == 'Outstation') {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const OutstationScreen()));
-        } else if (s['label'] == 'Rentals') {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const RentalScreen()));
-        } else if (s['label'] == 'Hire driver') {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const HireDriverScreen()));
-        } else if (s['label'] == 'Parcel') {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const ParcelBookingScreen()));
-        } else if (s['label'] == 'Any inquiry') {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => const InquiryScreen()));
-        } else {
-          // For new services, show a coming soon message or navigate to a placeholder
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${s['label']} service coming soon!'),
-              backgroundColor: AppTheme.primaryBlue,
-            ),
-          );
-        }
-      },
-      child: Column(
-        children: [
+  // Routes a service tile to its booking flow. Same targets and the same
+  // active-ride guard as before; only the tile's look changed.
+  void _openService(Map<String, dynamic> s) {
+    if (!_canBook()) return; // block new booking while a ride is active
+    if (s['label'] == 'Bike ride') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TaxiBookingScreen(
+            fromLocation: 'Current Location',
+            hideLocationInputs: false,
+            preselectedVehicle: 'Bike',
+          ),
+        ),
+      );
+    } else if (s['label'] == 'Auto ride') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TaxiBookingScreen(
+            fromLocation: 'Current Location',
+            hideLocationInputs: false,
+            preselectedVehicle: 'Auto',
+          ),
+        ),
+      );
+    } else if (s['label'] == 'Cab ride') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => TaxiBookingScreen(
+            fromLocation: 'Current Location',
+            hideLocationInputs: false,
+            preselectedVehicle: 'Cab Economy',
+          ),
+        ),
+      );
+    } else if (s['label'] == 'Outstation') {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const OutstationScreen()));
+    } else if (s['label'] == 'Rentals') {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const RentalScreen()));
+    } else if (s['label'] == 'Hire driver') {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const HireDriverScreen()));
+    } else if (s['label'] == 'Parcel') {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const ParcelBookingScreen()));
+    } else if (s['label'] == 'Any inquiry') {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const InquiryScreen()));
+    } else {
+      // For new services, show a coming soon message or navigate to a placeholder
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${s['label']} service coming soon!'),
+          backgroundColor: AppTheme.primaryBlue,
+        ),
+      );
+    }
+  }
+
+  // Uber "Suggestions" tile: light-grey rounded square with the service image,
+  // short label underneath. The white-background artwork is multiplied onto the
+  // grey so it sits IN the tile instead of as a white square on top of it.
+  Widget _buildServiceItem(Map<String, dynamic> s, double width) {
+    final tileColor = RideUi.tile(context);
+    final art = s['tile'] as String?;
+    final tileIcon = s['tileIcon'] as IconData?;
+    return SizedBox(
+      width: width,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(RideUi.radius),
+        onTap: () => _openService(s),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
           Container(
-            width: 68,
-            height: 68,
+            width: width,
+            height: width * 0.78,
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
             decoration: BoxDecoration(
-              color: s['bgColor'] as Color,
-              borderRadius: BorderRadius.circular(20),
+              color: tileColor,
+              borderRadius: BorderRadius.circular(RideUi.radius),
             ),
-            child: s['icon'] is String
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: Image.asset(
-                      s['icon'] as String,
-                      width: 68,
-                      height: 68,
-                      fit: BoxFit.cover,
-                    ),
-                  )
-                : Icon(s['icon'] as IconData, color: s['color'] as Color, size: 32),
+            child: tileIcon != null
+                ? Icon(tileIcon, size: width * 0.42, color: RideUi.accent(context))
+                : Image.asset(
+                    art ?? s['icon'] as String,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, _, _) => Icon(Icons.local_taxi, color: RideUi.accent(context)),
+                  ),
           ),
-          const SizedBox(height: 8),
-          SizedBox(
-            width: 72,
-            child: Text(s['label'] as String, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.onSurface)),
-          ),
-        ],
+          const SizedBox(height: 6),
+          Text((s['short'] ?? s['label']) as String,
+              textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: RideUi.body(context, size: 12.5, weight: FontWeight.w700)),
+        ]),
       ),
     );
+  }
+
+  // 4-per-row services grid; the tile width follows the sheet width so it
+  // never overflows on a 320pt phone.
+  Widget _buildServicesGrid() => LayoutBuilder(builder: (context, box) {
+        const gap = 10.0;
+        final w = ((box.maxWidth - gap * 3) / 4).floorToDouble();
+        return Wrap(
+          spacing: gap,
+          runSpacing: 14,
+          children: _services.map((s) => _buildServiceItem(s, w)).toList(),
+        );
+      });
+
+  // Admin-managed banners (app config, active only) as a horizontally
+  // scrolling card row. Hidden when the admin has none configured.
+  Widget _buildBannerRow() {
+    final raw = _cfg?['banners'];
+    final banners = raw is List
+        ? raw.whereType<Map>().where((b) => b['isActive'] != false).toList()
+        : const <Map>[];
+    if (banners.isEmpty) return const SizedBox.shrink();
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const SizedBox(height: 26),
+      const RideSectionTitle('Offers & updates'),
+      const SizedBox(height: 12),
+      SizedBox(
+        height: 116,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: banners.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 12),
+          itemBuilder: (_, i) {
+            final b = banners[i];
+            return _buildPromoBanner({
+              'title': (b['title'] ?? '').toString(),
+              'sub': (b['subtitle'] ?? '').toString(),
+              'color': (b['color'] ?? '').toString(),
+              'imageUrl': (b['imageUrl'] ?? '').toString(),
+              'icon': '',
+            });
+          },
+        ),
+      ),
+    ]);
   }
 
   // Featured Ads source: admin config `banners` (active only) when available, else hardcoded `_promos`.
@@ -1114,115 +1154,59 @@ class _HomeScreenState extends State<HomeScreen>
     return _promos;
   }
 
+  // One promo card in the home "Offers & updates" row: the admin's image as a
+  // full-bleed card when there is one, otherwise a tinted card in the banner's
+  // colour with its title and subtitle.
   Widget _buildPromoBanner(Map<String, String> promo) {
     final color = _parseHexColor(promo['color'], AppTheme.primaryBlue);
     final imageUrl = promo['imageUrl'] ?? '';
+    final title = promo['title'] ?? '';
+    final sub = promo['sub'] ?? '';
     IconData adIcon = Icons.local_offer;
     if (promo['icon'] == 'security') adIcon = Icons.security;
     if (promo['icon'] == 'directions_car') adIcon = Icons.directions_car;
     if (promo['icon'] == 'local_shipping') adIcon = Icons.local_shipping;
     if (promo['icon'] == 'map') adIcon = Icons.map;
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 4),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
+    final text = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (title.isNotEmpty)
+          Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 15.5)),
+        if (sub.isNotEmpty) ...[
+          const SizedBox(height: 3),
+          Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12)),
         ],
-      ),
-      child: Row(
-        children: [
-          imageUrl.isNotEmpty
-              ? ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.network(
-                    imageUrl,
-                    width: 56,
-                    height: 56,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: color.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(adIcon, color: color, size: 28),
-                    ),
-                  ),
-                )
-              : Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    adIcon,
-                    color: color,
-                    size: 28,
-                  ),
-                ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  promo['title'] ?? '',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  promo['sub'] ?? '',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: color.withOpacity(0.3)),
-                  ),
-                  child: Text(
-                    'Learn More',
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+      ],
+    );
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(RideUi.radius),
+      child: SizedBox(
+        width: 264,
+        child: imageUrl.isNotEmpty
+            ? Stack(fit: StackFit.expand, children: [
+                Image.network(imageUrl, fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Container(color: color)),
+                DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(
+                  begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, Colors.black.withValues(alpha: 0.65)],
+                ))),
+                Padding(padding: const EdgeInsets.all(14), child: text),
+              ])
+            : Container(
+                color: color,
+                padding: const EdgeInsets.all(14),
+                child: Row(children: [
+                  Expanded(child: text),
+                  const SizedBox(width: 8),
+                  Icon(adIcon, color: Colors.white.withValues(alpha: 0.9), size: 34),
+                ]),
+              ),
       ),
     );
   }

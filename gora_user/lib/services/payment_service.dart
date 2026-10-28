@@ -8,7 +8,17 @@ class PaymentResult {
   final String? error;
   final num? balance; // wallet balance after top-up (for wallet purpose)
   final String? paymentId;
-  const PaymentResult(this.success, {this.error, this.balance, this.paymentId});
+  // Razorpay order + signature for a verified payment. The server re-checks
+  // both when a booking that was paid upfront is tied to its ride, so the
+  // payment can be refunded if no driver is ever found.
+  final String? orderId;
+  final String? signature;
+  const PaymentResult(this.success, {this.error, this.balance, this.paymentId, this.orderId, this.signature});
+
+  /// What /rides/book needs to tie an upfront online payment to the ride.
+  Map<String, String>? get bookingProof => (paymentId ?? '').isNotEmpty && (orderId ?? '').isNotEmpty && (signature ?? '').isNotEmpty
+      ? {'orderId': orderId!, 'paymentId': paymentId!, 'signature': signature!}
+      : null;
 }
 
 /// Central helper for all Razorpay payments (wallet top-up + ride payment)
@@ -33,8 +43,9 @@ class PaymentService {
     final rzp = Razorpay();
 
     rzp.on(Razorpay.EVENT_PAYMENT_SUCCESS, (PaymentSuccessResponse r) async {
+      final orderId = r.orderId ?? order['orderId'].toString();
       final verify = await ApiService.verifyRazorpayPayment(
-        orderId: r.orderId ?? order['orderId'].toString(),
+        orderId: orderId,
         paymentId: r.paymentId ?? '',
         signature: r.signature ?? '',
         purpose: purpose,
@@ -44,7 +55,8 @@ class PaymentService {
       rzp.clear();
       if (!completer.isCompleted) {
         completer.complete(verify['success'] == true
-            ? PaymentResult(true, balance: verify['balance'] as num?, paymentId: r.paymentId)
+            ? PaymentResult(true, balance: verify['balance'] as num?, paymentId: r.paymentId,
+                orderId: orderId, signature: r.signature)
             : PaymentResult(false, error: verify['error']?.toString() ?? 'Verification failed'));
       }
     });
@@ -90,27 +102,41 @@ class PaymentService {
     String? rideId,
     String? contact,
     String? email,
+  }) async =>
+      (await chargeDetailed(context, method: method, amount: amount, rideId: rideId, contact: contact, email: email))
+          .success;
+
+  /// [charge], returning the full result — for a booking paid BEFORE the ride
+  /// exists (outstation), whose Razorpay order/payment/signature are sent with
+  /// the booking so the server can tie the payment to the ride.
+  static Future<PaymentResult> chargeDetailed(
+    BuildContext context, {
+    required String method,
+    required num amount,
+    String? rideId,
+    String? contact,
+    String? email,
   }) async {
-    if (method == 'cash' || amount <= 0) return true;
+    if (method == 'cash' || amount <= 0) return const PaymentResult(true);
 
     if (method == 'wallet') {
       final r = await ApiService.walletPay(amount: amount, note: 'Ride payment', rideId: rideId);
-      if (r['success'] == true) return true;
+      if (r['success'] == true) return PaymentResult(true, balance: r['balance'] as num?);
+      final err = r['error']?.toString() ?? 'Wallet payment failed';
       if (context.mounted) {
-        final err = r['error']?.toString() ?? 'Wallet payment failed';
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
       }
-      return false;
+      return PaymentResult(false, error: err);
     }
 
     // online
     final res = await _razorpay(
       amount: amount, purpose: 'ride', rideId: rideId, contact: contact, email: email, description: 'Ride payment',
     );
-    if (res.success) return true;
+    if (res.success) return res;
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res.error ?? 'Payment failed')));
     }
-    return false;
+    return res;
   }
 }

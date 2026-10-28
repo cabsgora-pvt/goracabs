@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../theme/app_theme.dart';
+import 'package:provider/provider.dart';
+import '../providers/user_provider.dart';
+import '../widgets/ride_ui/ride_ui.dart';
 import 'home_screen.dart';
 
 class InquiryScreen extends StatefulWidget {
@@ -41,6 +43,34 @@ class _InquiryScreenState extends State<InquiryScreen> {
     'Sightseeing',
     'Other',
   ];
+
+  // Which contact fields were already filled from the profile — each is
+  // filled once, so a value the rider clears or edits is left alone.
+  final _prefilled = <TextEditingController>{};
+
+  /// The inquiry is from the signed-in rider: fill their name, phone and email
+  /// from the profile (and again once the profile finishes loading).
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final u = Provider.of<UserProvider>(context);
+    void fill(TextEditingController c, String v) {
+      if (_prefilled.contains(c) || v.trim().isEmpty) return;
+      if (c.text.isEmpty) c.text = v.trim();
+      _prefilled.add(c);
+    }
+    fill(_nameController, u.name);
+    fill(_mobileController, u.phone);
+    fill(_emailController, u.email);
+  }
+
+  @override
+  void dispose() {
+    for (final c in [_nameController, _emailController, _mobileController, _descriptionController, _durationController]) {
+      c.dispose();
+    }
+    super.dispose();
+  }
 
   Future<void> _pickDate() async {
     final DateTime? picked = await showDatePicker(
@@ -87,122 +117,79 @@ class _InquiryScreenState extends State<InquiryScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Gora Cabs',
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.onSurface,
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
+      backgroundColor: RideUi.surface(context),
+      body: Column(children: [
+        const ServiceBackBar(),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const ServiceTitle(title: 'Any inquiry', subtitle: 'Tours, events, airport transfers and more'),
+                  _buildTextField('Full Name', 'Enter your full name', _nameController, icon: Icons.person_outline),
+                  const SizedBox(height: 16),
+                  _buildTextField('Email', 'Enter your email', _emailController, keyboardType: TextInputType.emailAddress, icon: Icons.mail_outline),
+                  const SizedBox(height: 16),
+                  _buildTextField('Mobile Number', 'Enter your mobile number', _mobileController, keyboardType: TextInputType.phone, icon: Icons.phone_outlined),
+                  const SizedBox(height: 16),
+                  _buildDropdown('Purpose', _purposes, _selectedPurpose, (val) => setState(() => _selectedPurpose = val)),
+                  const SizedBox(height: 16),
+                  _buildDropdown('Event Type', _eventTypes, _selectedEventType, (val) => setState(() => _selectedEventType = val)),
+                  const SizedBox(height: 16),
+                  _buildTextField('Short Description', 'What do you need?', _descriptionController, maxLines: 3),
+                  const SizedBox(height: 16),
+                  _buildTextField('Time Duration', 'How long do you need it for?', _durationController, icon: Icons.timelapse),
+                  const SizedBox(height: 16),
+                  const FieldLabel('Date & time'),
+                  PickerPill(
+                    icon: Icons.calendar_today_outlined,
+                    label: 'Date',
+                    value: _selectedDate == null ? 'Select date' : DateFormat('dd/MM/yyyy').format(_selectedDate!),
+                    placeholder: _selectedDate == null,
+                    onTap: _pickDate,
+                  ),
+                  const SizedBox(height: 10),
+                  PickerPill(
+                    icon: Icons.access_time,
+                    label: 'Time',
+                    value: _selectedTime == null ? 'Select time' : _selectedTime!.format(context),
+                    placeholder: _selectedTime == null,
+                    onTap: _pickTime,
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildTextField('Full Name', _nameController),
-              const SizedBox(height: 20),
-              _buildTextField('Email', _emailController, keyboardType: TextInputType.emailAddress),
-              const SizedBox(height: 20),
-              _buildTextField('Mobile Number', _mobileController, keyboardType: TextInputType.phone),
-              const SizedBox(height: 20),
-              _buildDropdown('Purpose', _purposes, _selectedPurpose, (val) => setState(() => _selectedPurpose = val)),
-              const SizedBox(height: 20),
-              _buildDropdown('Event Type', _eventTypes, _selectedEventType, (val) => setState(() => _selectedEventType = val)),
-              const SizedBox(height: 20),
-              _buildTextField('Short Description', _descriptionController, maxLines: 3),
-              const SizedBox(height: 20),
-              _buildTextField('Time Duration', _durationController),
-              const SizedBox(height: 20),
-              _buildPickerField(
-                'Date',
-                _selectedDate == null ? '' : DateFormat('dd/MM/yyyy').format(_selectedDate!),
-                Icons.calendar_today,
-                _pickDate,
-              ),
-              const SizedBox(height: 20),
-              _buildPickerField(
-                'Time',
-                _selectedTime == null ? '' : _selectedTime!.format(context),
-                Icons.access_time,
-                _pickTime,
-              ),
-              const SizedBox(height: 40),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    if (_formKey.currentState!.validate()) {
-                      _showSuccessDialog();
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF1C2656),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text(
-                    'Request Inquiry',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
+        PrimaryCtaBar(
+          label: 'Request Inquiry',
+          onPressed: () {
+            if (_formKey.currentState!.validate()) {
+              _showSuccessDialog();
+            }
+          },
         ),
-      ),
+      ]),
     );
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, {TextInputType? keyboardType, int maxLines = 1}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.grey[600],
-            fontSize: 16,
-          ),
-        ),
-        TextFormField(
-          controller: controller,
-          keyboardType: keyboardType,
-          maxLines: maxLines,
-          decoration: const InputDecoration(
-            enabledBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: Colors.grey, width: 0.5),
-            ),
-            focusedBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: Color(0xFF1C2656), width: 1),
-            ),
-            isDense: true,
-            contentPadding: EdgeInsets.symmetric(vertical: 8),
-          ),
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'Please enter $label';
-            }
-            return null;
-          },
-        ),
-      ],
+  Widget _buildTextField(String label, String hint, TextEditingController controller, {TextInputType? keyboardType, int maxLines = 1, IconData? icon}) {
+    return LabeledField(
+      label: label,
+      hint: hint,
+      controller: controller,
+      icon: icon,
+      keyboardType: keyboardType,
+      maxLines: maxLines,
+      validator: (value) {
+        if (value == null || value.isEmpty) {
+          return 'Please enter $label';
+        }
+        return null;
+      },
     );
   }
 
@@ -210,78 +197,33 @@ class _InquiryScreenState extends State<InquiryScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.grey[600],
-            fontSize: 16,
-          ),
-        ),
-        DropdownButtonFormField<String>(
-          // Without isExpanded a dropdown sizes to its LONGEST item, so a long
-          // option overflowed the field on narrow screens. Expanding it makes
-          // the selected label ellipsise inside the decoration instead.
-          isExpanded: true,
-          value: currentValue,
-          items: items.map((String value) {
-            return DropdownMenuItem<String>(
-              value: value,
-              child: Text(value),
-            );
-          }).toList(),
-          onChanged: onChanged,
-          decoration: const InputDecoration(
-            enabledBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: Colors.grey, width: 0.5),
-            ),
-            focusedBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: Color(0xFF1C2656), width: 1),
-            ),
-            isDense: true,
-            contentPadding: EdgeInsets.symmetric(vertical: 8),
-          ),
-          icon: const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
-          validator: (value) {
-            if (value == null || value.isEmpty) {
-              return 'Please select $label';
-            }
-            return null;
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPickerField(String label, String value, IconData icon, VoidCallback onTap) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.grey[600],
-            fontSize: 16,
-          ),
-        ),
-        GestureDetector(
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: const BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: Colors.grey, width: 0.5),
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  value.isEmpty ? '' : value,
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
-              ],
-            ),
+        FieldLabel(label),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: RideUi.fieldBox(context),
+          child: DropdownButtonFormField<String>(
+            // Without isExpanded a dropdown sizes to its LONGEST item, so a long
+            // option overflowed the field on narrow screens. Expanding it makes
+            // the selected label ellipsise inside the decoration instead.
+            isExpanded: true,
+            initialValue: currentValue,
+            items: items.map((String value) {
+              return DropdownMenuItem<String>(
+                value: value,
+                child: Text(value, overflow: TextOverflow.ellipsis),
+              );
+            }).toList(),
+            onChanged: onChanged,
+            decoration: RideUi.bareInput(context, 'Select ${label.toLowerCase()}', vertical: 14),
+            style: RideUi.body(context, size: 14.5, weight: FontWeight.w600),
+            borderRadius: BorderRadius.circular(12),
+            icon: Icon(Icons.keyboard_arrow_down, color: RideUi.muted(context)),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return 'Please select $label';
+              }
+              return null;
+            },
           ),
         ),
       ],

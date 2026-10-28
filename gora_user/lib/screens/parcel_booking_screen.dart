@@ -2,7 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import '../config/app_config.dart';
+import '../providers/user_provider.dart';
 import '../services/api_service.dart';
 import '../utils/vehicle_marker.dart';
 import '../utils/map_markers.dart';
@@ -10,6 +12,7 @@ import '../services/location_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/ride_booking.dart';
 import '../widgets/payment_coupon_bar.dart';
+import '../widgets/ride_ui/ride_ui.dart';
 import 'active_ride_screen.dart';
 
 // Parcel / Delivery — sender books a driver to carry a package to a receiver.
@@ -24,9 +27,12 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   final _pickupCtrl = TextEditingController(), _dropCtrl = TextEditingController();
   final _senderName = TextEditingController(), _senderPhone = TextEditingController();
   final _receiverName = TextEditingController(), _receiverPhone = TextEditingController();
-  final _weight = TextEditingController();
   double? _pLat, _pLng, _dLat, _dLng;
-  String _itemType = 'Documents';
+  /// What is being sent — one tap, required before booking.
+  String? _itemType;
+  /// Set once the rider opens the sender sheet: from then on their own text
+  /// wins over the profile prefill.
+  bool _senderTouched = false;
   String _packageSize = 'S';
   bool _isFragile = false;
   bool _cod = false;
@@ -45,6 +51,11 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   String? _error;
 
   final _itemTypes = ['Documents', 'Electronics', 'Clothing', 'Food', 'Fragile', 'Other'];
+  static const _itemIcons = <String, IconData>{
+    'Documents': Icons.description_outlined, 'Electronics': Icons.devices_other_outlined,
+    'Clothing': Icons.checkroom_outlined, 'Food': Icons.restaurant_outlined,
+    'Fragile': Icons.wine_bar_outlined, 'Other': Icons.category_outlined,
+  };
 
   List<Map<String, dynamic>> _pickSug = [], _dropSug = [];
   Timer? _debounce;
@@ -67,9 +78,20 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     _initLocation();
   }
 
+  /// The sender is almost always the rider: prefill from their profile (and
+  /// again when the profile finishes loading) unless they have edited it.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final u = Provider.of<UserProvider>(context);
+    if (_senderTouched) return;
+    if (_senderName.text.isEmpty && u.name.isNotEmpty) _senderName.text = u.name;
+    if (_senderPhone.text.isEmpty && u.phone.isNotEmpty) _senderPhone.text = u.phone;
+  }
+
   @override
   void dispose() { _debounce?.cancel();
-    for (final c in [_pickupCtrl, _dropCtrl, _senderName, _senderPhone, _receiverName, _receiverPhone, _weight, _itemValue, _codAmount]) { c.dispose(); }
+    for (final c in [_pickupCtrl, _dropCtrl, _senderName, _senderPhone, _receiverName, _receiverPhone, _itemValue, _codAmount]) { c.dispose(); }
     super.dispose(); }
 
   Future<void> _initLocation() async {
@@ -106,7 +128,9 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     try {
       final res = await ApiService.estimateFare(
         pickupLat: _pLat!, pickupLng: _pLng!, dropLat: _dLat, dropLng: _dLng, service: 'delivery',
-        weightKg: double.tryParse(_weight.text) ?? 0);
+        // Ola / Rapido style: no weight selection and no per-kg charge — the
+        // parcel limits line covers weight, so the server's perKg term adds 0.
+        weightKg: 0);
       if (res['available'] != true || res['vehicles'] is! List) { setState(() { _loading = false; _error = (res['message'] ?? 'Delivery not available here').toString(); }); return; }
       setState(() {
         _vehicles = (res['vehicles'] as List).map((v) => Map<String, dynamic>.from(v as Map)).toList();
@@ -128,7 +152,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         'quoteToken': v['quoteToken'],
         'senderName': _senderName.text, 'senderPhone': _senderPhone.text,
         'receiverName': _receiverName.text, 'receiverPhone': _receiverPhone.text,
-        'itemType': _itemType, 'weightKg': double.tryParse(_weight.text) ?? 0,
+        'itemType': _itemType, 'weightKg': 0,
         'packageSize': _packageSize, 'isFragile': _isFragile,
         'itemValue': double.tryParse(_itemValue.text) ?? 0,
         'codAmount': _cod ? (double.tryParse(_codAmount.text) ?? 0) : 0,
@@ -172,7 +196,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     setState(() { if (url != null) _photoUrls.add(url); _uploading = false; });
   }
 
-  bool get _formValid => _pLat != null && _dLat != null && _selectedVehicle != null
+  bool get _formValid => _pLat != null && _dLat != null && _selectedVehicle != null && _itemType != null
       && _senderName.text.isNotEmpty && _senderPhone.text.isNotEmpty
       && _receiverName.text.isNotEmpty && _receiverPhone.text.isNotEmpty;
 
@@ -180,57 +204,33 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   Widget build(BuildContext context) {
     if (_showMap) return _buildMapPicker();
     return Scaffold(
-      appBar: AppBar(title: const Text('Gora Parcel', style: TextStyle(fontWeight: FontWeight.bold)), elevation: 0),
+      backgroundColor: RideUi.surface(context),
       body: Column(children: [
-        // Send / Receive tabs
-        Container(color: Theme.of(context).cardColor, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(children: [
-            Expanded(child: _tabBtn('Send', 'Send Parcel', 'Send within city limit')),
-            const SizedBox(width: 12),
-            Expanded(child: _tabBtn('Receive', 'Receive Parcel', 'Get parcel within city limit')),
-          ])),
+        const ServiceBackBar(),
         Expanded(child: _tab == 'Send' ? _buildSend() : _buildReceive()),
       ]),
     );
   }
 
-  Widget _tabBtn(String tab, String title, String subtitle) {
-    final sel = _tab == tab;
-    return GestureDetector(onTap: () { setState(() => _tab = tab); if (tab == 'Receive') _loadMyParcels(); },
-      child: Container(padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: sel ? AppTheme.primaryBlue.withOpacity(0.08) : Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: sel ? AppTheme.primaryBlue : Colors.grey[300]!, width: sel ? 1.5 : 1),
-        ),
-        child: Row(children: [
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: TextStyle(color: sel ? AppTheme.primaryBlue : Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 14)),
-            const SizedBox(height: 2),
-            Text(subtitle, style: TextStyle(fontSize: 10.5, color: Colors.grey[600])),
-          ])),
-          if (sel) const Icon(Icons.check_circle, color: AppTheme.primaryBlue, size: 18),
-        ])));
+  /// Title and the Send / Receive choice — the first thing in either tab's list.
+  Widget _top() {
+    final send = _tab == 'Send';
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
+      ServiceTitle(
+        title: send ? 'Send a parcel' : 'Receive a parcel',
+        subtitle: send ? 'Door-to-door delivery within the city' : 'Parcels you sent and parcels coming to you',
+      ),
+      ChoiceSegment<String>(
+        options: const [
+          ChoiceOption('Send', 'Send Parcel', subtitle: 'Send within city limit', icon: Icons.north_east),
+          ChoiceOption('Receive', 'Receive Parcel', subtitle: 'Get parcel within city limit', icon: Icons.south_west),
+        ],
+        selected: _tab,
+        onChanged: (tab) { setState(() => _tab = tab); if (tab == 'Receive') _loadMyParcels(); },
+      ),
+      const SizedBox(height: 16),
+    ]);
   }
-
-  Widget _abBadge(String l, Color c) => Container(
-        width: 26, height: 26, alignment: Alignment.center,
-        decoration: BoxDecoration(color: c, shape: BoxShape.circle),
-        child: Text(l, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-      );
-
-  Widget _spec(IconData icon, String text) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(children: [
-          Container(
-            width: 34, height: 34, alignment: Alignment.center,
-            decoration: BoxDecoration(color: AppTheme.primaryBlue.withOpacity(0.1), shape: BoxShape.circle),
-            child: Icon(icon, size: 18, color: AppTheme.primaryBlue),
-          ),
-          const SizedBox(width: 12),
-          Expanded(child: Text(text, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500))),
-        ]),
-      );
 
   List<Map<String, dynamic>> _incoming = [];
   Future<void> _loadMyParcels() async {
@@ -248,20 +248,24 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   }
 
   Widget _buildReceive() {
-    if (_loadingParcels) return const Center(child: CircularProgressIndicator());
-    if (_myParcels.isEmpty && _incoming.isEmpty) return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Icon(Icons.local_shipping, size: 64, color: Colors.grey[300]), const SizedBox(height: 12),
-      Text('No parcels yet', style: TextStyle(color: Colors.grey[500], fontSize: 15)),
-      const SizedBox(height: 4), Text('Sent & incoming parcels appear here', style: TextStyle(color: Colors.grey[400], fontSize: 12)),
-    ]));
-    return ListView(padding: const EdgeInsets.all(16), children: [
+    const pad = EdgeInsets.fromLTRB(16, 4, 16, 16);
+    if (_loadingParcels) return ListView(padding: pad, children: [_top(), const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()))]);
+    if (_myParcels.isEmpty && _incoming.isEmpty) return ListView(padding: pad, children: [_top(), const SizedBox(height: 40), Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Container(width: 72, height: 72, decoration: BoxDecoration(color: RideUi.tile(context), shape: BoxShape.circle),
+        child: Icon(Icons.local_shipping_outlined, size: 34, color: RideUi.muted(context))),
+      const SizedBox(height: 14),
+      Text('No parcels yet', style: RideUi.title(context, size: 17)),
+      const SizedBox(height: 4), Text('Sent & incoming parcels appear here', style: RideUi.caption(context, size: 13)),
+    ])]);
+    return ListView(padding: pad, children: [
+      _top(),
       if (_incoming.isNotEmpty) ...[
-        Padding(padding: const EdgeInsets.only(bottom: 8), child: Text('INCOMING TO YOU', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.teal[700], letterSpacing: 0.5))),
+        const ServiceSection('Incoming to you', top: 8),
         ..._incoming.map((p) => _parcelTile(p, incoming: true)),
         const SizedBox(height: 16),
       ],
       if (_myParcels.isNotEmpty)
-        Padding(padding: const EdgeInsets.only(bottom: 8), child: Text('SENT BY YOU', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.grey[600], letterSpacing: 0.5))),
+        const ServiceSection('Sent by you', top: 8),
       ..._myParcels.map((p) => _parcelTile(p, incoming: false)),
     ]);
   }
@@ -282,7 +286,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         // without cancel or payment. The sender gets the full ride screen.
         onTap: active ? () => incoming ? _trackLive(p) : _openSentParcel(p) : null,
         child: Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey[200]!)),
+        decoration: BoxDecoration(color: RideUi.tile(context), borderRadius: BorderRadius.circular(RideUi.radius)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -397,238 +401,375 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
       ]));
   }
 
+  /// One screen, Rapido-style: route → contacts → what → weight, the rest under
+  /// "More options", and the vehicles with their prices once the drop is set.
   Widget _buildSend() {
+    final selFare = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {})['fare'];
+    // The button says what is still missing, in the order the form asks for
+    // it, so a disabled button is never a mystery. The checks are exactly
+    // _formValid's; this only names the first one that fails.
+    final String cta;
+    if (_pLat == null) {
+      cta = 'Add pickup location';
+    } else if (_dLat == null) {
+      cta = 'Add drop location';
+    } else if (_senderName.text.isEmpty || _senderPhone.text.isEmpty) {
+      cta = 'Add sender details';
+    } else if (_receiverName.text.isEmpty || _receiverPhone.text.isEmpty) {
+      cta = 'Add receiver details';
+    } else if (_itemType == null) {
+      cta = "Select what you're sending";
+    } else if (_selectedVehicle == null || selFare == null) {
+      cta = 'Choose a vehicle';
+    } else {
+      cta = 'Book $_selectedVehicle · ₹$selFare';
+    }
     return Column(children: [
-        Expanded(child: ListView(padding: const EdgeInsets.all(16), children: [
-          _title('Send or Receive Parcel'),
-          Container(
-            decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(14), border: Border.all(color: Colors.grey[200]!)),
-            padding: const EdgeInsets.all(10),
-            child: Column(children: [
-              Row(children: [
-                _abBadge('A', const Color(0xFF12A150)),
-                const SizedBox(width: 10),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Collect from', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 4),
-                  _locField(Icons.radio_button_checked, const Color(0xFF12A150), _pickupCtrl, 'Add sender address', pickup: true),
-                ])),
-              ]),
-              ..._pickSug.map((s) => _sugTile(s, pickup: true)),
-              Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Divider(height: 1, color: Colors.grey[200])),
-              Row(children: [
-                _abBadge('B', const Color(0xFFE53935)),
-                const SizedBox(width: 10),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Deliver to', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 4),
-                  _locField(Icons.location_on, const Color(0xFFE53935), _dropCtrl, 'Add recipient address', pickup: false),
-                ])),
-              ]),
-              ..._dropSug.map((s) => _sugTile(s, pickup: false)),
-            ]),
-          ),
-          const SizedBox(height: 16),
-          // Fit these specifications
-          _title('Fit these specifications'),
-          _spec(Icons.inventory_2_outlined, 'Parcel weighs 20kg or less'),
-          _spec(Icons.block, 'No illegal, alcohol or restricted items'),
-          _spec(Icons.backpack_outlined, 'Item should fit in a backpack'),
-          _spec(Icons.warning_amber_rounded, 'Avoid sending high value & fragile items'),
-
-          const SizedBox(height: 16), _title('Parcel Details'),
-          Wrap(spacing: 8, runSpacing: 8, children: _itemTypes.map(_chip).toList()),
-          const SizedBox(height: 12),
-          _field('Weight (approx. kg)', _weight, Icons.fitness_center, num: true, onChange: _loadFares),
-          const SizedBox(height: 12),
-          // Package size
-          Row(children: [
-            const Text('Size:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)), const SizedBox(width: 10),
-            ...['S', 'M', 'L'].map((s) => Padding(padding: const EdgeInsets.only(right: 8), child: GestureDetector(
-              onTap: () => setState(() => _packageSize = s),
-              child: Container(width: 40, height: 36, alignment: Alignment.center,
-                decoration: BoxDecoration(color: _packageSize == s ? AppTheme.primaryBlue : Theme.of(context).cardColor, borderRadius: BorderRadius.circular(8), border: Border.all(color: _packageSize == s ? AppTheme.primaryBlue : Colors.grey[300]!)),
-                child: Text(s, style: TextStyle(color: _packageSize == s ? Colors.white : Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)))))),
-          ]),
-          const SizedBox(height: 10),
-          // Fragile + COD toggles
-          Row(children: [
-            Expanded(child: _toggleTile('Fragile', Icons.warning_amber, _isFragile, (v) => setState(() => _isFragile = v))),
-            const SizedBox(width: 8),
-            Expanded(child: _toggleTile('COD', Icons.payments, _cod, (v) => setState(() => _cod = v))),
-          ]),
-          const SizedBox(height: 10),
-          _field('Item value ₹ (for insurance)', _itemValue, Icons.shield, num: true),
-          if (_cod) ...[const SizedBox(height: 10), _field('COD amount ₹ (receiver pays)', _codAmount, Icons.account_balance_wallet, num: true)],
-          const SizedBox(height: 12),
-          // Parcel photos
-          _title('Parcel Photos (proof)'),
-          SizedBox(height: 84, child: ListView(scrollDirection: Axis.horizontal, children: [
-            ..._photoUrls.map((u) => Container(width: 84, height: 84, margin: const EdgeInsets.only(right: 8),
-              decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), image: DecorationImage(image: NetworkImage(AppConfig.imageUrl(u)), fit: BoxFit.cover)))),
-            GestureDetector(onTap: _uploading ? null : _addPhoto, child: Container(width: 84, height: 84,
-              decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[300]!)),
-              child: _uploading ? const Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))) : const Icon(Icons.add_a_photo, color: AppTheme.primaryBlue, size: 28))),
-          ])),
-
-          const SizedBox(height: 12),
-          // Schedule for later
-          GestureDetector(onTap: () async {
-            final d = await showDatePicker(context: context, initialDate: _scheduledAt ?? DateTime.now(), firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 30)));
-            if (d == null || !mounted) return;
-            final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_scheduledAt ?? DateTime.now()));
-            if (t == null) return;
-            setState(() => _scheduledAt = DateTime(d.year, d.month, d.day, t.hour, t.minute));
-          }, child: Container(padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
-            child: Row(children: [const Icon(Icons.schedule, size: 18, color: Colors.grey), const SizedBox(width: 10),
-              Expanded(child: Text(_scheduledAt == null ? 'Deliver now (tap to schedule for later)' : 'Scheduled: ${_scheduledAt!.day}/${_scheduledAt!.month} ${_scheduledAt!.hour}:${_scheduledAt!.minute.toString().padLeft(2, '0')}',
-                style: TextStyle(fontSize: 13, color: _scheduledAt == null ? Colors.grey[500] : Theme.of(context).colorScheme.onSurface, fontWeight: _scheduledAt == null ? FontWeight.normal : FontWeight.w600))),
-              if (_scheduledAt != null) GestureDetector(onTap: () => setState(() => _scheduledAt = null), child: const Icon(Icons.close, size: 16, color: Colors.grey))]))),
-
-          const SizedBox(height: 16), _title('Sender'),
-          _field('Sender name', _senderName, Icons.person_outline),
-          const SizedBox(height: 10),
-          _field('Sender phone', _senderPhone, Icons.phone_android, phone: true),
-
-          const SizedBox(height: 16), _title('Receiver'),
-          _field('Receiver name', _receiverName, Icons.person),
-          const SizedBox(height: 10),
-          _field('Receiver phone', _receiverPhone, Icons.phone, phone: true),
-
-          const SizedBox(height: 16), _title('Choose Vehicle'),
-          if (_loading) const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()))
-          else if (_error != null) _info(_error!)
-          else if (_vehicles.isEmpty) _info('Enter pickup to see delivery vehicles')
-          else ..._vehicles.map(_vehicleCard),
-          const SizedBox(height: 16),
-        ])),
-        Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: Theme.of(context).cardColor, boxShadow: [BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, -2))]),
-          child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
-            PaymentCouponBar(
-              baseFare: (_vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {})['fare'] as num?) ?? 0,
-              onChanged: (pm, cc, cd) => setState(() { _paymentMode = pm; _couponCode = cc; _couponDiscount = cd; }),
+        Expanded(child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
+          _top(),
+          RouteInputBlock(rows: [
+            RouteFieldRow(
+              marker: RouteMarkerKind.pickup,
+              trailing: MapPickAction(tooltip: 'Pick pickup on map', onTap: () => _openMap(pickup: true)),
+              child: _locField('Collect from', _pickupCtrl, 'Add sender address', pickup: true),
             ),
-            const SizedBox(height: 12),
-            SizedBox(width: double.infinity, child: ElevatedButton(
-            onPressed: _formValid ? _showConfirm : null,
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue, padding: const EdgeInsets.symmetric(vertical: 16), disabledBackgroundColor: Colors.grey[300]),
-            child: const Text('Proceed to Book', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)))),
-          ]))),
+            RouteFieldRow(
+              marker: RouteMarkerKind.drop,
+              trailing: MapPickAction(tooltip: 'Pick drop on map', onTap: () => _openMap(pickup: false)),
+              child: _locField('Deliver to', _dropCtrl, 'Add recipient address', pickup: false),
+            ),
+          ]),
+          ..._pickSug.map((s) => _sugTile(s, pickup: true)),
+          ..._dropSug.map((s) => _sugTile(s, pickup: false)),
+          // Who hands it over and who receives it — one compact row per stop.
+          if (_pLat != null) ...[const SizedBox(height: 10), _contactRow(sender: true)],
+          if (_dLat != null) ...[const SizedBox(height: 8), _contactRow(sender: false)],
+
+          const ServiceSection('What are you sending?'),
+          Wrap(spacing: 8, runSpacing: 8, children: _itemTypes.map(_chip).toList()),
+
+          const SizedBox(height: 10),
+          Text('Max 20 kg · must fit in a backpack · no illegal, alcohol or restricted items',
+            style: RideUi.caption(context, size: 12)),
+          const SizedBox(height: 16),
+
+          // Everything optional, closed by default.
+          CollapsibleInfo(
+            title: _moreTitle(),
+            icon: Icons.tune,
+            children: [
+              const SizedBox(height: 4),
+              const FieldLabel('Package size'),
+              ChoiceSegment<String>(
+                options: const [ChoiceOption('S', 'S'), ChoiceOption('M', 'M'), ChoiceOption('L', 'L')],
+                selected: _packageSize,
+                onChanged: (s) => setState(() => _packageSize = s),
+              ),
+              const SizedBox(height: 12),
+              _toggleTile('Fragile', 'Handle with extra care', Icons.warning_amber, _isFragile, (v) => setState(() => _isFragile = v)),
+              const SizedBox(height: 8),
+              _toggleTile('COD', 'Receiver pays the amount below on delivery', Icons.payments_outlined, _cod, (v) => setState(() => _cod = v)),
+              if (_cod) ...[const SizedBox(height: 12), _field('COD amount ₹ (receiver pays)', 'COD amount in ₹', _codAmount, Icons.account_balance_wallet_outlined, num: true)],
+              const SizedBox(height: 12),
+              _field('Item value ₹ (for insurance)', 'Item value in ₹', _itemValue, Icons.shield_outlined, num: true),
+              const SizedBox(height: 4),
+              Text('Avoid sending high value & fragile items', style: RideUi.caption(context, size: 12)),
+
+              const ServiceSection('Parcel photos (proof)', subtitle: 'Photograph the parcel before handing it over'),
+              SizedBox(height: 84, child: ListView(scrollDirection: Axis.horizontal, children: [
+                ..._photoUrls.map((u) => Container(width: 84, height: 84, margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), image: DecorationImage(image: NetworkImage(AppConfig.imageUrl(u)), fit: BoxFit.cover)))),
+                SizedBox(width: 84, height: 84, child: RideTile(
+                  onTap: _uploading ? null : _addPhoto,
+                  padding: EdgeInsets.zero,
+                  child: Center(child: _uploading
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : Column(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.add_a_photo_outlined, color: RideUi.ink(context), size: 24),
+                        const SizedBox(height: 4),
+                        Text('Add photo', style: RideUi.caption(context, size: 11)),
+                      ])),
+                )),
+              ])),
+
+              const ServiceSection('Pickup time'),
+              PickerPill(
+                icon: Icons.schedule,
+                label: _scheduledAt == null ? 'Deliver now' : 'Scheduled',
+                value: _scheduledAt == null ? 'Tap to schedule for later' : serviceDateTime(_scheduledAt!),
+                placeholder: _scheduledAt == null,
+                trailingText: _scheduledAt == null ? 'Schedule' : null,
+                onClear: _scheduledAt != null ? () => setState(() => _scheduledAt = null) : null,
+                onTap: () async {
+                  final d = await showDatePicker(context: context, initialDate: _scheduledAt ?? DateTime.now(), firstDate: DateTime.now(), lastDate: DateTime.now().add(const Duration(days: 30)));
+                  if (d == null || !mounted) return;
+                  final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_scheduledAt ?? DateTime.now()));
+                  if (t == null) return;
+                  setState(() => _scheduledAt = DateTime(d.year, d.month, d.day, t.hour, t.minute));
+                },
+              ),
+            ],
+          ),
+
+          // Vehicles and their real prices, once there is a route to price.
+          if (_dLat == null)
+            Padding(padding: const EdgeInsets.only(top: 20),
+              child: Text('Add a drop location to see vehicles and prices', style: RideUi.caption(context, size: 13)))
+          else ...[
+            const ServiceSection('Choose vehicle'),
+            if (_loading) const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()))
+            else if (_error != null) _info(_error!)
+            else if (_vehicles.isEmpty) _info('No delivery vehicles available here')
+            else ..._vehicles.map(_vehicleCard),
+          ],
+        ])),
+        PrimaryCtaBar(
+          top: PaymentCouponBar(
+            baseFare: (selFare as num?) ?? 0,
+            onChanged: (pm, cc, cd) => setState(() { _paymentMode = pm; _couponCode = cc; _couponDiscount = cd; }),
+          ),
+          label: cta,
+          onPressed: _formValid ? _showConfirm : null,
+        ),
       ]);
   }
 
+  /// "More options", plus what is switched on inside it — so a COD or a
+  /// schedule set there is never hidden behind a closed row.
+  String _moreTitle() {
+    final on = <String>[
+      if (_cod) 'COD',
+      if (_isFragile) 'Fragile',
+      if (_scheduledAt != null) 'Scheduled',
+      if (_photoUrls.isNotEmpty) '${_photoUrls.length} photo${_photoUrls.length == 1 ? '' : 's'}',
+    ];
+    return on.isEmpty ? 'More options' : 'More options · ${on.join(', ')}';
+  }
+
+  static String _kg(double kg) => kg == kg.roundToDouble() ? kg.toInt().toString() : kg.toString();
+
+  /// Sender / receiver under the route: name · phone, or a prompt to add them.
+  Widget _contactRow({required bool sender}) {
+    final name = (sender ? _senderName : _receiverName).text.trim();
+    final phone = (sender ? _senderPhone : _receiverPhone).text.trim();
+    final complete = name.isNotEmpty && phone.isNotEmpty;
+    final shown = [name, phone].where((s) => s.isNotEmpty).join(' · ');
+    return RideTile(
+      onTap: () => _editContact(sender: sender),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(children: [
+        Icon(sender ? Icons.person_outline : Icons.person_pin_circle_outlined, size: 20, color: RideUi.ink(context)),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          Text(sender ? 'Sender' : (complete ? 'Receiver' : 'Receiver · required'),
+            maxLines: 1, overflow: TextOverflow.ellipsis, style: RideUi.caption(context, size: 12)),
+          Text(shown.isNotEmpty ? shown : (sender ? 'Add sender contact' : 'Add receiver contact'),
+            maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: shown.isNotEmpty
+              ? RideUi.body(context, size: 14, weight: FontWeight.w700)
+              : RideUi.body(context, size: 14, weight: FontWeight.w600).copyWith(color: RideUi.muted(context))),
+        ])),
+        const SizedBox(width: 8),
+        Text(complete ? 'Edit' : 'Add', style: RideUi.body(context, size: 12.5, weight: FontWeight.w800).copyWith(color: RideUi.accent(context))),
+      ]),
+    );
+  }
+
+  /// Name + phone in a small sheet, edited in place.
+  Future<void> _editContact({required bool sender}) async {
+    if (sender) _senderTouched = true;
+    final name = sender ? _senderName : _receiverName;
+    final phone = sender ? _senderPhone : _receiverPhone;
+    await showModalBottomSheet<void>(context: context, isScrollControlled: true, useSafeArea: true,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => ParcelContactSheet(
+        sender: sender, name: name, phone: phone,
+        onChanged: () { if (mounted) setState(() {}); },
+      ));
+    if (mounted) setState(() {});
+  }
+
+  void _openMap({required bool pickup}) => setState(() { _pickingPickup = pickup; _mapAddr = ''; _showMap = true; });
+
   void _showConfirm() {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
+    final raw = (v['imageUrl'] as String?) ?? '';
+    final pay = _cod ? 'Cash' : (_paymentMode == 'online' ? 'Online' : (_paymentMode == 'wallet' ? 'Wallet' : 'Cash'));
+    final codAmt = double.tryParse(_codAmount.text) ?? 0;
     showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Padding(padding: EdgeInsets.only(left: 20, right: 20, top: 20, bottom: 20 + MediaQuery.of(ctx).viewPadding.bottom),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Confirm Parcel', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+      builder: (ctx) => SingleChildScrollView(
+        padding: EdgeInsets.only(left: 16, right: 16, top: 10, bottom: 16 + MediaQuery.of(ctx).viewPadding.bottom),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const SheetHandle(bottom: 14),
+          Text('Confirm parcel', style: RideUi.title(ctx, size: 22)),
           const SizedBox(height: 14),
-          _row('Item', _itemType), _row('Vehicle', _selectedVehicle ?? ''),
-          _row('From', _senderName.text), _row('To', _receiverName.text),
-          const Divider(),
-          _row('Total', '₹${v['fare'] ?? 0}', bold: true),
-          const SizedBox(height: 18),
-          SizedBox(width: double.infinity, child: ElevatedButton(
+          SummaryVehicleTile(
+            leading: VehicleThumb(networkUrl: raw.isEmpty ? '' : AppConfig.imageUrl(raw), fallbackIcon: Icons.local_shipping, size: 48),
+            name: _selectedVehicle ?? '',
+            caption: _itemType ?? '',
+            price: '₹${v['fare'] ?? 0}',
+          ),
+          const SizedBox(height: 14),
+          TripRouteSummary(pickup: _pickupCtrl.text, drop: _dropCtrl.text, fontSize: 13.5),
+          const RideDivider(vertical: 12),
+          SummaryRow('From', '${_senderName.text} · ${_senderPhone.text}'),
+          SummaryRow('To', '${_receiverName.text} · ${_receiverPhone.text}'),
+          SummaryRow('Item', _itemType ?? ''),
+          if (_cod) SummaryRow('COD (receiver pays)', '₹${_kg(codAmt)}'),
+          if (_scheduledAt != null) SummaryRow('Pickup', serviceDateTime(_scheduledAt!)),
+          SummaryRow('Payment', pay),
+          const RideDivider(vertical: 6),
+          SummaryRow('Total', '₹${v['fare'] ?? 0}', bold: true),
+          const SizedBox(height: 16),
+          PrimaryRideButton(
+            label: 'Confirm & Find Driver',
             onPressed: () { Navigator.pop(ctx); _confirmParcel(); },
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue, padding: const EdgeInsets.symmetric(vertical: 14)),
-            child: const Text('Confirm & Find Driver', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)))),
+          ),
         ])));
   }
 
   Widget _buildMapPicker() {
-    return Scaffold(
-      appBar: AppBar(elevation: 0,
-        leading: IconButton(icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface), onPressed: () => setState(() => _showMap = false)),
-        title: Text(_pickingPickup ? 'Pick pickup' : 'Pick drop', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 16, fontWeight: FontWeight.w600)), centerTitle: true),
-      body: Stack(children: [
-        GoogleMap(initialCameraPosition: CameraPosition(target: _center, zoom: 14),
-          onMapCreated: (c) => _mapCtrl = c, onCameraMove: (p) => _center = p.target,
-          onCameraIdle: () async { final a = await ApiService.reverseGeocode(_center.latitude, _center.longitude); if (mounted) setState(() => _mapAddr = a); },
-          myLocationEnabled: true, myLocationButtonEnabled: false, zoomControlsEnabled: false),
-        const Center(child: Padding(padding: EdgeInsets.only(bottom: 40), child: Icon(Icons.location_on, color: Color(0xFFFF5252), size: 48))),
-        Positioned(left: 0, right: 0, bottom: 0, child: Container(padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(20))),
-          child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text(_mapAddr.isEmpty ? 'Move map to set location' : _mapAddr, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 12),
-            SizedBox(width: double.infinity, child: ElevatedButton(
-              onPressed: _mapAddr.isEmpty ? null : () {
-                setState(() {
-                  if (_pickingPickup) { _pLat = _center.latitude; _pLng = _center.longitude; _pickupCtrl.text = _mapAddr; }
-                  else { _dLat = _center.latitude; _dLng = _center.longitude; _dropCtrl.text = _mapAddr; }
-                  _showMap = false;
-                });
-                _loadFares();
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue, padding: const EdgeInsets.symmetric(vertical: 14)),
-              child: const Text('Confirm Location', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)))),
-          ]))))]));
+    return ServiceMapPicker(
+      title: _pickingPickup ? 'Pick pickup' : 'Pick drop',
+      forPickup: _pickingPickup,
+      address: _mapAddr,
+      onBack: () => setState(() => _showMap = false),
+      onLocate: () async {
+        final pos = await LocationService.getCurrentLocation();
+        if (pos == null) return;
+        _mapCtrl?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 15));
+      },
+      map: GoogleMap(initialCameraPosition: CameraPosition(target: _center, zoom: 14),
+        onMapCreated: (c) => _mapCtrl = c, onCameraMove: (p) => _center = p.target,
+        onCameraIdle: () async { final a = await ApiService.reverseGeocode(_center.latitude, _center.longitude); if (mounted) setState(() => _mapAddr = a); },
+        myLocationEnabled: true, myLocationButtonEnabled: false, zoomControlsEnabled: false),
+      onConfirm: _mapAddr.isEmpty ? null : () {
+        setState(() {
+          if (_pickingPickup) { _pLat = _center.latitude; _pLng = _center.longitude; _pickupCtrl.text = _mapAddr; }
+          else { _dLat = _center.latitude; _dLng = _center.longitude; _dropCtrl.text = _mapAddr; }
+          _showMap = false;
+        });
+        _loadFares();
+      },
+    );
   }
 
   // ── builders ──
-  Widget _title(String t) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(t, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)));
-  Widget _info(String t) => Container(padding: const EdgeInsets.all(14), decoration: BoxDecoration(color: Colors.orange[50], borderRadius: BorderRadius.circular(10)),
-    child: Row(children: [Icon(Icons.info_outline, color: Colors.orange[700], size: 18), const SizedBox(width: 8), Expanded(child: Text(t, style: TextStyle(fontSize: 13, color: Colors.orange[800])))]));
+  Widget _info(String t) => NoticeRow(t, tone: NoticeTone.warning);
 
-  Widget _locField(IconData i, Color c, TextEditingController ctrl, String hint, {required bool pickup}) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
-    child: Row(children: [Icon(i, color: c, size: 18), const SizedBox(width: 10),
-      Expanded(child: TextField(controller: ctrl, onChanged: (q) => _search(q, pickup: pickup),
-        decoration: InputDecoration(hintText: hint, border: InputBorder.none, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 12), hintStyle: TextStyle(color: Colors.grey[500], fontSize: 14)), style: const TextStyle(fontSize: 14))),
-      IconButton(icon: Icon(Icons.map, color: c, size: 20), onPressed: () => setState(() { _pickingPickup = pickup; _mapAddr = ''; _showMap = true; }))]));
+  /// A location field inside the route block, with its small label above.
+  Widget _locField(String label, TextEditingController ctrl, String hint, {required bool pickup}) => Padding(
+    padding: const EdgeInsets.only(top: 8),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+      Text(label, style: RideUi.caption(context, size: 11.5).copyWith(fontWeight: FontWeight.w600)),
+      TextField(controller: ctrl, onChanged: (q) => _search(q, pickup: pickup),
+        decoration: RideUi.bareInput(context, hint, vertical: 8), style: RideUi.body(context, size: 14.5, weight: FontWeight.w600)),
+    ]));
 
-  Widget _sugTile(Map<String, dynamic> s, {required bool pickup}) => ListTile(dense: true,
-    leading: const Icon(Icons.location_on, color: Color(0xFFFF5252), size: 18),
-    title: Text(s['mainText']?.toString() ?? '', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-    subtitle: Text(s['secondaryText']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+  Widget _sugTile(Map<String, dynamic> s, {required bool pickup}) => PlaceSuggestionTile(
+    title: s['mainText']?.toString() ?? '',
+    subtitle: s['secondaryText']?.toString(),
     onTap: () => _pick(s, pickup: pickup));
 
-  Widget _chip(String t) {
-    final sel = _itemType == t;
-    return GestureDetector(onTap: () => setState(() => _itemType = t),
-      child: Container(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(color: sel ? AppTheme.primaryBlue : Theme.of(context).cardColor, borderRadius: BorderRadius.circular(20), border: Border.all(color: sel ? AppTheme.primaryBlue : Colors.grey[300]!)),
-        child: Text(t, style: TextStyle(color: sel ? Colors.white : Theme.of(context).colorScheme.onSurface, fontSize: 13, fontWeight: FontWeight.w600))));
-  }
+  Widget _chip(String t) => ServiceChip(label: t, icon: _itemIcons[t], selected: _itemType == t, onTap: () => setState(() => _itemType = t));
 
-  Widget _field(String hint, TextEditingController ctrl, IconData icon, {bool num = false, bool phone = false, VoidCallback? onChange}) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12), decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: Colors.grey[200]!)),
-    child: Row(children: [Icon(icon, color: Colors.grey[600], size: 18), const SizedBox(width: 10),
-      Expanded(child: TextField(controller: ctrl, onChanged: (_) { setState(() {}); onChange?.call(); },
-        keyboardType: num ? TextInputType.number : phone ? TextInputType.phone : TextInputType.text,
-        decoration: InputDecoration(hintText: hint, border: InputBorder.none, isDense: true, contentPadding: const EdgeInsets.symmetric(vertical: 12), hintStyle: TextStyle(color: Colors.grey[500], fontSize: 14)), style: const TextStyle(fontSize: 14)))]));
+  Widget _field(String label, String hint, TextEditingController ctrl, IconData icon, {bool num = false, bool phone = false, VoidCallback? onChange}) => LabeledField(
+    label: label, hint: hint, controller: ctrl, icon: icon,
+    keyboardType: num ? TextInputType.number : phone ? TextInputType.phone : TextInputType.text,
+    onChanged: (_) { setState(() {}); onChange?.call(); });
 
   Widget _vehicleCard(Map<String, dynamic> v) {
     final sel = _selectedVehicle == v['name'];
     final raw = (v['imageUrl'] as String?) ?? '';
     final img = raw.isEmpty ? '' : AppConfig.imageUrl(raw);
-    return GestureDetector(onTap: () => setState(() => _selectedVehicle = v['name'] as String?),
-      child: Container(margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: BorderRadius.circular(12), border: Border.all(color: sel ? AppTheme.primaryBlue : Colors.grey[200]!, width: sel ? 2 : 1)),
-        child: Row(children: [
-          SizedBox(width: 60, height: 44, child: img.isNotEmpty ? Image.network(img, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.local_shipping, color: AppTheme.primaryBlue, size: 34)) : const Icon(Icons.local_shipping, color: AppTheme.primaryBlue, size: 34)),
-          const SizedBox(width: 14),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(v['name']?.toString() ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            if (v['etaMin'] != null) Text('Pickup in ~${v['etaMin']} min', style: const TextStyle(fontSize: 11, color: Color(0xFF4CAF50))),
-          ])),
-          Text('₹${v['fare'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: AppTheme.primaryBlue)),
-        ])));
+    return VehicleOptionRow(
+      selected: sel,
+      onTap: () => setState(() => _selectedVehicle = v['name'] as String?),
+      leading: VehicleThumb(networkUrl: img, fallbackIcon: Icons.local_shipping),
+      name: v['name']?.toString() ?? '',
+      subtitle: v['etaMin'] != null ? 'Pickup in ~${v['etaMin']} min' : null,
+      price: '₹${v['fare'] ?? 0}',
+    );
   }
 
-  Widget _toggleTile(String label, IconData icon, bool val, ValueChanged<bool> onChanged) => GestureDetector(
+  Widget _toggleTile(String label, String caption, IconData icon, bool val, ValueChanged<bool> onChanged) => RideTile(
     onTap: () => onChanged(!val),
-    child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(color: val ? AppTheme.primaryBlue.withOpacity(0.08) : Theme.of(context).cardColor, borderRadius: BorderRadius.circular(10), border: Border.all(color: val ? AppTheme.primaryBlue : Colors.grey[300]!)),
-      child: Row(children: [Icon(icon, size: 16, color: val ? AppTheme.primaryBlue : Colors.grey), const SizedBox(width: 6),
-        Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: val ? AppTheme.primaryBlue : Theme.of(context).colorScheme.onSurface)),
-        const Spacer(), Icon(val ? Icons.check_circle : Icons.circle_outlined, size: 16, color: val ? AppTheme.primaryBlue : Colors.grey)])));
+    padding: const EdgeInsets.only(left: 14, right: 6, top: 6, bottom: 6),
+    child: Row(children: [
+      Icon(icon, size: 20, color: RideUi.ink(context)),
+      const SizedBox(width: 12),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+        Text(label, style: RideUi.body(context, size: 14.5, weight: FontWeight.w700)),
+        Text(caption, maxLines: 2, overflow: TextOverflow.ellipsis, style: RideUi.caption(context, size: 12)),
+      ])),
+      Switch(value: val, onChanged: onChanged, activeTrackColor: RideUi.navy),
+    ]));
+}
 
-  Widget _row(String l, String v, {bool bold = false}) => Padding(padding: const EdgeInsets.symmetric(vertical: 5),
-    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      Text(l, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w500)),
-      Text(v, style: TextStyle(fontSize: 14, fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: bold ? const Color(0xFF1C2656) : null))]));
+/// Name + phone of the sender or receiver, in a keyboard-safe sheet.
+///
+/// The sheet rides on top of the keyboard as one block (the inset is padding
+/// OUTSIDE the scroll view), and the keyboard opens with the sheet on the first
+/// empty field, so the layout has settled before the rider taps anything; the
+/// keyboard action moves name to phone instead of a second tap on a field that
+/// is still moving.
+class ParcelContactSheet extends StatefulWidget {
+  final bool sender;
+  final TextEditingController name;
+  final TextEditingController phone;
+  final VoidCallback onChanged;
+  const ParcelContactSheet({super.key, required this.sender, required this.name, required this.phone, required this.onChanged});
+
+  @override
+  State<ParcelContactSheet> createState() => _ParcelContactSheetState();
+}
+
+class _ParcelContactSheetState extends State<ParcelContactSheet> {
+  final _nameFocus = FocusNode();
+  final _phoneFocus = FocusNode();
+
+  @override
+  void dispose() {
+    _nameFocus.dispose();
+    _phoneFocus.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final sender = widget.sender;
+    final mq = MediaQuery.of(context);
+    return AnimatedPadding(
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(bottom: mq.viewInsets.bottom),
+      child: SingleChildScrollView(
+        padding: EdgeInsets.only(left: 16, right: 16, top: 10, bottom: 16 + mq.viewPadding.bottom),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const SheetHandle(bottom: 14),
+          Text(sender ? 'Sender contact' : 'Receiver contact', style: RideUi.title(context, size: 20)),
+          const SizedBox(height: 4),
+          Text(sender ? 'The driver collects the parcel from this person' : 'The driver hands the parcel to this person',
+            style: RideUi.caption(context, size: 13)),
+          const SizedBox(height: 16),
+          LabeledField(label: 'Name', hint: sender ? 'Sender name' : 'Receiver name', controller: widget.name,
+            icon: Icons.person_outline, focusNode: _nameFocus, autofocus: widget.name.text.isEmpty,
+            textInputAction: TextInputAction.next,
+            onSubmitted: (_) => _phoneFocus.requestFocus(),
+            onChanged: (_) => widget.onChanged()),
+          const SizedBox(height: 12),
+          LabeledField(label: 'Phone', hint: sender ? 'Sender phone' : 'Receiver phone', controller: widget.phone,
+            icon: Icons.phone_outlined, keyboardType: TextInputType.phone, focusNode: _phoneFocus,
+            autofocus: widget.name.text.isNotEmpty && widget.phone.text.isEmpty,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => Navigator.pop(context),
+            onChanged: (_) => widget.onChanged()),
+          const SizedBox(height: 16),
+          PrimaryRideButton(label: 'Done', onPressed: () => Navigator.pop(context)),
+        ]),
+      ),
+    );
+  }
 }

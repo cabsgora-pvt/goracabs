@@ -17,6 +17,7 @@ import 'package:customer_app/utils/map_markers.dart';
 import 'package:customer_app/widgets/driver_waiting_timer.dart';
 import 'package:customer_app/widgets/ride_service_panels.dart';
 import 'package:customer_app/widgets/rental_stops_panel.dart';
+import 'package:customer_app/widgets/cancel_reasons_sheet.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -460,7 +461,9 @@ void main() {
     testWidgets('within the package the heading keeps its normal colour', (tester) async {
       await pumpRide(tester, hireOngoing()..['uiPhaseOverrun'] = false, kCommon);
       final title = tester.widget<Text>(find.text('Overtime'));
-      expect(title.style?.color, isNull);
+      // The normal heading colour (ink), no longer null: a null colour fell
+      // through to the theme's grey body text and looked disabled.
+      expect(title.style?.color, const Color(0xFF111111));
       await teardown(tester);
     });
 
@@ -729,7 +732,7 @@ void main() {
       expect(find.text('Ride scheduled'), findsOneWidget);
       expect(find.text('Tomorrow, 9:30 AM'), findsOneWidget);
       expect(find.byType(SearchRadar), findsNothing);
-      expect(find.text('Connecting you to a nearby driver'), findsNothing);
+      expect(find.text('Connecting you with nearby drivers'), findsNothing);
       await teardown(tester);
     });
 
@@ -837,14 +840,73 @@ void main() {
         await tester.tap(find.text('Cancel Ride'));
         await tester.pump(); // the sheet's slide-in starts on this frame
         await tester.pump(const Duration(milliseconds: 400));
-        expect(find.text('Why are you cancelling?'), findsOneWidget);
+        expect(find.text('Please select a reason for cancellation'), findsOneWidget);
         await tester.tap(find.text('Wrong pickup location'));
+        await tester.pump(const Duration(milliseconds: 100));
+        // The shared sheet asks for a confirm; a reason alone no longer cancels.
+        await tester.tap(find.text('Confirm Cancellation'));
         await tester.pump(const Duration(milliseconds: 100));
         await tester.pump(const Duration(seconds: 1));
       });
       final cancels = log.where((c) => c.url.path.endsWith('/rides/ride123/cancel')).toList();
       expect(cancels, hasLength(1));
       expect(jsonDecode(cancels.single.body)['reason'], 'Wrong pickup location');
+      expect(find.byType(ActiveRideScreen), findsNothing);
+      expect(find.text('HOME'), findsOneWidget);
+      await teardown(tester);
+    });
+
+    // ── No driver found (server-side close) ──
+    // The server cancels a ride nobody took (cancelledBy 'system', reason
+    // 'No driver found'). The screen only reacts to that state on a poll.
+    testWidgets('no driver found: message, polling stops, Try again closes back to the booking origin', (tester) async {
+      final log = <ApiCall>[];
+      final ride = rideJson(status: 'pending', uiPhase: 'finding', uiPhaseLabel: 'Finding a driver')
+        ..['service'] = 'rental';
+      await pumpRide(tester, ride, kCommon, log: log, pushed: true);
+      await act(() async {
+        // Searching for as long as the server says pending.
+        await tester.pump(const Duration(seconds: 7));
+        expect(find.text('No driver found'), findsNothing);
+        expect(find.byType(ActiveRideScreen), findsOneWidget);
+
+        ride['status'] = 'cancelled';
+        ride['cancelledBy'] = 'system';
+        ride['cancellationReason'] = 'No driver found';
+        await tester.pump(const Duration(milliseconds: 3100));
+        await tester.pump(const Duration(milliseconds: 300));
+      });
+      expect(find.text('No driver found'), findsOneWidget);
+      expect(find.text('No drivers available right now. Please try again.'), findsOneWidget);
+
+      final polls = log.where((c) => c.method == 'GET' && c.url.path.endsWith('/rides/ride123')).length;
+      await act(() => tester.pump(const Duration(seconds: 10)));
+      expect(log.where((c) => c.method == 'GET' && c.url.path.endsWith('/rides/ride123')).length, polls,
+          reason: 'polling stops once the server closed the ride');
+      expect(log.where((c) => c.url.path.endsWith('/cancel')), isEmpty, reason: 'the app never cancels it itself');
+      expect(find.byType(ActiveRideScreen), findsOneWidget, reason: 'stays until the rider acts');
+
+      await act(() async {
+        await tester.tap(find.text('Try again'));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+      });
+      expect(find.byType(ActiveRideScreen), findsNothing);
+      expect(find.text('HOME'), findsOneWidget, reason: 'only the ride screen closes');
+      await teardown(tester);
+    });
+
+    testWidgets('a system cancel for another reason closes without the no-driver message', (tester) async {
+      final ride = rideJson(status: 'ongoing', uiPhase: 'ongoing', uiPhaseLabel: 'On trip');
+      await pumpRide(tester, ride, kCommon, pushed: true);
+      await act(() async {
+        ride['status'] = 'cancelled';
+        ride['cancelledBy'] = 'system';
+        ride['cancellationReason'] = 'face_verification_failed';
+        await tester.pump(const Duration(milliseconds: 3100));
+        await tester.pump(const Duration(seconds: 1));
+      });
+      expect(find.text('No driver found'), findsNothing);
       expect(find.byType(ActiveRideScreen), findsNothing);
       expect(find.text('HOME'), findsOneWidget);
       await teardown(tester);
@@ -860,6 +922,8 @@ void main() {
         await tester.pump(); // the sheet's slide-in starts on this frame
         await tester.pump(const Duration(milliseconds: 400));
         await tester.tap(find.text('Plan changed'));
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.tap(find.text('Confirm Cancellation'));
         await tester.pump(const Duration(milliseconds: 100));
         await tester.pump(const Duration(milliseconds: 500));
       });
@@ -910,6 +974,8 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 400));
         await tester.tap(find.text('Plan changed'));
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.tap(find.text('Confirm Cancellation'));
         await tester.pump();                                   // the cancel's close begins
         await tester.pump(const Duration(milliseconds: 50));   // mid-animation
         gate!.complete();                                      // the held poll answers 'cancelled'
@@ -929,6 +995,209 @@ void main() {
       await pumpRide(tester, ride, kCommon, rideId: 'bill-parcel');
       expect(find.text('Parcel Returned'), findsOneWidget);
       expect(find.text('Parcel Delivered'), findsNothing);
+      await teardown(tester);
+    });
+  });
+
+  // On a device the sheet could be neither dragged nor scrolled, so the route,
+  // payment and Cancel rows sat below the screen. Every rebuild handed the sheet
+  // a NEW snapSizes list, which it answers by re-snapping — cancelling the drag
+  // in progress — and the screen rebuilds every frame while the driver glides.
+  // tester.drag delivers a whole gesture without a frame in between, so these
+  // use timedDrag, which pumps frames during the gesture as a finger would.
+  group('sheet can be dragged and scrolled to its end', () {
+    for (final size in const [kSmall, Size(412, 915)]) {
+      final tag = '${size.width.toInt()}x${size.height.toInt()}';
+      testWidgets('driver on the way: Cancel reachable at $tag', (tester) async {
+        await pumpRide(tester, rideJson(status: 'accepted', uiPhase: 'assigned', uiPhaseLabel: 'Driver on the way'), size);
+        final list = find.descendant(
+          of: find.byType(DraggableScrollableSheet), matching: find.byType(Scrollable)).first;
+        final top0 = tester.getTopLeft(find.byType(DraggableScrollableSheet)).dy;
+        final sheetTop0 = tester.getTopLeft(list).dy;
+        await tester.timedDrag(list, const Offset(0, -300), const Duration(milliseconds: 700));
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(tester.getTopLeft(list).dy, lessThan(sheetTop0 - 100),
+            reason: 'the sheet did not follow the finger (top $top0)');
+        for (var i = 0; i < 4; i++) {
+          await tester.timedDrag(list, const Offset(0, -400), const Duration(milliseconds: 600));
+          await tester.pump(const Duration(milliseconds: 500));
+        }
+        final cancel = find.text('Cancel Ride');
+        expect(cancel, findsOneWidget);
+        expect(tester.getRect(cancel).bottom, lessThanOrEqualTo(size.height),
+            reason: 'Cancel is still below the screen');
+        await teardown(tester);
+      });
+    }
+
+    testWidgets('the snap sizes are one list across rebuilds', (tester) async {
+      await pumpRide(tester, rideJson(status: 'accepted', uiPhase: 'assigned'), kCommon);
+      final before = tester.widget<DraggableScrollableSheet>(find.byType(DraggableScrollableSheet)).snapSizes;
+      await tester.pump(const Duration(seconds: 4)); // polls land, screen rebuilds
+      final after = tester.widget<DraggableScrollableSheet>(find.byType(DraggableScrollableSheet)).snapSizes;
+      expect(identical(before, after), isTrue);
+      await teardown(tester);
+    });
+  });
+
+  group('driver at the pickup', () {
+    // Driver standing on the pickup; Directions says 0 minutes.
+    Future<http.Response?> atPickup(http.Request req) async {
+      if (req.url.path.endsWith('/driver-location')) {
+        return http.Response(jsonEncode({'status': 'accepted', 'driver': {'lat': 23.0226, 'lng': 72.5715, 'heading': 0}}), 200);
+      }
+      if (req.url.path.endsWith('/directions')) {
+        return http.Response(jsonEncode({'polyline': '', 'durationMin': 0, 'distanceKm': 0.01}), 200);
+      }
+      return null;
+    }
+
+    testWidgets('reads "Arriving now", never a "0 min" badge', (tester) async {
+      await pumpRide(tester, rideJson(status: 'accepted', uiPhase: 'assigned', uiPhaseLabel: 'Driver on the way'),
+          kCommon, override: atPickup, settle: const Duration(milliseconds: 6000));
+      expect(find.text('Arriving now'), findsOneWidget);
+      expect(find.text('0 min'), findsNothing);
+      expect(find.text('Driver on the way'), findsNothing);
+      await teardown(tester);
+    });
+
+    testWidgets('a driver still minutes away keeps the title and the ETA', (tester) async {
+      await pumpRide(tester, rideJson(status: 'accepted', uiPhase: 'assigned', uiPhaseLabel: 'Driver on the way'),
+          kCommon, settle: const Duration(milliseconds: 6000));
+      expect(find.text('Driver on the way'), findsOneWidget);
+      expect(find.text('14 min'), findsOneWidget);
+      expect(find.text('Arriving now'), findsNothing);
+      await teardown(tester);
+    });
+  });
+
+  group('round 3', () {
+    testWidgets('the search says "Looking for nearby drivers", whatever the server label', (tester) async {
+      await pumpRide(tester, rideJson(status: 'pending', uiPhase: 'finding', uiPhaseLabel: 'Finding a driver'), kCommon);
+      expect(find.text('Looking for nearby drivers'), findsOneWidget);
+      expect(find.text('Finding a driver'), findsNothing);
+      expect(find.text('Ride'), findsOneWidget); // the same chip as the booking search
+      await teardown(tester);
+    });
+
+    testWidgets('cancel uses the shared sheet: a reason alone does not cancel', (tester) async {
+      final log = <ApiCall>[];
+      await pumpRide(tester, rideJson(status: 'accepted', uiPhase: 'assigned'), kCommon,
+          log: log, pushed: true, scrollSheet: true);
+      await act(() async {
+        await tester.tap(find.text('Cancel Ride'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        await tester.tap(find.text('Plan changed'));
+        await tester.pump(const Duration(milliseconds: 400));
+      });
+      expect(find.byType(CancelReasonsSheet), findsOneWidget);
+      expect(log.where((c) => c.url.path.endsWith('/cancel')), isEmpty);
+      await teardown(tester);
+    });
+
+    group('camera framing', () {
+      const pickup = LatLng(23.0225, 72.5714);
+      test('driver at the pickup: street-level zoom on the pickup, not a zero-size fit', () {
+        final u = frameDriverAndTarget(const LatLng(23.02251, 72.57141), pickup).toJson() as List;
+        expect(u[0], 'newLatLngZoom');
+        expect(u[1], [pickup.latitude, pickup.longitude]);
+        expect(u[2], kFrameCloseZoom);
+      });
+      test('driver ~150 m out: still street level', () {
+        final u = frameDriverAndTarget(const LatLng(23.0238, 72.5714), pickup).toJson() as List;
+        expect(u[0], 'newLatLngZoom');
+      });
+      test('driver kilometres away: both in a fitted frame', () {
+        final u = frameDriverAndTarget(const LatLng(23.0400, 72.5900), pickup).toJson() as List;
+        expect(u[0], 'newLatLngBounds');
+      });
+      test('a route only metres long is not fitted either', () {
+        final u = frameRoute(const [LatLng(23.02251, 72.57141), pickup])!.toJson() as List;
+        expect(u[0], 'newLatLngZoom');
+        expect(u[2], kFrameCloseZoom);
+      });
+    });
+  });
+
+  group('round 4', () {
+    testWidgets('phase headings are drawn in the heading colour, not the grey body text', (tester) async {
+      for (final r in [
+        rideJson(status: 'pending', uiPhase: 'finding'),
+        rentalOngoing()..['uiPhaseOverrun'] = false,
+        hireOngoing()..['uiPhaseOverrun'] = false,
+        parcel(status: 'ongoing', uiPhase: 'ongoing', deliveryPhase: 'in_transit'),
+      ]) {
+        await pumpRide(tester, r, kCommon);
+        final heading = find.byWidgetPredicate((w) =>
+            w is Text && w.style?.fontSize == 18 && w.style?.fontWeight == FontWeight.w800);
+        expect(heading, findsWidgets);
+        for (final t in tester.widgetList<Text>(heading)) {
+          expect(t.style?.color, const Color(0xFF111111), reason: '"${t.data}" in ${r['uiPhase']}');
+        }
+        await teardown(tester);
+      }
+    });
+
+    Map<String, dynamic> cab() {
+      final r = rideJson(status: 'accepted', uiPhase: 'assigned', service: 'rental')
+        ..['vehicleType'] = 'Cab';
+      (r['driver'] as Map<String, dynamic>)
+        ..['vehicleModel'] = 'Maruti Dzire'
+        ..['vehicleTypeName'] = 'Cab';
+      return r;
+    }
+
+    Future<http.Response?> types(http.Request req) async => req.url.path.endsWith('/vehicles/types')
+        ? http.Response(jsonEncode({'types': [
+            {'name': 'Prime SUV', 'imageUrl': '/uploads/xuv700.png'},
+            {'name': 'Cab', 'imageUrl': '/uploads/dzire.png'},
+          ]}), 200)
+        : null;
+
+    Iterable<String> networkImages(WidgetTester tester) => tester
+        .widgetList<Image>(find.byType(Image))
+        .map((i) => i.image)
+        .whereType<NetworkImage>()
+        .map((n) => n.url);
+
+    testWidgets('the driver card shows the photo of the ride vehicle type', (tester) async {
+      await pumpRide(tester, cab(), kCommon, override: types);
+      final urls = networkImages(tester).toList();
+      expect(urls.where((u) => u.endsWith('/uploads/dzire.png')), isNotEmpty);
+      expect(urls.where((u) => u.endsWith('/uploads/xuv700.png')), isEmpty);
+      // No bundled guess (the old fallback for any car was an SUV photo).
+      final assets = tester.widgetList<Image>(find.byType(Image)).map((i) => i.image).whereType<AssetImage>()
+          .map((a) => a.assetName);
+      expect(assets.where((a) => a.contains('economy') || a.contains('texi')), isEmpty);
+      await teardown(tester);
+    });
+
+    testWidgets('an unknown vehicle type shows a neutral icon, not a stock photo', (tester) async {
+      await pumpRide(tester, cab(), kCommon); // /vehicles/types answers nothing
+      expect(find.byIcon(Icons.directions_car_outlined), findsOneWidget);
+      final assets = tester.widgetList<Image>(find.byType(Image)).map((i) => i.image).whereType<AssetImage>();
+      expect(assets, isEmpty);
+      await teardown(tester);
+    });
+  });
+
+  group('round 5', () {
+    testWidgets('a long trip ETA reads "4 h 22 min", not "262 min"', (tester) async {
+      await pumpRide(tester, outstation(status: 'ongoing', uiPhase: 'ongoing'), kCommon,
+          settle: const Duration(milliseconds: 6400),
+          override: (req) async => req.url.path.endsWith('/directions')
+              ? http.Response(jsonEncode({'polyline': '_p~iF~ps|U_ulLnnqC_mqNvxq`@', 'durationMin': 262, 'distanceKm': 220}), 200)
+              : null);
+      expect(find.text('4 h 22 min'), findsOneWidget);
+      expect(find.textContaining('262'), findsNothing);
+      await teardown(tester);
+    });
+
+    testWidgets('the rental "Where to next?" heading uses the heading colour', (tester) async {
+      await pumpRide(tester, rentalWithStops(), kCommon, scrollSheet: true);
+      final t = tester.widget<Text>(find.text('Where to next?'));
+      expect(t.style?.color, const Color(0xFF111111));
       await teardown(tester);
     });
   });

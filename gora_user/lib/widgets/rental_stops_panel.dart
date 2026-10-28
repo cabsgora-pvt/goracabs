@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
+import 'ride_ui/ride_tokens.dart';
 
 /// Destinations a rider adds while a rental is under way.
 ///
@@ -78,8 +79,9 @@ class _RentalStopsPanelState extends State<RentalStopsPanel> {
         Row(children: [
           const Icon(Icons.route, size: 18, color: AppTheme.primaryBlue),
           const SizedBox(width: 8),
-          const Expanded(child: Text('Where to next?',
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14))),
+          // Heading colour: left unset it took the theme's grey body text.
+          Expanded(child: Text('Where to next?',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: RideUi.ink(context)))),
           Text('${stops.length} added', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
         ]),
         for (final (i, s) in stops.indexed)
@@ -95,7 +97,7 @@ class _RentalStopsPanelState extends State<RentalStopsPanel> {
               const SizedBox(width: 10),
               Expanded(child: Text((s['address'] ?? '').toString(),
                 maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12.5))),
+                style: TextStyle(fontSize: 12.5, color: RideUi.ink(context)))),
             ]),
           ),
         const SizedBox(height: 10),
@@ -181,7 +183,7 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
     padding: EdgeInsets.only(left: 16, right: 16, top: 16,
         bottom: MediaQuery.of(context).viewInsets.bottom + 16),
     child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('Add destination', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+      Text('Add destination', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: RideUi.ink(context))),
       const SizedBox(height: 4),
       Text('Your driver will be notified of the new stop',
         style: TextStyle(fontSize: 12, color: Colors.grey[600])),

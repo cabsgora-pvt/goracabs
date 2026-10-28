@@ -6,14 +6,17 @@ import 'trip_detail_screen.dart';
 import '../services/api_service.dart';
 import '../utils/map_markers.dart';
 import '../utils/polyline_utils.dart';
+import '../widgets/ride_ui/ride_ui.dart';
 import 'invoice_screen.dart';
-import 'home_screen.dart';
-import 'service_selection_screen.dart';
-import 'rental_booking_details_screen.dart';
 import 'hire_driver_booking_details_screen.dart';
-import 'outstation_ride_details_screen.dart';
 import 'rating_screen.dart';
 
+/// "Your trips": every booking the rider has made, newest first, across all
+/// services (rides, parcels, rentals, intercity, hire a driver), in one list.
+///
+/// The old screen split them into collapsed per-service accordions and had no
+/// section for parcels at all, so parcels, and anything in a closed section,
+/// never showed.
 class RideHistoryScreen extends StatefulWidget {
   const RideHistoryScreen({super.key});
 
@@ -21,15 +24,20 @@ class RideHistoryScreen extends StatefulWidget {
   State<RideHistoryScreen> createState() => _RideHistoryScreenState();
 }
 
-class _RideHistoryScreenState extends State<RideHistoryScreen> {
-  int _currentIndex = 2;
-  bool _isRideHistoryExpanded = false;
-  bool _isRentalPackagesExpanded = false;
-  bool _isHireDriverExpanded = false;
-  bool _isOutstationExpanded = false;
+/// Filter chips: label to service values (null = everything).
+const _filters = <String, List<String>?>{
+  'All': null,
+  'Rides': ['taxi'],
+  'Parcels': ['delivery'],
+  'Rentals': ['rental'],
+  'Intercity': ['outstation'],
+  'Hire driver': ['hire_driver'],
+};
 
+class _RideHistoryScreenState extends State<RideHistoryScreen> {
   List<Map<String, dynamic>> _myRides = [];
   bool _loadingRides = true;
+  String _filter = 'All';
 
   @override
   void initState() {
@@ -41,28 +49,32 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     try {
       final res = await ApiService.getMyRides();
       final list = (res['rides'] as List?) ?? [];
+      if (!mounted) return;
       setState(() {
-        _myRides = list.map<Map<String, dynamic>>((r) {
-          final svc = (r['service'] as String?) ?? 'taxi';
-          final fare = (r['fare'] ?? 0);
-          final tip = (r['tip'] ?? 0);
-          final total = (r['totalFare'] ?? (fare + tip));
+        // Parsed ride by ride: one record with an unexpected field must not
+        // take every other trip off the screen with it.
+        _myRides = list.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).map<Map<String, dynamic>?>((r) {
+          try {
+          final svc = _strOf(r['service']) ?? 'taxi';
+          final num fare = (r['fare'] is num) ? r['fare'] as num : (num.tryParse('${r['fare'] ?? ''}') ?? 0);
+          final num tip = (r['tip'] is num) ? r['tip'] as num : 0;
+          final num total = (r['totalFare'] is num) ? r['totalFare'] as num : (fare + tip);
           final status = (r['status'] ?? '').toString();
-          final dr = r['driver'] as Map<String, dynamic>?;
+          final dr = r['driver'] is Map ? Map<String, dynamic>.from(r['driver'] as Map) : null;
           final driverPic = (dr?['profilePicUrl'] ?? '').toString();
           return {
             'id': r['_id']?.toString() ?? '',
             'date': r['createdAt'] != null
                 ? _formatDate(r['createdAt'].toString())
                 : '',
-            'from': r['pickupAddress'] ?? '',
-            'to': r['dropAddress'] ?? '',
+            'from': (r['pickupAddress'] ?? '').toString(),
+            'to': (r['dropAddress'] ?? '').toString(),
             'riderName': (r['riderName'] ?? '').toString(),
             'driver': (dr?['name'] ?? r['driverName'] ?? '—').toString(),
             'driverPic': driverPic.isEmpty ? '' : AppConfig.imageUrl(driverPic),
             'driverVehicleModel': (dr?['vehicleModel'] ?? '').toString(),
             'driverVehicleNumber': (dr?['vehicleNumber'] ?? '').toString(),
-            'driverRatingVal': (dr?['rating'] as num?)?.toDouble() ?? 0,
+            'driverRatingVal': _numOf(dr?['rating'])?.toDouble() ?? 0,
             'fare': '₹$total',
             'baseFare': fare,
             'tip': tip,
@@ -72,37 +84,38 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                 : status == 'cancelled'
                     ? 'Cancelled'
                     : status,
-            'rating': (r['driverRating'] ?? 0).toDouble(),
-            'vehicle': r['vehicleType'] ?? '',
-            'pickupLat': (r['pickupLat'] as num?)?.toDouble() ?? 0,
-            'pickupLng': (r['pickupLng'] as num?)?.toDouble() ?? 0,
-            'dropLat': (r['dropLat'] as num?)?.toDouble() ?? 0,
-            'dropLng': (r['dropLng'] as num?)?.toDouble() ?? 0,
-            'routePolyline': (r['routePolyline'] as String?) ?? '',
+            'rating': _numOf(r['driverRating'])?.toDouble() ?? 0,
+            'createdAt': (r['createdAt'] ?? '').toString(),
+            'vehicle': (r['vehicleType'] ?? '').toString(),
+            'pickupLat': _numOf(r['pickupLat'])?.toDouble() ?? 0,
+            'pickupLng': _numOf(r['pickupLng'])?.toDouble() ?? 0,
+            'dropLat': _numOf(r['dropLat'])?.toDouble() ?? 0,
+            'dropLng': _numOf(r['dropLng'])?.toDouble() ?? 0,
+            'routePolyline': _strOf(r['routePolyline']) ?? '',
             'service': svc,
-            'tripType': (r['tripType'] as String?) ?? 'one_way',
-            'numPassengers': (r['numPassengers'] as num?)?.toInt() ?? 0,
-            'duration': (r['duration'] as num?)?.toInt() ?? 0,
-            'distance': (r['distance'] as num?)?.toDouble() ?? 0,
+            'tripType': _strOf(r['tripType']) ?? 'one_way',
+            'numPassengers': _numOf(r['numPassengers'])?.toInt() ?? 0,
+            'duration': _numOf(r['duration'])?.toInt() ?? 0,
+            'distance': _numOf(r['distance'])?.toDouble() ?? 0,
             'paymentMode': (r['paymentMode'] ?? 'cash').toString(),
-            'vehicleImageUrl': (r['vehicleImageUrl'] as String?) ?? '',
+            'vehicleImageUrl': _strOf(r['vehicleImageUrl']) ?? '',
             // Rental extras
-            'packageHours': (r['packageHours'] as num?)?.toInt() ?? 0,
-            'packageKm': (r['packageKm'] as num?)?.toInt() ?? 0,
-            'actualHours': (r['actualHours'] as num?)?.toDouble() ?? 0,
-            'actualKm': (r['actualKm'] as num?)?.toDouble() ?? 0,
-            'extraHoursCharge': (r['extraHoursCharge'] as num?)?.toInt() ?? 0,
-            'extraKmCharge': (r['extraKmCharge'] as num?)?.toInt() ?? 0,
-            'nightChargeRental': (r['nightChargeRental'] as num?)?.toInt() ?? 0,
-            'finalFare': (r['finalFare'] as num?)?.toInt() ?? 0,
+            'packageHours': _numOf(r['packageHours'])?.toInt() ?? 0,
+            'packageKm': _numOf(r['packageKm'])?.toInt() ?? 0,
+            'actualHours': _numOf(r['actualHours'])?.toDouble() ?? 0,
+            'actualKm': _numOf(r['actualKm'])?.toDouble() ?? 0,
+            'extraHoursCharge': _numOf(r['extraHoursCharge'])?.toInt() ?? 0,
+            'extraKmCharge': _numOf(r['extraKmCharge'])?.toInt() ?? 0,
+            'nightChargeRental': _numOf(r['nightChargeRental'])?.toInt() ?? 0,
+            'finalFare': _numOf(r['finalFare'])?.toInt() ?? 0,
             // Outstation extras
-            'nightHaltCharge': (r['nightHaltCharge'] as num?)?.toInt() ?? 0,
-            'emptyReturnCharge': (r['emptyReturnCharge'] as num?)?.toInt() ?? 0,
-            'tollCharge': (r['tollCharge'] as num?)?.toInt() ?? 0,
-            'tolls': (r['tolls'] as List?) ?? const [],
+            'nightHaltCharge': _numOf(r['nightHaltCharge'])?.toInt() ?? 0,
+            'emptyReturnCharge': _numOf(r['emptyReturnCharge'])?.toInt() ?? 0,
+            'tollCharge': _numOf(r['tollCharge'])?.toInt() ?? 0,
+            'tolls': (r['tolls'] is List ? r['tolls'] as List : null) ?? const [],
             // Hire extras
-            'hireTotalHours': (r['hireTotalHours'] as num?)?.toInt() ?? 0,
-            'hirePerHour': (r['hirePerHour'] as num?)?.toInt() ?? 0,
+            'hireTotalHours': _numOf(r['hireTotalHours'])?.toInt() ?? 0,
+            'hirePerHour': _numOf(r['hirePerHour'])?.toInt() ?? 0,
             'transmission': (r['transmission'] ?? '').toString(),
             'hireStartAt': (r['hireStartAt'] ?? '').toString(),
             'hireEndAt': (r['hireEndAt'] ?? '').toString(),
@@ -110,20 +123,27 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
             'senderName': (r['senderName'] ?? '').toString(),
             'receiverName': (r['receiverName'] ?? '').toString(),
             'itemType': (r['itemType'] ?? '').toString(),
-            'weightKg': (r['weightKg'] as num?)?.toDouble() ?? 0,
+            'weightKg': _numOf(r['weightKg'])?.toDouble() ?? 0,
             'packageSize': (r['packageSize'] ?? '').toString(),
-            'isFragile': (r['isFragile'] as bool?) ?? false,
-            'codAmount': (r['codAmount'] as num?)?.toInt() ?? 0,
-            'parcelPhotos': (r['parcelPhotos'] as List?) ?? [],
+            'isFragile': r['isFragile'] == true,
+            'codAmount': _numOf(r['codAmount'])?.toInt() ?? 0,
+            'parcelPhotos': (r['parcelPhotos'] is List ? r['parcelPhotos'] as List : null) ?? [],
             'deliveryProofPhoto': (r['deliveryProofPhoto'] ?? '').toString(),
           };
-        }).toList();
+          } catch (e) {
+            debugPrint('ride history: skipped a ride that did not parse: $e');
+            return null;
+          }
+        }).whereType<Map<String, dynamic>>().toList();
         _loadingRides = false;
       });
     } catch (_) {
-      setState(() => _loadingRides = false);
+      if (mounted) setState(() => _loadingRides = false);
     }
   }
+
+  static num? _numOf(dynamic v) => v is num ? v : num.tryParse('${v ?? ''}');
+  static String? _strOf(dynamic v) => v == null ? null : v.toString();
 
   String _formatDate(String iso) {
     try {
@@ -217,133 +237,69 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final services = _filters[_filter];
+    final rides = services == null ? _myRides : _myRides.where((r) => services.contains(r['service'])).toList();
+    // Only the chips for services the rider has actually used.
+    final used = _myRides.map((r) => r['service']).toSet();
+    final chips = _filters.entries.where((e) => e.value == null || e.value!.any(used.contains)).map((e) => e.key).toList();
+    // As a home tab there is nothing to go back to; as a pushed page there is.
+    final canPop = Navigator.of(context).canPop();
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Trip Details', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold)),
-        elevation: 0,
-        automaticallyImplyLeading: true,
-        leading: IconButton(
-          onPressed: () => Navigator.pop(context),
-          icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface),
-        ),
-        centerTitle: false,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _buildExpandableSection(
-              'Ride History',
-              Icons.directions_car,
-              _isRideHistoryExpanded,
-              () => setState(() => _isRideHistoryExpanded = !_isRideHistoryExpanded),
-              _buildRideHistoryList(),
-            ),
-            const SizedBox(height: 16),
-            _buildExpandableSection(
-              'Rental Packages',
-              Icons.schedule,
-              _isRentalPackagesExpanded,
-              () => setState(() => _isRentalPackagesExpanded = !_isRentalPackagesExpanded),
-              _buildRentalPackagesList(),
-            ),
-            const SizedBox(height: 16),
-            _buildExpandableSection(
-              'Hire Driver',
-              Icons.person,
-              _isHireDriverExpanded,
-              () => setState(() => _isHireDriverExpanded = !_isHireDriverExpanded),
-              _buildHireDriverList(),
-            ),
-            const SizedBox(height: 16),
-            _buildExpandableSection(
-              'Outstation',
-              Icons.location_on,
-              _isOutstationExpanded,
-              () => setState(() => _isOutstationExpanded = !_isOutstationExpanded),
-              _buildOutstationList(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildExpandableSection(String title, IconData icon, bool isExpanded, VoidCallback onTap, Widget content) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[300]!),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Icon(icon, color: AppTheme.primaryBlue, size: 20),
-                  const SizedBox(width: 12),
-                  // Expanded, not a bare Text before a Spacer: a long section
-                  // title pushed the chevron off the right edge on narrow
-                  // screens. Expanded absorbs the slack the Spacer used to.
-                  Expanded(
-                    child: Text(
-                      title,
-                      maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      backgroundColor: RideUi.surface(context),
+      body: Column(children: [
+        if (canPop) const ServiceBackBar() else const SafeArea(bottom: false, child: SizedBox(height: 12)),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _loadMyRides,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+              children: [
+                const ServiceTitle(title: 'Your trips'),
+                if (!_loadingRides && chips.length > 2) ...[
+                  SizedBox(
+                    height: 40,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: chips.map((c) => Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ServiceChip(label: c, selected: _filter == c, onTap: () => setState(() => _filter = c)),
+                      )).toList(),
                     ),
                   ),
-                  Icon(
-                    isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                    color: Colors.grey[600],
-                  ),
+                  const SizedBox(height: 8),
                 ],
-              ),
+                if (_loadingRides)
+                  const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()))
+                else if (rides.isEmpty)
+                  _empty()
+                else
+                  for (var i = 0; i < rides.length; i++) ...[
+                    if (i > 0) const RideDivider(indent: 70),
+                    _buildRideCard(rides[i]),
+                  ],
+              ],
             ),
           ),
-          if (isExpanded) ...[
-            const Divider(height: 1),
-            content,
-          ],
-        ],
-      ),
+        ),
+      ]),
     );
   }
 
-  Widget _buildRideHistoryList() {
-    if (_loadingRides) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
-    final rides = _myRides.where((r) => r['service'] == 'taxi').toList();
-    if (rides.isEmpty) return const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No taxi rides yet', style: TextStyle(color: Colors.grey))));
-    return Column(children: rides.map((r) => _buildRideCard(r)).toList());
-  }
-
-  Widget _buildRentalPackagesList() {
-    if (_loadingRides) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
-    final rentals = _myRides.where((r) => r['service'] == 'rental').toList();
-    if (rentals.isEmpty) return const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No rental bookings yet', style: TextStyle(color: Colors.grey))));
-    // Reuse the unified ride card (shows driver pic + vehicle + rating)
-    return Column(children: rentals.map((r) => _buildRideCard(r)).toList());
-  }
-
-  Widget _buildHireDriverList() {
-    if (_loadingRides) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
-    final hires = _myRides.where((r) => r['service'] == 'hire_driver').toList();
-    if (hires.isEmpty) return const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No hire-driver bookings yet', style: TextStyle(color: Colors.grey))));
-    // Unified card → tap opens full detail (real driver, vehicle, price, hours)
-    return Column(children: hires.map((r) => _buildRideCard(r)).toList());
-  }
-
-  Widget _buildOutstationList() {
-    if (_loadingRides) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
-    final outs = _myRides.where((r) => r['service'] == 'outstation').toList();
-    if (outs.isEmpty) return const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('No outstation trips yet', style: TextStyle(color: Colors.grey))));
-    // Reuse the unified ride card (shows driver pic + vehicle + rating + route)
-    return Column(children: outs.map((r) => _buildRideCard(r)).toList());
-  }
+  Widget _empty() => Padding(
+    padding: const EdgeInsets.only(top: 48),
+    child: Column(children: [
+      Container(
+        width: 72, height: 72,
+        decoration: BoxDecoration(color: RideUi.tile(context), shape: BoxShape.circle),
+        child: Icon(Icons.receipt_long_outlined, size: 32, color: RideUi.muted(context)),
+      ),
+      const SizedBox(height: 14),
+      Text('No trips yet', style: RideUi.title(context, size: 17)),
+      const SizedBox(height: 4),
+      Text('Your rides, parcels and bookings will appear here', textAlign: TextAlign.center, style: RideUi.caption(context, size: 13)),
+    ]),
+  );
 
   // Build the hire-driver booking summary from a REAL ride record.
   Widget _hireSummary(Map<String, dynamic> ride) {
@@ -419,636 +375,152 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     return s.isEmpty ? 'Manual' : t.toString();
   }
 
+  static const _serviceIcons = <String, IconData>{
+    'taxi': Icons.directions_car,
+    'delivery': Icons.local_shipping_outlined,
+    'rental': Icons.timer_outlined,
+    'outstation': Icons.route,
+    'hire_driver': Icons.person_pin_outlined,
+  };
+
+  static String _serviceName(String s) => switch (s) {
+    'delivery' => 'Parcel',
+    'rental' => 'Rental',
+    'outstation' => 'Intercity',
+    'hire_driver' => 'Hire driver',
+    _ => 'Ride',
+  };
+
+  /// "28 Oct · 3:59 PM" from the ride's own timestamp.
+  static String _when(Map<String, dynamic> ride) {
+    final d = DateTime.tryParse((ride['createdAt'] ?? '').toString())?.toLocal();
+    if (d == null) return (ride['date'] ?? '').toString();
+    const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final now = DateTime.now();
+    final day = '${d.day} ${m[d.month - 1]}${d.year != now.year ? ' ${d.year}' : ''}';
+    return '$day · ${RideUi.clock(d)}';
+  }
+
+  /// The row title: where the trip went.
+  static String historyTitle(Map<String, dynamic> ride) {
+    final to = (ride['to'] ?? '').toString().trim();
+    final from = (ride['from'] ?? '').toString().trim();
+    final short = (to.isNotEmpty ? to : from).split(',').first.trim();
+    switch (ride['service']) {
+      case 'delivery':
+        final who = (ride['receiverName'] ?? '').toString().trim();
+        return who.isNotEmpty ? 'Parcel to $who' : (short.isNotEmpty ? 'Parcel to $short' : 'Parcel');
+      case 'rental':
+        final h = ride['packageHours'];
+        return h is num && h > 0 ? 'Rental · $h hr' : 'Rental';
+      case 'hire_driver':
+        return short.isNotEmpty ? 'Driver hire · $short' : 'Driver hire';
+      case 'outstation':
+        final f = from.split(',').first.trim();
+        return f.isNotEmpty && short.isNotEmpty ? '$f → $short' : (short.isNotEmpty ? short : 'Intercity');
+    }
+    return short.isNotEmpty ? short : 'Ride';
+  }
+
+  Widget _statusChip(String status) {
+    final s = status.toLowerCase();
+    final Color fg = s == 'completed'
+        ? const Color(0xFF15803D)
+        : s == 'cancelled' ? const Color(0xFFB91C1C) : RideUi.ink(context);
+    final label = status.isEmpty ? '' : status[0].toUpperCase() + status.substring(1);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(color: fg.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(8)),
+      child: Text(label, maxLines: 1, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: fg)),
+    );
+  }
+
+  void _openDetail(Map<String, dynamic> ride) => Navigator.push(context, MaterialPageRoute(builder: (_) =>
+      ride['service'] == 'hire_driver' ? _hireSummary(ride) : TripDetailScreen(ride: ride)));
+
   Widget _buildRideCard(Map<String, dynamic> ride) {
-    final isCancelled = ride['status'] == 'Cancelled';
+    final status = (ride['status'] ?? '').toString();
+    final isCancelled = status == 'Cancelled';
+    final isCompleted = status == 'Completed';
+    final service = (ride['service'] ?? 'taxi').toString();
+    final img = (ride['vehicleImageUrl'] ?? '').toString();
+    final vehicle = (ride['vehicle'] ?? '').toString();
+    final icon = _serviceIcons[service] ?? Icons.directions_car;
     return InkWell(
-      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) =>
-          ride['service'] == 'hire_driver' ? _hireSummary(ride) : TripDetailScreen(ride: ride))),
-      child: Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: isCancelled ? Colors.red[50] : Colors.green[50],
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  ride['status'] as String,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: isCancelled ? Colors.red : Colors.green,
-                  ),
-                ),
-              ),
-              const Spacer(),
-              Text(ride['date'] as String, style: const TextStyle(fontSize: 11, color: AppTheme.textGrey)),
-            ],
+      key: ValueKey('trip-${ride['id']}'),
+      borderRadius: BorderRadius.circular(RideUi.radius),
+      onTap: () => _openDetail(ride),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 56, height: 56,
+            decoration: BoxDecoration(color: RideUi.tile(context), borderRadius: BorderRadius.circular(14)),
+            child: img.isNotEmpty
+                ? VehicleThumb(networkUrl: AppConfig.imageUrl(img), fallbackIcon: icon, size: 56)
+                : Icon(icon, color: RideUi.ink(context), size: 26),
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Column(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: Colors.green,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  Container(
-                    width: 2,
-                    height: 20,
-                    color: Colors.grey[300],
-                  ),
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: Colors.red,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(ride['from'] as String, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 16),
-                    Text(ride['to'] as String, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                  ],
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(
+                  child: Text(historyTitle(ride), maxLines: 2, overflow: TextOverflow.ellipsis,
+                      style: RideUi.body(context, size: 15, weight: FontWeight.w700)),
                 ),
-              ),
-              Text(ride['fare'] as String, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
-            ],
-          ),
-          // Driver row — pic + name + vehicle (real data for all service types)
-          if ((ride['driver'] as String?) != null && ride['driver'] != '—') ...[
-            const SizedBox(height: 10),
-            const Divider(height: 1),
-            const SizedBox(height: 10),
-            Row(children: [
-              CircleAvatar(
-                radius: 16,
-                backgroundColor: AppTheme.primaryBlue.withOpacity(0.1),
-                backgroundImage: (ride['driverPic'] as String).isNotEmpty ? NetworkImage(ride['driverPic'] as String) : null,
-                child: (ride['driverPic'] as String).isEmpty
-                    ? Text((ride['driver'] as String).isNotEmpty ? (ride['driver'] as String)[0].toUpperCase() : 'D',
-                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue))
-                    : null,
-              ),
-              const SizedBox(width: 8),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(ride['driver'] as String, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                Text(
-                  [ride['driverVehicleModel'], ride['driverVehicleNumber']].where((s) => (s as String).isNotEmpty).join(' • '),
-                  style: TextStyle(fontSize: 11, color: Colors.grey[600]), maxLines: 1, overflow: TextOverflow.ellipsis,
+                const SizedBox(width: 8),
+                Text((ride['fare'] ?? '').toString(),
+                    style: RideUi.body(context, size: 15, weight: FontWeight.w800)
+                        .copyWith(decoration: isCancelled ? TextDecoration.lineThrough : null)),
+              ]),
+              const SizedBox(height: 3),
+              Text(_when(ride), maxLines: 1, overflow: TextOverflow.ellipsis, style: RideUi.caption(context, size: 12.5)),
+              const SizedBox(height: 2),
+              Row(children: [
+                Expanded(
+                  child: Text([_serviceName(service), if (vehicle.isNotEmpty && service != 'hire_driver') vehicle].join(' · '),
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: RideUi.caption(context, size: 12.5)),
                 ),
-              ])),
-              if ((ride['driverRatingVal'] as double) > 0) Row(children: [
-                const Icon(Icons.star, size: 13, color: Colors.amber),
-                const SizedBox(width: 2),
-                Text((ride['driverRatingVal'] as double).toStringAsFixed(1), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 8),
+                _statusChip(status),
+              ]),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                if (!isCancelled) _action(Icons.receipt_long_outlined, 'Invoice', () {
+                  // The invoice renders this real ride (and refreshes it from GET /rides/:id).
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => InvoiceScreen(ride: ride)));
+                }),
+                if (!isCancelled && service != 'hire_driver') _action(Icons.route, 'Route', () => _showRouteReplay(ride)),
+                // Rate — only when the ride is completed AND not yet rated
+                if (isCompleted && ((ride['rating'] as double?) ?? 0) <= 0)
+                  _action(Icons.star_border_rounded, 'Rate', () => Navigator.push(context, MaterialPageRoute(builder: (_) => RatingScreen(
+                    driverName: (ride['driver'] as String?) ?? 'Driver',
+                    vehicleName: (ride['vehicle'] as String?) ?? '',
+                    selectedTip: 0,
+                    rideId: ride['id'] as String?,
+                  )))),
               ]),
             ]),
-          ],
-          if (!isCancelled) ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton.icon(
-                    onPressed: () => _showRouteReplay(ride),
-                    icon: const Icon(Icons.route, size: 14),
-                    label: const Text('Show Route', style: TextStyle(fontSize: 12)),
-                    style: TextButton.styleFrom(foregroundColor: AppTheme.primaryBlue),
-                  ),
-                ),
-                // Rate button — only when ride is completed AND not yet rated
-                if (((ride['rating'] as double?) ?? 0) <= 0)
-                  Expanded(
-                    child: TextButton.icon(
-                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => RatingScreen(
-                        driverName: (ride['driver'] as String?) ?? 'Driver',
-                        vehicleName: (ride['vehicle'] as String?) ?? '',
-                        selectedTip: 0,
-                        rideId: ride['id'] as String?,
-                      ))),
-                      icon: const Icon(Icons.star_rate, size: 14, color: Colors.amber),
-                      label: const Text('Rate', style: TextStyle(fontSize: 12, color: Colors.amber)),
-                      style: TextButton.styleFrom(foregroundColor: Colors.amber),
-                    ),
-                  ),
-                Expanded(
-                  child: TextButton.icon(
-                    onPressed: () {
-                      // The invoice renders this real ride (and refreshes it
-                      // from GET /rides/:id) — no more vehicle-name price table.
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => InvoiceScreen(ride: ride),
-                        ),
-                      );
-                    },
-                    icon: const Icon(Icons.receipt_long, size: 14),
-                    label: const Text('Invoice', style: TextStyle(fontSize: 12)),
-                    style: TextButton.styleFrom(foregroundColor: AppTheme.primaryBlue),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
+          ),
+        ]),
       ),
     );
   }
 
-  Widget _buildRentalCard(Map<String, dynamic> rental) {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(8),
+  Widget _action(IconData icon, String label, VoidCallback onTap) => Material(
+    color: RideUi.tile(context),
+    borderRadius: BorderRadius.circular(16),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 15, color: RideUi.ink(context)),
+          const SizedBox(width: 4),
+          Text(label, style: RideUi.body(context, size: 12, weight: FontWeight.w700)),
+        ]),
       ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Icon(Icons.schedule, color: AppTheme.primaryBlue, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(rental['package'] as String, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                    Text('${rental['vehicle']} • ${rental['duration']}', style: const TextStyle(fontSize: 12, color: AppTheme.textGrey)),
-                    Text(rental['date'] as String, style: const TextStyle(fontSize: 11, color: AppTheme.textGrey)),
-                  ],
-                ),
-              ),
-              Text(rental['fare'] as String, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => RentalBookingDetailsScreen(
-                          inquiryId: 'RNT${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}',
-                          pickupLocation: 'MG Road, Delhi',
-                          dropLocation: 'Cyber City, Gurugram',
-                          duration: rental['duration'] as String,
-                          vehicle: rental['vehicle'] as String,
-                          price: rental['fare'] as String,
-                          date: rental['date'] as String,
-                          time: '9:00 AM',
-                          driverName: 'Suresh Kumar',
-                          driverRating: '4.9 (1.2k+ trips)',
-                          driverExperience: '8 years experience',
-                          vehicleNumber: 'DL 01 AB 1234',
-                          vehicleModel: 'Maruti Swift Dzire',
-                          vehicleColor: 'White',
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.info_outline, size: 14),
-                  label: const Text('Details', style: TextStyle(fontSize: 12)),
-                  style: TextButton.styleFrom(foregroundColor: AppTheme.primaryBlue),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => InvoiceScreen(ride: rental),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.receipt_long, size: 14),
-                  label: const Text('Invoice', style: TextStyle(fontSize: 12)),
-                  style: TextButton.styleFrom(foregroundColor: AppTheme.primaryBlue),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHireDriverCard(Map<String, dynamic> hire) {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Icon(Icons.person, color: AppTheme.primaryBlue, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Driver: ${hire['driver']}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                    Text('Duration: ${hire['duration']}', style: const TextStyle(fontSize: 12, color: AppTheme.textGrey)),
-                    Text(hire['date'] as String, style: const TextStyle(fontSize: 11, color: AppTheme.textGrey)),
-                  ],
-                ),
-              ),
-              Text(hire['fare'] as String, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => HireDriverBookingDetailsScreen(
-                          inquiryId: 'HRD${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}',
-                          pickupLocation: 'MG Road, Delhi',
-                          dropLocation: 'Cyber City, Gurugram',
-                          carType: 'Sedan',
-                          hireDuration: hire['duration'] as String,
-                          package: '1 Day',
-                          price: hire['fare'] as String,
-                          tripStartDate: hire['date'] as String,
-                          tripTime: '2:00 PM',
-                          driverName: hire['driver'] as String,
-                          driverRating: '4.8 (500+ trips)',
-                          driverExperience: '5 years experience',
-                          vehicleNumber: 'DL 03 CD 9876',
-                          vehicleModel: 'Honda City',
-                          vehicleColor: 'White',
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.info_outline, size: 14),
-                  label: const Text('Details', style: TextStyle(fontSize: 12)),
-                  style: TextButton.styleFrom(foregroundColor: AppTheme.primaryBlue),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => InvoiceScreen(ride: hire),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.receipt_long, size: 14),
-                  label: const Text('Invoice', style: TextStyle(fontSize: 12)),
-                  style: TextButton.styleFrom(foregroundColor: AppTheme.primaryBlue),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildOutstationCard(Map<String, dynamic> outstation) {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Icon(Icons.location_on, color: AppTheme.primaryBlue, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('${outstation['from']} → ${outstation['to']}', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                    Text('${outstation['vehicle']} • ${outstation['driver']}', style: const TextStyle(fontSize: 12, color: AppTheme.textGrey)),
-                    Text(outstation['date'] as String, style: const TextStyle(fontSize: 11, color: AppTheme.textGrey)),
-                  ],
-                ),
-              ),
-              Text(outstation['fare'] as String, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => OutstationRideDetailsScreen(
-                          inquiryId: 'OUT${DateTime.now().millisecondsSinceEpoch.toString().substring(8)}',
-                          fromLocation: outstation['from'] as String,
-                          toLocation: outstation['to'] as String,
-                          vehicleName: outstation['vehicle'] as String,
-                          vehicleType: 'Premium',
-                          capacity: '6',
-                          tripType: 'One Way',
-                          departureDate: outstation['date'] as String,
-                          departureTime: '6:00 AM',
-                          price: outstation['fare'] as String,
-                          estimatedDistance: '~250 km',
-                          estimatedDuration: '~5 hours',
-                          driverName: outstation['driver'] as String,
-                          driverRating: '4.8 (2.5k+ trips)',
-                          driverExperience: '10 years experience',
-                          vehicleNumber: 'RJ 14 AB 5678',
-                          vehicleModel: 'Toyota Innova Crysta',
-                          vehicleColor: 'Silver',
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.info_outline, size: 14),
-                  label: const Text('Details', style: TextStyle(fontSize: 12)),
-                  style: TextButton.styleFrom(foregroundColor: AppTheme.primaryBlue),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => InvoiceScreen(ride: outstation),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.receipt_long, size: 14),
-                  label: const Text('Invoice', style: TextStyle(fontSize: 12)),
-                  style: TextButton.styleFrom(foregroundColor: AppTheme.primaryBlue),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showRentalDetails(Map<String, dynamic> rental) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Row(
-            children: [
-              Icon(Icons.schedule, color: AppTheme.primaryBlue),
-              const SizedBox(width: 8),
-              const Text('Rental Package Details'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildDetailRow('Package', rental['package'] as String),
-              _buildDetailRow('Vehicle', rental['vehicle'] as String),
-              _buildDetailRow('Duration', rental['duration'] as String),
-              _buildDetailRow('Date & Time', rental['date'] as String),
-              _buildDetailRow('Status', rental['status'] as String),
-              _buildDetailRow('Total Fare', rental['fare'] as String),
-              const SizedBox(height: 16),
-              const Text('Package Includes:', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('• Unlimited stops within package duration'),
-              const Text('• Fixed pricing, no surge charges'),
-              const Text('• Professional driver'),
-              const Text('• Fuel included'),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showHireDriverDetails(Map<String, dynamic> hire) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Row(
-            children: [
-              Icon(Icons.person, color: AppTheme.primaryBlue),
-              const SizedBox(width: 8),
-              const Text('Hire Driver Details'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildDetailRow('Driver Name', hire['driver'] as String),
-              _buildDetailRow('Duration', hire['duration'] as String),
-              _buildDetailRow('Date & Time', hire['date'] as String),
-              _buildDetailRow('Status', hire['status'] as String),
-              _buildDetailRow('Total Fare', hire['fare'] as String),
-              const SizedBox(height: 16),
-              const Text('Service Includes:', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('• Experienced professional driver'),
-              const Text('• Your own vehicle usage'),
-              const Text('• Flexible timing'),
-              const Text('• Multiple stops allowed'),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showOutstationDetails(Map<String, dynamic> outstation) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Row(
-            children: [
-              Icon(Icons.location_on, color: AppTheme.primaryBlue),
-              const SizedBox(width: 8),
-              const Text('Outstation Trip Details'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildDetailRow('From', outstation['from'] as String),
-              _buildDetailRow('To', outstation['to'] as String),
-              _buildDetailRow('Vehicle', outstation['vehicle'] as String),
-              _buildDetailRow('Driver', outstation['driver'] as String),
-              _buildDetailRow('Date & Time', outstation['date'] as String),
-              _buildDetailRow('Status', outstation['status'] as String),
-              _buildDetailRow('Total Fare', outstation['fare'] as String),
-              const SizedBox(height: 16),
-              const Text('Trip Includes:', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              const Text('• Round trip or one-way available'),
-              const Text('• Professional intercity driver'),
-              const Text('• Fuel and toll charges included'),
-              const Text('• 24/7 customer support'),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Close'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 80,
-            child: Text(
-              '$label:',
-              style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.grey),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontWeight: FontWeight.w500),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class RatingDialog extends StatefulWidget {
-  final String driver;
-  const RatingDialog({super.key, required this.driver});
-
-  @override
-  State<RatingDialog> createState() => _RatingDialogState();
-}
-
-class _RatingDialogState extends State<RatingDialog> {
-  int _rating = 0;
-  final _feedbackController = TextEditingController();
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('Rate ${widget.driver}'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(5, (i) {
-              return IconButton(
-                onPressed: () => setState(() => _rating = i + 1),
-                icon: Icon(
-                  i < _rating ? Icons.star : Icons.star_border,
-                  color: Colors.amber,
-                  size: 36,
-                ),
-              );
-            }),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _feedbackController,
-            maxLines: 3,
-            decoration: InputDecoration(
-              hintText: 'Share your feedback (optional)',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: _rating == 0
-              ? null
-              : () {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Thank you for your feedback!')),
-                  );
-                },
-          style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue),
-          child: const Text('Submit', style: TextStyle(color: Colors.white)),
-        ),
-      ],
-    );
-  }
+    ),
+  );
 }

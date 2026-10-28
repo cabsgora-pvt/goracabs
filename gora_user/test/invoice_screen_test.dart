@@ -107,7 +107,8 @@ void main() {
     final done = DateTime.parse('2026-10-14T13:02:00.000Z').toLocal();
     expect(find.textContaining('${done.day.toString().padLeft(2, '0')}/10/2026'), findsOneWidget);
     // The recorded total (fare 142 + waiting 10 + tip 20), not a recomputation.
-    expect(find.text('Total Amount: ₹172'), findsOneWidget);
+    expect(find.text('Total Amount'), findsOneWidget);
+    expect(find.text('₹172'), findsOneWidget);
 
     for (final placeholder in ['MAHENDRA', 'SURENDRA', '11/08/2025', 'FHACCBFC', 'CGST', 'UIT Rd']) {
       expect(find.textContaining(placeholder), findsNothing, reason: placeholder);
@@ -118,7 +119,8 @@ void main() {
     await pump(tester, ride: () => http.Response(jsonEncode({'error': 'Not a participant in this ride'}), 403));
     expect(find.text('PRIYA BHANDARI'), findsOneWidget);
     expect(find.text('Driver: Ramesh Choudhary'), findsOneWidget);
-    expect(find.text('Total Amount: ₹162'), findsOneWidget);
+    expect(find.text('Total Amount'), findsOneWidget);
+    expect(find.text('₹162'), findsOneWidget);
     expect(find.textContaining('MAHENDRA'), findsNothing);
   });
 }

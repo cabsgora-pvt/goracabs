@@ -46,21 +46,24 @@ Widget paymentMethodRow(BuildContext context, String mode, VoidCallback onTap) {
   final icon = mode == 'online' ? Icons.credit_card : mode == 'wallet' ? Icons.account_balance_wallet_outlined : Icons.payments_outlined;
   return InkWell(
     onTap: onTap,
-    borderRadius: BorderRadius.circular(12),
+    borderRadius: BorderRadius.circular(14),
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      // Light-grey tile, matching the rest of the ride sheet.
       decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.withOpacity(0.25)),
+        color: Theme.of(context).brightness == Brightness.dark
+            ? Colors.white.withValues(alpha: 0.08)
+            : const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(children: [
         Icon(icon, size: 20, color: _brand),
         const SizedBox(width: 10),
         Text('Payment', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
         const SizedBox(width: 8),
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
-        const Spacer(),
+        // Flexible so a narrow phone ellipsizes instead of overflowing.
+        Expanded(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w700))),
         const Text('Change', style: TextStyle(color: _brand, fontWeight: FontWeight.w700, fontSize: 12)),
         const Icon(Icons.keyboard_arrow_down_rounded, color: _brand, size: 20),
       ]),

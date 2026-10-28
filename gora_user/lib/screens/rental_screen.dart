@@ -6,6 +6,7 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../utils/ride_booking.dart';
 import '../widgets/payment_coupon_bar.dart';
+import '../widgets/ride_ui/ride_ui.dart';
 
 class RentalScreen extends StatefulWidget {
   const RentalScreen({super.key});
@@ -243,354 +244,155 @@ class _RentalScreenState extends State<RentalScreen> {
     };
   }
 
-  final List<Map<String, dynamic>> _vehicles = [
-    {'name': 'Economy', 'type': 'Comfortable', 'pricePerHour': 200, 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF1C2656), 'image': 'assets/images/economy.png'},
-    {'name': 'SUV', 'type': 'Premium', 'pricePerHour': 250, 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF4CAF50), 'image': 'assets/images/texi.png'},
-    {'name': 'Sedan', 'type': 'Spacious', 'pricePerHour': 300, 'capacity': '6', 'icon': Icons.airport_shuttle, 'color': Color(0xFF9C27B0), 'image': 'assets/images/texi2.png'},
-    {'name': 'Premium', 'type': 'Luxury', 'pricePerHour': 400, 'capacity': '4', 'icon': Icons.car_rental, 'color': Color(0xFF795548), 'image': 'assets/images/texi3.png'},
-  ];
-
   @override
   Widget build(BuildContext context) {
     if (_showMapPicker) return _buildMapPicker();
+    final selPrice = _selectedPackage != null ? _scaledPrice(_selectedPackage!) : null;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Rental Package'),
-        elevation: 1,
-        titleTextStyle: TextStyle(
-          color: Theme.of(context).colorScheme.onSurface,
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+      backgroundColor: RideUi.surface(context),
       body: Column(
         children: [
+          const ServiceBackBar(),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).cardColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey[200]!),
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.radio_button_checked, color: Color(0xFF4CAF50), size: 18),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: SizedBox(
-                                height: 40,
-                                child: TextField(
-                                  controller: _pickupController,
-                                  onChanged: (q) => _searchPlaces(q, isPickup: true),
-                                  decoration: InputDecoration(
-                                    hintText: 'Enter pickup location',
-                                    border: InputBorder.none,
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                                    hintStyle: TextStyle(color: Colors.grey[500], fontSize: 14),
-                                  ),
-                                  style: const TextStyle(fontSize: 14),
-                                ),
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.map, color: Color(0xFF4CAF50), size: 20),
-                              tooltip: 'Pick on map',
-                              onPressed: () => _openMapPicker(forPickup: true),
-                            ),
-                          ],
-                        ),
-                        ..._pickupSuggestions.map((s) => _suggestionTile(s, isPickup: true)),
-                        Padding(
-                          padding: const EdgeInsets.only(left: 9, top: 8, bottom: 8),
-                          child: Row(
-                            children: [
-                              Column(
-                                children: List.generate(3, (index) => Container(
-                                  margin: const EdgeInsets.symmetric(vertical: 1),
-                                  width: 2,
-                                  height: 3,
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[400],
-                                    borderRadius: BorderRadius.circular(1),
-                                  ),
-                                )),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Row(
-                          children: [
-                            Icon(Icons.location_on, color: Color(0xFFFF5252), size: 18),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: SizedBox(
-                                height: 40,
-                                child: TextField(
-                                  controller: _dropController,
-                                  onChanged: (q) => _searchPlaces(q, isPickup: false),
-                                  decoration: InputDecoration(
-                                    hintText: 'Drop location (optional)',
-                                    border: InputBorder.none,
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                                    hintStyle: TextStyle(color: Colors.grey[500], fontSize: 14),
-                                  ),
-                                  style: const TextStyle(fontSize: 14),
-                                ),
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.map, color: Color(0xFFFF5252), size: 20),
-                              tooltip: 'Pick on map',
-                              onPressed: () => _openMapPicker(forPickup: false),
-                            ),
-                          ],
-                        ),
-                        ..._dropSuggestions.map((s) => _suggestionTile(s, isPickup: false)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  const Text('Select Date & Time', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final date = await showDatePicker(
-                              context: context,
-                              initialDate: DateTime.now(),
-                              firstDate: DateTime.now(),
-                              lastDate: DateTime.now().add(const Duration(days: 365)),
-                            );
-                            if (date != null) {
-                              setState(() => _selectedDate = date);
-                            }
-                          },
-                          icon: const Icon(Icons.calendar_today, size: 18),
-                          // Ellipsis: an icon plus a date label in half a 320pt
-                          // screen overflowed the button. OutlinedButton.icon already
-                          // wraps its label in a Flexible, so the Text is given
-                          // directly — a second Flexible is an invalid layout.
-                          label: Text(
-                            _selectedDate == null
-                              ? 'Select Date'
-                              : '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}',
-                            maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false,
-                          ),
-                          style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () async {
-                            final time = await showTimePicker(
-                              context: context,
-                              initialTime: TimeOfDay.now(),
-                            );
-                            if (time != null) {
-                              setState(() => _selectedTime = time);
-                            }
-                          },
-                          icon: const Icon(Icons.access_time, size: 18),
-                          label: Text(
-                            _selectedTime == null
-                              ? 'Select Time'
-                              : _selectedTime!.format(context),
-                            maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false,
-                          ),
-                          style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  const Text('Select Package', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).cardColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey[200]!),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // The label sat unbounded next to an unbounded stepper,
-                        // so the pair overflowed by 67px at 320pt and 27px at
-                        // 360pt. Expanded gives the stepper its natural width
-                        // and lets the label take whatever is left.
-                        const Expanded(
-                          child: Text(
-                            'Select Hours',
-                            maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Row(
-                          children: [
-                            GestureDetector(
-                              onTap: () {
-                                if (_selectedHours > 1) {
-                                  setState(() => _selectedHours--);
-                                  if (_selectedVehicle != null) setState(() => _pickPackageForVehicle(_selectedVehicle!));
-                                }
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(color: Colors.grey[100], shape: BoxShape.circle),
-                                child: const Icon(Icons.remove, size: 20, color: Color(0xFF1C2656)),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 20),
-                              child: Text('$_selectedHours', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                            ),
-                            GestureDetector(
-                              onTap: () {
-                                if (_selectedHours < 12) {
-                                  setState(() => _selectedHours++);
-                                  if (_selectedVehicle != null) setState(() => _pickPackageForVehicle(_selectedVehicle!));
-                                }
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(color: Colors.grey[100], shape: BoxShape.circle),
-                                child: const Icon(Icons.add, size: 20, color: Color(0xFF1C2656)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  const Text('Select Vehicle', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 12),
-                  if (_loadingPackages)
-                    const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
-                  else if (_packagesError != null)
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(color: Colors.orange[50], borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.orange[200]!)),
-                      child: Row(children: [
-                        Icon(Icons.info_outline, color: Colors.orange[700], size: 20),
-                        const SizedBox(width: 10),
-                        Expanded(child: Text(_packagesError!, style: TextStyle(fontSize: 13, color: Colors.orange[800]))),
-                      ]),
-                    )
-                  else
-                    // Build cards straight from backend package vehicle names (no hardcoded list)
-                    ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _packagesByVehicle.keys.length,
-                      separatorBuilder: (context, index) => const SizedBox(height: 12),
-                      itemBuilder: (context, index) {
-                        final vehicleName = _packagesByVehicle.keys.elementAt(index);
-                        return _buildVehicleCard(vehicleName);
-                      },
-                    ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).cardColor,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey[300]!),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Color(0xFF4CAF50).withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(Icons.check_circle, color: Color(0xFF4CAF50), size: 20),
-                            ),
-                            const SizedBox(width: 8),
-                            const Expanded(
-                              child: Text('Package Benefits',
-                                maxLines: 1, overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Text('• Unlimited stops within package', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
-                        const SizedBox(height: 4),
-                        Text('• Fixed pricing, no surge', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
-                        const SizedBox(height: 4),
-                        Text('• Extra km charges apply beyond limit', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
-                        const SizedBox(height: 4),
-                        Text('• Extra hour charges apply beyond limit', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              boxShadow: [BoxShadow(color: Colors.black.withAlpha(15), blurRadius: 10, offset: const Offset(0, -2))],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
               children: [
-                PaymentCouponBar(
-                  baseFare: _selectedPackage != null ? _scaledPrice(_selectedPackage!) : 0,
-                  onChanged: (pm, cc, cd) => setState(() {
-                    _paymentMode = pm;
-                    _couponCode = cc;
-                    _couponDiscount = cd;
-                  }),
+                const ServiceTitle(title: 'Rent by the hour', subtitle: 'One car and driver for as long as you need'),
+                RouteInputBlock(rows: [
+                  RouteFieldRow(
+                    marker: RouteMarkerKind.pickup,
+                    trailing: MapPickAction(onTap: () => _openMapPicker(forPickup: true)),
+                    // No fixed height: a fixed box clipped the text's descenders,
+                    // and bareInput keeps the theme's outline out of the tile.
+                    child: TextField(
+                      controller: _pickupController,
+                      onChanged: (q) => _searchPlaces(q, isPickup: true),
+                      textAlignVertical: TextAlignVertical.center,
+                      decoration: RideUi.bareInput(context, 'Enter pickup location'),
+                      style: RideUi.body(context, size: 14.5, weight: FontWeight.w600),
+                    ),
+                  ),
+                  RouteFieldRow(
+                    marker: RouteMarkerKind.drop,
+                    trailing: MapPickAction(onTap: () => _openMapPicker(forPickup: false)),
+                    child: TextField(
+                      controller: _dropController,
+                      onChanged: (q) => _searchPlaces(q, isPickup: false),
+                      textAlignVertical: TextAlignVertical.center,
+                      decoration: RideUi.bareInput(context, 'Drop location (optional)'),
+                      style: RideUi.body(context, size: 14.5, weight: FontWeight.w600),
+                    ),
+                  ),
+                ]),
+                ..._pickupSuggestions.map((s) => _suggestionTile(s, isPickup: true)),
+                ..._dropSuggestions.map((s) => _suggestionTile(s, isPickup: false)),
+
+                const ServiceSection('Pickup date & time'),
+                LayoutBuilder(builder: (context, box) {
+                  final date = PickerPill(
+                    icon: Icons.calendar_today_outlined,
+                    label: 'Date',
+                    value: _selectedDate == null ? 'Select Date' : serviceDate(_selectedDate!),
+                    placeholder: _selectedDate == null,
+                    chevron: false,
+                    onTap: () async {
+                      final date = await showDatePicker(
+                        context: context,
+                        initialDate: DateTime.now(),
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (date != null) {
+                        setState(() => _selectedDate = date);
+                      }
+                    },
+                  );
+                  final time = PickerPill(
+                    icon: Icons.access_time,
+                    label: 'Time',
+                    value: _selectedTime == null ? 'Select Time' : _selectedTime!.format(context),
+                    placeholder: _selectedTime == null,
+                    chevron: false,
+                    onTap: () async {
+                      final time = await showTimePicker(
+                        context: context,
+                        initialTime: TimeOfDay.now(),
+                      );
+                      if (time != null) {
+                        setState(() => _selectedTime = time);
+                      }
+                    },
+                  );
+                  // Side by side where there is room; stacked on the narrowest
+                  // phones so neither value is cut to an ellipsis.
+                  if (box.maxWidth < 330) {
+                    return Column(children: [date, const SizedBox(height: 10), time]);
+                  }
+                  return Row(children: [
+                    Expanded(child: date),
+                    const SizedBox(width: 10),
+                    Expanded(child: time),
+                  ]);
+                }),
+
+                const ServiceSection('Select Package'),
+                StepperPill(
+                  label: 'Select Hours',
+                  caption: _selectedPackage != null
+                      ? '${_scaledKm(_selectedPackage!)} km included'
+                      : 'Package duration',
+                  value: '$_selectedHours',
+                  onMinus: _selectedHours > 1
+                      ? () {
+                          setState(() => _selectedHours--);
+                          if (_selectedVehicle != null) setState(() => _pickPackageForVehicle(_selectedVehicle!));
+                        }
+                      : null,
+                  onPlus: _selectedHours < 12
+                      ? () {
+                          setState(() => _selectedHours++);
+                          if (_selectedVehicle != null) setState(() => _pickPackageForVehicle(_selectedVehicle!));
+                        }
+                      : null,
                 ),
+
+                const ServiceSection('Select Vehicle'),
+                if (_loadingPackages)
+                  const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
+                else if (_packagesError != null)
+                  NoticeRow(_packagesError!, tone: NoticeTone.warning)
+                else
+                  // Rows straight from the backend package vehicle names (no hardcoded list)
+                  ..._packagesByVehicle.keys.map(_buildVehicleCard),
                 const SizedBox(height: 12),
-                ElevatedButton(
-                  onPressed: _selectedVehicle == null ? null : () {
-                    _showBookingConfirmationDialog();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Color(0xFF1C2656),
-                    minimumSize: const Size(double.infinity, 50),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  child: Text(
-                    _selectedVehicle == null
-                        ? 'Select Vehicle'
-                        : 'Book Package',
-                    style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w600),
-                  ),
+                const CollapsibleInfo(
+                  title: 'Package Benefits',
+                  icon: Icons.verified_outlined,
+                  children: [
+                    InfoLine(Icons.alt_route, 'Unlimited stops within package'),
+                    InfoLine(Icons.lock_clock_outlined, 'Fixed pricing, no surge'),
+                    InfoLine(Icons.add_road, 'Extra km charges apply beyond limit'),
+                    InfoLine(Icons.more_time, 'Extra hour charges apply beyond limit'),
+                  ],
                 ),
               ],
             ),
+          ),
+          PrimaryCtaBar(
+            top: PaymentCouponBar(
+              baseFare: selPrice ?? 0,
+              onChanged: (pm, cc, cd) => setState(() {
+                _paymentMode = pm;
+                _couponCode = cc;
+                _couponDiscount = cd;
+              }),
+            ),
+            label: _selectedVehicle == null
+                ? 'Select Vehicle'
+                : (selPrice != null ? 'Book Package · ₹$selPrice' : 'Book Package'),
+            onPressed: _selectedVehicle == null ? null : () {
+              _showBookingConfirmationDialog();
+            },
           ),
         ],
       ),
@@ -598,75 +400,47 @@ class _RentalScreenState extends State<RentalScreen> {
   }
 
   Widget _suggestionTile(Map<String, dynamic> s, {required bool isPickup}) {
-    return ListTile(
-      dense: true,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-      leading: const Icon(Icons.location_on, color: Color(0xFFFF5252), size: 18),
-      title: Text(s['mainText']?.toString() ?? '', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-      subtitle: Text(s['secondaryText']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+    return PlaceSuggestionTile(
+      title: s['mainText']?.toString() ?? '',
+      subtitle: s['secondaryText']?.toString(),
       onTap: () => _selectSuggestion(s, isPickup: isPickup),
     );
   }
 
   // Full-screen draggable-pin map picker for pickup/drop
   Widget _buildMapPicker() {
-    return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        leading: IconButton(icon: Icon(Icons.arrow_back, color: Theme.of(context).colorScheme.onSurface), onPressed: () => setState(() => _showMapPicker = false)),
-        title: Text(_pickingPickup ? 'Pick pickup location' : 'Pick drop location', style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 16, fontWeight: FontWeight.w600)),
-        centerTitle: true,
+    return ServiceMapPicker(
+      title: _pickingPickup ? 'Pick pickup location' : 'Pick drop location',
+      forPickup: _pickingPickup,
+      address: _pickerAddress,
+      onBack: () => setState(() => _showMapPicker = false),
+      onLocate: () async {
+        final pos = await LocationService.getCurrentLocation();
+        if (pos == null) return;
+        _pickerMapController?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 15));
+      },
+      map: GoogleMap(
+        initialCameraPosition: CameraPosition(target: _pickerCenter, zoom: 14),
+        onMapCreated: (c) => _pickerMapController = c,
+        onCameraMove: (pos) => _pickerCenter = pos.target,
+        onCameraIdle: () async {
+          final addr = await ApiService.reverseGeocode(_pickerCenter.latitude, _pickerCenter.longitude);
+          if (!mounted) return;
+          setState(() => _pickerAddress = addr);
+        },
+        myLocationEnabled: true, myLocationButtonEnabled: false, zoomControlsEnabled: false, mapToolbarEnabled: false,
       ),
-      body: Stack(children: [
-        GoogleMap(
-          initialCameraPosition: CameraPosition(target: _pickerCenter, zoom: 14),
-          onMapCreated: (c) => _pickerMapController = c,
-          onCameraMove: (pos) => _pickerCenter = pos.target,
-          onCameraIdle: () async {
-            final addr = await ApiService.reverseGeocode(_pickerCenter.latitude, _pickerCenter.longitude);
-            if (!mounted) return;
-            setState(() => _pickerAddress = addr);
-          },
-          myLocationEnabled: true, myLocationButtonEnabled: false, zoomControlsEnabled: false, mapToolbarEnabled: false,
-        ),
-        const Center(child: Padding(padding: EdgeInsets.only(bottom: 40), child: Icon(Icons.location_on, color: Color(0xFFFF5252), size: 48))),
-        Positioned(bottom: 180, right: 16, child: FloatingActionButton(
-          mini: true, backgroundColor: Theme.of(context).cardColor,
-          onPressed: () async {
-            final pos = await LocationService.getCurrentLocation();
-            if (pos == null) return;
-            _pickerMapController?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 15));
-          },
-          child: const Icon(Icons.my_location, color: Color(0xFF1C2656)),
-        )),
-        Positioned(left: 0, right: 0, bottom: 0, child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: Theme.of(context).cardColor, borderRadius: const BorderRadius.vertical(top: Radius.circular(20)), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, -2))]),
-          child: SafeArea(top: false, child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Row(children: [
-              Icon(_pickingPickup ? Icons.radio_button_checked : Icons.location_on, color: _pickingPickup ? const Color(0xFF4CAF50) : const Color(0xFFFF5252), size: 18),
-              const SizedBox(width: 8),
-              Expanded(child: Text(_pickerAddress.isEmpty ? 'Move the map to set location...' : _pickerAddress, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
-            ]),
-            const SizedBox(height: 12),
-            SizedBox(width: double.infinity, child: ElevatedButton(
-              onPressed: _pickerAddress.isEmpty ? null : () {
-                setState(() {
-                  if (_pickingPickup) {
-                    _pickupLat = _pickerCenter.latitude; _pickupLng = _pickerCenter.longitude; _pickupController.text = _pickerAddress; _pickupSuggestions = [];
-                  } else {
-                    _dropLat = _pickerCenter.latitude; _dropLng = _pickerCenter.longitude; _dropController.text = _pickerAddress; _dropSuggestions = [];
-                  }
-                  _showMapPicker = false;
-                });
-                if (_pickingPickup) _loadPackages();
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-              child: const Text('Confirm Location', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
-            )),
-          ])),
-        )),
-      ]),
+      onConfirm: _pickerAddress.isEmpty ? null : () {
+        setState(() {
+          if (_pickingPickup) {
+            _pickupLat = _pickerCenter.latitude; _pickupLng = _pickerCenter.longitude; _pickupController.text = _pickerAddress; _pickupSuggestions = [];
+          } else {
+            _dropLat = _pickerCenter.latitude; _dropLng = _pickerCenter.longitude; _dropController.text = _pickerAddress; _dropSuggestions = [];
+          }
+          _showMapPicker = false;
+        });
+        if (_pickingPickup) _loadPackages();
+      },
     );
   }
 
@@ -687,398 +461,133 @@ class _RentalScreenState extends State<RentalScreen> {
     final cap = matchPkg['capacity'] ?? 4;
     final raw = (matchPkg['imageUrl'] as String?) ?? '';
     final imgUrl = raw.isEmpty ? '' : AppConfig.imageUrl(raw);
-    const accent = Color(0xFF1C2656);
-
-    return GestureDetector(
+    return VehicleOptionRow(
+      selected: isSelected,
       onTap: () => setState(() { _selectedVehicle = vehicleName; _pickPackageForVehicle(vehicleName); }),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: isSelected ? accent : Colors.grey[200]!, width: isSelected ? 2 : 1),
-          boxShadow: isSelected ? [BoxShadow(color: accent.withOpacity(0.1), blurRadius: 8, offset: const Offset(0, 4))] : [],
-        ),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 90, height: 60,
-              child: imgUrl.isNotEmpty
-                  ? Image.network(imgUrl, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.directions_car, color: accent, size: 40))
-                  : const Icon(Icons.directions_car, color: accent, size: 40),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(vehicleName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  const SizedBox(height: 2),
-                  Row(children: [
-                    Text('$cap seats', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                    const SizedBox(width: 8),
-                    Text('• ${pkgList.length} package${pkgList.length != 1 ? 's' : ''}', style: TextStyle(fontSize: 12, color: Colors.blue[700], fontWeight: FontWeight.w500)),
-                  ]),
-                ],
-              ),
-            ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text('₹$totalPrice', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: accent)),
-                Text('$pkgHours hr / $totalDistance km', style: TextStyle(fontSize: 11, color: Colors.grey[500])),
-              ],
-            ),
-          ],
-        ),
-      ),
+      leading: VehicleThumb(networkUrl: imgUrl, fallbackIcon: Icons.directions_car),
+      name: vehicleName,
+      seats: '$cap',
+      subtitle: '$pkgHours hr / $totalDistance km',
+      tagline: '${pkgList.length} package${pkgList.length != 1 ? 's' : ''}',
+      price: '₹$totalPrice',
     );
+  }
+
+  /// When the rental starts, exactly as [_bookRental] sends it: no date picked
+  /// means it starts now (a time alone is not sent); a date with no time
+  /// starts at 9:00 AM.
+  String _startLabel(BuildContext context) {
+    final d = _selectedDate;
+    if (d == null) return 'Starting now';
+    final t = _selectedTime ?? const TimeOfDay(hour: 9, minute: 0);
+    return '${serviceDate(d)} · ${t.format(context)}';
   }
 
   void _showBookingConfirmationDialog() {
     final packageData = _getPackageData();
-    final vehicleData = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle,
-        orElse: () => {'name': _selectedVehicle, 'pricePerHour': 0, 'image': 'assets/images/economy.png', 'type': '', 'capacity': '4', 'icon': Icons.directions_car, 'color': const Color(0xFF1C2656)});
+    final p = _selectedPackage;
+    final cap = p?['capacity'];
+    final raw = (p?['imageUrl'] as String?) ?? '';
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
-        return Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(20),
-              topRight: Radius.circular(20),
+        return RideSheetContainer(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.9),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 8, 0),
+                  child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    const SheetHandle(),
+                    Row(children: [
+                      Expanded(child: Text('Confirm your rental', style: RideUi.title(context, size: 22))),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.pop(context),
+                        icon: const Icon(Icons.close, size: 22),
+                      ),
+                    ]),
+                  ]),
+                ),
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SummaryVehicleTile(
+                          leading: VehicleThumb(networkUrl: raw.isEmpty ? '' : AppConfig.imageUrl(raw), fallbackIcon: Icons.directions_car, size: 48),
+                          name: _selectedVehicle ?? '',
+                          caption: [if (cap != null) '$cap seats', '${packageData['duration']} · ${packageData['distance']}'].join(' · '),
+                          price: packageData['price'] as String,
+                        ),
+                        const SizedBox(height: 16),
+                        TripRouteSummary(
+                          pickup: _pickupController.text.isEmpty ? 'Current Location' : _pickupController.text,
+                          drop: _dropController.text.isEmpty ? 'Add destination (optional)' : _dropController.text,
+                          maxLines: 2,
+                          fontSize: 14,
+                        ),
+                        const SizedBox(height: 14),
+                        PickerPill(
+                          icon: Icons.event_outlined,
+                          label: 'Pickup Date & Time',
+                          value: _startLabel(context),
+                        ),
+
+                        const ServiceSection('Package Details', top: 20),
+                        SummaryRow('Duration', packageData['duration'] as String),
+                        SummaryRow('Distance Included', packageData['distance'] as String),
+                        SummaryRow('Extra hour rate', '₹${_selectedPackage?['extraHourRate'] ?? 0}/hr'),
+                        SummaryRow('Extra km rate', '₹${_selectedPackage?['extraKmRate'] ?? 0}/km'),
+                        const RideDivider(vertical: 8),
+                        SummaryRow('Total Package Price', packageData['price'] as String, bold: true),
+
+                        const SizedBox(height: 16),
+                        const CollapsibleInfo(
+                          title: 'What\'s Included',
+                          icon: Icons.check_circle_outline,
+                          children: [
+                            InfoLine(Icons.alt_route, 'Unlimited stops within package', subtitle: 'Make as many stops as you need'),
+                            InfoLine(Icons.lock_clock_outlined, 'Fixed pricing, no surge', subtitle: 'Price locked at booking time'),
+                            InfoLine(Icons.verified_user_outlined, 'Professional driver', subtitle: 'Verified and experienced pilot'),
+                            InfoLine(Icons.ac_unit, 'AC vehicle', subtitle: 'Comfortable air-conditioned ride'),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        // The package's own rates — the same figures listed above.
+                        CollapsibleInfo(
+                          title: 'Additional Charges',
+                          icon: Icons.receipt_long_outlined,
+                          children: [
+                            InfoLine(Icons.add_road, 'Extra km charges',
+                                subtitle: 'Beyond ${packageData['distance']}: ₹${_selectedPackage?['extraKmRate'] ?? 0}/km'),
+                            InfoLine(Icons.schedule, 'Extra time charges',
+                                subtitle: 'Beyond ${packageData['duration']}: ₹${_selectedPackage?['extraHourRate'] ?? 0}/hr'),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                PrimaryCtaBar(
+                  label: 'Confirm Booking',
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _confirmRental();
+                  },
+                ),
+              ],
             ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Header
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(20),
-                    topRight: Radius.circular(20),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.directions_car, color: Color(0xFF1C2656)),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Rental Package',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close, size: 20),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
-                  ],
-                ),
-              ),
-              
-              // Content
-              Flexible(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Pickup and Drop locations
-                      Row(
-                        children: [
-                          Column(
-                            children: [
-                              Container(
-                                width: 12,
-                                height: 12,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF4CAF50),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              Container(
-                                width: 2,
-                                height: 40,
-                                color: Colors.grey[300],
-                              ),
-                              Container(
-                                width: 12,
-                                height: 12,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFFFF5252),
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Pick-up', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                                Text(
-                                  _pickupController.text.isEmpty ? 'Current Location' : _pickupController.text,
-                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                                ),
-                                const SizedBox(height: 24),
-                                const Text('Drop-off', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                                Text(
-                                  _dropController.text.isEmpty ? 'Select destination' : _dropController.text,
-                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      
-                      const SizedBox(height: 24),
-                      
-                      // Date and Time
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).cardColor,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey[200]!),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.calendar_today, size: 18, color: Colors.blue[700]),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('Pickup Date & Time', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                                  Text(
-                                    '${_selectedDate == null ? 'Today' : '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}'} at ${_selectedTime == null ? 'Now' : _selectedTime!.format(context)}',
-                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 24),
-                      
-                      // Package Details
-                      const Text('Package Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 12),
-                      
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).cardColor,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.grey[200]!),
-                        ),
-                        child: Column(
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Icon(Icons.directions_car, color: Colors.blue[700], size: 20),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(_selectedVehicle!, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                                      Text('${vehicleData['type']} • ${vehicleData['capacity']} seats', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const Divider(height: 24),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text('Duration', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                                Text(packageData['duration'], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text('Distance Included', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                                Text(packageData['distance'], style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text('Extra hour rate', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                                Text('₹${_selectedPackage?['extraHourRate'] ?? 0}/hr', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text('Extra km rate', style: TextStyle(fontSize: 13, color: Colors.grey)),
-                                Text('₹${_selectedPackage?['extraKmRate'] ?? 0}/km', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 16),
-                      
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Color(0xFF4CAF50).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Color(0xFF4CAF50).withOpacity(0.3)),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text('Total Package Price', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                            Text(
-                              packageData['price'],
-                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF4CAF50)),
-                            ),
-                          ],
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 24),
-                      
-                      // What's Included
-                      const Text('What\'s Included', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 12),
-                      
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: Colors.green.withOpacity(0.2)),
-                        ),
-                        child: Column(
-                          children: [
-                            _buildConditionItem(Icons.check_circle, 'Unlimited stops within package', 'Make as many stops as you need'),
-                            const SizedBox(height: 12),
-                            _buildConditionItem(Icons.check_circle, 'Fixed pricing, no surge', 'Price locked at booking time'),
-                            const SizedBox(height: 12),
-                            _buildConditionItem(Icons.check_circle, 'Professional driver', 'Verified and experienced pilot'),
-                            const SizedBox(height: 12),
-                            _buildConditionItem(Icons.check_circle, 'AC vehicle', 'Comfortable air-conditioned ride'),
-                          ],
-                        ),
-                      ),
-                      
-                      const SizedBox(height: 24),
-                      
-                      // Things to keep in mind
-                      const Text('Additional Charges', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 12),
-                      
-                      _buildConditionItem(
-                        Icons.add_road,
-                        'Extra km charges',
-                        'Beyond ${packageData['distance']}: ₹10/km',
-                      ),
-                      const SizedBox(height: 12),
-                      _buildConditionItem(
-                        Icons.schedule,
-                        'Extra time charges',
-                        'Beyond ${packageData['duration']}: ₹100/hr',
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              
-              // Book button
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, -2),
-                    ),
-                  ],
-                ),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      _confirmRental();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1C2656),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Text(
-                      'Confirm Booking',
-                      style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ),
-              ),
-            ],
           ),
         );
       },
     );
   }
-
-  Widget _buildConditionItem(IconData icon, String title, String subtitle) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Colors.grey[100],
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, size: 20, color: Colors.grey[600]),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 2),
-              Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
 }

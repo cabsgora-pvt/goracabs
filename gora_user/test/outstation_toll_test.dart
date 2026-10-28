@@ -384,9 +384,9 @@ void main() {
     }, () => MockClient((req) async => req.url.path.endsWith('/rides/user')
         ? http.Response(jsonEncode({'rides': [stored]}), 200)
         : http.Response('{}', 200)));
-    await tester.tap(find.text('Outstation').first);
-    await tester.pump();
-    await tester.tap(find.text('Jaipur').first);
+    // "Your trips" lists every service in one list: the trip is its row.
+    expect(find.text('Gurugram → Jaipur'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('trip-h-77')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.byType(TripDetailScreen), findsOneWidget);
