@@ -100,10 +100,12 @@ void main() {
     expect(find.textContaining('Please pay ₹5400'), findsNothing);
     await tester.tap(find.text('Done'));
     await tester.pump();
-    // Top of the sheet; the hint is further down, past the tolls.
+    // Top of the sheet: the amount, and right under it what is still owed.
     expect(find.text('PAID AT BOOKING'), findsOneWidget);
-    await screen.scrollSheetToEnd(tester);
     expect(find.text('Fare paid when you booked. Please pay ₹170 for tolls to your driver.'), findsOneWidget);
+    // Further down, the tolls themselves.
+    await screen.scrollSheetToEnd(tester);
+    expect(find.byType(OutstationTollPanel), findsOneWidget);
     await screen.teardown(tester);
   });
 

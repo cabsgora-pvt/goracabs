@@ -894,6 +894,8 @@ class AssignedDriverCard extends StatelessWidget {
     final hasPhone = phone != null && phone!.trim().isNotEmpty;
     final card = DriverInfoCard(
       name: name,
+      // Summary pages pass the rating as ready text; no star row here.
+      showStars: false,
       stats: join([rating, experience]),
       vehicleModel: join([vehicleModel, vehicleColor]),
       plate: vehicleNumber ?? '',

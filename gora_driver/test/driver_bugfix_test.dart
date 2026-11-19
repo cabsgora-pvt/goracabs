@@ -781,7 +781,7 @@ void main() {
       expect(find.text('PARCEL · FINISHING'), findsOneWidget);
       expect(map.leg.isValid, isFalse);
       expect(map.onArrived, isNull);
-      expect(find.textContaining('Navigate to'), findsNothing);
+      expect(find.textContaining('Go to'), findsNothing);
       expect(find.byTooltip('Call receiver'), findsOneWidget, reason: 'delivered implies collected');
       expect(find.byTooltip('Call sender'), findsNothing);
       await _teardown(tester);
@@ -792,7 +792,7 @@ void main() {
           progress: const RideProgress(deliveryPhase: 'in_transit'))));
       expect(map.leg.isValid, isTrue);
       expect(map.leg.label, 'Receiver');
-      expect(find.text('Navigate to Receiver'), findsOneWidget);
+      expect(find.text('Go to Receiver'), findsOneWidget);
       await _teardown(tester);
     });
 
@@ -801,7 +801,7 @@ void main() {
           progress: const RideProgress(rentalElapsedSec: 600))));
       expect(map.leg.isValid, isFalse);
       expect(map.onArrived, isNull);
-      expect(find.text('Navigate to Pickup'), findsNothing);
+      expect(find.text('Go to Pickup'), findsNothing);
       await _teardown(tester);
     });
 
@@ -811,15 +811,15 @@ void main() {
             {'address': 'Iscon Mall', 'lat': 23.024, 'lng': 72.507},
           ]))));
       expect(map.leg.isValid, isTrue);
-      expect(find.text('Navigate to Stop 1'), findsOneWidget);
+      expect(find.text('Go to Stop 1'), findsOneWidget);
       await _teardown(tester);
     });
 
-    testWidgets('hire on duty: no "Navigate to Customer"', (tester) async {
+    testWidgets('hire on duty: no "Go to Customer"', (tester) async {
       final map = await openJob(tester, HireProgressPage(ride: _ride(service: 'hire_driver',
           progress: const RideProgress(hireElapsedSec: 600))));
       expect(map.leg.isValid, isFalse);
-      expect(find.textContaining('Navigate to'), findsNothing);
+      expect(find.textContaining('Go to'), findsNothing);
       await _teardown(tester);
     });
 

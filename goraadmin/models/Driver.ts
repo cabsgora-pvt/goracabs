@@ -55,6 +55,9 @@ const DriverSchema = new Schema({
   totalRides: { type: Number, default: 0 },
   totalEarnings: { type: Number, default: 0 },
   walletBalance: { type: Number, default: 0 },
+  // Razorpay payment ids already credited by a wallet recharge. Checked and
+  // pushed in the same update as the credit, so one payment is never added twice.
+  walletRechargeRefs: { type: [String], default: undefined, select: false },
   // ── Referral ──
   referralCode: { type: String, index: true },
   referredBy: { type: String, default: '' },      // code the driver signed up with

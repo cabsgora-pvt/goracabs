@@ -328,7 +328,7 @@ class _RequestCard extends StatefulWidget {
   State<_RequestCard> createState() => _RequestCardState();
 }
 
-class _RequestCardState extends State<_RequestCard> {
+class _RequestCardState extends State<_RequestCard> with SingleTickerProviderStateMixin {
   // Fallback window for a request that was never offered exclusively (the open
   // pool). When the server DID offer this ride to us it sends offerExpiresAt,
   // and we count down to that instead — a fixed 15s here disagreed with the
@@ -339,6 +339,9 @@ class _RequestCardState extends State<_RequestCard> {
   late int _left;
   Timer? _t;
   bool _handled = false;
+  // Drains the ring round the decline button smoothly, full → empty over the
+  // offer window (the 1 s timer below still decides when the card times out).
+  late final AnimationController _ring;
 
   int _secondsLeft() {
     final until = widget.ride.offerExpiresAt;
@@ -354,6 +357,8 @@ class _RequestCardState extends State<_RequestCard> {
     super.initState();
     _total = _secondsLeft();
     _left = _total;
+    _ring = AnimationController(vsync: this, duration: Duration(seconds: _total), value: 1.0)
+      ..reverse(from: 1.0);
     _t = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       if (_left <= 1) _fire(widget.onTimeout);
@@ -362,14 +367,57 @@ class _RequestCardState extends State<_RequestCard> {
   }
 
   @override
-  void dispose() { _t?.cancel(); super.dispose(); }
+  void dispose() {
+    _t?.cancel();
+    _ring.dispose();
+    super.dispose();
+  }
 
   // Run accept/reject exactly once (swipe, tap and the timer can all race).
   void _fire(VoidCallback cb) {
     if (_handled) return;
     _handled = true;
     _t?.cancel();
+    _ring.stop();
     cb();
+  }
+
+  // Decline button wrapped in the countdown ring (Rapido / Uber style).
+  Widget _declineWithRing(bool urgent) {
+    final color = urgent ? AppColors.red : Cap.accent;
+    return SizedBox(
+      width: 64, height: 64,
+      child: Stack(alignment: Alignment.center, children: [
+        Positioned.fill(
+          child: AnimatedBuilder(
+            animation: _ring,
+            builder: (context, child) => CircularProgressIndicator(
+              key: const ValueKey('decline_countdown_ring'),
+              value: _ring.value,
+              strokeWidth: 4,
+              strokeCap: StrokeCap.round,
+              backgroundColor: Cap.tile,
+              color: color,
+            ),
+          ),
+        ),
+        Tooltip(
+          message: 'Decline',
+          child: Material(
+            color: AppColors.red.withValues(alpha: 0.10),
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: widget.enabled ? () => _fire(widget.onReject) : null,
+              child: const SizedBox(
+                width: 50, height: 50,
+                child: Icon(Icons.close, color: AppColors.red, size: 24),
+              ),
+            ),
+          ),
+        ),
+      ]),
+    );
   }
 
   @override
@@ -504,21 +552,7 @@ class _RequestCardState extends State<_RequestCard> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
             child: Row(children: [
-              Tooltip(
-                message: 'Decline',
-                child: Material(
-                  color: AppColors.red.withValues(alpha: 0.10),
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    customBorder: const CircleBorder(),
-                    onTap: widget.enabled ? () => _fire(widget.onReject) : null,
-                    child: const SizedBox(
-                      width: 56, height: 56,
-                      child: Icon(Icons.close, color: AppColors.red, size: 26),
-                    ),
-                  ),
-                ),
-              ),
+              _declineWithRing(urgent),
               const SizedBox(width: 12),
               Expanded(
                 // Slide to accept (Uber / Rapido style): commits only past 85%

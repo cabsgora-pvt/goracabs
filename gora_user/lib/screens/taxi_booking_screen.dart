@@ -126,6 +126,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   String _driverVehicleModel = '';
   String _driverVehicleNumber = '';
   double _driverRating = 0;
+  int? _driverTrips;
+  String _driverVehicleType = '';
   Timer? _pollTimer;
   // What the current status poll reports to (finding sheet, then arriving
   // sheet). Kept so the poll can be restarted when the app comes back from the
@@ -170,13 +172,32 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   // cannot refill the list after the rider has moved on.
   int _searchSeq = 0;
 
-  void _searchPlaces(String q, {required bool forMapPicker}) {
+  // Pickup search. The pickup field had no search at all: typing a new
+  // address changed only the text, and the ride was still booked at the GPS
+  // point (_myLocation), so the driver went to the wrong place.
+  List<Map<String, dynamic>> _pickupSuggestions = [];
+  bool _searchingPickup = false;
+  bool _pickupSearchEmpty = false;
+  // True while the pickup text was typed but no place was picked for it yet.
+  bool _pickupEdited = false;
+  // The rider set the pickup themselves (suggestion, pin drag): a late GPS
+  // fix must not move it back to where the phone is.
+  bool _pickupChosen = false;
+  // Which field the list under the inputs belongs to.
+  bool _listForPickup = false;
+
+  void _searchPlaces(String q, {required bool forMapPicker, bool forPickup = false}) {
     _searchDebounce?.cancel();
     final seq = ++_searchSeq;
+    if (!forMapPicker) _listForPickup = forPickup;
     if (q.trim().length < 2) {
       setState(() {
         if (forMapPicker) {
           _mapPickerSuggestions = [];
+        } else if (forPickup) {
+          _pickupSuggestions = [];
+          _searchingPickup = false;
+          _pickupSearchEmpty = false;
         } else {
           _dropSuggestions = [];
           _searchingDrop = false;
@@ -187,8 +208,13 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     }
     if (!forMapPicker) {
       setState(() {
-        _searchingDrop = true;
-        _dropSearchEmpty = false;
+        if (forPickup) {
+          _searchingPickup = true;
+          _pickupSearchEmpty = false;
+        } else {
+          _searchingDrop = true;
+          _dropSearchEmpty = false;
+        }
       });
     }
     _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
@@ -200,6 +226,10 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       setState(() {
         if (forMapPicker) {
           _mapPickerSuggestions = results;
+        } else if (forPickup) {
+          _pickupSuggestions = results;
+          _searchingPickup = false;
+          _pickupSearchEmpty = results.isEmpty;
         } else {
           _dropSuggestions = results;
           _searchingDrop = false;
@@ -207,6 +237,71 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
         }
       });
     });
+  }
+
+  void _onPickupTyped(String q) {
+    _pickupEdited = true;
+    _searchPlaces(q, forMapPicker: false, forPickup: true);
+  }
+
+  void _clearPickupSearch() {
+    _pickupSuggestions = [];
+    _searchingPickup = false;
+    _pickupSearchEmpty = false;
+    _listForPickup = false;
+  }
+
+  // Sets the pickup to a place the rider picked (coordinates, not just text).
+  Future<bool> _selectPickupSuggestion(Map<String, dynamic> s) async {
+    _searchDebounce?.cancel();
+    _searchSeq++;
+    final placeId = s['placeId'] as String? ?? '';
+    final desc = s['description'] as String? ?? '';
+    final details = await ApiService.placeDetails(placeId);
+    if (!mounted) return false;
+    if (details == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load that place. Please try again.')),
+      );
+      return false;
+    }
+    final ll = LatLng((details['lat'] as num).toDouble(), (details['lng'] as num).toDouble());
+    setState(() {
+      _myLocation = ll;
+      _pickupController.text = details['address'] as String? ?? desc;
+      _pickupEdited = false;
+      _pickupChosen = true;
+      _clearPickupSearch();
+    });
+    FocusScope.of(context).unfocus();
+    _loadRealFares();
+    return true;
+  }
+
+  // "Use current location" in the pickup list: back to the phone's GPS.
+  Future<void> _useCurrentLocationForPickup() async {
+    _searchDebounce?.cancel();
+    _searchSeq++;
+    final pos = await LocationService.getCurrentLocation();
+    if (!mounted) return;
+    if (pos == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enable GPS / location permission to use this')),
+      );
+      return;
+    }
+    final ll = LatLng(pos.latitude, pos.longitude);
+    setState(() {
+      _myLocation = ll;
+      _pickupEdited = false;
+      _pickupChosen = true;
+      _clearPickupSearch();
+      _pickupController.text = 'Current Location';
+    });
+    FocusScope.of(context).unfocus();
+    final addr = await ApiService.reverseGeocode(ll.latitude, ll.longitude);
+    if (mounted && addr.isNotEmpty) setState(() => _pickupController.text = addr);
+    _loadRealFares();
   }
 
   Future<void> _selectSuggestion(Map<String, dynamic> s, {required bool forMapPicker}) async {
@@ -332,6 +427,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
 
   Future<void> _initLocation() async {
     final pos = await LocationService.getCurrentLocation();
+    // The rider already set the pickup themselves while GPS was slow.
+    if (_pickupChosen || _pickupEdited) {
+      _loadRealFares();
+      return;
+    }
     if (pos != null && mounted) {
       setState(() {
         _myLocation = LatLng(pos.latitude, pos.longitude);
@@ -978,6 +1078,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       _driverVehicleModel = '';
       _driverVehicleNumber = '';
       _driverRating = 0;
+      _driverTrips = null;
+      _driverVehicleType = '';
       _driverFix = null;
       _driverLatLng = null;
       _driverEtaMin = null;
@@ -1122,6 +1224,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       if (dr != null) {
         _driverVehicleModel = (dr['vehicleModel'] ?? _driverVehicleModel).toString();
         _driverVehicleNumber = (dr['vehicleNumber'] ?? dr['vehicleRegistrationNumber'] ?? _driverVehicleNumber).toString();
+        final trips = dr['totalRides'];
+        if (trips is num) _driverTrips = trips.toInt();
+        _driverVehicleType = (dr['vehicleTypeName'] ?? ride['vehicleType'] ?? _driverVehicleType).toString();
         final pic = (dr['profilePicUrl'] ?? '').toString();
         if (pic.isNotEmpty) _driverPicUrl = AppConfig.imageUrl(pic);
         final r = dr['rating'];
@@ -1183,7 +1288,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       icon: pickupPin ? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen) : _pickupGlyph!,
       infoWindow: const InfoWindow(title: 'Pickup (drag to adjust)'),
       onDragEnd: (LatLng p) async {
-        setState(() => _myLocation = p);
+        setState(() {
+          _myLocation = p;
+          _pickupChosen = true;
+          _pickupEdited = false;
+        });
         // Update pickup address via reverse geocode
         final addr = await ApiService.reverseGeocode(p.latitude, p.longitude);
         if (mounted && addr.isNotEmpty) setState(() => _pickupController.text = addr);
@@ -1444,7 +1553,13 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     // Field rows, top to bottom: pickup, any stops, drop. Each is drawn with
     // its slot of the dot–line–square connector on the left (Uber style).
     final fields = <Widget>[
-      _buildLocationInput(Icons.radio_button_checked, _pickupController, const Color(0xFF4CAF50), 'Current Location'),
+      _buildLocationInput(Icons.radio_button_checked, _pickupController, const Color(0xFF4CAF50), 'Search pickup location',
+          onChanged: _onPickupTyped,
+          // "Current Location" is a label, not an address: select it so typing replaces it.
+          onTap: () {
+            final t = _pickupController.text;
+            _pickupController.selection = TextSelection(baseOffset: 0, extentOffset: t.length);
+          }),
       ..._stopControllers.asMap().entries.map((entry) => _buildStopInput(entry.value, entry.key)),
       _buildLocationInput(Icons.location_on, _dropController, const Color(0xFFFF5252), 'Where to?',
           onChanged: (q) => _searchPlaces(q, forMapPicker: false)),
@@ -1550,7 +1665,23 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
               children: [
-                if (_dropSuggestions.isNotEmpty) ...[
+                if (_listForPickup) ...[
+                  // Pickup search: GPS first, then Google's places.
+                  _buildCurrentLocationTile(),
+                  if (_pickupSuggestions.isNotEmpty)
+                    for (var i = 0; i < _pickupSuggestions.length; i++) ...[
+                      const RideDivider(indent: 54),
+                      _buildSuggestionTile(_pickupSuggestions[i], forMapPicker: false, forPickup: true),
+                    ]
+                  else if (_searchingPickup || _pickupSearchEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Center(
+                        child: Text(_searchingPickup ? 'Searching…' : 'No places found — try another name',
+                            style: RideUi.caption(context, size: 13)),
+                      ),
+                    ),
+                ] else if (_dropSuggestions.isNotEmpty) ...[
                   for (var i = 0; i < _dropSuggestions.length; i++) ...[
                     if (i > 0) const RideDivider(indent: 54),
                     _buildSuggestionTile(_dropSuggestions[i], forMapPicker: false),
@@ -1585,6 +1716,25 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
           PrimaryCtaBar(
             label: 'Confirm Location',
             onPressed: () async {
+              // A typed pickup must become a real place, or the ride would be
+              // booked at the GPS point under someone else's address.
+              if (_pickupEdited) {
+                final typed = _pickupController.text.trim();
+                var picked = false;
+                if (_pickupSuggestions.isNotEmpty) {
+                  picked = await _selectPickupSuggestion(_pickupSuggestions.first);
+                } else if (typed.length >= 2) {
+                  final results = await ApiService.placesAutocomplete(typed);
+                  if (results.isNotEmpty) picked = await _selectPickupSuggestion(results.first);
+                }
+                if (!mounted) return;
+                if (!picked) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Couldn\'t find that pickup. Pick it from the suggestions.')),
+                  );
+                  return;
+                }
+              }
               final dropText = _dropController.text.trim();
               if (dropText.isEmpty || dropText == 'Select Destination') {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -1930,11 +2080,35 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     );
   }
 
-  Widget _buildSuggestionTile(Map<String, dynamic> s, {required bool forMapPicker}) {
+  Widget _buildCurrentLocationTile() {
+    return InkWell(
+      onTap: _useCurrentLocationForPickup,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(children: [
+          Container(
+            width: 40, height: 40,
+            decoration: BoxDecoration(color: RideUi.tile(context), shape: BoxShape.circle),
+            child: Icon(Icons.my_location_rounded, color: RideUi.ink(context), size: 19),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Use current location', style: RideUi.body(context, size: 15, weight: FontWeight.w700)),
+              const SizedBox(height: 2),
+              Text('Pick up from where you are now', style: RideUi.caption(context, size: 12.5)),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  Widget _buildSuggestionTile(Map<String, dynamic> s, {required bool forMapPicker, bool forPickup = false}) {
     final main = s['mainText'] as String? ?? s['description'] as String? ?? '';
     final sub = s['secondaryText'] as String? ?? '';
     return InkWell(
-      onTap: () => _selectSuggestion(s, forMapPicker: forMapPicker),
+      onTap: () => forPickup ? _selectPickupSuggestion(s) : _selectSuggestion(s, forMapPicker: forMapPicker),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Row(
@@ -2006,7 +2180,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
 
   // Grey, borderless field (Uber style). The marker that used to sit inside it
   // is now drawn by the dot–line–square connector beside the field.
-  Widget _buildLocationInput(IconData icon, TextEditingController controller, Color iconColor, String hint, {ValueChanged<String>? onChanged}) {
+  Widget _buildLocationInput(IconData icon, TextEditingController controller, Color iconColor, String hint,
+      {ValueChanged<String>? onChanged, VoidCallback? onTap}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14),
       alignment: Alignment.centerLeft,
@@ -2017,6 +2192,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       child: TextField(
         controller: controller,
         onChanged: onChanged,
+        onTap: onTap,
         decoration: InputDecoration(
           hintText: hint,
           border: InputBorder.none,
@@ -2422,6 +2598,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                         name: _driverName,
                         photoUrl: _driverPicUrl,
                         rating: _driverRating > 0 ? _driverRating : null,
+                        trips: _driverTrips,
+                        vehicleType: _driverVehicleType,
                         vehicleModel: _driverVehicleModel,
                         plate: _driverVehicleNumber,
                         vehicleImage: VehicleThumb(

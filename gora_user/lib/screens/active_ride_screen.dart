@@ -1403,10 +1403,20 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
   /// screen.
   Widget _driverCard(Map<String, dynamic> r, Map<String, dynamic> dr, String pic,
       {bool compact = false}) {
-    final name = (dr['name'] ?? 'Driver').toString();
-    final model = (dr['vehicleModel'] ?? '').toString();
-    final plate = (dr['vehicleNumber'] ?? '').toString();
+    final name = (dr['name'] ?? r['driverName'] ?? 'Driver').toString();
+    // Hire a driver: they drive the rider's own car, so their own vehicle is
+    // not what arrives — showing its model and plate would mislead.
+    final hire = (r['service'] ?? '') == 'hire_driver';
+    final model = hire ? '' : (dr['vehicleModel'] ?? '').toString();
+    final plate = hire ? '' : (dr['vehicleNumber'] ?? '').toString();
+    final vType = hire ? '' : (dr['vehicleTypeName'] ?? r['vehicleType'] ?? '').toString();
     final rating = (dr['rating'] as num?)?.toDouble() ?? 0;
+    final trips = (dr['totalRides'] as num?)?.toInt();
+    final years = (dr['yearsActive'] as num?)?.toInt() ?? 0;
+    final extra = [
+      if (hire) 'Drives your car',
+      if (years > 0) '$years ${years == 1 ? 'year' : 'years'} on Gora',
+    ].join(' · ');
     final photo = pic.isNotEmpty ? AppConfig.imageUrl(pic) : '';
     // Chat was not reachable from this screen at all — RideChatScreen was
     // linked from five booking screens but not from the one a rider actually
@@ -1426,8 +1436,10 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
         name: name,
         photoUrl: photo,
         rating: rating > 0 ? rating : null,
+        trips: trips,
+        vehicleType: vType,
         vehicleModel: [model, plate].where((s) => s.isNotEmpty).join(' · '),
-        stats: _driverStats(dr),
+        stats: hire ? 'Drives your car' : null,
         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
           _roundAction(icon: Icons.chat_bubble_outline, color: AppTheme.primaryBlue, tooltip: 'Message driver', onTap: chat),
           const SizedBox(width: 8),
@@ -1440,10 +1452,12 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
         name: name,
         photoUrl: photo,
         rating: rating > 0 ? rating : null,
+        trips: trips,
+        vehicleType: vType,
         vehicleModel: model,
         plate: plate,
-        stats: _driverStats(dr),
-        vehicleImage: _vehicleArt(r),
+        stats: extra.isEmpty ? null : extra,
+        vehicleImage: hire ? null : _vehicleArt(r),
       ),
       const SizedBox(height: 14),
       Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
@@ -1459,21 +1473,6 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       ]),
     ]);
   }
-
-  /// "4.8 · 1,240 trips", or null when the driver has neither yet. A new driver
-  /// with no rating shows nothing rather than a "0.0" that reads as terrible.
-  static String? _driverStats(Map<String, dynamic> dr) {
-    final rating = (dr['rating'] as num?)?.toDouble() ?? 0;
-    final trips = (dr['totalRides'] as num?)?.toInt() ?? 0;
-    final parts = [
-      if (rating > 0) rating.toStringAsFixed(1),
-      if (trips > 0) '${_groupThousands(trips)} ${trips == 1 ? 'trip' : 'trips'}',
-    ];
-    return parts.isEmpty ? null : parts.join(' · ');
-  }
-
-  static String _groupThousands(int n) => n.toString().replaceAllMapped(
-      RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
 
   /// Circular tinted action — a 44pt hit target, the platform minimum for a
   /// control people tap one-handed while walking to a pickup point.

@@ -45,12 +45,13 @@ void main() {
 
   http.Response json(Object body, [int code = 200]) => http.Response(jsonEncode(body), code);
 
-  testWidgets('the invoice shows the earning after commission', (tester) async {
+  testWidgets('the invoice shows the earning after commission, not the commission itself', (tester) async {
     await finish(tester, (req) async => req.url.path.endsWith('/complete')
         ? json({'success': true, 'fare': 85, 'adminProfit': 17, 'driverEarning': 68})
         : json({}));
     expect(find.text('₹68'), findsOneWidget);
-    expect(find.textContaining('₹17'), findsOneWidget);
+    // The review screen shows only the earning; the commission is not on it.
+    expect(find.textContaining('₹17'), findsNothing);
     expect(find.text('₹124999'), findsNothing, reason: 'not the whole fare');
   });
 
@@ -60,7 +61,7 @@ void main() {
       return json({'_id': 'ride-1', 'status': 'completed', 'driverEarning': 68, 'commissionAmount': 17});
     });
     expect(find.text('₹68'), findsOneWidget);
-    expect(find.textContaining('₹17'), findsOneWidget);
+    expect(find.textContaining('₹17'), findsNothing);
   });
 
   testWidgets('a failed settlement says so and stays', (tester) async {

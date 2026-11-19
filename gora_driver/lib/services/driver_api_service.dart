@@ -352,6 +352,22 @@ class DriverApiService {
 
   static Future<Map<String, dynamic>> getWithdrawals() => get('/auth/driver/withdraw');
 
+  // ── Wallet recharge (Add balance) ──
+  // { enabled, min, max, presets } — whether online recharge is open right now.
+  static Future<Map<String, dynamic>> getRechargeConfig() => get('/auth/driver/wallet/recharge');
+
+  static Future<Map<String, dynamic>> createRechargeOrder(int amount) =>
+      post('/auth/driver/wallet/recharge', {'amount': amount}, auth: true);
+
+  // The server credits what Razorpay says was paid, never an amount from here.
+  static Future<Map<String, dynamic>> verifyRecharge({
+    required String orderId,
+    required String paymentId,
+    required String signature,
+  }) =>
+      post('/auth/driver/wallet/recharge',
+          {'orderId': orderId, 'paymentId': paymentId, 'signature': signature}, auth: true);
+
   // Create a Razorpay order for a subscription plan
   static Future<Map<String, dynamic>> createSubscriptionOrder(String planId) =>
       post('/auth/driver/subscription/order', {'planId': planId}, auth: true);

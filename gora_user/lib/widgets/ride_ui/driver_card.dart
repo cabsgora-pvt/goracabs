@@ -98,37 +98,80 @@ class DriverAvatar extends StatelessWidget {
   }
 }
 
+/// Five small stars for a 0–5 rating, half stars included.
+class RatingStars extends StatelessWidget {
+  final double rating;
+  final double size;
+  const RatingStars(this.rating, {super.key, this.size = 14});
+
+  @override
+  Widget build(BuildContext context) {
+    const gold = Color(0xFFFFB300);
+    final r = rating.clamp(0, 5).toDouble();
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      for (var i = 1; i <= 5; i++)
+        Icon(
+          r >= i ? Icons.star_rounded : (r >= i - 0.5 ? Icons.star_half_rounded : Icons.star_outline_rounded),
+          size: size,
+          color: gold,
+        ),
+    ]);
+  }
+}
+
 /// Uber-style driver card:
 ///
-///   (photo ★4.8)  Ramesh                [car image]
-///                 Maruti Dzire · White  [RJ19 TA 4521]
+///   (photo)  Ramesh Kumar Patel           [car image]
+///            ★★★★★ 4.8 · 1,240 trips      [RJ19 TA 4521]
+///            Cab · Maruti Dzire
 ///
 /// Every value comes from the caller; empty strings are simply not shown.
+/// With [showStars] (the default) the rating is a row of stars under the full
+/// name; a driver with no rating yet reads "New driver", never "0.0".
 class DriverInfoCard extends StatelessWidget {
   final String name;
   final String photoUrl;
   final double? rating;
+  /// Completed trips, shown beside the stars.
+  final int? trips;
+  /// "Cab", "Bike", "Auto" — shown before the model.
+  final String vehicleType;
   final String vehicleModel;
   final String plate;
   final String? stats;
   final Widget? vehicleImage;
   final Widget? trailing;
   final bool compact;
+  final bool showStars;
   const DriverInfoCard({
     super.key,
     required this.name,
     this.photoUrl = '',
     this.rating,
+    this.trips,
+    this.vehicleType = '',
     this.vehicleModel = '',
     this.plate = '',
     this.stats,
     this.vehicleImage,
     this.trailing,
     this.compact = false,
+    this.showStars = true,
   });
 
+  static String _thousands(int n) =>
+      n.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
+
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) {
+    final r = rating ?? 0;
+    final vehicleLine = [vehicleType, vehicleModel]
+        .where((s) => s.trim().isNotEmpty)
+        // "Cab · Cab" when the model is just the type.
+        .fold<List<String>>([], (l, s) => l.any((x) => x.toLowerCase() == s.toLowerCase()) ? l : (l..add(s)))
+        .join(' · ');
+    final tripsText = trips != null && trips! > 0 ? '${_thousands(trips!)} ${trips == 1 ? 'trip' : 'trips'}' : '';
+    return Container(
         padding: EdgeInsets.all(compact ? 8 : 14),
         decoration: BoxDecoration(
           color: RideUi.surface(context),
@@ -136,21 +179,44 @@ class DriverInfoCard extends StatelessWidget {
           border: Border.all(color: RideUi.divider(context)),
         ),
         child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-          DriverAvatar(name: name, photoUrl: photoUrl, rating: rating, radius: compact ? 20 : 28),
+          // The stars row carries the rating, so the avatar needs no badge.
+          DriverAvatar(name: name, photoUrl: photoUrl, rating: showStars ? null : rating, radius: compact ? 22 : 30),
           const SizedBox(width: 12),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
               Text(name,
-                  maxLines: 1,
+                  key: const ValueKey('driver_full_name'),
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: RideUi.body(context, size: compact ? 14 : 16.5, weight: FontWeight.w800)),
-              if (vehicleModel.isNotEmpty) ...[
-                SizedBox(height: compact ? 0 : 2),
-                Text(vehicleModel, maxLines: 1, overflow: TextOverflow.ellipsis, style: RideUi.caption(context, size: compact ? 12 : 12.5)),
+                  style: RideUi.body(context, size: compact ? 14.5 : 16.5, weight: FontWeight.w800)),
+              if (showStars) ...[
+                const SizedBox(height: 3),
+                Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 4, runSpacing: 2, children: [
+                  if (r > 0) ...[
+                    RatingStars(r, size: compact ? 13 : 15),
+                    Text(r.toStringAsFixed(1), style: RideUi.body(context, size: compact ? 12 : 13, weight: FontWeight.w800)),
+                  ] else
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                      decoration: BoxDecoration(color: RideUi.tile(context), borderRadius: BorderRadius.circular(6)),
+                      child: Text('New driver', style: RideUi.caption(context, size: 11.5)),
+                    ),
+                  if (tripsText.isNotEmpty)
+                    Text('· $tripsText', style: RideUi.caption(context, size: compact ? 11.5 : 12.5)),
+                ]),
+              ],
+              if (vehicleLine.isNotEmpty) ...[
+                const SizedBox(height: 3),
+                Text(vehicleLine,
+                    key: const ValueKey('driver_vehicle_line'),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: RideUi.body(context, size: compact ? 12 : 13, weight: FontWeight.w600)
+                        .copyWith(color: RideUi.muted(context))),
               ],
               if (stats != null && stats!.isNotEmpty) ...[
                 const SizedBox(height: 2),
-                Text(stats!, maxLines: 1, overflow: TextOverflow.ellipsis, style: RideUi.caption(context, size: 11.5)),
+                Text(stats!, maxLines: 2, overflow: TextOverflow.ellipsis, style: RideUi.caption(context, size: 11.5)),
               ],
             ]),
           ),
@@ -168,4 +234,5 @@ class DriverInfoCard extends StatelessWidget {
           if (trailing != null) ...[const SizedBox(width: 8), trailing!],
         ]),
       );
+  }
 }

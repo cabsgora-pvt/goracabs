@@ -5,6 +5,9 @@ const UserSchema = new Schema({
   email: String,
   status: { type: String, enum: ['active', 'blocked'], default: 'active' },
   walletBalance: { type: Number, default: 0 },
+  // Razorpay payment ids already added by a wallet top-up, checked and pushed in
+  // the same update as the credit so one payment is never added twice.
+  walletRechargeRefs: { type: [String], default: undefined, select: false },
   totalRides: { type: Number, default: 0 },
   profilePic: String,
   profilePicUrl: String,

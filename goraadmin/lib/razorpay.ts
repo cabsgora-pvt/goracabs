@@ -2,6 +2,10 @@ import crypto from 'crypto'
 import { connectDB } from '@/lib/mongodb'
 import Settings from '@/models/Settings'
 
+// Overridable only so the payment paths can be tested against a local fake;
+// unset everywhere real, where it is Razorpay itself.
+const RAZORPAY_API = process.env.RAZORPAY_API_BASE || 'https://api.razorpay.com'
+
 export interface RazorpayActiveConfig {
   enabled: boolean
   mode: 'test' | 'live'
@@ -37,7 +41,7 @@ export async function createRazorpayOrder(
 
   const auth = Buffer.from(`${cfg.keyId}:${cfg.keySecret}`).toString('base64')
   try {
-    const res = await fetch('https://api.razorpay.com/v1/orders', {
+    const res = await fetch(`${RAZORPAY_API}/v1/orders`, {
       method: 'POST',
       headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -90,7 +94,7 @@ export async function fetchRazorpayOrder(
   if (!cfg.enabled) return { ok: false, error: 'Razorpay is not enabled' }
   const auth = Buffer.from(`${cfg.keyId}:${cfg.keySecret}`).toString('base64')
   try {
-    const res = await fetch(`https://api.razorpay.com/v1/orders/${encodeURIComponent(orderId)}`, {
+    const res = await fetch(`${RAZORPAY_API}/v1/orders/${encodeURIComponent(orderId)}`, {
       headers: { Authorization: `Basic ${auth}` },
     })
     const data = await res.json()

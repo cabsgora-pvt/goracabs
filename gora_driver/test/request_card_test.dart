@@ -80,4 +80,28 @@ void main() {
     expect(find.byIcon(Icons.inventory_2_outlined), findsNothing, reason: 'parcel details only on a parcel');
     await close(tester);
   });
+
+  testWidgets('the decline button sits in a countdown ring that drains with the offer', (tester) async {
+    await show(tester, [_request('t2', 'taxi')]);
+    final ring = find.byKey(const ValueKey('decline_countdown_ring'));
+    expect(ring, findsOneWidget);
+    // The ring and the ✕ are one control.
+    expect(find.descendant(of: find.ancestor(of: ring, matching: find.byType(Stack)).first, matching: find.byIcon(Icons.close)),
+        findsOneWidget);
+    double value() => tester.widget<CircularProgressIndicator>(ring).value!;
+    final start = value();
+    expect(start, greaterThan(0.9));
+    await http.runWithClient(() async {
+      for (var i = 0; i < 50; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }, () => MockClient((req) async => http.Response(jsonEncode({'rides': [_request('t2', 'taxi')]}), 200)));
+    final later = value();
+    // 15 s window, 5 s gone → about two thirds left, and moving smoothly (not
+    // just whole-second steps).
+    expect(later, lessThan(start));
+    expect(later, closeTo(10 / 15, 0.08));
+    while (tester.takeException() != null) {}
+    await close(tester);
+  });
 }

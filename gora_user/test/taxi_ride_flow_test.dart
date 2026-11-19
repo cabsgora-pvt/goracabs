@@ -15,6 +15,7 @@ import 'package:customer_app/screens/taxi_booking_screen.dart';
 import 'package:customer_app/theme/app_theme.dart';
 import 'package:customer_app/utils/vehicle_marker.dart';
 import 'package:customer_app/widgets/finding_driver_view.dart';
+import 'package:customer_app/widgets/ride_ui/ride_ui.dart';
 import 'package:customer_app/widgets/cancel_reasons_sheet.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -90,17 +91,26 @@ class FakeServer {
         if (status != 'pending') 'driverName': 'Ramesh Patel',
         if (status != 'pending') 'driverPhone': '+919876543210',
         if (status != 'pending')
-          'driver': {'vehicleModel': 'Hero Splendor', 'vehicleNumber': 'GJ01AB1234', 'rating': 4.8},
+          'driver': {'vehicleModel': 'Hero Splendor', 'vehicleNumber': 'GJ01AB1234', 'rating': 4.8,
+              'totalRides': 52, 'vehicleTypeName': 'Bike'},
       }), 200);
     }
     if (p.endsWith('/places/autocomplete')) {
       final q = req.url.queryParameters['q'] ?? '';
       if (q.contains('zzz')) return http.Response(jsonEncode({'predictions': []}), 200);
+      if (q.contains('Kal')) {
+        return http.Response(jsonEncode({'predictions': [
+          {'placeId': 'p2', 'description': 'Kalavad Road, Rajkot', 'mainText': 'Kalavad Road', 'secondaryText': 'Rajkot'},
+        ]}), 200);
+      }
       return http.Response(jsonEncode({'predictions': [
         {'placeId': 'p1', 'description': 'Race Course, Sadar, Rajkot', 'mainText': 'Race Course', 'secondaryText': 'Sadar, Rajkot'},
       ]}), 200);
     }
     if (p.endsWith('/places/details')) {
+      if (req.url.queryParameters['placeId'] == 'p2') {
+        return http.Response(jsonEncode({'lat': 22.2800, 'lng': 70.7600, 'address': 'Kalavad Road, Rajkot'}), 200);
+      }
       return http.Response(jsonEncode({'lat': 22.3000, 'lng': 70.7900, 'address': 'Race Course, Sadar, Rajkot'}), 200);
     }
     if (p.endsWith('/rides/nearby-drivers')) {
@@ -182,6 +192,19 @@ void main() {
     expect(find.text('Meet at the pickup point'), findsOneWidget);
     // Only one driver sheet, not one per poll.
     expect(find.text('Ramesh Patel'), findsOneWidget);
+    await teardown(tester);
+  });
+
+  testWidgets('taxi driver card: full name, stars and trips, vehicle type + model, plate', (tester) async {
+    await bookToFinding(tester);
+    server.status = 'accepted';
+    await act(() => advance(tester, const Duration(seconds: 8)));
+    expect(find.byKey(const ValueKey('driver_full_name')), findsOneWidget);
+    expect(find.byType(RatingStars), findsOneWidget);
+    expect(find.text('4.8'), findsOneWidget);
+    expect(find.text('· 52 trips'), findsOneWidget);
+    expect(find.text('Bike · Hero Splendor'), findsOneWidget);
+    expect(find.text('GJ01AB1234'), findsOneWidget);
     await teardown(tester);
   });
 
@@ -502,6 +525,110 @@ void main() {
       });
       expect(find.textContaining('Searching'), findsNothing);
       expect(find.textContaining('No places found'), findsOneWidget);
+      await teardown(tester);
+    });
+  });
+
+  // The pickup field used to have no search: typing changed only its text and
+  // the ride was still booked at the phone's GPS point.
+  group('pickup search', () {
+    Widget screen() => MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => UserProvider()),
+        ChangeNotifierProvider(create: (_) => ThemeProvider()),
+      ],
+      child: MaterialApp(
+        theme: AppTheme.lightTheme,
+        home: const TaxiBookingScreen(
+            fromLocation: 'Current Location', hideLocationInputs: false, preselectedVehicle: 'Bike'),
+      ),
+    );
+
+    Future<void> open(WidgetTester tester) async {
+      tester.view.physicalSize = kPhone;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.runAsync(() => VehicleMarkers.descriptorFor('Bike'));
+      await act(() async {
+        await tester.pumpWidget(screen());
+        await advance(tester, const Duration(seconds: 1));
+        tester.state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger)).removeCurrentSnackBar();
+        await advance(tester, const Duration(milliseconds: 300));
+      });
+    }
+
+    Finder pickupField() => find.byType(TextField).first;
+    Finder dropField() => find.widgetWithText(TextField, 'Where to?');
+
+    Future<void> pickDrop(WidgetTester tester) async {
+      await tester.enterText(dropField(), 'Race');
+      await advance(tester, const Duration(milliseconds: 600));
+      await tester.tap(find.text('Race Course'));
+      await advance(tester, const Duration(milliseconds: 600));
+    }
+
+    Future<Map<String, dynamic>> bookAndReadBody(WidgetTester tester) async {
+      await tester.tap(find.text('Confirm Location'));
+      await advance(tester, const Duration(seconds: 1));
+      await tester.tap(find.text('Choose Bike'));
+      await advance(tester, const Duration(milliseconds: 600));
+      await tester.tap(find.text('Confirm Pickup'));
+      await advance(tester, const Duration(milliseconds: 600));
+      await tester.tap(find.text('Confirm Ride'));
+      await advance(tester, const Duration(seconds: 1));
+      final book = server.requests.lastWhere((r) => r.url.path.endsWith('/rides/book'));
+      return jsonDecode(book.body) as Map<String, dynamic>;
+    }
+
+    testWidgets('typing a pickup shows Google suggestions and the ride is booked there', (tester) async {
+      await open(tester);
+      late Map<String, dynamic> body;
+      await act(() async {
+        await tester.enterText(pickupField(), 'Kalavad');
+        await tester.pump();
+        expect(find.text('Use current location'), findsOneWidget);
+        await advance(tester, const Duration(milliseconds: 600));
+        expect(find.text('Kalavad Road'), findsOneWidget);
+        await tester.tap(find.text('Kalavad Road'));
+        await advance(tester, const Duration(milliseconds: 600));
+        expect(find.text('Use current location'), findsNothing);
+        await pickDrop(tester);
+        body = await bookAndReadBody(tester);
+      });
+      expect(body['pickupLat'], 22.28);
+      expect(body['pickupLng'], 70.76);
+      expect(body['pickupAddress'], 'Kalavad Road, Rajkot');
+      expect(body['dropLat'], 22.3);
+      await teardown(tester);
+    });
+
+    testWidgets('a typed pickup not picked from the list is resolved on Confirm, not left at GPS', (tester) async {
+      await open(tester);
+      late Map<String, dynamic> body;
+      await act(() async {
+        await tester.enterText(pickupField(), 'Kalavad');
+        await advance(tester, const Duration(milliseconds: 600));
+        await pickDrop(tester);
+        body = await bookAndReadBody(tester);
+      });
+      expect(body['pickupLat'], 22.28);
+      expect(body['pickupAddress'], 'Kalavad Road, Rajkot');
+      await teardown(tester);
+    });
+
+    testWidgets('a pickup with no match stops at Confirm instead of booking at GPS', (tester) async {
+      await open(tester);
+      await act(() async {
+        await tester.enterText(pickupField(), 'zzzqqq');
+        await advance(tester, const Duration(milliseconds: 600));
+        await pickDrop(tester);
+        await tester.tap(find.text('Confirm Location'));
+        await advance(tester, const Duration(seconds: 1));
+      });
+      expect(find.textContaining("Couldn't find that pickup"), findsOneWidget);
+      expect(find.text('Choose Bike'), findsNothing);
+      expect(server.requests.where((r) => r.url.path.endsWith('/rides/book')), isEmpty);
       await teardown(tester);
     });
   });

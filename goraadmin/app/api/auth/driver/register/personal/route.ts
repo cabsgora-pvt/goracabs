@@ -39,7 +39,8 @@ export async function POST(req: NextRequest) {
     driver.state = state
     driver.zoneId = String(zone._id)
     driver.zoneName = zone.name || zoneName
-    if (profilePicUrl) driver.profilePicUrl = profilePicUrl
+    // Never over the face scan, which is the driver's photo once taken.
+    if (profilePicUrl && !driver.faceReferencePhotoUrl) driver.profilePicUrl = profilePicUrl
     if (['female', 'male', 'other'].includes(gender)) driver.gender = gender
     driver.registrationStep = 'vehicle'
 

@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import { requireAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
-import { verifyRazorpaySignature } from '@/lib/razorpay'
+import { verifyRazorpaySignature, fetchRazorpayOrder } from '@/lib/razorpay'
 import User from '@/models/User'
 import WalletTransaction from '@/models/WalletTransaction'
 
@@ -17,7 +17,8 @@ export async function POST(req: NextRequest) {
     const payload = requireAuth(req) as any
     if (!payload) return withCors({ error: 'Unauthorized' }, 401)
 
-    const { orderId, paymentId, signature, purpose = 'wallet', amount, rideId = '' } = await req.json()
+    // No 'amount' here: what to credit comes from Razorpay, never from the app.
+    const { orderId, paymentId, signature, purpose = 'wallet', rideId = '' } = await req.json()
     if (!orderId || !paymentId || !signature) return withCors({ error: 'Missing payment fields' }, 400)
 
     const valid = await verifyRazorpaySignature(orderId, paymentId, signature)
@@ -26,22 +27,40 @@ export async function POST(req: NextRequest) {
     await connectDB()
 
     if (purpose === 'wallet') {
-      const amt = Math.round(Number(amount) || 0)
-      if (amt <= 0) return withCors({ error: 'Invalid amount' }, 400)
+      // Credit what Razorpay says was paid on an order created for THIS user.
+      // The amount used to come from the request body, so paying ₹1 and
+      // sending amount: 10000 added ₹10,000.
+      const res = await fetchRazorpayOrder(String(orderId))
+      if (!res.ok || !res.order) return withCors({ error: 'Could not confirm the payment with Razorpay' }, 502)
+      const o = res.order
+      if (String(o.notes?.userId || '') !== String(payload.id) || String(o.notes?.purpose || 'wallet') !== 'wallet') {
+        return withCors({ error: 'This payment is not a wallet top-up for your account' }, 400)
+      }
+      const amt = Math.round(Number(o.amount_paid) || 0) / 100
+      if (amt <= 0) return withCors({ error: 'Payment not completed yet' }, 400)
 
-      // Idempotency: if this paymentId was already credited, return current balance
-      const existing = await WalletTransaction.findOne({ ref: paymentId })
-      const user = await User.findById(payload.id)
-      if (!user) return withCors({ error: 'User not found' }, 404)
-      if (existing) return withCors({ success: true, balance: user.walletBalance || 0 })
-
-      user.walletBalance = (user.walletBalance || 0) + amt
-      await user.save()
+      // A payment credited before this rule has a ledger row: never again.
+      if (await WalletTransaction.exists({ ref: paymentId, source: 'recharge' })) {
+        const u: any = await User.findById(payload.id).select('walletBalance').lean()
+        return withCors({ success: true, alreadyCredited: true, balance: u?.walletBalance || 0 })
+      }
+      // Claim and credit in one atomic update on the user: a retried or doubled
+      // verify finds the payment id already there and adds nothing.
+      const updated: any = await User.findOneAndUpdate(
+        { _id: payload.id, walletRechargeRefs: { $ne: paymentId } },
+        { $inc: { walletBalance: amt }, $push: { walletRechargeRefs: paymentId } },
+        { new: true },
+      ).select('walletBalance').lean()
+      if (!updated) {
+        const u: any = await User.findById(payload.id).select('walletBalance').lean()
+        if (!u) return withCors({ error: 'User not found' }, 404)
+        return withCors({ success: true, alreadyCredited: true, balance: u.walletBalance || 0 })
+      }
       await WalletTransaction.create({
-        userId: user._id, type: 'credit', amount: amt, balanceAfter: user.walletBalance,
+        userId: updated._id, type: 'credit', amount: amt, balanceAfter: updated.walletBalance,
         note: 'Money added via Razorpay', source: 'recharge', ref: paymentId,
       })
-      return withCors({ success: true, balance: user.walletBalance })
+      return withCors({ success: true, amount: amt, balance: updated?.walletBalance || 0 })
     }
 
     // purpose 'ride' (or others): payment verified — booking flow will attach paymentId

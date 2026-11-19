@@ -858,7 +858,7 @@ class _NavMapPanelState extends State<NavMapPanel> with WidgetsBindingObserver {
         ),
 
         // ── External turn-by-turn hand-off ──
-        // Only when there is somewhere to go: a disabled "Navigate to Pickup"
+        // Only when there is somewhere to go: a disabled "Go to Pickup"
         // on a rental already under way read as an instruction.
         if (leg.isValid)
         Positioned(
@@ -868,7 +868,7 @@ class _NavMapPanelState extends State<NavMapPanel> with WidgetsBindingObserver {
             child: ElevatedButton.icon(
               onPressed: leg.isValid ? _openExternal : null,
               icon: const Icon(Icons.assistant_direction, size: 20),
-              label: Text('Navigate to ${leg.label}',
+              label: Text('Go to ${leg.label}',
                   maxLines: 1, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
               style: ElevatedButton.styleFrom(

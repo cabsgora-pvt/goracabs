@@ -9,6 +9,7 @@ import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:customer_app/widgets/ride_ui/ride_ui.dart';
 import 'package:customer_app/providers/theme_provider.dart';
 import 'package:customer_app/providers/user_provider.dart';
 import 'package:customer_app/screens/active_ride_screen.dart';
@@ -758,8 +759,13 @@ void main() {
       final ride = rideJson(status: 'accepted', uiPhase: 'assigned');
       ride['driver'] = {...(ride['driver'] as Map), 'rating': 4.84, 'totalRides': 1240};
       await pumpRide(tester, ride, kCommon);
-      expect(find.text('4.8 · 1,240 trips'), findsOneWidget);
-      expect(find.byIcon(Icons.star_rounded), findsOneWidget);
+      // Full name, a row of stars with the rating, and the trip count.
+      expect(find.byType(RatingStars), findsOneWidget);
+      expect(find.text('4.8'), findsOneWidget);
+      expect(find.text('· 1,240 trips'), findsOneWidget);
+      // 4.84: four full stars and a half.
+      expect(find.byIcon(Icons.star_rounded), findsNWidgets(4));
+      expect(find.byIcon(Icons.star_half_rounded), findsOneWidget);
       await teardown(tester);
     });
 
@@ -767,8 +773,54 @@ void main() {
       final ride = rideJson(status: 'accepted', uiPhase: 'assigned');
       ride['driver'] = {...(ride['driver'] as Map), 'rating': 0, 'totalRides': 12};
       await pumpRide(tester, ride, kCommon);
-      expect(find.text('12 trips'), findsOneWidget);
+      expect(find.text('· 12 trips'), findsOneWidget);
+      expect(find.text('New driver'), findsOneWidget);
+      expect(find.byType(RatingStars), findsNothing);
       expect(find.byIcon(Icons.star_rounded), findsNothing);
+      await teardown(tester);
+    });
+
+    testWidgets('driver card: full name, stars, vehicle type + model and plate', (tester) async {
+      final ride = rideJson(status: 'accepted', uiPhase: 'assigned');
+      ride['driver'] = {...(ride['driver'] as Map), 'rating': 4.6, 'totalRides': 87,
+          'vehicleTypeName': 'Prime SUV', 'vehicleNumber': 'GJ01AB1234'};
+      await pumpRide(tester, ride, kCommon);
+      final name = tester.widget<Text>(find.byKey(const ValueKey('driver_full_name')));
+      expect(name.data, 'Chandrashekhar Balasubramanian');
+      expect(name.maxLines, 2, reason: 'a long name wraps instead of being cut to one line');
+      expect(find.text('Prime SUV · Mahindra XUV700 AX7 Luxury'), findsOneWidget);
+      expect(find.text('GJ01AB1234'), findsOneWidget);
+      expect(find.byType(RatingStars), findsOneWidget);
+      await teardown(tester);
+    });
+
+    for (final svc in const ['delivery', 'rental', 'outstation']) {
+      testWidgets('$svc: the same full driver card', (tester) async {
+        final ride = rideJson(status: 'accepted', uiPhase: 'assigned', service: svc);
+        ride['driver'] = {...(ride['driver'] as Map), 'rating': 4.2, 'totalRides': 15, 'vehicleTypeName': 'Cab',
+            'vehicleNumber': 'GJ03XY9876'};
+        await pumpRide(tester, ride, kCommon);
+        expect(find.byKey(const ValueKey('driver_full_name')), findsOneWidget);
+        expect(find.byType(RatingStars), findsOneWidget);
+        expect(find.text('· 15 trips'), findsOneWidget);
+        expect(find.textContaining('Mahindra XUV700'), findsOneWidget);
+        expect(find.text('GJ03XY9876'), findsOneWidget);
+        await teardown(tester);
+      });
+    }
+
+    testWidgets('hire a driver: driver details, never their own car', (tester) async {
+      final ride = rideJson(status: 'accepted', uiPhase: 'assigned', service: 'hire_driver');
+      ride['driver'] = {...(ride['driver'] as Map), 'rating': 4.9, 'totalRides': 310, 'yearsActive': 3,
+          'vehicleTypeName': 'Cab', 'vehicleNumber': 'GJ01ZZ0001'};
+      await pumpRide(tester, ride, kCommon);
+      expect(find.byKey(const ValueKey('driver_full_name')), findsOneWidget);
+      expect(find.byType(RatingStars), findsOneWidget);
+      expect(find.text('· 310 trips'), findsOneWidget);
+      expect(find.textContaining('Drives your car'), findsOneWidget);
+      expect(find.textContaining('3 years on Gora'), findsOneWidget);
+      expect(find.text('GJ01ZZ0001'), findsNothing, reason: "the driver's own plate is not the car they drive");
+      expect(find.textContaining('Mahindra XUV700'), findsNothing);
       await teardown(tester);
     });
 

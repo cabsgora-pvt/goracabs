@@ -6,7 +6,11 @@ import '../theme/app_theme.dart';
 import '../providers/user_provider.dart';
 import '../services/api_service.dart';
 import '../config/app_config.dart';
+import '../widgets/ride_ui/ride_ui.dart';
 
+/// Rider profile: photo, name and contact details, in the same tile style as
+/// the booking screens. Viewing is read-only; "Edit profile" turns the rows
+/// into fields with one Save button at the bottom.
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
   @override
@@ -14,7 +18,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  // Controllers only used when _isEditing = true
+  // Controllers exist only while editing.
   TextEditingController? _name;
   TextEditingController? _email;
   TextEditingController? _city;
@@ -22,13 +26,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   bool _isEditing = false;
   bool _saving = false;
+  bool _uploadingPhoto = false;
   Uint8List? _newPicBytes;
   final _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
-    // Always load fresh from API
+    // Always load fresh from the API.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<UserProvider>().loadProfile();
     });
@@ -36,222 +41,396 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
+    _disposeControllers();
+    super.dispose();
+  }
+
+  void _disposeControllers() {
     _name?.dispose();
     _email?.dispose();
     _city?.dispose();
     _idNumber?.dispose();
-    super.dispose();
+    _name = _email = _city = _idNumber = null;
   }
 
   void _startEditing(UserProvider u) {
-    _name     = TextEditingController(text: u.name);
-    _email    = TextEditingController(text: u.email);
-    _city     = TextEditingController(text: u.city);
+    _name = TextEditingController(text: u.name);
+    _email = TextEditingController(text: u.email);
+    _city = TextEditingController(text: u.city);
     _idNumber = TextEditingController(text: u.idNumber);
     setState(() => _isEditing = true);
   }
 
-  void _cancelEditing(UserProvider u) {
-    _name?.dispose(); _email?.dispose();
-    _city?.dispose(); _idNumber?.dispose();
-    setState(() { _isEditing = false; _newPicBytes = null; });
+  void _cancelEditing() {
+    FocusScope.of(context).unfocus();
+    _disposeControllers();
+    setState(() => _isEditing = false);
   }
 
   Future<void> _pickPhoto() async {
+    if (_uploadingPhoto) return;
     final picked = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
     if (picked == null) return;
     final bytes = await picked.readAsBytes();
-    setState(() => _newPicBytes = bytes);
+    if (!mounted) return;
+    setState(() {
+      _newPicBytes = bytes;
+      _uploadingPhoto = true;
+    });
     final url = await ApiService.uploadProfilePic(picked);
-    if (url != null && mounted) {
+    if (!mounted) return;
+    setState(() => _uploadingPhoto = false);
+    if (url != null) {
       final relUrl = url.replaceFirst(AppConfig.serverBaseUrl, '');
       context.read<UserProvider>().setUser({
         ...?context.read<UserProvider>().user,
         'profilePicUrl': relUrl,
       });
+      _snack('Photo updated', ok: true);
+    } else {
+      setState(() => _newPicBytes = null);
+      _snack('Could not upload the photo. Please try again.', ok: false);
     }
   }
 
   Future<void> _save(UserProvider u) async {
+    final email = _email?.text.trim() ?? u.email;
+    if (email.isNotEmpty && !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+      _snack('Please enter a valid email address', ok: false);
+      return;
+    }
+    FocusScope.of(context).unfocus();
     setState(() => _saving = true);
     final ok = await u.updateProfile(
-      name:      _name?.text.trim()     ?? u.name,
-      city:      _city?.text.trim()     ?? u.city,
-      email:     _email?.text.trim()    ?? u.email,
-      idNumber:  _idNumber?.text.trim() ?? u.idNumber,
+      name: _name?.text.trim() ?? u.name,
+      city: _city?.text.trim() ?? u.city,
+      email: email,
+      idNumber: _idNumber?.text.trim() ?? u.idNumber,
     );
     if (!mounted) return;
-    _name?.dispose(); _email?.dispose();
-    _city?.dispose(); _idNumber?.dispose();
-    setState(() { _saving = false; _isEditing = false; _newPicBytes = null; });
+    setState(() => _saving = false);
+    if (ok) {
+      _disposeControllers();
+      setState(() => _isEditing = false);
+    }
+    _snack(ok ? 'Profile updated' : 'Failed to update. Please try again.', ok: ok);
+  }
+
+  void _snack(String msg, {required bool ok}) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(ok ? 'Profile updated!' : 'Failed to update'),
-      backgroundColor: ok ? Colors.green : Colors.red,
+      content: Text(msg),
+      backgroundColor: ok ? Colors.green.shade700 : Colors.red.shade700,
+      behavior: SnackBarBehavior.floating,
     ));
   }
 
   @override
   Widget build(BuildContext context) {
     final u = context.watch<UserProvider>(); // rebuilds on every API load
-    final picUrl = u.profilePicUrl;
     final displayName = u.name.isNotEmpty ? u.name : (u.phone.isNotEmpty ? '+91 ${u.phone}' : '');
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('My Profile'),
-        elevation: 0,
-        actions: [
-          if (u.loading)
-            const Padding(
-              padding: EdgeInsets.all(14),
-              child: SizedBox(width: 20, height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryBlue)),
-            )
-          else if (_saving)
-            const Padding(
-              padding: EdgeInsets.all(14),
-              child: SizedBox(width: 20, height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2)),
-            )
-          else ...[
-            if (_isEditing) ...[
-              IconButton(
-                icon: const Icon(Icons.check, color: Colors.green),
-                onPressed: () => _save(u),
+    return PopScope(
+      // Back while editing leaves edit mode instead of the screen.
+      canPop: !_isEditing,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _isEditing) _cancelEditing();
+      },
+      child: Scaffold(
+        backgroundColor: RideUi.surface(context),
+        appBar: AppBar(
+          elevation: 0,
+          backgroundColor: RideUi.surface(context),
+          title: Text(_isEditing ? 'Edit profile' : 'Profile', style: RideUi.title(context, size: 18)),
+          centerTitle: false,
+          actions: [
+            if (u.loading && !_isEditing)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+              )
+            else if (_isEditing)
+              TextButton(
+                onPressed: _saving ? null : _cancelEditing,
+                child: Text('Cancel', style: RideUi.body(context, size: 14, weight: FontWeight.w700)),
               ),
-              IconButton(
-                icon: const Icon(Icons.close, color: Colors.red),
-                onPressed: () => _cancelEditing(u),
-              ),
-            ] else
-              IconButton(
-                icon: const Icon(Icons.edit, color: AppTheme.primaryBlue),
-                onPressed: () => _startEditing(u),
-              ),
-          ],
-        ],
-      ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // ── Profile photo card ──
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.all(20),
-              padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardColor,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [BoxShadow(color: Colors.black.withAlpha(13), blurRadius: 10, offset: const Offset(0, 4))],
-              ),
-              child: Column(children: [
-                GestureDetector(
-                  onTap: _isEditing ? _pickPhoto : null,
-                  child: Stack(children: [
-                    Container(
-                      width: 110, height: 110,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: AppTheme.primaryBlue.withAlpha(60), width: 3),
-                      ),
-                      child: ClipOval(
-                        child: _newPicBytes != null
-                            ? Image.memory(_newPicBytes!, fit: BoxFit.cover)
-                            : picUrl.isNotEmpty
-                                ? Image.network(
-                                    AppConfig.imageUrl(picUrl),
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => _avatarFallback(displayName),
-                                  )
-                                : _avatarFallback(displayName),
-                      ),
-                    ),
-                    if (_isEditing)
-                      Positioned(
-                        bottom: 2, right: 2,
-                        child: Container(
-                          padding: const EdgeInsets.all(7),
-                          decoration: const BoxDecoration(color: AppTheme.primaryBlue, shape: BoxShape.circle),
-                          child: const Icon(Icons.camera_alt, color: Colors.white, size: 16),
-                        ),
-                      ),
-                  ]),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  u.name.isNotEmpty ? u.name : (u.loading ? 'Loading...' : 'Tap edit to add name'),
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.onSurface),
-                ),
-                if (u.phone.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text('+91 ${u.phone}',
-                        style: TextStyle(color: Colors.grey[500], fontSize: 14)),
-                  ),
-              ]),
-            ),
-
-            // ── Fields ──
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Personal Information',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
-                  _fieldRow(Icons.person_outline, 'Full Name',
-                      _isEditing ? _name! : TextEditingController(text: u.name)),
-                  const SizedBox(height: 14),
-                  _fieldRow(Icons.phone_outlined, 'Phone Number',
-                      TextEditingController(text: u.phone), readOnly: true),
-                  const SizedBox(height: 14),
-                  _fieldRow(Icons.email_outlined, 'Email',
-                      _isEditing ? _email! : TextEditingController(text: u.email),
-                      keyboard: TextInputType.emailAddress),
-                  const SizedBox(height: 14),
-                  _fieldRow(Icons.location_city_outlined, 'City',
-                      _isEditing ? _city! : TextEditingController(text: u.city)),
-                  const SizedBox(height: 14),
-                  _fieldRow(Icons.badge_outlined, 'ID Number',
-                      _isEditing ? _idNumber! : TextEditingController(text: u.idNumber)),
-                  const SizedBox(height: 32),
-                ],
-              ),
-            ),
           ],
         ),
+        body: RefreshIndicator(
+          onRefresh: () => context.read<UserProvider>().loadProfile(),
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(RideUi.gutter, 4, RideUi.gutter, 24),
+            children: [
+              _header(u, displayName),
+              const SizedBox(height: 24),
+              RideSectionTitle('Personal information', size: 17),
+              const SizedBox(height: 10),
+              if (_isEditing) ..._editFields() else _detailsCard(u),
+            ],
+          ),
+        ),
+        // Lifted above the keyboard, or Save sits hidden behind it while typing.
+        bottomNavigationBar: _isEditing
+            ? Padding(
+                padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+                child: PrimaryCtaBar(
+                  label: _saving ? 'Saving…' : 'Save changes',
+                  icon: Icons.check_rounded,
+                  onPressed: _saving ? null : () => _save(u),
+                ),
+              )
+            : null,
       ),
+    );
+  }
+
+  // ── Header: photo, name, phone, Edit ─────────────────────────────────────
+  Widget _header(UserProvider u, String displayName) {
+    final picUrl = u.profilePicUrl;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [RideUi.navy, RideUi.navy.withValues(alpha: 0.82)],
+        ),
+      ),
+      child: Column(children: [
+        Row(children: [
+          GestureDetector(
+            onTap: _pickPhoto,
+            child: Stack(clipBehavior: Clip.none, children: [
+              Container(
+                width: 76, height: 76,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 3),
+                ),
+                child: ClipOval(
+                  child: _newPicBytes != null
+                      ? Image.memory(_newPicBytes!, fit: BoxFit.cover)
+                      : picUrl.isNotEmpty
+                          ? Image.network(
+                              AppConfig.imageUrl(picUrl),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => _avatarFallback(displayName),
+                            )
+                          : _avatarFallback(displayName),
+                ),
+              ),
+              if (_uploadingPhoto)
+                const Positioned.fill(
+                  child: Center(
+                    child: SizedBox(width: 24, height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white)),
+                  ),
+                ),
+              Positioned(
+                bottom: -2, right: -2,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: RideUi.cta,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 14),
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(
+                u.name.isNotEmpty ? u.name : (u.loading ? 'Loading…' : 'Add your name'),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800, letterSpacing: -0.2),
+              ),
+              if (u.phone.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Row(children: [
+                  Flexible(
+                    child: Text('+91 ${u.phone}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 14, fontWeight: FontWeight.w600)),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(Icons.verified_rounded, size: 16, color: Colors.greenAccent.shade200),
+                ]),
+              ],
+              if (u.city.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Row(children: [
+                  Icon(Icons.location_on_outlined, size: 14, color: Colors.white.withValues(alpha: 0.75)),
+                  const SizedBox(width: 3),
+                  Flexible(
+                    child: Text(u.city,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.75), fontSize: 13)),
+                  ),
+                ]),
+              ],
+            ]),
+          ),
+        ]),
+        if (!_isEditing) ...[
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: u.loading && u.user == null ? null : () => _startEditing(u),
+              icon: const Icon(Icons.edit_outlined, size: 18, color: Colors.white),
+              label: const Text('Edit profile',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.6)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+        ],
+      ]),
     );
   }
 
   Widget _avatarFallback(String name) {
     return Container(
-      color: AppTheme.primaryBlue.withAlpha(25),
+      color: Colors.white,
       child: Center(
         child: Text(
-          name.isNotEmpty ? name[0].toUpperCase() : '?',
-          style: const TextStyle(fontSize: 44, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
+          name.isNotEmpty ? name.trim()[0].toUpperCase() : '?',
+          style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: AppTheme.primaryBlue),
         ),
       ),
     );
   }
 
-  Widget _fieldRow(IconData icon, String label, TextEditingController ctrl,
-      {TextInputType? keyboard, bool readOnly = false}) {
-    final editable = _isEditing && !readOnly;
-    return TextField(
-      controller: ctrl,
-      enabled: editable,
-      readOnly: !editable,
-      keyboardType: keyboard,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: AppTheme.primaryBlue),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        filled: true,
-        fillColor: editable ? Theme.of(context).cardColor : Colors.grey[100],
-      ),
+  // ── View mode: one tile with a row per detail ───────────────────────────
+  Widget _detailsCard(UserProvider u) {
+    final rows = <Widget>[
+      _detailRow(Icons.person_outline_rounded, 'Full name', u.name),
+      _detailRow(Icons.phone_outlined, 'Phone number', u.phone.isNotEmpty ? '+91 ${u.phone}' : '',
+          trailing: _verifiedBadge()),
+      _detailRow(Icons.email_outlined, 'Email', u.email),
+      _detailRow(Icons.location_city_outlined, 'City', u.city),
+      _detailRow(Icons.badge_outlined, 'ID number', u.idNumber),
+    ];
+    return RideTile(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      child: Column(children: [
+        for (var i = 0; i < rows.length; i++) ...[
+          if (i > 0) const RideDivider(indent: 52),
+          rows[i],
+        ],
+      ]),
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value, {Widget? trailing}) {
+    final empty = value.trim().isEmpty;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(children: [
+        Container(
+          width: 38, height: 38,
+          decoration: BoxDecoration(color: RideUi.surface(context), shape: BoxShape.circle),
+          child: Icon(icon, size: 19, color: RideUi.accent(context)),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: RideUi.caption(context, size: 12)),
+            const SizedBox(height: 2),
+            Text(
+              empty ? 'Not added' : value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: empty
+                  ? RideUi.caption(context, size: 14.5)
+                  : RideUi.body(context, size: 14.5, weight: FontWeight.w700),
+            ),
+          ]),
+        ),
+        ?trailing,
+      ]),
+    );
+  }
+
+  Widget _verifiedBadge() => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(color: Colors.green.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
+        child: Text('Verified',
+            style: TextStyle(color: Colors.green.shade700, fontSize: 11, fontWeight: FontWeight.w800)),
+      );
+
+  // ── Edit mode: grey field boxes ─────────────────────────────────────────
+  List<Widget> _editFields() {
+    final u = context.read<UserProvider>();
+    return [
+      _editField(Icons.person_outline_rounded, 'Full name', 'Add your name', _name!,
+          capitalization: TextCapitalization.words),
+      _lockedField(Icons.phone_outlined, 'Phone number', u.phone.isNotEmpty ? '+91 ${u.phone}' : ''),
+      _editField(Icons.email_outlined, 'Email', 'Add email', _email!, keyboard: TextInputType.emailAddress),
+      _editField(Icons.location_city_outlined, 'City', 'Add city', _city!, capitalization: TextCapitalization.words),
+      _editField(Icons.badge_outlined, 'ID number', 'Add ID number', _idNumber!,
+          capitalization: TextCapitalization.characters),
+    ];
+  }
+
+  Widget _editField(IconData icon, String label, String hint, TextEditingController ctrl,
+      {TextInputType? keyboard, TextCapitalization capitalization = TextCapitalization.none}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: RideUi.caption(context, size: 12.5)),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: RideUi.fieldBox(context),
+          child: Row(children: [
+            Icon(icon, size: 19, color: RideUi.accent(context)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextField(
+                controller: ctrl,
+                keyboardType: keyboard,
+                textCapitalization: capitalization,
+                enabled: !_saving,
+                decoration: RideUi.bareInput(context, hint, vertical: 14, fontSize: 15),
+                style: RideUi.body(context, size: 15, weight: FontWeight.w600),
+              ),
+            ),
+          ]),
+        ),
+      ]),
+    );
+  }
+
+  Widget _lockedField(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: RideUi.caption(context, size: 12.5)),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          decoration: RideUi.fieldBox(context),
+          child: Row(children: [
+            Icon(icon, size: 19, color: RideUi.muted(context)),
+            const SizedBox(width: 10),
+            Expanded(child: Text(value, style: RideUi.body(context, size: 15, weight: FontWeight.w600))),
+            Icon(Icons.lock_outline_rounded, size: 16, color: RideUi.muted(context)),
+          ]),
+        ),
+        const SizedBox(height: 4),
+        Text('Phone number is your login and cannot be changed here.', style: RideUi.caption(context, size: 11.5)),
+      ]),
     );
   }
 }

@@ -5,7 +5,10 @@ import '../../../core/widgets/app_widgets.dart';
 import '../bloc/wallet_bloc.dart';
 import '../../../models/models.dart';
 import 'withdraw_page.dart';
+import '../widgets/add_balance_sheet.dart';
+import '../../../providers/driver_provider.dart';
 import '../../../widgets/captain_ui/captain_ui.dart';
+import 'package:provider/provider.dart';
 
 class WalletPage extends StatelessWidget {
   static const route = '/wallet';
@@ -34,6 +37,20 @@ class _Body extends StatelessWidget {
   final double balance;
   final List<WalletTransaction> transactions;
   const _Body({required this.balance, required this.transactions});
+
+  Future<void> _addBalance(BuildContext context) async {
+    final bloc = context.read<WalletBloc>();
+    final messenger = ScaffoldMessenger.of(context);
+    String? phone;
+    try { phone = context.read<DriverProvider>().phone; } catch (_) {}
+    final newBalance = await showAddBalanceSheet(context, phone: phone);
+    if (newBalance == null) return;
+    bloc.add(LoadWalletEvent());
+    messenger.showSnackBar(SnackBar(
+      content: Text('Money added. Wallet balance ₹${newBalance.toStringAsFixed(2)}'),
+      backgroundColor: AppColors.green,
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -65,12 +82,26 @@ class _Body extends StatelessWidget {
               Text('Recharge to keep receiving trips', style: Cap.caption(size: 12.5, color: AppColors.red)),
             ],
             const SizedBox(height: 16),
-            CapButton(
-              label: 'Withdraw',
-              icon: Icons.north_east_rounded,
-              height: 50,
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WithdrawPage(balance: balance))),
-            ),
+            Row(children: [
+              Expanded(
+                child: CapButton(
+                  label: 'Add balance',
+                  icon: Icons.add_rounded,
+                  height: 50,
+                  onPressed: () => _addBalance(context),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: CapButton(
+                  label: 'Withdraw',
+                  icon: Icons.north_east_rounded,
+                  height: 50,
+                  tone: CapButtonTone.outline,
+                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WithdrawPage(balance: balance))),
+                ),
+              ),
+            ]),
           ]),
         ),
         CapSectionTitle('Transactions',

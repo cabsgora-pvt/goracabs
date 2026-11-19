@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../providers/driver_provider.dart';
-import '../../../services/driver_api_service.dart';
 
 class ProfilePage extends StatefulWidget {
   static const route = '/profile';
@@ -15,58 +13,14 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  bool _uploading = false;
-
-  Future<void> _changeProfilePic() async {
-    if (_uploading) return;
-
-    final XFile? picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 85,
-    );
-    if (picked == null) return;
-    if (!mounted) return;
-
-    setState(() => _uploading = true);
-    try {
-      // 1. Upload the raw image → returns the full image URL (already run
-      //    through AppConfig.imageUrl by the service).
-      final uploadedUrl = await DriverApiService.uploadFile(picked);
-      if (uploadedUrl == null || uploadedUrl.isEmpty) {
-        if (!mounted) return;
-        _showSnack('Failed to upload image. Please try again.', isError: true);
-        return;
-      }
-
-      // 2. Persist it on the driver. Backend expects the value uploadFile returned.
-      final res = await DriverApiService.saveProfilePic(uploadedUrl);
-      if (!mounted) return;
-      if (res['success'] != true) {
-        _showSnack('Could not save profile picture. Please try again.', isError: true);
-        return;
-      }
-
-      // 3. Re-fetch the profile so the provider (and every screen that reads it:
-      //    home header, account page) reflects server truth for the new photo.
-      await context.read<DriverProvider>().loadProfile();
-      if (!mounted) return;
-
-      _showSnack('Profile picture updated!');
-    } catch (_) {
-      if (!mounted) return;
-      _showSnack('Something went wrong. Please try again.', isError: true);
-    } finally {
-      if (mounted) setState(() => _uploading = false);
-    }
-  }
-
-  void _showSnack(String msg, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: isError ? Colors.red : AppColors.primary,
-      ),
-    );
+  @override
+  void initState() {
+    super.initState();
+    // Fresh from the server: it puts the registration face scan back as the
+    // photo if anything else was ever set.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<DriverProvider>().loadProfile();
+    });
   }
 
   @override
@@ -80,51 +34,47 @@ class _ProfilePageState extends State<ProfilePage> {
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(children: [
-          // Profile picture (tappable → pick / upload new photo)
+          // The photo is the face captured at registration. Drivers cannot
+          // change it — riders must see the person who actually drives.
           Center(
-            child: GestureDetector(
-              onTap: _uploading ? null : _changeProfilePic,
-              child: Stack(
-                children: [
-                  CircleAvatar(
-                    radius: 52,
-                    backgroundColor: AppColors.cardBg,
-                    backgroundImage: picUrl.isNotEmpty ? NetworkImage(picUrl) : null,
-                    child: picUrl.isEmpty
-                        ? Text(name[0].toUpperCase(),
-                            style: TextStyle(fontSize: 42, color: AppColors.textDark, fontWeight: FontWeight.w800))
-                        : null,
-                  ),
-                  // Dim + spinner overlay while uploading
-                  if (_uploading)
-                    Positioned.fill(
-                      child: CircleAvatar(
-                        radius: 52,
-                        backgroundColor: Colors.black.withAlpha(90),
-                        child: const SizedBox(
-                          width: 26,
-                          height: 26,
-                          child: CircularProgressIndicator(strokeWidth: 3, color: Colors.white),
-                        ),
-                      ),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                CircleAvatar(
+                  key: const ValueKey('driver_profile_photo'),
+                  radius: 52,
+                  backgroundColor: AppColors.cardBg,
+                  backgroundImage: picUrl.isNotEmpty ? NetworkImage(picUrl) : null,
+                  child: picUrl.isEmpty
+                      ? Text(name[0].toUpperCase(),
+                          style: TextStyle(fontSize: 42, color: AppColors.textDark, fontWeight: FontWeight.w800))
+                      : null,
+                ),
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: AppColors.green,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.white, width: 3),
                     ),
-                  // Camera badge
-                  Positioned(
-                    bottom: 0,
-                    right: 0,
-                    child: Container(
-                      padding: const EdgeInsets.all(7),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF111111),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: AppColors.white, width: 3),
-                      ),
-                      child: Icon(Icons.camera_alt, color: AppColors.white, size: 16),
-                    ),
+                    child: Icon(Icons.verified_user_rounded, color: AppColors.white, size: 16),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.green.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text('Face verified photo',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.green)),
           ),
           const SizedBox(height: 14),
           Text(name, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textDark)),
@@ -148,6 +98,18 @@ class _ProfilePageState extends State<ProfilePage> {
             _Item(Icons.directions_car, 'Vehicle', dp.vehicleModel.isNotEmpty ? dp.vehicleModel : '—'),
             _Item(Icons.pin, 'Plate Number', dp.vehicleNumber.isNotEmpty ? dp.vehicleNumber : '—'),
             _Item(Icons.category, 'Type', dp.vehicleType.isNotEmpty ? dp.vehicleType : '—'),
+          ]),
+          const SizedBox(height: 16),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(Icons.info_outline_rounded, size: 16, color: AppColors.textGrey),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Your profile photo is the face scan taken when you registered, so riders can '
+                'recognise you. It cannot be changed in the app — contact support if it needs updating.',
+                style: TextStyle(fontSize: 12, color: AppColors.textGrey, height: 1.35),
+              ),
+            ),
           ]),
         ]),
       ),

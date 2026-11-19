@@ -15,6 +15,13 @@ export async function POST(req: NextRequest) {
     const { url } = await req.json()
     if (!url) return withCors({ error: 'url required' }, 400)
     await connectDB()
+    // A driver's photo is the face scanned at registration and cannot be
+    // swapped for another picture (riders must see who actually drives).
+    const current: any = await Driver.findById(payload.id).select('faceReferencePhotoUrl').lean()
+    if (!current) return withCors({ error: 'Driver not found' }, 404)
+    if (current.faceReferencePhotoUrl) {
+      return withCors({ error: 'Your photo comes from your face verification and cannot be changed. Contact support if it needs updating.' }, 403)
+    }
     const driver: any = await Driver.findByIdAndUpdate(payload.id, { profilePicUrl: url }, { new: true }).lean()
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
     return withCors({ success: true, profilePicUrl: url })

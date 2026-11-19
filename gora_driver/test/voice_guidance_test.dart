@@ -317,7 +317,7 @@ void main() {
       await drive(tester, () async {
         await tester.pumpWidget(map(pickup));
         await tester.pump(const Duration(milliseconds: 300));
-        await tester.tap(find.text('Navigate to Pickup'));
+        await tester.tap(find.text('Go to Pickup'));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
         expect(launched, isTrue);
@@ -345,7 +345,7 @@ void main() {
       await drive(tester, () async {
         await tester.pumpWidget(map(pickup));
         await tester.pump(const Duration(milliseconds: 300));
-        await tester.tap(find.text('Navigate to Pickup'));
+        await tester.tap(find.text('Go to Pickup'));
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
         await arriveAt(tester, pickup);

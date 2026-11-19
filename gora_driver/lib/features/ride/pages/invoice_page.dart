@@ -15,9 +15,8 @@ class RideCompletionArgs {
   const RideCompletionArgs(this.ride, {this.driverEarning = 0, this.adminProfit = 0, this.tollCollected = 0});
 }
 
-// "Order Complete" screen shown after a ride ends: estimated earning, the
-// 0%-commission badge (or the commission that was deducted), a customer rating
-// and quick tags. Styled in the app's brand colours.
+// "Order Complete" screen shown after a ride ends: estimated earning, a
+// customer rating and quick tags. The commission is not shown here. Styled in the app's brand colours.
 class InvoicePage extends StatefulWidget {
   static const route = '/invoice';
   const InvoicePage({super.key});
@@ -94,7 +93,8 @@ class _InvoicePageState extends State<InvoicePage> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(children: [
-              // ── Earning + commission ──
+              // ── Earning ── (no commission here: the review screen shows only
+              // what the driver earned; the split is in Wallet / Earnings)
               _Card(child: Column(children: [
                 Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -108,7 +108,6 @@ class _InvoicePageState extends State<InvoicePage> {
                           style: TextStyle(fontSize: 13, color: AppColors.textGrey, fontWeight: FontWeight.w600)),
                     ],
                   ])),
-                  _commissionBadge(data.adminProfit),
                 ]),
                 if (data.tollCollected > 0) ...[
                   Divider(color: AppColors.divider, height: 28),
@@ -207,40 +206,6 @@ class _InvoicePageState extends State<InvoicePage> {
             ),
           ),
         ),
-      ]),
-    );
-  }
-
-  // 0%-commission badge when a subscription covers the ride; otherwise a chip
-  // showing the commission that was actually deducted.
-  Widget _commissionBadge(num adminProfit) {
-    if (adminProfit <= 0) {
-      return Container(
-        width: 96, height: 96,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: AppColors.primary.withOpacity(0.06),
-          border: Border.all(color: AppColors.primary.withOpacity(0.45), width: 1.5),
-        ),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Text('0%', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w900, fontSize: 28, height: 1)),
-          const SizedBox(height: 2),
-          Text('COMMISSION', style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w800, fontSize: 8.5, letterSpacing: 0.5)),
-        ]),
-      );
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.red.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.red.withOpacity(0.3)),
-      ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Text('Commission', style: TextStyle(color: AppColors.red, fontWeight: FontWeight.w700, fontSize: 11)),
-        const SizedBox(height: 2),
-        Text('- ₹${adminProfit.toStringAsFixed(0)}',
-            style: TextStyle(color: AppColors.red, fontWeight: FontWeight.w900, fontSize: 20)),
       ]),
     );
   }
