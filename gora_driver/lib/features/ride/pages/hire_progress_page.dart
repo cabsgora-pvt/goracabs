@@ -191,7 +191,8 @@ class _HireProgressPageState extends State<HireProgressPage> {
           const Divider(),
           // Was the formatted fare string with "₹ " stripped, which printed
           // "₹1,24,999" for some fares and "₹₹ 600" for others.
-          _row('Base', '₹${(finalFare - extra).round()}'),
+          // Booked hours plus the base fee — not just a base.
+          _row('Booked fare', '₹${(finalFare - extra).round()}'),
           if (extra > 0) _row('Overtime (${h['extraHours']} hr)', '₹${extra.round()}', color: AppColors.orange),
           const Divider(),
           _row('Total', '₹${finalFare.round()}', bold: true),

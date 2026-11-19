@@ -6,7 +6,7 @@ import Driver from '@/models/Driver'
 import User from '@/models/User'
 import Settings from '@/models/Settings'
 import { requireDriverAuth } from '@/lib/auth'
-import { getEtaFactor, crowKm, predictEtaMin, displayRoadKm } from '@/lib/eta'
+import { getEtaFactor, crowKm, predictEtaMin, displayRoadKm, ETA_CONFIG } from '@/lib/eta'
 import { sweepExpiredOffers, driverMaySee, driverIsBusy } from '@/lib/dispatch'
 import { withCors, corsOptions } from '@/lib/cors'
 
@@ -57,13 +57,22 @@ export async function GET(req: NextRequest) {
     const taxiBranch: any = { ...baseFilter, service: { $nin: ['outstation', 'rental', 'hire_driver', 'delivery'] } }
     if (driver.zoneId) taxiBranch.zoneId = driver.zoneId
 
+    // Opt-in services are city-bound too: once a parcel, rental, outstation or
+    // hire request's offer ladder ran out it used to be listed to every
+    // matching driver in every city. A ride booked outside every zone has no
+    // zoneId; it stays visible, limited by distance below.
+    const optIn = (service: string) => ({
+      ...baseFilter, service,
+      ...(driver.zoneId ? { zoneId: { $in: [driver.zoneId, null] } } : {}),
+    })
+
     // Gate each service by the admin-set allow flag (default allowed)
     const branches: any[] = []
     if (driver.allowTaxi !== false) branches.push(taxiBranch)
-    if (driver.acceptsOutstation && driver.allowOutstation !== false) branches.push({ ...baseFilter, service: 'outstation' })
-    if (driver.acceptsRental && driver.allowRental !== false) branches.push({ ...baseFilter, service: 'rental' })
-    if (driver.acceptsHireDriver && driver.allowHireDriver !== false) branches.push({ ...baseFilter, service: 'hire_driver' })
-    if (driver.acceptsDelivery && driver.allowDelivery !== false) branches.push({ ...baseFilter, service: 'delivery' })
+    if (driver.acceptsOutstation && driver.allowOutstation !== false) branches.push(optIn('outstation'))
+    if (driver.acceptsRental && driver.allowRental !== false) branches.push(optIn('rental'))
+    if (driver.acceptsHireDriver && driver.allowHireDriver !== false) branches.push(optIn('hire_driver'))
+    if (driver.acceptsDelivery && driver.allowDelivery !== false) branches.push(optIn('delivery'))
     if (branches.length === 0) return withCors({ rides: [] })
 
     const query: any = {
@@ -87,6 +96,14 @@ export async function GET(req: NextRequest) {
     // this driver's to take. Rides never offered, or whose ladder is spent,
     // stay visible to everyone — the old grab-pool behaviour.
     rides = rides.filter((r: any) => driverMaySee(r, driverId))
+
+    // A zone-less request (pickup outside every zone) only reaches drivers
+    // within dispatch range of it — never the whole country.
+    rides = rides.filter((r: any) => {
+      if (r.zoneId || !driver.zoneId) return true
+      if (driver.currentLat == null || driver.currentLng == null || r.pickupLat == null || r.pickupLng == null) return false
+      return crowKm({ lat: driver.currentLat, lng: driver.currentLng }, { lat: r.pickupLat, lng: r.pickupLng }) <= ETA_CONFIG.MAX_PICKUP_RADIUS_KM
+    })
 
     // ── Order the feed by ETA, not recency ──
     // Requests this driver can reach soonest come first, so the pings that

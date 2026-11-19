@@ -82,7 +82,7 @@ class _InquiryScreenState extends State<InquiryScreen> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
-              primary: Color(0xFF1C2656),
+              primary: Color(0xFF0A3CC8),
             ),
           ),
           child: child!,
@@ -102,7 +102,7 @@ class _InquiryScreenState extends State<InquiryScreen> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: const ColorScheme.light(
-              primary: Color(0xFF1C2656),
+              primary: Color(0xFF0A3CC8),
             ),
           ),
           child: child!,

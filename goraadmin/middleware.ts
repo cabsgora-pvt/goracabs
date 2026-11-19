@@ -4,8 +4,13 @@ import { NextRequest, NextResponse } from 'next/server'
 const DASHBOARD_PATHS = [
   '/dashboard', '/users', '/drivers', '/vehicles', '/services',
   '/zones', '/rides', '/finance', '/fleet', '/promos',
-  '/support', '/notifications', '/banners', '/settings',
+  '/support', '/notifications', '/banners', '/settings', '/zone-admins', '/zone-plans', '/zone-invoice',
 ]
+
+// The zone admin (franchise) panel has its own sign-in and cookie.
+function isZonePanelPath(pathname: string): boolean {
+  return (pathname === '/zone-panel' || pathname.startsWith('/zone-panel/')) && pathname !== '/zone-panel/login'
+}
 
 function isDashboardPath(pathname: string): boolean {
   return DASHBOARD_PATHS.some(p => pathname === p || pathname.startsWith(`${p}/`))
@@ -44,6 +49,12 @@ export function middleware(req: NextRequest) {
       url.pathname = '/login'
       return NextResponse.redirect(url)
     }
+  }
+
+  if (isZonePanelPath(pathname) && !req.cookies.get('zone_admin_token')?.value) {
+    const url = req.nextUrl.clone()
+    url.pathname = '/zone-panel/login'
+    return NextResponse.redirect(url)
   }
 
   // ── Bounce away from /login if already logged in ──

@@ -52,7 +52,7 @@ class FindingDriverView extends StatefulWidget {
 
 class _FindingDriverViewState extends State<FindingDriverView>
     with SingleTickerProviderStateMixin {
-  static const Color _navy = Color(0xFF1C2656);
+  static const Color _navy = Color(0xFF0A3CC8);
   static const double _radar = 220;
 
   GoogleMapController? _ctrl;

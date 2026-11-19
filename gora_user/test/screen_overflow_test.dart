@@ -14,7 +14,6 @@ import 'package:customer_app/screens/login_screen.dart';
 import 'package:customer_app/screens/offers_screen.dart';
 import 'package:customer_app/screens/outstation_screen.dart';
 import 'package:customer_app/screens/parcel_booking_screen.dart';
-import 'package:customer_app/screens/parcel_history_screen.dart';
 import 'package:customer_app/screens/profile_screen.dart';
 import 'package:customer_app/screens/rental_screen.dart';
 import 'package:customer_app/screens/ride_history_screen.dart';
@@ -143,7 +142,6 @@ void main() {
       'OffersScreen': () => const OffersScreen(),
       'OutstationScreen': () => const OutstationScreen(),
       'ParcelBookingScreen': () => const ParcelBookingScreen(),
-      'ParcelHistoryScreen': () => const ParcelHistoryScreen(),
       'ProfileScreen': () => const ProfileScreen(),
       'RentalScreen': () => const RentalScreen(),
       'RideHistoryScreen': () => const RideHistoryScreen(),

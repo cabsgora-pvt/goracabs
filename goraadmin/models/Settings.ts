@@ -10,5 +10,7 @@ const SettingsSchema = new Schema({
   services: { type: Schema.Types.Mixed, default: {} },
   // Driver-app rules: { walletBlockEnabled, maxNegativeWallet }
   driverApp: { type: Schema.Types.Mixed, default: {} },
+  // Franchise mode switch: { enabled, changedAt, changedBy } — lib/franchise.
+  franchise: { type: Schema.Types.Mixed, default: {} },
 }, { timestamps: true })
 export default mongoose.models.Settings || mongoose.model('Settings', SettingsSchema)

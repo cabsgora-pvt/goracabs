@@ -1,13 +1,17 @@
+import { NextRequest } from 'next/server'
 export const dynamic = 'force-dynamic'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
+import { guardAdmin } from '@/lib/admin-guard'
 import Driver from '@/models/Driver'
 import { withCors, corsOptions } from '@/lib/cors'
 
 export async function OPTIONS() { return corsOptions() }
 
 // GET → active deliveries (accepted/ongoing) with their driver's live position, for the admin map
-export async function GET() {
+// Admin pages only. It answered anyone with every matching ride and rider.
+export async function GET(req: NextRequest) {
+  const denied = guardAdmin(req); if (denied) return denied
   try {
     await connectDB()
     const rides: any[] = await Ride.find({

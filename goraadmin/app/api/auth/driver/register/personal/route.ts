@@ -1,7 +1,9 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
+import mongoose from 'mongoose'
 import Driver from '@/models/Driver'
+import Zone from '@/models/Zone'
 import Settings from '@/models/Settings'
 import Transaction from '@/models/Transaction'
 import { requireDriverAuth } from '@/lib/auth'
@@ -23,11 +25,20 @@ export async function POST(req: NextRequest) {
     const driver: any = await Driver.findById(payload.id)
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
 
+    // The zone decides which zone admin (franchise) the driver belongs to and
+    // which rides they are offered, so it must be a real zone (inactive ones
+    // are allowed: drivers sign up before a city opens); its
+    // name is taken from the zone itself, not the app.
+    const zone: any = mongoose.isValidObjectId(String(zoneId))
+      ? await Zone.findById(zoneId).select('name').lean()
+      : null
+    if (!zone) return withCors({ error: 'Choose a valid service zone' }, 400)
+
     driver.name = name
     if (email) driver.email = email
     driver.state = state
-    driver.zoneId = zoneId
-    driver.zoneName = zoneName
+    driver.zoneId = String(zone._id)
+    driver.zoneName = zone.name || zoneName
     if (profilePicUrl) driver.profilePicUrl = profilePicUrl
     if (['female', 'male', 'other'].includes(gender)) driver.gender = gender
     driver.registrationStep = 'vehicle'

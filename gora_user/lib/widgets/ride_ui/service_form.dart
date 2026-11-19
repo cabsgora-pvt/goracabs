@@ -526,7 +526,9 @@ class NoticeRow extends StatelessWidget {
   final String text;
   final IconData icon;
   final NoticeTone tone;
-  const NoticeRow(this.text, {super.key, this.icon = Icons.info_outline, this.tone = NoticeTone.neutral});
+  /// Shows a Retry button when set, for a load that failed and can be re-run.
+  final VoidCallback? onRetry;
+  const NoticeRow(this.text, {super.key, this.icon = Icons.info_outline, this.tone = NoticeTone.neutral, this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -541,6 +543,13 @@ class NoticeRow extends StatelessWidget {
         Icon(icon, size: 18, color: c),
         const SizedBox(width: 10),
         Expanded(child: Text(text, style: RideUi.body(context, size: 13, weight: FontWeight.w500).copyWith(height: 1.35))),
+        if (onRetry != null)
+          TextButton(
+            onPressed: onRetry,
+            style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10), minimumSize: const Size(0, 32),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+            child: const Text('Retry'),
+          ),
       ]),
     );
   }

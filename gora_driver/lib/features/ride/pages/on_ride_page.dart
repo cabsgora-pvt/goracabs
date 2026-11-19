@@ -11,6 +11,7 @@ import '../../../utils/format_minutes.dart';
 import '../../account/pages/face_single_capture_page.dart';
 import '../bloc/ride_bloc.dart';
 import '../logic/job_settlement.dart';
+import '../logic/trip_end_check.dart';
 import '../widgets/nav_engine.dart';
 import '../widgets/arrival_hint.dart';
 import '../widgets/nav_map.dart';
@@ -90,6 +91,12 @@ class _OnRideViewState extends State<_OnRideView> {
   ({int amount, String ref, String source, LatLng? at, NavStep? step})? _unsent;
   // "You have reached the pickup / drop", until the driver acts on it.
   final _arrivalHint = ArrivalHint();
+  // What this screen has already seen happen. The BLoC state moves on to
+  // loading / failed while the trip is being ended, and deriving "started" from
+  // it alone flipped a failed end back to "At pickup · Enter OTP" on a trip
+  // the server had ongoing. Progress only moves forward.
+  bool _arrivedHere = false;
+  bool _startedHere = false;
 
   // ── Mid-ride face re-check ──
   // Polls while the trip is underway; paused while a check prompt is open on
@@ -167,6 +174,8 @@ class _OnRideViewState extends State<_OnRideView> {
       create: (_) => RideBloc()..currentRide = r,
       child: BlocListener<RideBloc, RideState>(
         listener: (context, state) {
+          if (state is ArrivedAtPickupState) _arrivedHere = true;
+          if (state is RideStartedState) { _arrivedHere = true; _startedHere = true; }
           // Rental, hire and parcel continue on their own screens once started.
           if (state is RideStartedState && r.service == 'rental') {
             Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => RentalProgressPage(ride: r)));
@@ -204,8 +213,17 @@ class _OnRideViewState extends State<_OnRideView> {
               ),
             );
           }
+          if (state is EndFailedState) {
+            // Still on the trip: let the driver swipe End again.
+            setState(() => _ending = false);
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('Could not finish the ride: ${state.message} Swipe again to retry.'),
+              backgroundColor: AppColors.red,
+              duration: const Duration(seconds: 6),
+            ));
+          }
           if (state is OtpErrorState) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Invalid OTP')));
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message)));
           }
         },
         child: BlocBuilder<RideBloc, RideState>(
@@ -216,15 +234,19 @@ class _OnRideViewState extends State<_OnRideView> {
             // ride back at "arrive". The server status can only move forward, so
             // OR-ing it in is safe: it can make these true, never false.
             final serverArrived = r.status == 'arrived' || r.status == 'ongoing';
-            final arrived = serverArrived || state is ArrivedAtPickupState || state is RideStartedState || state is RideEndedState || state is OtpErrorState;
-            final started = r.status == 'ongoing' || state is RideStartedState;
+            final arrived = serverArrived || _arrivedHere || state is ArrivedAtPickupState || state is RideStartedState || state is RideEndedState || state is OtpErrorState;
+            final started = r.status == 'ongoing' || _startedHere || state is RideStartedState;
+            final leg = _currentLeg(started);
 
             return RideShell(
               rideId: r.id,
               vehicleType: r.rideType,
               driving: started,
-              leg: _currentLeg(started),
-              fallbackPolyline: r.routePolyline,
+              leg: leg,
+              // The booked route runs pickup → drop. As a stand-in for the leg
+              // to the pickup it put "223 km" and a % covered on the way to the
+              // rider whenever the first directions call was slow or failed.
+              fallbackPolyline: leg.label == 'Drop' ? r.routePolyline : null,
               // Geofence hit — prompt the action rather than performing it, so
               // the driver stays in control of ride state.
               onArrived: () {
@@ -240,7 +262,9 @@ class _OnRideViewState extends State<_OnRideView> {
               status: RideStatusStrip(
                 phase: started ? 'On trip' : (arrived ? 'At pickup' : 'To pickup'),
                 metrics: [
-                  RideStatusMetric(Icons.route, '${r.distanceKm.toStringAsFixed(1)} km'),
+                  // Before the start this sat beside "To pickup" and read as the
+                  // way to the rider; it is the length of the booked trip.
+                  RideStatusMetric(Icons.route, '${r.distanceKm.toStringAsFixed(1)} km${started ? '' : ' trip'}'),
                   if (r.durationMin > 0) RideStatusMetric(Icons.schedule, formatMinutes(r.durationMin)),
                   // Once there is a toll pill, the fare gives way to it: the
                   // fare is on the rider card just below, and with both the
@@ -253,7 +277,7 @@ class _OnRideViewState extends State<_OnRideView> {
                 accruing: _tollTotal,
                 accruingLabel: 'toll',
               ),
-              contact: RideContact(name: r.userName, phone: r.userPhone, role: 'Rider', picUrl: r.userProfilePicUrl),
+              contact: RideContact(name: r.userName, phone: r.userPhone, role: _isParcel ? 'Sender' : 'Rider', picUrl: r.userProfilePicUrl),
               chatWith: r.userName,
               contactTrailing: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -355,9 +379,12 @@ class _OnRideViewState extends State<_OnRideView> {
             // Fresh arrival: 0. Resumed mid-wait: the server's count.
             seedSeconds: state is ArrivedAtPickupState ? state.waitingSec : (r.waitingSec ?? 0),
             onCallRider: () => dialPhone(r.userPhone, context: context),
+            // A parcel is collected from its sender, who has the pickup PIN.
+            who: _isParcel ? 'sender' : 'rider',
           ),
         ),
-        PrimaryButton(label: 'Enter OTP to start ride', onTap: () => _showOtpDialog(context, bloc)),
+        PrimaryButton(label: _isParcel ? 'Enter pickup PIN' : 'Enter OTP to start ride',
+            onTap: () => _showOtpDialog(context, bloc)),
       ],
       if (started && r.stops.isNotEmpty && _stopIndex < r.stops.length) ...[
         _stopControl(),
@@ -718,8 +745,13 @@ class _OnRideViewState extends State<_OnRideView> {
     ]);
   }
 
+  bool get _isParcel => r.service == 'delivery';
+
   void _showOtpDialog(BuildContext context, RideBloc bloc) {
-    OtpDialog.show(context, title: 'Enter Ride OTP', label: 'OTP from Rider', hint: 'e.g. 5678', action: 'Start')
+    final dlg = _isParcel
+        ? OtpDialog.show(context, title: 'Enter Pickup PIN', label: 'PIN from Sender', hint: 'e.g. 5678', action: 'Collect')
+        : OtpDialog.show(context, title: 'Enter Ride OTP', label: 'OTP from Rider', hint: 'e.g. 5678', action: 'Start');
+    dlg
         .then((otp) { if (otp != null) bloc.add(StartRideEvent(otp)); });
   }
 
@@ -734,7 +766,33 @@ class _OnRideViewState extends State<_OnRideView> {
   /// Tolls are always paid to the driver in hand, whatever the fare was paid
   /// with: in cash they are collected with the fare; otherwise on their own,
   /// before the ride is closed. They never pass through the wallet.
+  /// An outstation trip is billed at its fixed booked fare wherever it ends.
+  /// One was ended at the pickup 38 seconds after starting a 223 km trip, and
+  /// the full fare was taken. Far from where the trip should finish, the driver
+  /// has to say so on purpose; the server also records it for the admin.
+  Future<bool> _confirmEarlyEnd(BuildContext context) async {
+    final km = kmFromTripEnd(r, _lastFix);
+    if (km == null || km <= earlyEndKm) return true;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('End the trip here?'),
+        content: Text(
+          'You are about ${km.round()} km from ${_isRound ? 'the start point' : 'the drop'}. '
+          'The rider is charged the full booked fare of ₹${_fareOf(r).round()}. '
+          'End here only if the rider asked to stop.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep driving')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('End here', style: TextStyle(color: AppColors.red))),
+        ],
+      ),
+    );
+    return ok == true;
+  }
+
   Future<void> _endRide(BuildContext context, RideBloc bloc) async {
+    if (!await _confirmEarlyEnd(context) || !context.mounted) return;
     // No toll can be added or removed from here on: this is the bill. A Retry
     // still up for an unsaved toll could only be refused now.
     if (_unsent != null) ScaffoldMessenger.of(context).hideCurrentSnackBar();

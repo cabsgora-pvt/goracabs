@@ -92,17 +92,17 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     // service, so a refusal doesn't leave the UI showing "online" anyway.
     if (e.isOnline) {
       try {
+        // No fix yet → send none. A made-up point (this used to be Ahmedabad)
+        // put the driver in another city for dispatch until the first ping.
         final pos = await LocationService.getCurrentLocation();
-        final lat = pos?.latitude ?? 23.0225;
-        final lng = pos?.longitude ?? 72.5714;
-        final res = await DriverApiService.setOnline(true, lat, lng);
+        final res = await DriverApiService.setOnline(true, pos?.latitude, pos?.longitude);
         if (res['faceVerificationRequired'] == true) {
           emit(FaceVerificationLockedState((res['faceVerificationReason'] ?? 'mismatch').toString()));
           return;
         }
       } catch (_) {/* network blip — proceed optimistically, same as before */}
     } else {
-      try { await DriverApiService.setOnline(false, 0, 0); } catch (_) {}
+      try { await DriverApiService.setOnline(false); } catch (_) {}
     }
 
     isOnline = e.isOnline;

@@ -8,6 +8,7 @@ import Transaction from '@/models/Transaction'
 import User from '@/models/User'
 import { requireAuth, requireDriverAuth, isAdminPayload } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
+import { distanceKm } from '@/lib/geo'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -77,8 +78,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const commission = Math.round((remainingBase * commissionPercent) / 100)  // admin profit, on the not-yet-settled portion
     const driverEarning = (remainingBase - commission) + tip                  // driver keeps the full tip
 
+    // Claim the ride before any money moves. The driver app retries End after
+    // a 20 s timeout while the first request may still be running; reading the
+    // status above is not enough, as both requests would pass it and settle
+    // twice. Only the request that flips the status settles.
+    const completedAt = new Date()
+    const claim = await Ride.updateOne({ _id: ride._id, status: { $ne: 'completed' } }, { $set: { status: 'completed', completedAt } })
+    if (claim.modifiedCount === 0) return withCors({ error: 'Already completed' }, 400)
+
     ride.status = 'completed'
-    ride.completedAt = new Date()
+    ride.completedAt = completedAt
+    if (ride.service === 'outstation') {
+      ride.outstationPhase = 'completed'
+      // Billed at the fixed booked fare wherever it ends. One ended at the
+      // pickup 38 s into a 223 km trip; the admin sees such trips flagged.
+      const round = ride.tripType === 'round_trip'
+      const endLat = round ? ride.pickupLat : ride.dropLat
+      const endLng = round ? ride.pickupLng : ride.dropLng
+      if (driver?.currentLat != null && driver?.currentLng != null && endLat != null && endLng != null) {
+        const km = distanceKm({ lat: driver.currentLat, lng: driver.currentLng }, { lat: endLat, lng: endLng })
+        if (km > 10) ride.endedAwayKm = Math.round(km)
+      }
+    }
     ride.paymentStatus = 'paid'
     ride.awaitingPayment = false
     ride.commissionPercent = commissionPercent
@@ -89,30 +110,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ride.driverEarning = (splitCollected - splitCommission) + driverEarning
     await ride.save()
 
+    // Wallet changes are atomic increments: a read-modify-save here could
+    // overwrite a top-up or another settlement that landed in between.
+    let walletAfter: number | undefined
     if (driver) {
-      driver.totalRides = (driver.totalRides || 0) + 1
-      driver.totalEarnings = (driver.totalEarnings || 0) + driverEarning
-
-      if (ride.paymentMode === 'cash') {
-        // Rider paid driver directly → driver owes commission → deduct from wallet
-        driver.walletBalance = (driver.walletBalance || 0) - commission
-        await Transaction.create({
-          driverId: driver._id, rideId: ride._id, type: 'commission',
-          amount: -commission, paymentMode: 'cash',
-          description: `Commission (${commissionPercent}%) on cash ride ₹${fare}`,
-          balanceAfter: driver.walletBalance,
-        })
-      } else {
-        // Online/wallet → admin received money → credit driver earning
-        driver.walletBalance = (driver.walletBalance || 0) + driverEarning
-        await Transaction.create({
-          driverId: driver._id, rideId: ride._id, type: 'ride_earning',
-          amount: driverEarning, paymentMode: ride.paymentMode,
-          description: `Earning on ${ride.paymentMode} ride ₹${fare} (admin took ₹${commission})`,
-          balanceAfter: driver.walletBalance,
-        })
-      }
-      await driver.save()
+      const cash = ride.paymentMode === 'cash'
+      // Cash: the rider paid the driver, who owes the commission.
+      // Online/wallet: Gora received the money and credits the driver's earning.
+      const delta = cash ? -commission : driverEarning
+      const updated: any = await Driver.findByIdAndUpdate(driver._id,
+        { $inc: { walletBalance: delta, totalRides: 1, totalEarnings: driverEarning } }, { new: true }).lean()
+      walletAfter = updated?.walletBalance
+      await Transaction.create(cash ? {
+        driverId: driver._id, rideId: ride._id, type: 'commission',
+        amount: -commission, paymentMode: 'cash',
+        description: `Commission (${commissionPercent}%) on cash ride ₹${fare}`,
+        balanceAfter: walletAfter,
+      } : {
+        driverId: driver._id, rideId: ride._id, type: 'ride_earning',
+        amount: driverEarning, paymentMode: ride.paymentMode,
+        description: `Earning on ${ride.paymentMode} ride ₹${fare} (admin took ₹${commission})`,
+        balanceAfter: walletAfter,
+      })
     }
 
     // ── Cash on delivery ──────────────────────────────────────────────────────
@@ -133,14 +152,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
       try {
         if (driver) {
-          driver.walletBalance = (driver.walletBalance || 0) - cod
+          const updated: any = await Driver.findByIdAndUpdate(driver._id, { $inc: { walletBalance: -cod } }, { new: true }).lean()
+          walletAfter = updated?.walletBalance
           await Transaction.create({
             driverId: driver._id, rideId: ride._id, type: 'cod_remittance',
             amount: -cod, paymentMode: 'cash',
             description: `COD ₹${cod} collected from receiver, owed to sender`,
-            balanceAfter: driver.walletBalance,
+            balanceAfter: walletAfter,
           })
-          await driver.save()
         }
         if (ride.riderId) {
           await User.findByIdAndUpdate(ride.riderId, { $inc: { walletBalance: cod } })
@@ -158,7 +177,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       fare, commissionPercent,
       adminProfit: commission,
       driverEarning,
-      driverWalletBalance: driver?.walletBalance ?? 0,
+      driverWalletBalance: walletAfter ?? driver?.walletBalance ?? 0,
       codSettled,
     })
   } catch (e: any) {

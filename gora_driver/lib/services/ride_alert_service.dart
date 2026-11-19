@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'driver_api_service.dart';
@@ -13,6 +14,7 @@ import 'driver_api_service.dart';
 // covers the app being minimized / backgrounded.)
 
 const _incomingChannelId = 'incoming_ride';
+const _fgBeat = 'app-foreground';
 
 class RideAlertService {
   /// The id of the full-screen "New Ride Request" heads-up. One fixed id, so
@@ -36,6 +38,16 @@ class RideAlertService {
         );
       }
     } catch (_) {}
+  }
+
+  /// Sent by the in-app poller on each of its polls while the app is on
+  /// screen. The background task then skips its own poll: both used to hit
+  /// /rides/driver/pending every 4 s while the driver was looking at the app.
+  /// Only sent while resumed, so once the app is minimised the heartbeats stop
+  /// and the background poll is back within [foregroundWindow].
+  static void foregroundHeartbeat() {
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
+    try { FlutterForegroundTask.sendDataToTask(_fgBeat); } catch (_) {}
   }
 
   // Configure the foreground service + notification channels. Call once at startup.
@@ -88,9 +100,25 @@ void startCallback() {
   FlutterForegroundTask.setTaskHandler(_RideAlertTaskHandler());
 }
 
+/// How long one heartbeat from the on-screen app holds off the background
+/// poll. A bit over the app's own 4 s poll, so one late heartbeat does not
+/// double up.
+const foregroundWindow = Duration(seconds: 6);
+
+/// True while the last heartbeat from the on-screen app is recent enough for
+/// the background task to leave polling to it.
+bool appOnScreen(DateTime? lastBeat, DateTime now) =>
+    lastBeat != null && now.difference(lastBeat) < foregroundWindow;
+
 class _RideAlertTaskHandler extends TaskHandler {
   final _fln = FlutterLocalNotificationsPlugin();
   String _lastNotifiedId = '';
+  DateTime? _appSeenAt;
+
+  @override
+  void onReceiveData(Object data) {
+    if (data == _fgBeat) _appSeenAt = DateTime.now();
+  }
 
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
@@ -112,6 +140,7 @@ class _RideAlertTaskHandler extends TaskHandler {
 
   @override
   void onRepeatEvent(DateTime timestamp) {
+    if (appOnScreen(_appSeenAt, DateTime.now())) return;
     _poll();
   }
 

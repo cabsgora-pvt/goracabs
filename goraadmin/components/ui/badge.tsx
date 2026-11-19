@@ -26,7 +26,7 @@ export function Badge({ status, className = '' }: BadgeProps) {
   }
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${color} ${className}`}>
+    <span className={`inline-flex items-center px-2 py-[3px] rounded text-[10.5px] font-semibold uppercase tracking-wide ${color} ${className}`}>
       {status}
     </span>
   )

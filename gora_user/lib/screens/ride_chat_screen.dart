@@ -13,7 +13,7 @@ class RideChatScreen extends StatefulWidget {
 }
 
 class _RideChatScreenState extends State<RideChatScreen> {
-  static const _brand = Color(0xFF1C2656);
+  static const _brand = Color(0xFF0A3CC8);
   static const _quickReplies = [
     "I'm at the pickup point",
     "Please wait 2 minutes",

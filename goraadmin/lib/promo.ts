@@ -8,6 +8,8 @@
 // discount it liked.
 // ─────────────────────────────────────────────────────────────────────────────
 import PromoCode from '@/models/PromoCode'
+import { isFranchiseMode } from '@/lib/franchise'
+import { ZONE_PROMOS_LIVE } from '@/lib/zone-features'
 
 export type PromoResult = {
   code: string
@@ -21,13 +23,23 @@ export type PromoResult = {
  * willing to grant. Never throws — an invalid code yields a zero discount so a
  * booking is never blocked by a bad coupon.
  */
-export async function evaluatePromo(rawCode: string | undefined | null, amount: number): Promise<PromoResult> {
+export async function evaluatePromo(rawCode: string | undefined | null, amount: number, zoneId?: unknown): Promise<PromoResult> {
   const code = String(rawCode || '').trim().toUpperCase()
   if (!code) return { code: '', discount: 0, applied: false }
 
   try {
     const promo: any = await PromoCode.findOne({ code, isActive: true }).lean()
     if (!promo) return { code, discount: 0, applied: false, reason: 'Invalid code' }
+    // A zone admin's code is for rides in their zones only — and one of theirs
+    // with no zones left is valid nowhere, never everywhere.
+    // Zone admins' codes exist only while franchise mode is on.
+    if (promo.createdByZoneAdmin && (!ZONE_PROMOS_LIVE || !(await isFranchiseMode()))) {
+      return { code, discount: 0, applied: false, reason: 'Invalid code' }
+    }
+    const zoneLimited = (Array.isArray(promo.zoneIds) && promo.zoneIds.length > 0) || !!promo.createdByZoneAdmin
+    if (zoneLimited && !(promo.zoneIds || []).map(String).includes(String(zoneId || ''))) {
+      return { code, discount: 0, applied: false, reason: 'Code not valid in this area' }
+    }
     if (promo.expiryDate && new Date(promo.expiryDate).getTime() < Date.now()) {
       return { code, discount: 0, applied: false, reason: 'Code expired' }
     }

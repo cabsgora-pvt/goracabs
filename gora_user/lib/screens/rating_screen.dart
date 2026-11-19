@@ -134,7 +134,7 @@ class _RatingScreenState extends State<RatingScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(color: Color(0xFF1C2656), width: 1.5),
+                          borderSide: const BorderSide(color: Color(0xFF0A3CC8), width: 1.5),
                         ),
                       ),
                     ),

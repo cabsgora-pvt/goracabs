@@ -26,6 +26,15 @@ class AuthenticatedState extends AuthState {
   @override List<Object?> get props => [driver];
 }
 class UnauthenticatedState extends AuthState {}
+/// Signed in, but the server could not be reached to load the session. Not a
+/// reason to log out: the splash offers a retry instead of sending the driver
+/// to onboarding and a fresh (paid) OTP.
+class AuthOfflineState extends AuthState {
+  // A retry that fails again must still reach the splash.
+  final int _nonce = DateTime.now().microsecondsSinceEpoch;
+  AuthOfflineState();
+  @override List<Object?> get props => [_nonce];
+}
 class RegistrationSubmittedState extends AuthState {}
 // Documents saved but bank details (the last registration step) not yet —
 // server registrationStep == 'bank'. Resumes at the bank page instead of
@@ -89,6 +98,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       try {
         final res = await DriverApiService.getProfile();
         final driverData = res['driver'] as Map<String, dynamic>?;
+        // Only the server saying the session is gone ends it. Anything else —
+        // a 5xx, a proxy's HTML page, a captive portal — is a network problem.
+        final error = res['error']?.toString();
+        if (driverData == null && error != null &&
+            error != 'Unauthorized' && error != 'Driver not found') {
+          emit(AuthOfflineState());
+          return;
+        }
         if (driverData != null) {
           final status = driverData['status'] as String?;
           final regStep = driverData['registrationStep'] as String?;
@@ -118,8 +135,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           }
         }
       } catch (_) {
-        // Token exists but network error — go to unauthenticated
-        emit(UnauthenticatedState());
+        // Token exists but the network failed or timed out: offer a retry.
+        emit(AuthOfflineState());
         return;
       }
     }

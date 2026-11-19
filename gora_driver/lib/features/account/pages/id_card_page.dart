@@ -22,7 +22,7 @@ class _IdCardPageState extends State<IdCardPage> {
   bool _loading = true, _busy = false;
   Map<String, dynamic> _d = {};
 
-  static const _navy = Color(0xFF1C2656);
+  static const _navy = Color(0xFF0A3CC8);
   static const _orange = Color(0xFFFF7A00);
 
   @override

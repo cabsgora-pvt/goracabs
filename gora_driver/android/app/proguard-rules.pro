@@ -11,6 +11,16 @@
 -keep class com.dexterous.** { *; }
 -keep class com.pravera.flutter_foreground_task.** { *; }
 
+# Keeping the plugin's classes is not enough: Gson reads the generic type of a
+# TypeToken subclass from its Signature attribute, which R8 strips. Without it
+# every cancel() threw "Missing type parameter" in release builds, so incoming
+# ride notifications were never cleared.
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class com.google.gson.reflect.TypeToken { *; }
+-keep class * extends com.google.gson.reflect.TypeToken
+-keep public class * implements java.lang.reflect.Type
+
 # ML Kit face detection loads its model/vision classes dynamically — this
 # build succeeded without these rules, but R8 stripping a reflection-loaded
 # class shows up as a runtime crash, not a build failure, and there was no

@@ -45,7 +45,7 @@ export default function UserAppSettings() {
         </div>
         <div className="flex items-center gap-3">
           {msg && <span className="text-sm font-semibold text-green-600">{msg}</span>}
-          <button type="button" onClick={save} disabled={saving} className="bg-[#1C2656] text-white px-5 py-2 rounded-lg text-sm font-semibold disabled:opacity-50">{saving ? 'Saving…' : 'Save All'}</button>
+          <button type="button" onClick={save} disabled={saving} className="bg-[#405189] text-white px-5 py-2 rounded-lg text-sm font-semibold disabled:opacity-50">{saving ? 'Saving…' : 'Save All'}</button>
         </div>
       </div>
 
@@ -55,7 +55,7 @@ export default function UserAppSettings() {
         <div className="w-52 flex-shrink-0 bg-white border border-gray-100 rounded-xl p-2 sticky top-4">
           {TABS.map(t => (
             <button type="button" key={t} onClick={() => setTab(t)}
-              className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-semibold mb-1 transition-colors ${tab === t ? 'bg-[#1C2656] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>{t}</button>
+              className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-semibold mb-1 transition-colors ${tab === t ? 'bg-[#405189] text-white' : 'text-gray-600 hover:bg-gray-100'}`}>{t}</button>
           ))}
         </div>
 
@@ -188,7 +188,7 @@ function Section({ children, onAdd }: { children: React.ReactNode; onAdd: () => 
   return (
     <div className="space-y-3">
       {children}
-      <button type="button" onClick={onAdd} className="text-sm font-semibold text-[#1C2656] border border-dashed border-[#1C2656] rounded-lg px-4 py-2 w-full hover:bg-[#1C2656]/5">+ Add</button>
+      <button type="button" onClick={onAdd} className="text-sm font-semibold text-[#405189] border border-dashed border-[#405189] rounded-lg px-4 py-2 w-full hover:bg-[#405189]/5">+ Add</button>
     </div>
   )
 }

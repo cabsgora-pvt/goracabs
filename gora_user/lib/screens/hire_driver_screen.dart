@@ -109,7 +109,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
         'quoteToken': v['quoteToken'],
         'hireTotalHours': _totalHours, 'transmission': _transmission,
         'tripType': _tripType,
-        'hireStartAt': _startAt?.toIso8601String(), 'hireEndAt': _endAt?.toIso8601String(),
+        'hireStartAt': _startAt?.toUtc().toIso8601String(), 'hireEndAt': _endAt?.toUtc().toIso8601String(),
         'paymentMode': _paymentMode,
         'couponCode': _couponCode,
         'couponDiscount': _couponDiscount,
@@ -323,7 +323,8 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
       onTap: () => setState(() => _selectedVehicle = v['name'] as String?),
       leading: VehicleThumb(networkUrl: img, fallbackIcon: Icons.directions_car),
       name: v['name']?.toString() ?? '',
-      subtitle: '₹${v['perHour'] ?? 0}/hr × $_totalHours hr',
+      // The base fee is part of the price; without it ₹120/hr × 3 hr read as ₹460.
+      subtitle: '₹${v['perHour'] ?? 0}/hr × $_totalHours hr${base > 0 ? ' + ₹${base.round()} base' : ''}',
       tagline: v['etaMin'] != null ? 'Driver ~${v['etaMin']} min away' : null,
       price: '₹${v['fare'] ?? 0}',
       // The breakdown of the SELECTED vehicle only: on every card it turned the

@@ -27,7 +27,7 @@ class ApiService {
   static Future<List<Map<String, dynamic>>> placesAutocomplete(String query) async {
     if (query.trim().length < 2) return [];
     try {
-      final res = await http.get(Uri.parse('$baseUrl/places/autocomplete?q=${Uri.encodeQueryComponent(query)}'));
+      final res = await http.get(Uri.parse('$baseUrl/places/autocomplete?q=${Uri.encodeQueryComponent(query)}')).timeout(requestTimeout);
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       final list = (data['predictions'] as List?) ?? [];
       return list.map((p) => Map<String, dynamic>.from(p as Map)).toList();
@@ -39,7 +39,7 @@ class ApiService {
   static final RegExp _plusCodeRe = RegExp(r'^[A-Z0-9]{4,8}\+[A-Z0-9]{2,4}\b', caseSensitive: false);
   static Future<String> reverseGeocode(double lat, double lng) async {
     try {
-      final res = await http.get(Uri.parse('$baseUrl/places/reverse?lat=$lat&lng=$lng'));
+      final res = await http.get(Uri.parse('$baseUrl/places/reverse?lat=$lat&lng=$lng')).timeout(requestTimeout);
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       var addr = ((data['address'] as String?) ?? '').trim();
       if (addr.isEmpty) return '';
@@ -53,7 +53,7 @@ class ApiService {
 
   static Future<Map<String, dynamic>?> placeDetails(String placeId) async {
     try {
-      final res = await http.get(Uri.parse('$baseUrl/places/details?placeId=$placeId'));
+      final res = await http.get(Uri.parse('$baseUrl/places/details?placeId=$placeId')).timeout(requestTimeout);
       final data = jsonDecode(res.body) as Map<String, dynamic>;
       if (data['lat'] == null) return null;
       // Strip Plus Code prefix from address if Google returned one
@@ -66,6 +66,13 @@ class ApiService {
     } catch (_) { return null; }
   }
 
+  /// How long one API call may take. Without it a request lost on a lossy
+  /// network hung for about two minutes, and the ride-status poll (which skips
+  /// while one is in flight) went quiet with it: "No driver found" reached the
+  /// rider ~110 s after the server had closed the ride. A timeout throws a
+  /// TimeoutException, handled like any dropped connection.
+  static const requestTimeout = Duration(seconds: 20);
+
   static Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body, {bool auth = false}) async {
     final headers = {'Content-Type': 'application/json'};
     if (auth) {
@@ -76,7 +83,7 @@ class ApiService {
       Uri.parse('$baseUrl$path'),
       headers: headers,
       body: jsonEncode(body),
-    );
+    ).timeout(requestTimeout);
     return _decode(res);
   }
 
@@ -113,7 +120,7 @@ class ApiService {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
     };
-    final res = await http.get(Uri.parse('$baseUrl$path'), headers: headers);
+    final res = await http.get(Uri.parse('$baseUrl$path'), headers: headers).timeout(requestTimeout);
     return _decode(res);
   }
 

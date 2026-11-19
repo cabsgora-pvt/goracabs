@@ -119,7 +119,13 @@ export default function OutstationRidesPage() {
                       </div>
                     )}
                   </Td>
-                  <Td><span className="text-xs text-gray-500">{r.outstationPhase || '—'}</span></Td>
+                  <Td>
+                    <span className="text-xs text-gray-500">{r.outstationPhase || '—'}</span>
+                    {/* Full fare charged, but the trip ended far from where it should. */}
+                    {r.endedAwayKm > 0 && (
+                      <div className="text-xs font-semibold text-red-600">Ended {r.endedAwayKm} km from {r.tripType === 'round_trip' ? 'start point' : 'drop'}</div>
+                    )}
+                  </Td>
                   <Td>
                     <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
                       r.status === 'completed' ? 'bg-green-50 text-green-700' :

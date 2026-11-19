@@ -31,8 +31,17 @@ export async function POST(req: NextRequest) {
     // Stamp freshness here too. The ETA engine and dispatch both require a
     // recent locationUpdatedAt, so without this a driver who just tapped
     // "go online" stays invisible until their first 15s location push.
-    if (lat != null) { update.currentLat = lat; update.locationUpdatedAt = new Date() }
-    if (lng != null) update.currentLng = lng
+    // Only a real fix while going online counts. Driver app builds before
+    // 1.1.2 send 0,0 when going offline, which parked the driver in the
+    // Atlantic with a fresh timestamp.
+    const la = Number(lat), ln = Number(lng)
+    const realFix = isOnline && lat != null && lng != null && Number.isFinite(la) && Number.isFinite(ln)
+      && !(la === 0 && ln === 0) && Math.abs(la) <= 90 && Math.abs(ln) <= 180
+    if (realFix) {
+      update.currentLat = la
+      update.currentLng = ln
+      update.locationUpdatedAt = new Date()
+    }
 
     const driver: any = await Driver.findByIdAndUpdate(payload.id, update, { new: true }).lean()
     if (!driver) return withCors({ error: 'Driver not found' }, 404)

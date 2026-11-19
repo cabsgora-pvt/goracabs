@@ -19,7 +19,9 @@ class PrimaryRideButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = color ?? RideUi.navy;
+    // The screen's one strong action is the logo orange; blue stays for
+    // selection and links, so both brand colours show on every screen.
+    final bg = color ?? RideUi.cta;
     final enabled = onPressed != null;
     return SizedBox(
       width: double.infinity,

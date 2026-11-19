@@ -14,12 +14,12 @@ interface DataTableProps<T> {
 
 export function DataTable<T extends Record<string, any>>({ columns, data, emptyMessage = 'No data found' }: DataTableProps<T>) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-100">
+    <div className="overflow-x-auto rounded border border-[#e9ebec] bg-white">
       <table className="w-full text-sm">
         <thead>
           <tr className="bg-gray-50 border-b border-gray-100">
             {columns.map(col => (
-              <th key={col.key} className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-3">
+              <th key={col.key} className="text-left text-[13px] font-semibold text-[#495057] px-4 py-3">
                 {col.label}
               </th>
             ))}

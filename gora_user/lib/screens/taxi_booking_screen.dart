@@ -409,11 +409,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   }
 
   List<Map<String, dynamic>> _vehicles = [
-    {'name': 'Bike', 'type': 'Quick Rides', 'price': '—', 'eta': '—', 'capacity': '1', 'icon': Icons.two_wheeler, 'color': Color(0xFF1C2656), 'image': 'assets/images/bike.png'},
-    {'name': 'Auto', 'type': 'Affordable', 'price': '—', 'eta': '—', 'capacity': '3', 'icon': Icons.electric_rickshaw, 'color': Color(0xFF1C2656), 'image': 'assets/images/auto.jpg'},
-    {'name': 'Cab Economy', 'type': 'Comfortable', 'price': '—', 'eta': '—', 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF1C2656), 'image': 'assets/images/economy.png'},
-    {'name': 'SUV', 'type': 'Spacious', 'price': '—', 'eta': '—', 'capacity': '6', 'icon': Icons.airport_shuttle, 'color': Color(0xFF1C2656), 'image': 'assets/images/texi.png'},
-    {'name': 'Premium', 'type': 'Luxury Sedan', 'price': '—', 'eta': '—', 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF1C2656), 'image': 'assets/images/texi2.png'},
+    {'name': 'Bike', 'type': 'Quick Rides', 'price': '—', 'eta': '—', 'capacity': '1', 'icon': Icons.two_wheeler, 'color': Color(0xFF0A3CC8), 'image': 'assets/images/bike.png'},
+    {'name': 'Auto', 'type': 'Affordable', 'price': '—', 'eta': '—', 'capacity': '3', 'icon': Icons.electric_rickshaw, 'color': Color(0xFF0A3CC8), 'image': 'assets/images/auto.jpg'},
+    {'name': 'Cab Economy', 'type': 'Comfortable', 'price': '—', 'eta': '—', 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF0A3CC8), 'image': 'assets/images/economy.png'},
+    {'name': 'SUV', 'type': 'Spacious', 'price': '—', 'eta': '—', 'capacity': '6', 'icon': Icons.airport_shuttle, 'color': Color(0xFF0A3CC8), 'image': 'assets/images/texi.png'},
+    {'name': 'Premium', 'type': 'Luxury Sedan', 'price': '—', 'eta': '—', 'capacity': '4', 'icon': Icons.directions_car, 'color': Color(0xFF0A3CC8), 'image': 'assets/images/texi2.png'},
   ];
 
   // Distance + duration from latest fare estimate (used at booking)
@@ -468,7 +468,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                 'eta': eta is num ? '$eta min' : 'No driver',
                 'capacity': '${a['capacity'] ?? 4}',
                 'icon': _iconFor(name),
-                'color': const Color(0xFF1C2656),
+                'color': const Color(0xFF0A3CC8),
                 'image': raw.isEmpty ? _assetFor(name) : '__net__',
                 'networkImage': raw.isEmpty ? '' : AppConfig.imageUrl(raw),
                 // Server-signed price — replayed at booking so the backend only
@@ -524,7 +524,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
             child: const Text('Cancel'),
           ),
           ElevatedButton.icon(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0A3CC8), foregroundColor: Colors.white),
             onPressed: () {
               Navigator.pop(context); // close dialog
               // Navigate to Outstation screen — user picks From/To again there
@@ -853,7 +853,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
               const Divider(height: 24),
               row('Estimated fare', _selectedVehicle != null
                 ? (_vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => {'price': '—'})['price'] as String)
-                : '—', bold: true, color: const Color(0xFF1C2656)),
+                : '—', bold: true, color: const Color(0xFF0A3CC8)),
               const SizedBox(height: 8),
               const Text('Full breakdown will be available after booking.', style: TextStyle(fontSize: 11, color: Colors.grey)),
             ]
@@ -867,7 +867,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
               row('Subtotal', '₹${(b['subtotal'] ?? 0).toStringAsFixed(0)}', bold: true),
               if (_selectedTip != null && _selectedTip! > 0) row('Tip', '+₹${_selectedTip!}', color: Colors.green),
               const Divider(height: 24),
-              row('Total', '₹${((b['subtotal'] ?? 0) + (_selectedTip ?? 0)).toStringAsFixed(0)}', bold: true, color: const Color(0xFF1C2656)),
+              row('Total', '₹${((b['subtotal'] ?? 0) + (_selectedTip ?? 0)).toStringAsFixed(0)}', bold: true, color: const Color(0xFF0A3CC8)),
               const SizedBox(height: 8),
               Text('Admin commission: ₹${(b['commission'] ?? 0).toStringAsFixed(0)} (${b['perKm'] != null ? '' : ''}deducted from driver earnings)',
                 style: const TextStyle(fontSize: 11, color: Colors.grey)),
@@ -877,7 +877,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0A3CC8), padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
                 child: const Text('OK', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
               ),
             ),
@@ -1235,7 +1235,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       lines.add(Polyline(
         polylineId: const PolylineId('trip'),
         points: _routePoints,
-        color: const Color(0xFF1C2656),
+        color: const Color(0xFF0A3CC8),
         width: 5,
       ));
     }
@@ -1840,7 +1840,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                           _loadRealFares();
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1C2656),
+                          backgroundColor: const Color(0xFF0A3CC8),
                           padding: const EdgeInsets.symmetric(vertical: 17),
                           elevation: 0,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -1880,7 +1880,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                 });
                 _mapController?.animateCamera(CameraUpdate.newLatLngZoom(ll, 16));
               },
-              child: const Icon(Icons.my_location, color: Color(0xFF1C2656)),
+              child: const Icon(Icons.my_location, color: Color(0xFF0A3CC8)),
             ),
           ),
         ],
@@ -2229,7 +2229,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                             Expanded(child: Text('Prefer a female driver', style: RideUi.body(context, size: 13.5, weight: FontWeight.w700))),
                             Switch(
                               value: _preferFemaleDriver,
-                              activeThumbColor: const Color(0xFF1C2656),
+                              activeThumbColor: const Color(0xFF0A3CC8),
                               onChanged: (v) => setDialogState(() => setState(() => _preferFemaleDriver = v)),
                             ),
                           ]),

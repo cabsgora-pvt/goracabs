@@ -40,45 +40,56 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 50%, #1E88E5 100%)' }}>
-      <div className="w-full max-w-md mx-4">
-        {/* Logo card */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white shadow-lg mb-4">
-            <span className="text-4xl">🚖</span>
+    // The previous panel's sign-in: an indigo band across the top with the
+    // logo, and the form on a white card overlapping it.
+    <div className="min-h-screen relative flex flex-col items-center" style={{ backgroundColor: '#f3f3f9' }}>
+      <div className="absolute top-0 left-0 right-0 h-[380px] overflow-hidden"
+        style={{ background: 'linear-gradient(to right, #364574, #405189)' }}>
+        <svg className="absolute bottom-0 left-0 w-full" viewBox="0 0 1440 120" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M0,64 C360,128 1080,0 1440,64 L1440,120 L0,120 Z" fill="#f3f3f9" />
+        </svg>
+      </div>
+
+      <div className="relative w-full max-w-[440px] px-4 pt-14 pb-10">
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center gap-2 bg-white rounded px-4 py-2 shadow">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/gora-logo.png" alt="Gora" className="h-8 w-auto" />
+            <span className="text-[22px] font-bold tracking-wide text-[#405189]">GORA</span>
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-wide">GORA ADMIN</h1>
-          <p className="text-blue-200 mt-1">Gora Cabs Management Panel</p>
+          <p className="text-white/70 mt-4 text-[15px] font-medium">Gora Cabs Admin Dashboard</p>
         </div>
 
-        {/* Login card */}
-        <div className="bg-white rounded-2xl shadow-2xl p-8">
-          <h2 className="text-xl font-semibold text-gray-800 mb-6">Sign In to Dashboard</h2>
+        <div className="bg-white rounded p-6 sm:p-8" style={{ boxShadow: '0 5px 10px rgba(30,32,37,.12)' }}>
+          <div className="text-center mb-6">
+            <h5 className="text-[16px] font-semibold text-[#405189]">Welcome Back !</h5>
+            <p className="text-[13px] text-[#878a99] mt-1">Sign in to continue to Gora.</p>
+          </div>
 
-          <form onSubmit={handleLogin} className="space-y-5">
+          <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+              <label className="block text-[13px] font-medium text-[#495057] mb-2">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="Enter your email"
-                className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Enter email"
+                className="w-full border border-[#ced4da] rounded px-3 py-2.5 text-[13px] text-[#212529] focus:outline-none focus:border-[#a0a8c4]"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <label className="block text-[13px] font-medium text-[#495057] mb-2">Password</label>
               <input
                 type="password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Enter password"
+                className="w-full border border-[#ced4da] rounded px-3 py-2.5 text-[13px] text-[#212529] focus:outline-none focus:border-[#a0a8c4]"
               />
             </div>
 
             {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3 rounded-lg">
+              <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3 rounded">
                 {error}
               </div>
             )}
@@ -86,16 +97,16 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 rounded-lg text-white font-semibold text-base shadow-md disabled:opacity-70"
-              style={{ background: loading ? '#94a3b8' : '#1565C0' }}
+              className="w-full py-2.5 rounded text-white font-medium text-[14px] disabled:opacity-70"
+              style={{ background: loading ? '#94a3b8' : '#0ab39c' }}
             >
               {loading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
         </div>
 
-        <p className="text-center text-blue-200 text-sm mt-6">
-          &copy; 2024 Gora Cabs. All rights reserved.
+        <p className="text-center text-[#878a99] text-[13px] mt-8">
+          &copy; {new Date().getFullYear()} Gora Cabs. All rights reserved.
         </p>
       </div>
     </div>

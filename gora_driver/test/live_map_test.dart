@@ -31,12 +31,15 @@ Future<void> _pumpFor(WidgetTester tester, int ms) async {
 }
 
 Future<void> _startWithOtp(WidgetTester tester) async {
+  // A parcel is collected with the sender's pickup PIN, a ride started with
+  // the rider's OTP — same code path, its own words.
+  final parcel = find.text('Enter pickup PIN').evaluate().isNotEmpty;
   await shell.act(() async {
-    await tester.tap(find.text('Enter OTP to start ride'));
+    await tester.tap(find.text(parcel ? 'Enter pickup PIN' : 'Enter OTP to start ride'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     await tester.enterText(find.byType(TextField), '4821');
-    await tester.tap(find.text('Start'));
+    await tester.tap(find.text(parcel ? 'Collect' : 'Start'));
     await _pumpFor(tester, 1500);
   });
 }

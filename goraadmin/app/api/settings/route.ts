@@ -33,9 +33,12 @@ export async function POST(req: NextRequest) {
     const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
+    // Franchise mode has its own confirmed switch (settings/franchise); a page
+    // saving every setting it loaded must not put back an old value of it.
+    const { franchise: _franchise, _id: _i, createdAt: _c, updatedAt: _u, ...rest } = body || {}
     const settings = await Settings.findOneAndUpdate(
       { key: 'global' },
-      { key: 'global', ...body },
+      { key: 'global', ...rest },
       { upsert: true, new: true }
     ).lean()
     return NextResponse.json({ success: true, settings })

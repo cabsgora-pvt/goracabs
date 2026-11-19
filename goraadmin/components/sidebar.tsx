@@ -1,13 +1,14 @@
 'use client'
 import { useState } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
+import { useFranchiseMode } from './franchise-mode'
 import {
   LayoutDashboard, Users, Car, Settings, Map, CreditCard, BarChart2,
-  MessageSquare, Bell, Image, Gift, ChevronDown, ChevronRight,
-  LogOut, Truck, FileText, Shield, HelpCircle, AlertCircle,
+  MessageSquare, Bell, Image, Gift, ChevronRight,
+  Truck, FileText, HelpCircle, AlertCircle,
   CheckCircle, XCircle, Clock, DollarSign, Wallet, TrendingUp,
-  Menu, X, User, Package, Zap, UserCheck, MapPin, Smartphone
+  Package, Zap, UserCheck, MapPin, Smartphone, Building2, BadgeIndianRupee
 } from 'lucide-react'
 
 interface NavItem {
@@ -17,231 +18,232 @@ interface NavItem {
   children?: { label: string; href: string; icon?: React.ElementType }[]
 }
 
-const navItems: NavItem[] = [
-  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Users', href: '/users', icon: Users },
+// Same pages and links as before, grouped under section titles the way the
+// previous panel's menu was ("MENU", "MANAGEMENT" ...).
+const navSections: { title: string; items: NavItem[] }[] = [
   {
-    label: 'Drivers', icon: Car,
-    children: [
-      { label: 'All Drivers', href: '/drivers', icon: Car },
-      { label: 'Pending Approval', href: '/drivers/pending', icon: Clock },
-    ]
+    title: 'Menu',
+    items: [
+      { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+      { label: 'Users', href: '/users', icon: Users },
+      {
+        label: 'Drivers', icon: Car,
+        children: [
+          { label: 'All Drivers', href: '/drivers', icon: Car },
+          { label: 'Pending Approval', href: '/drivers/pending', icon: Clock },
+        ]
+      },
+      { label: 'Fleet Owners', href: '/fleet', icon: Truck },
+    ],
   },
   {
-    label: 'Vehicles', icon: Truck,
-    children: [
-      { label: 'Vehicle Types', href: '/vehicles/types', icon: Package },
-      { label: 'All Vehicles', href: '/vehicles/list', icon: Truck },
-    ]
+    title: 'Trips',
+    items: [
+      {
+        label: 'Rides', icon: Car,
+        children: [
+          { label: 'All Rides', href: '/rides', icon: LayoutDashboard },
+          { label: 'Ongoing', href: '/rides/ongoing', icon: Clock },
+          { label: 'Outstation', href: '/rides/outstation', icon: MapPin },
+          { label: 'Rental', href: '/rides/rental', icon: Clock },
+          { label: 'Hire a Driver', href: '/rides/hire', icon: UserCheck },
+          { label: 'Delivery', href: '/rides/delivery', icon: Package },
+          { label: 'Live Deliveries', href: '/rides/delivery/live', icon: Map },
+          { label: 'Scheduled', href: '/rides/scheduled', icon: CheckCircle },
+          { label: 'Cancelled', href: '/rides/cancelled', icon: XCircle },
+        ]
+      },
+      {
+        label: 'Services', icon: Settings,
+        children: [
+          { label: 'Overview', href: '/services', icon: BarChart2 },
+          { label: 'Taxi', href: '/services/taxi', icon: Car },
+          { label: 'Rental', href: '/services/rental', icon: Clock },
+          { label: 'Outstation', href: '/services/outstation', icon: Map },
+          { label: 'Delivery', href: '/services/delivery', icon: Package },
+          { label: 'Hire a Driver', href: '/services/hire-driver', icon: UserCheck },
+        ]
+      },
+    ],
   },
   {
-    label: 'Services', icon: Settings,
-    children: [
-      { label: 'Overview', href: '/services', icon: BarChart2 },
-      { label: 'Taxi', href: '/services/taxi', icon: Car },
-      { label: 'Rental', href: '/services/rental', icon: Clock },
-      { label: 'Outstation', href: '/services/outstation', icon: Map },
-      { label: 'Delivery', href: '/services/delivery', icon: Package },
-      { label: 'Hire a Driver', href: '/services/hire-driver', icon: UserCheck },
-    ]
+    title: 'Masters',
+    items: [
+      {
+        label: 'Vehicles', icon: Truck,
+        children: [
+          { label: 'Vehicle Types', href: '/vehicles/types', icon: Package },
+          { label: 'All Vehicles', href: '/vehicles/list', icon: Truck },
+        ]
+      },
+      {
+        label: 'Zones', icon: Map,
+        children: [
+          { label: 'Manage Zones', href: '/zones', icon: Map },
+          { label: 'Surge Pricing', href: '/zones/surge', icon: Zap },
+        ]
+      },
+    ],
   },
   {
-    label: 'Zones', icon: Map,
-    children: [
-      { label: 'Manage Zones', href: '/zones', icon: Map },
-      { label: 'Surge Pricing', href: '/zones/surge', icon: Zap },
-    ]
+    title: 'Franchise',
+    items: [
+      { label: 'Zone Admins', href: '/zone-admins', icon: Building2 },
+      { label: 'Subscription Plans', href: '/zone-plans', icon: BadgeIndianRupee },
+      { label: 'Franchise Report', href: '/zone-admins/report', icon: BarChart2 },
+    ],
   },
   {
-    label: 'Rides', icon: Car,
-    children: [
-      { label: 'All Rides', href: '/rides', icon: LayoutDashboard },
-      { label: 'Ongoing', href: '/rides/ongoing', icon: Clock },
-      { label: 'Outstation', href: '/rides/outstation', icon: MapPin },
-      { label: 'Rental', href: '/rides/rental', icon: Clock },
-      { label: 'Hire a Driver', href: '/rides/hire', icon: UserCheck },
-      { label: 'Delivery', href: '/rides/delivery', icon: Package },
-      { label: 'Live Deliveries', href: '/rides/delivery/live', icon: Map },
-      { label: 'Scheduled', href: '/rides/scheduled', icon: CheckCircle },
-      { label: 'Cancelled', href: '/rides/cancelled', icon: XCircle },
-    ]
+    title: 'Finance & Promotions',
+    items: [
+      {
+        label: 'Finance', icon: DollarSign,
+        children: [
+          { label: 'Withdrawals', href: '/finance/withdrawals', icon: DollarSign },
+          { label: 'Wallet', href: '/finance/wallet', icon: Wallet },
+          { label: 'Reports', href: '/finance/reports', icon: TrendingUp },
+        ]
+      },
+      { label: 'Promo Codes', href: '/promos', icon: Gift },
+      { label: 'Banners', href: '/banners', icon: Image },
+      { label: 'Notifications', href: '/notifications', icon: Bell },
+    ],
   },
   {
-    label: 'Finance', icon: DollarSign,
-    children: [
-      { label: 'Withdrawals', href: '/finance/withdrawals', icon: DollarSign },
-      { label: 'Wallet', href: '/finance/wallet', icon: Wallet },
-      { label: 'Reports', href: '/finance/reports', icon: TrendingUp },
-    ]
-  },
-  { label: 'Fleet Owners', href: '/fleet', icon: Truck },
-  { label: 'Promo Codes', href: '/promos', icon: Gift },
-  {
-    label: 'Support', icon: HelpCircle,
-    children: [
-      { label: 'Tickets', href: '/support/tickets', icon: FileText },
-      { label: 'Support Chat', href: '/support/chats', icon: MessageSquare },
-      { label: 'FAQ', href: '/support/faq', icon: HelpCircle },
-      { label: 'SOS Contacts', href: '/support/sos', icon: AlertCircle },
-    ]
-  },
-  { label: 'Notifications', href: '/notifications', icon: Bell },
-  { label: 'Banners', href: '/banners', icon: Image },
-  {
-    label: 'Settings', icon: Settings,
-    children: [
-      { label: 'User App', href: '/settings/user-app', icon: Smartphone },
-      { label: 'Driver App', href: '/settings/driver-app', icon: Car },
-      { label: 'General', href: '/settings/general', icon: Settings },
-      { label: 'Payment', href: '/settings/payment', icon: CreditCard },
-      { label: 'Maps', href: '/settings/maps', icon: Map },
-      { label: 'SMS', href: '/settings/sms', icon: MessageSquare },
-      { label: 'Mail', href: '/settings/mail', icon: FileText },
-      { label: 'Firebase', href: '/settings/firebase', icon: Bell },
-    ]
+    title: 'Others',
+    items: [
+      {
+        label: 'Support', icon: HelpCircle,
+        children: [
+          { label: 'Tickets', href: '/support/tickets', icon: FileText },
+          { label: 'Support Chat', href: '/support/chats', icon: MessageSquare },
+          { label: 'FAQ', href: '/support/faq', icon: HelpCircle },
+          { label: 'SOS Contacts', href: '/support/sos', icon: AlertCircle },
+        ]
+      },
+      {
+        label: 'Settings', icon: Settings,
+        children: [
+          { label: 'User App', href: '/settings/user-app', icon: Smartphone },
+          { label: 'Driver App', href: '/settings/driver-app', icon: Car },
+          { label: 'General', href: '/settings/general', icon: Settings },
+          { label: 'Payment', href: '/settings/payment', icon: CreditCard },
+          { label: 'Maps', href: '/settings/maps', icon: Map },
+          { label: 'SMS', href: '/settings/sms', icon: MessageSquare },
+          { label: 'Mail', href: '/settings/mail', icon: FileText },
+          { label: 'Firebase', href: '/settings/firebase', icon: Bell },
+        ]
+      },
+    ],
   },
 ]
 
-export function Sidebar() {
+/** Brand colour of the previous panel's side menu. */
+export const SIDE_MENU = '#405189'
+
+interface SidebarProps {
+  /** Desktop: icon-only rail. */
+  collapsed: boolean
+  /** Phone: drawer shown. */
+  mobileOpen: boolean
+  onCloseMobile: () => void
+}
+
+export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) {
   const pathname = usePathname()
-  const router = useRouter()
-  const [openSections, setOpenSections] = useState<string[]>(['Drivers', 'Services', 'Rides', 'Finance', 'Support', 'Settings', 'Vehicles', 'Zones'])
-  const [mobileOpen, setMobileOpen] = useState(false)
+  // The Franchise section shows only while franchise mode is on.
+  const { enabled: franchiseOn } = useFranchiseMode()
+  const sections = navSections.filter(s => s.title !== 'Franchise' || franchiseOn === true)
+  const matches = (href: string) => pathname === href || pathname.startsWith(href + '/')
+  // The most specific link wins: /zone-admins/report lights "Franchise Report",
+  // not "Zone Admins" as well.
+  const allHrefs = navSections.flatMap(s => s.items.flatMap(i => i.href ? [i.href] : (i.children || []).map(c => c.href)))
+  const isActive = (href: string) => matches(href) && !allHrefs.some(h => h.length > href.length && h.startsWith(href) && matches(h))
+  const isSectionActive = (item: NavItem) =>
+    item.href ? isActive(item.href) : (item.children?.some(c => isActive(c.href)) ?? false)
 
-  const toggleSection = (label: string) => {
-    setOpenSections(prev =>
-      prev.includes(label) ? prev.filter(s => s !== label) : [...prev, label]
-    )
-  }
+  // Open the group holding the current page; the rest start closed, as before.
+  const [open, setOpen] = useState<string[]>(() =>
+    navSections.flatMap(s => s.items).filter(i => i.children && isSectionActive(i)).map(i => i.label))
+  const toggle = (label: string) =>
+    setOpen(prev => prev.includes(label) ? prev.filter(s => s !== label) : [...prev, label])
 
-  const isActive = (href: string) => pathname === href || pathname.startsWith(href + '/')
-  const isSectionActive = (item: NavItem) => {
-    if (item.href) return isActive(item.href)
-    return item.children?.some(c => isActive(c.href)) ?? false
-  }
-
-  const SidebarContent = () => (
+  const content = (rail: boolean) => (
     <div className="flex flex-col h-full">
-      {/* Logo */}
-      <div className="px-4 py-5 border-b border-blue-800">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-white rounded-lg flex items-center justify-center text-xl">🚖</div>
-          <div>
-            <h1 className="text-white font-bold text-base leading-tight">GORA ADMIN</h1>
-            <p className="text-blue-300 text-xs">Management Panel</p>
-          </div>
-        </div>
-      </div>
+      {/* Logo box — 70px, the topbar's height */}
+      <Link href="/dashboard" className="h-[70px] flex items-center justify-center gap-2 px-5 flex-shrink-0"
+        onClick={onCloseMobile}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/gora-logo.png" alt="Gora" className={rail ? 'h-6 w-auto' : 'h-8 w-auto'} />
+        {!rail && <span className="text-[22px] font-bold tracking-wide" style={{ color: SIDE_MENU }}>GORA</span>}
+      </Link>
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2">
-        {navItems.map(item => (
-          <div key={item.label} className="mb-0.5">
-            {item.href ? (
-              <Link
-                href={item.href}
-                onClick={() => setMobileOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  isSectionActive(item)
-                    ? 'bg-white/20 text-white'
-                    : 'text-blue-200 hover:bg-white/10 hover:text-white'
-                }`}
-              >
-                <item.icon className="w-4.5 h-4.5 w-5 h-5 flex-shrink-0" />
-                <span>{item.label}</span>
-              </Link>
-            ) : (
-              <>
-                <button
-                  onClick={() => toggleSection(item.label)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                    isSectionActive(item)
-                      ? 'text-white'
-                      : 'text-blue-200 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <item.icon className="w-5 h-5 flex-shrink-0" />
-                  <span className="flex-1 text-left">{item.label}</span>
-                  {openSections.includes(item.label)
-                    ? <ChevronDown className="w-4 h-4" />
-                    : <ChevronRight className="w-4 h-4" />
-                  }
-                </button>
-                {openSections.includes(item.label) && item.children && (
-                  <div className="ml-3 pl-3 border-l border-blue-700 mt-0.5 space-y-0.5">
-                    {item.children.map(child => (
-                      <Link
-                        key={child.href}
-                        href={child.href}
-                        onClick={() => setMobileOpen(false)}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
-                          isActive(child.href)
-                            ? 'bg-white/20 text-white font-medium'
-                            : 'text-blue-300 hover:bg-white/10 hover:text-white'
-                        }`}
-                      >
-                        {child.icon && <child.icon className="w-4 h-4 flex-shrink-0" />}
-                        <span>{child.label}</span>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
+      <nav className="flex-1 overflow-y-auto pb-6">
+        {sections.map(section => (
+          <div key={section.title}>
+            {rail
+              ? <div className="mx-auto my-3 w-6 border-t border-[#e9ebec]" />
+              : <p className="px-5 pt-4 pb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-[#878a99]">{section.title}</p>}
+            {section.items.map(item => {
+              const active = isSectionActive(item)
+              const expanded = open.includes(item.label)
+              const rowBase = `flex items-center ${rail ? 'justify-center px-0' : 'px-6'} py-[10px] text-[15px] w-full`
+              if (item.href) {
+                return (
+                  <Link key={item.label} href={item.href} onClick={onCloseMobile} title={rail ? item.label : undefined}
+                    className={`${rowBase} ${active ? 'text-white font-medium' : 'text-[#6d7080] hover:text-[#405189]'}`}
+                    style={active ? { backgroundColor: SIDE_MENU } : undefined}>
+                    <item.icon className={`w-[18px] h-[18px] flex-shrink-0 ${rail ? '' : 'mr-[10px]'}`} />
+                    {!rail && <span className="truncate">{item.label}</span>}
+                  </Link>
+                )
+              }
+              return (
+                <div key={item.label}>
+                  <button type="button" onClick={() => toggle(item.label)} title={rail ? item.label : undefined}
+                    className={`${rowBase} ${active ? 'font-medium' : ''} text-left`}
+                    style={{ color: active ? SIDE_MENU : '#6d7080' }}>
+                    <item.icon className={`w-[18px] h-[18px] flex-shrink-0 ${rail ? '' : 'mr-[10px]'}`} />
+                    {!rail && <span className="flex-1 truncate">{item.label}</span>}
+                    {!rail && <ChevronRight className={`w-4 h-4 transition-transform ${expanded ? 'rotate-90' : ''}`} />}
+                  </button>
+                  {expanded && !rail && item.children && (
+                    <div className="pb-1">
+                      {item.children.map(child => {
+                        const on = isActive(child.href)
+                        return (
+                          <Link key={child.href} href={child.href} onClick={onCloseMobile}
+                            className={`relative flex items-center pl-[52px] pr-6 py-[7px] text-[13.5px] ${on ? 'font-semibold' : 'hover:text-[#405189]'}`}
+                            style={{ color: on ? SIDE_MENU : '#6d7080' }}>
+                            <span className="absolute left-[30px] top-1/2 -translate-y-1/2 w-[6px] h-[6px] rounded-full border"
+                              style={{ borderColor: on ? SIDE_MENU : '#adb5bd', backgroundColor: on ? SIDE_MENU : 'transparent' }} />
+                            <span className="truncate">{child.label}</span>
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         ))}
       </nav>
-
-      {/* Logout */}
-      <div className="p-3 border-t border-blue-800">
-        <div className="flex items-center gap-3 px-3 py-2 mb-2">
-          <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center">
-            <User className="w-4 h-4 text-blue-200" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-white text-sm font-medium truncate">Admin User</p>
-            <p className="text-blue-300 text-xs truncate">admin@gora.com</p>
-          </div>
-        </div>
-        <button
-          onClick={() => router.push('/login')}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-blue-200 hover:bg-white/10 hover:text-white text-sm transition-all"
-        >
-          <LogOut className="w-5 h-5" />
-          <span>Logout</span>
-        </button>
-      </div>
     </div>
   )
 
   return (
     <>
-      {/* Mobile hamburger */}
-      <button
-        className="fixed top-4 left-4 z-50 lg:hidden bg-primary text-white w-10 h-10 rounded-lg flex items-center justify-center shadow-lg"
-        onClick={() => setMobileOpen(!mobileOpen)}
-      >
-        {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-      </button>
-
-      {/* Mobile overlay */}
-      {mobileOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden" onClick={() => setMobileOpen(false)}>
-          <div className="absolute inset-0 bg-black/50" />
-        </div>
-      )}
-
-      {/* Mobile sidebar */}
-      <aside
-        className={`fixed top-0 left-0 h-full w-64 z-40 lg:hidden transition-transform duration-300 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}
-        style={{ background: '#1565C0' }}
-      >
-        <SidebarContent />
+      {/* Phone drawer */}
+      {mobileOpen && <div className="fixed inset-0 z-40 bg-black/40 lg:hidden" onClick={onCloseMobile} />}
+      <aside className={`fixed top-0 left-0 h-full w-[250px] z-50 bg-white border-r border-[#e9ebec] shadow-lg lg:hidden transition-transform duration-300 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        {content(false)}
       </aside>
 
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:flex flex-col w-64 fixed top-0 left-0 h-full" style={{ background: '#1565C0' }}>
-        <SidebarContent />
+      {/* Desktop */}
+      <aside className={`hidden lg:flex flex-col fixed top-0 left-0 h-full z-30 bg-white border-r border-[#e9ebec] ${collapsed ? 'w-[70px]' : 'w-[250px]'}`}
+        style={{ boxShadow: '0 2px 4px rgba(15,34,58,.12)' }}>
+        {content(collapsed)}
       </aside>
     </>
   )

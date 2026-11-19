@@ -23,7 +23,7 @@ class ParcelBillScreen extends StatelessWidget {
         Container(
           height: MediaQuery.of(context).size.height * 0.22,
           width: double.infinity,
-          decoration: const BoxDecoration(gradient: LinearGradient(colors: [AppTheme.primaryBlue, Color(0xFF3A4A8C)])),
+          decoration: const BoxDecoration(gradient: LinearGradient(colors: [AppTheme.primaryBlue, Color(0xFF3B6BF0)])),
           child: SafeArea(
             child: Center(
               child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [

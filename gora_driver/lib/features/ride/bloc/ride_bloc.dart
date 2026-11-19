@@ -57,14 +57,27 @@ class RideEndedState extends RideState {
   RideEndedState(this.ride, {this.adminProfit = 0, this.driverEarning = 0});
   @override List<Object?> get props => [ride, adminProfit, driverEarning];
 }
+/// The server did not record the end of the trip. The screen stays on the trip
+/// and says why, instead of showing an invoice for a ride that is still ongoing.
+class EndFailedState extends RideState {
+  final RideRequestModel ride;
+  final String message;
+  // Same as ArriveFailedState: a second identical failure must still emit.
+  final int _nonce = DateTime.now().microsecondsSinceEpoch;
+  EndFailedState(this.ride, this.message);
+  @override List<Object?> get props => [ride, message, _nonce];
+}
 class RideRejectedState extends RideState {}
 // Another driver already took the ride (HTTP 409)
 class RideTakenState extends RideState {}
-// OTP entered by driver did not match
+// The trip did not start: wrong OTP, or the server could not be reached.
 class OtpErrorState extends RideState {
   final RideRequestModel ride;
-  OtpErrorState(this.ride);
-  @override List<Object?> get props => [ride];
+  final String message;
+  // Without this a second wrong OTP equalled the first and was never shown.
+  final int _nonce = DateTime.now().microsecondsSinceEpoch;
+  OtpErrorState(this.ride, [this.message = 'Invalid OTP']);
+  @override List<Object?> get props => [ride, message, _nonce];
 }
 
 class RideBloc extends Bloc<RideEvent, RideState> {
@@ -120,24 +133,48 @@ class RideBloc extends Bloc<RideEvent, RideState> {
       if (res['success'] == true) {
         emit(RideStartedState(currentRide!));
       } else {
-        emit(OtpErrorState(currentRide!));
+        emit(OtpErrorState(currentRide!, res['error']?.toString() ?? 'Invalid OTP'));
       }
     } catch (_) {
-      emit(OtpErrorState(currentRide!));
+      // A dropped connection is not a wrong OTP; telling the driver it was
+      // sends them back to the rider for a code that was right.
+      emit(OtpErrorState(currentRide!, 'Could not reach the server. Check your connection and try again.'));
     }
   }
 
   Future<void> _onEnd(EndRideEvent e, Emitter emit) async {
+    final ride = currentRide!;
     emit(RideLoading());
+    Map<String, dynamic> res;
     try {
-      final res = await DriverApiService.completeRide(currentRide!.id);
-      emit(RideEndedState(
-        currentRide!,
-        adminProfit: (res['adminProfit'] ?? 0) as num,
-        driverEarning: (res['driverEarning'] ?? 0) as num,
-      ));
+      res = await DriverApiService.completeRide(ride.id);
     } catch (_) {
-      emit(RideEndedState(currentRide!));
+      res = const {'error': 'Could not reach the server. Check your connection and try again.'};
     }
+    var error = res['error']?.toString();
+    if (error == 'Already completed') {
+      // Settled by an earlier attempt whose reply never arrived: the ride
+      // itself holds what it paid.
+      try {
+        res = await DriverApiService.getRide(ride.id);
+        error = res['error']?.toString();
+      } catch (_) {
+        error = 'Could not reach the server. Check your connection and try again.';
+      }
+    }
+    // This used to emit "ended" on any failure, so the invoice showed the full
+    // fare as earnings at 0% commission while the server still had the trip
+    // ongoing. Stay on the trip and say why; the driver swipes again.
+    if (error != null) {
+      emit(EndFailedState(ride, error));
+      return;
+    }
+    emit(RideEndedState(
+      ride,
+      adminProfit: _num(res['adminProfit'] ?? res['commissionAmount']),
+      driverEarning: _num(res['driverEarning']),
+    ));
   }
+
+  static num _num(dynamic v) => v is num ? v : num.tryParse('${v ?? ''}') ?? 0;
 }

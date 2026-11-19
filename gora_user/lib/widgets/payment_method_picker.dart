@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-const _brand = Color(0xFF1C2656);
+const _brand = Color(0xFF0A3CC8);
 
 // Bottom sheet to change the payment method during a ride. Returns the chosen
 // value ('cash' | 'wallet' | 'online') or null if dismissed.

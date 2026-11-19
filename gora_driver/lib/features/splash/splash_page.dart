@@ -33,11 +33,21 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
   @override
   void dispose() { _ctrl.dispose(); super.dispose(); }
 
+  // Set when the session could not be loaded; the spinner gives way to a retry.
+  bool _offline = false;
+
+  void _retry() {
+    setState(() => _offline = false);
+    context.read<AuthBloc>().add(CheckAuthEvent());
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
-        if (state is UnauthenticatedState) {
+        if (state is AuthOfflineState) {
+          setState(() => _offline = true);
+        } else if (state is UnauthenticatedState) {
           Navigator.pushReplacementNamed(context, OnboardingPage.route);
         } else if (state is AuthenticatedState) {
           Navigator.pushReplacementNamed(context, HomePage.route);
@@ -66,13 +76,31 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
               child: Image.asset('assets/images/splashscreen.png', fit: BoxFit.contain),
             ),
           ),
-          const Positioned(
-            left: 0, right: 0, bottom: 56,
+          Positioned(
+            left: 24, right: 24, bottom: 56,
             child: Center(
-              child: SizedBox(
-                width: 26, height: 26,
-                child: CircularProgressIndicator(strokeWidth: 2.4, valueColor: AlwaysStoppedAnimation(Colors.white)),
-              ),
+              child: _offline
+                  ? Column(mainAxisSize: MainAxisSize.min, children: [
+                      const Text(
+                        "Can't reach Gora right now. Check your internet connection.",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white, fontSize: 14, height: 1.4),
+                      ),
+                      const SizedBox(height: 14),
+                      FilledButton(
+                        onPressed: _retry,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF010920),
+                          minimumSize: const Size(160, 46),
+                        ),
+                        child: const Text('Retry', style: TextStyle(fontWeight: FontWeight.w700)),
+                      ),
+                    ])
+                  : const SizedBox(
+                      width: 26, height: 26,
+                      child: CircularProgressIndicator(strokeWidth: 2.4, valueColor: AlwaysStoppedAnimation(Colors.white)),
+                    ),
             ),
           ),
         ]),

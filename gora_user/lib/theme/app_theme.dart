@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  // Brand navy
-  static const Color primaryBlue = Color(0xFF1C2656);
-  static const Color lightBlue = Color(0xFF3A4A8C);
-  static const Color deepBlue = Color(0xFF10162E);
-  static const Color accentTeal = Color(0xFF00BCD4);
+  // Brand colours, taken from the Gora logo: royal blue and orange on a
+  // deep navy ground. Blue leads (buttons, selection, links); orange is the
+  // accent (offers, badges, highlights) — the logo's own balance.
+  static const Color primaryBlue = Color(0xFF0A3CC8);
+  static const Color lightBlue = Color(0xFF3B6BF0);
+  static const Color deepBlue = Color(0xFF020820);
+  static const Color brandOrange = Color(0xFFFF7603);
+  /// The logo orange a touch deeper, for filled buttons with white text.
+  static const Color ctaOrange = Color(0xFFF26A00);
+  static const Color orangeSoft = Color(0xFFFFF1E6);
+  static const Color blueSoft = Color(0xFFEAF0FF);
+  // Kept for existing references; now the logo orange rather than teal.
+  static const Color accentTeal = brandOrange;
   static const Color softPurple = Color(0xFF9C27B0);
   
   // Background colors
@@ -29,7 +37,7 @@ class AppTheme {
   );
   
   static const LinearGradient accentGradient = LinearGradient(
-    colors: [accentTeal, Color(0xFF4DD0E1)],
+    colors: [brandOrange, Color(0xFFFF9A45)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );
@@ -69,14 +77,14 @@ class AppTheme {
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: primaryBlue,
+          backgroundColor: ctaOrange,
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 32),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
           elevation: 4,
-          shadowColor: primaryBlue.withOpacity(0.3),
+          shadowColor: ctaOrange.withOpacity(0.3),
           textStyle: const TextStyle(
             fontSize: 16,
             fontWeight: FontWeight.w600,
@@ -177,9 +185,9 @@ class AppTheme {
   }
 
   // ── Dark theme ──────────────────────────────────────────────────
-  static const Color darkBg      = Color(0xFF0E1220); // app background
-  static const Color darkSurface = Color(0xFF1A2138); // cards / sheets
-  static const Color darkPrimary = Color(0xFF5A6CB8); // brand navy lightened for contrast on dark
+  static const Color darkBg      = Color(0xFF020820); // app background — the logo's navy
+  static const Color darkSurface = Color(0xFF111A3A); // cards / sheets
+  static const Color darkPrimary = Color(0xFF5B86F5); // logo blue lightened for contrast on dark
 
   static ThemeData get darkTheme {
     return ThemeData(

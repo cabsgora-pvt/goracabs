@@ -260,7 +260,7 @@ export default function UserDetailPage() {
                   <input type="text" placeholder="Note (e.g. refund for ride)" value={wNote} onChange={e => setWNote(e.target.value)}
                     className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm flex-1 min-w-[160px]" />
                   <button type="button" onClick={adjustWallet} disabled={wBusy}
-                    className="bg-[#1C2656] text-white px-4 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-50">{wBusy ? '…' : 'Apply'}</button>
+                    className="bg-[#405189] text-white px-4 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-50">{wBusy ? '…' : 'Apply'}</button>
                 </div>
                 <p className="text-[11px] text-gray-400 mt-2">Note shown to the user inside their wallet transactions.</p>
               </div>

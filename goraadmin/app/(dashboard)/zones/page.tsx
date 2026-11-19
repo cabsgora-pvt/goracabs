@@ -9,6 +9,7 @@ import { Modal } from '@/components/ui/modal'
 import { Badge } from '@/components/ui/badge'
 import { Plus, Edit2, Trash2, MapPin, ToggleLeft, ToggleRight, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
+import { useFranchiseMode } from '@/components/franchise-mode'
 
 const API_KEY = 'AIzaSyBUVrSVVulUrs5MZBwW0yLBFByA9Q_HwC4'
 const LIBRARIES: ('drawing')[] = ['drawing']
@@ -36,6 +37,17 @@ export default function ZonesPage() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [infoPos, setInfoPos] = useState<LatLng | null>(null)
   const editPolygonRef = useRef<google.maps.Polygon | null>(null)
+  // Who runs each zone (franchise), shown on the list and the map.
+  const [zoneAdminOf, setZoneAdminOf] = useState<Map<string, { id: string; name: string }>>(new Map())
+  const { enabled: franchiseOn } = useFranchiseMode()
+  useEffect(() => {
+    if (!franchiseOn) { setZoneAdminOf(new Map()); return }
+    fetch('/api/zone-admins').then(r => r.json()).then(d => {
+      const m = new Map<string, { id: string; name: string }>()
+      for (const a of d.zoneAdmins || []) for (const z of a.zones || []) m.set(z._id, { id: a._id, name: a.name })
+      setZoneAdminOf(m)
+    }).catch(() => {})
+  }, [franchiseOn])
 
   const fetchZones = useCallback(() => {
     fetch('/api/zones').then(r => r.json())
@@ -221,6 +233,12 @@ export default function ZonesPage() {
                 {z.polygonPath?.length > 0 && (
                   <p className="text-xs text-gray-400 mt-1 ml-5">{z.polygonPath.length} boundary points</p>
                 )}
+                {zoneAdminOf.get(z._id) && (
+                  <Link href={`/zone-admins/${zoneAdminOf.get(z._id)!.id}`} onClick={e => e.stopPropagation()}
+                    className="inline-block text-xs text-blue-600 font-medium mt-1 ml-5 hover:underline">
+                    Zone admin: {zoneAdminOf.get(z._id)!.name}
+                  </Link>
+                )}
               </div>
             ))}
           </div>
@@ -285,6 +303,23 @@ export default function ZonesPage() {
                   />
                 ))}
 
+                {/* Zone admin's name on each zone; click opens their profile */}
+                {zones.map(z => {
+                  const za = zoneAdminOf.get(z._id)
+                  if (!za || !z.polygonPath || z.polygonPath.length < 3) return null
+                  return (
+                    <Marker
+                      key={`za-${z._id}`}
+                      position={getCenter(z.polygonPath)}
+                      icon={{ path: 0, scale: 0 }}
+                      label={{ text: za.name, color: '#405189', fontWeight: '700', fontSize: '13px' }}
+                      title={`Zone admin: ${za.name} — open profile`}
+                      onClick={() => { window.location.href = `/zone-admins/${za.id}` }}
+                      zIndex={20}
+                    />
+                  )
+                })}
+
                 {/* Info window for selected zone */}
                 {selectedZone && infoPos && typeof infoPos.lat === 'number' && typeof infoPos.lng === 'number' && (
                   <InfoWindow position={{ lat: infoPos.lat, lng: infoPos.lng }} onCloseClick={() => { setSelectedZone(null); setInfoPos(null) }}>
@@ -294,6 +329,13 @@ export default function ZonesPage() {
                       <p className={`text-xs font-medium mt-1 ${selectedZone.isActive ? 'text-green-600' : 'text-red-500'}`}>
                         {selectedZone.isActive ? '● Active' : '● Inactive'}
                       </p>
+                      {zoneAdminOf.get(selectedZone._id) ? (
+                        <a href={`/zone-admins/${zoneAdminOf.get(selectedZone._id)!.id}`} className="block text-xs font-semibold text-blue-600 mt-1 hover:underline">
+                          Zone admin: {zoneAdminOf.get(selectedZone._id)!.name} →
+                        </a>
+                      ) : (
+                        <p className="text-xs text-gray-400 mt-1">No zone admin</p>
+                      )}
                     </div>
                   </InfoWindow>
                 )}

@@ -55,6 +55,13 @@ class _InvoicePageState extends State<InvoicePage> {
     final earning = data.driverEarning > 0 ? data.driverEarning : ride.totalFareValue;
     final distKm = ride.distanceKm > 0 ? ride.distanceKm : ride.pickupDistanceKm;
     final perKm = distKm > 0 ? earning / distKm : 0;
+    // Rentals and hires carry no trip distance or duration here (they are
+    // priced by time), so "0.00 km · 0 min" and "₹0.00 per km" were shown for
+    // trips that did cover ground. Leave out what is not known.
+    final tripLine = [
+      if (distKm > 0) '${distKm.toStringAsFixed(2)} km',
+      if (ride.durationMin > 0) '${ride.durationMin} min',
+    ].join(' · ');
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -95,9 +102,11 @@ class _InvoicePageState extends State<InvoicePage> {
                     const SizedBox(height: 6),
                     Text('₹${earning.toStringAsFixed(0)}',
                         style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: AppColors.green)),
-                    const SizedBox(height: 4),
-                    Text('${distKm.toStringAsFixed(2)} km · ${ride.durationMin} min',
-                        style: TextStyle(fontSize: 13, color: AppColors.textGrey, fontWeight: FontWeight.w600)),
+                    if (tripLine.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(tripLine,
+                          style: TextStyle(fontSize: 13, color: AppColors.textGrey, fontWeight: FontWeight.w600)),
+                    ],
                   ])),
                   _commissionBadge(data.adminProfit),
                 ]),
@@ -117,13 +126,15 @@ class _InvoicePageState extends State<InvoicePage> {
                         style: TextStyle(fontSize: 11.5, color: AppColors.textGrey)),
                   ),
                 ],
-                Divider(color: AppColors.divider, height: 28),
-                Row(children: [
-                  const Icon(Icons.check_circle, color: AppColors.green, size: 20),
-                  const SizedBox(width: 8),
-                  Text('₹${perKm.toStringAsFixed(2)} per km earned',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textDark)),
-                ]),
+                if (perKm > 0) ...[
+                  Divider(color: AppColors.divider, height: 28),
+                  Row(children: [
+                    const Icon(Icons.check_circle, color: AppColors.green, size: 20),
+                    const SizedBox(width: 8),
+                    Text('₹${perKm.toStringAsFixed(2)} per km earned',
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+                  ]),
+                ],
               ])),
               const SizedBox(height: 14),
               // ── Rate the customer ──

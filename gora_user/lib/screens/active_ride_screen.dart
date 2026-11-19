@@ -31,6 +31,13 @@ import 'parcel_bill_screen.dart';
 class ActiveRideScreen extends StatefulWidget {
   final String rideId;
   const ActiveRideScreen({super.key, required this.rideId});
+
+  /// Rides with a tracking screen on the stack right now. Home's auto-resume
+  /// checks it: it used to push a second screen over the one the booking flow
+  /// had just opened, and that copy was left showing "Looking for nearby
+  /// drivers" under the rating screen after the trip ended.
+  static final Set<String> open = {};
+
   @override
   State<ActiveRideScreen> createState() => _ActiveRideScreenState();
 }
@@ -152,6 +159,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
   @override
   void initState() {
     super.initState();
+    ActiveRideScreen.open.add(widget.rideId);
     // Keep the map's bottom padding and the recenter button riding on top of
     // the sheet as it is dragged or auto-collapses. Only rebuild when the
     // extent moves meaningfully — this fires every frame during a drag.
@@ -205,6 +213,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
 
   @override
   void dispose() {
+    ActiveRideScreen.open.remove(widget.rideId);
     WidgetsBinding.instance.removeObserver(this);
     _statusPoll?.cancel(); _locPoll?.cancel(); _etaPoll?.cancel(); _vehicle.dispose(); _sheet.dispose(); super.dispose();
   }

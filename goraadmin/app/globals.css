@@ -2,9 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
-.map-outer     { position: relative; height: calc(100vh - 64px); width: 100%; }
+/* Height left for a page body under the topbar (70px) and title bar (~52px). */
+:root {
+  --vz-body-bg: #f3f3f9;
+  --vz-border: #e9ebec;
+  --vz-muted: #878a99;
+  --vz-heading: #495057;
+  --vz-card-shadow: 0 1px 2px rgba(56, 65, 74, 0.15);
+  --shell-chrome: 122px;
+}
+
+.map-outer     { position: relative; height: calc(100vh - var(--shell-chrome)); width: 100%; }
 .map-fill      { position: absolute; top: 0; left: 0; right: 0; bottom: 0; }
-.zone-page-body{ display: flex; height: calc(100vh - 64px); }
+.zone-page-body{ display: flex; height: calc(100vh - var(--shell-chrome)); }
 .map-right     { flex: 1; position: relative; }
 .map-loader    { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #f9fafb; }
 .map-container { width: 100%; height: 100%; }
@@ -33,6 +43,34 @@
 }
 
 body {
-  font-family: 'Inter', sans-serif;
-  background-color: #f8fafc;
+  font-family: 'Poppins', sans-serif;
+  font-size: 0.8125rem;
+  color: #212529;
+  background-color: var(--vz-body-bg);
+}
+
+/* ── Velzon look for the existing page markup ──
+   Pages build cards and tables from Tailwind utilities; these keep their
+   structure and only give them the previous panel's finish. */
+main .bg-white.rounded-xl,
+.p-6 > .bg-white.rounded-xl,
+.p-6 .bg-white.rounded-xl.shadow-sm {
+  border-radius: 0.25rem;
+  border-color: transparent;
+  box-shadow: var(--vz-card-shadow);
+}
+
+table thead tr {
+  background-color: #f3f6f9 !important;
+}
+table thead th {
+  color: var(--vz-heading) !important;
+  font-weight: 600 !important;
+}
+table tbody tr {
+  border-color: var(--vz-border);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--vz-heading);
 }

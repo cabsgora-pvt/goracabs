@@ -31,11 +31,15 @@ class WaitingTimer extends StatefulWidget {
 
   final VoidCallback? onCallRider;
 
+  /// Who is being waited for: the rider, or a parcel's sender.
+  final String who;
+
   const WaitingTimer({
     super.key,
     this.seedSeconds = 0,
     this.nudgeAfter = const Duration(minutes: 5),
     this.onCallRider,
+    this.who = 'rider',
   });
 
   @override
@@ -74,6 +78,8 @@ class _WaitingTimerState extends State<WaitingTimer> {
     return '$m:$s';
   }
 
+  static String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+
   @override
   Widget build(BuildContext context) {
     final elapsed = _elapsed;
@@ -82,7 +88,7 @@ class _WaitingTimerState extends State<WaitingTimer> {
 
     return Semantics(
       liveRegion: false, // a per-second announcement would flood a screen reader
-      label: 'Waiting for rider for ${elapsed.inMinutes} minutes',
+      label: 'Waiting for ${widget.who} for ${elapsed.inMinutes} minutes',
       excludeSemantics: true,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -97,7 +103,7 @@ class _WaitingTimerState extends State<WaitingTimer> {
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(
-                nudge ? 'Rider has not come out yet' : 'Waiting for rider',
+                nudge ? '${_cap(widget.who)} has not come out yet' : 'Waiting for ${widget.who}',
                 maxLines: 1, overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w700),
               ),
@@ -119,7 +125,7 @@ class _WaitingTimerState extends State<WaitingTimer> {
           if (nudge && widget.onCallRider != null) ...[
             const SizedBox(width: 6),
             IconButton(
-              tooltip: 'Call rider',
+              tooltip: 'Call ${widget.who}',
               onPressed: widget.onCallRider,
               icon: const Icon(Icons.call, color: AppColors.green),
             ),

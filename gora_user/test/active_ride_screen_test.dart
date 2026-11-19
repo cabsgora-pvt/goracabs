@@ -1201,4 +1201,14 @@ void main() {
       await teardown(tester);
     });
   });
+
+  // Home's auto-resume asks this before opening a ride: it used to push a
+  // second tracking screen over the one the booking flow had just opened, and
+  // that copy stayed on "Looking for nearby drivers" after the trip ended.
+  testWidgets('the screen registers its ride while it is open', (tester) async {
+    await pumpRide(tester, phases['assigned']!, kCommon);
+    expect(ActiveRideScreen.open, contains('ride123'));
+    await teardown(tester);
+    expect(ActiveRideScreen.open, isNot(contains('ride123')));
+  });
 }

@@ -101,8 +101,8 @@ class AppTheme {
   );
 
   // Dark theme — surfaces flip to dark navy.
-  static const Color darkBg = Color(0xFF0E1220);
-  static const Color darkSurface = Color(0xFF1A2138);
+  static const Color darkBg = Color(0xFF020820);
+  static const Color darkSurface = Color(0xFF111A3A);
   static const Color _darkTile = Color(0xFF232B45);
   static const Color _darkLine = Color(0xFF2A3350);
   static ThemeData dark = ThemeData(

@@ -285,7 +285,8 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
       leg: _collected
           ? NavLeg(label: 'Receiver', destLat: r.dropLat, destLng: r.dropLng, destAddress: r.dropAddress)
           : NavLeg(label: 'Pickup', destLat: r.pickupLat, destLng: r.pickupLng, destAddress: r.pickupAddress),
-      fallbackPolyline: r.routePolyline,
+      // Sender → receiver: a stand-in only once the parcel is on its way.
+      fallbackPolyline: _collected ? r.routePolyline : null,
       // Finishing: the parcel is handed over, there is nowhere left to go.
       hasDestination: !finishing,
       onArrived: () {

@@ -116,7 +116,7 @@ bool useNightMap(BuildContext context) =>
     Theme.of(context).brightness == Brightness.dark;
 
 // ── Route colours ────────────────────────────────────────────────────────────
-// The brand navy (#1C2656) is a LIGHT-theme colour. On the night basemap
+// The brand navy (#0A3CC8) is a LIGHT-theme colour. On the night basemap
 // (#1d2430) it is almost the same luminance as the ground, so a route drawn in
 // it effectively disappears — the one line that must never be hard to see.
 //
@@ -126,7 +126,7 @@ bool useNightMap(BuildContext context) =>
 
 /// The bright core of the route line.
 Color routeCoreColor(bool night) =>
-    night ? const Color(0xFF5B9DFF) : const Color(0xFF1C2656);
+    night ? const Color(0xFF5B9DFF) : const Color(0xFF0A3CC8);
 
 /// The dark outline drawn beneath the core, which gives the route its edge.
 Color routeCasingColor(bool night) =>

@@ -31,6 +31,9 @@ const RideSchema = new Schema({
   nightHaltCharge: Number,     // computed at booking
   emptyReturnCharge: Number,   // computed at booking
   // Extended status for outstation: 'at_destination' + 'returning' beyond the standard set
+  // Outstation ended this far (km) from where the trip should finish; unset
+  // when it ended within 10 km. Set by /rides/{id}/complete.
+  endedAwayKm: Number,
   outstationPhase: { type: String, enum: ['pickup_pending', 'driver_arriving', 'picked_up', 'enroute', 'at_destination', 'returning', 'completed'], default: 'pickup_pending' },
   // Actual km driven (updated by driver location pushes during ride) — used for billing reconciliation
   actualDistance: { type: Number, default: 0 },

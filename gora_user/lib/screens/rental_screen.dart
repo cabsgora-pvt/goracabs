@@ -75,12 +75,16 @@ class _RentalScreenState extends State<RentalScreen> {
   }
 
   Future<void> _loadPackages() async {
+    if (!mounted) return;
     if (_pickupLat == null || _pickupLng == null) {
       setState(() { _loadingPackages = false; _packagesError = 'Location needed to load packages'; });
       return;
     }
+    // A reload (Retry, or a new pickup) shows the spinner again.
+    setState(() { _loadingPackages = true; _packagesError = null; });
     try {
       final res = await ApiService.getRentalPackages(pickupLat: _pickupLat!, pickupLng: _pickupLng!);
+      if (!mounted) return;
       if (res['available'] != true) {
         setState(() { _loadingPackages = false; _packagesError = (res['message'] ?? 'No packages available').toString(); });
         return;
@@ -98,6 +102,7 @@ class _RentalScreenState extends State<RentalScreen> {
         _packagesError = grouped.isEmpty ? 'No rental packages configured' : null;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() { _loadingPackages = false; _packagesError = 'Failed to load packages'; });
     }
   }
@@ -165,7 +170,7 @@ class _RentalScreenState extends State<RentalScreen> {
         'packageKm': _scaledKm(p),          // scaled included km
         'extraHourRate': p['extraHourRate'] ?? _hourlyRate(p),
         'extraKmRate': p['extraKmRate'] ?? 0,
-        'departureAt': startAt?.toIso8601String(),
+        'departureAt': startAt?.toUtc().toIso8601String(),
         'paymentMode': _paymentMode,
         'couponCode': _couponCode,
         'couponDiscount': _couponDiscount,
@@ -232,7 +237,7 @@ class _RentalScreenState extends State<RentalScreen> {
         'distance': '${_scaledKm(p)} km',
         'price': '₹${_scaledPrice(p)}',
         'icon': Icons.schedule,
-        'color': const Color(0xFF1C2656),
+        'color': const Color(0xFF0A3CC8),
       };
     }
     return {
@@ -240,7 +245,7 @@ class _RentalScreenState extends State<RentalScreen> {
       'distance': '${_selectedHours * 10} km',
       'price': '₹—',
       'icon': Icons.schedule,
-      'color': const Color(0xFF1C2656),
+      'color': const Color(0xFF0A3CC8),
     };
   }
 
@@ -360,7 +365,7 @@ class _RentalScreenState extends State<RentalScreen> {
                 if (_loadingPackages)
                   const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
                 else if (_packagesError != null)
-                  NoticeRow(_packagesError!, tone: NoticeTone.warning)
+                  NoticeRow(_packagesError!, tone: NoticeTone.warning, onRetry: _loadPackages)
                 else
                   // Rows straight from the backend package vehicle names (no hardcoded list)
                   ..._packagesByVehicle.keys.map(_buildVehicleCard),

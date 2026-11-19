@@ -20,6 +20,18 @@ import { getSettings } from '@/lib/settings'
 
 export async function OPTIONS() { return corsOptions() }
 
+// Rider app builds before 1.2.2 send the picked wall-clock time with no zone
+// ("2026-10-28T17:15:00.000"), which new Date() reads as UTC: a 5:15 PM IST
+// hire was stored as 10:45 PM IST, and a rental's night charge was judged
+// 5½ hours late. A zone-less time is the rider's IST wall clock.
+function clientTime(v: unknown): Date | undefined {
+  if (v == null || v === '') return undefined
+  const s = String(v)
+  const zoned = /(Z|[+-]\d{2}:?\d{2})$/i.test(s) || !s.includes('T')
+  const d = new Date(zoned ? s : s + '+05:30')
+  return isNaN(d.getTime()) ? undefined : d
+}
+
 // Helper: ask Google Directions for road distance + duration + polyline
 async function fetchDirections(originLat: number, originLng: number, destLat: number, destLng: number) {
   try {
@@ -73,28 +85,71 @@ export async function POST(req: NextRequest) {
 
     const service = b.service || 'taxi'
 
-    // Resolve zone: use provided zoneId, else auto-detect from pickup coords
-    let zone: any = null
-    if (b.zoneId) {
-      zone = await Zone.findById(b.zoneId).lean().catch(() => null)
+    // A repeat of a booking already made: the app stops waiting after 20 s and
+    // the rider taps Book again while the first request is still finishing.
+    // Hand back that ride instead of creating a second one — but only for the
+    // signed-in rider (the reply carries the pickup OTP), only when every part
+    // of the booking matches (two parcels from home to two receivers are two
+    // bookings), and never when this request carries its own prepayment: that
+    // must be linked to a ride, not dropped.
+    const sameTime = (a: unknown, stored: any) => {
+      const x = clientTime(a)?.getTime() ?? null
+      const y = stored ? new Date(stored).getTime() : null
+      return x === y || (x !== null && y !== null && Math.abs(x - y) < 60_000)
     }
-    if (!zone && b.pickupLat != null && b.pickupLng != null) {
+    const near = (aLat: any, aLng: any, bLat: any, bLng: any) =>
+      (aLat == null && bLat == null) ||
+      (aLat != null && bLat != null && distanceKm({ lat: aLat, lng: aLng }, { lat: bLat, lng: bLng }) < 0.1)
+    if (auth?.id && b.pickupLat != null && b.pickupLng != null && !chargedAtBooking(service, b.paymentMode === 'cod' ? 'cash' : (b.paymentMode || 'cash'))) {
+      const recent: any = await Ride.findOne({
+        riderId: auth.id, service, vehicleType: b.vehicleType, status: 'pending',
+        createdAt: { $gte: new Date(Date.now() - 2 * 60 * 1000) },
+      }).sort({ createdAt: -1 }).lean()
+      const same = recent
+        && near(b.pickupLat, b.pickupLng, recent.pickupLat, recent.pickupLng)
+        && near(b.dropLat ?? b.pickupLat, b.dropLng ?? b.pickupLng, recent.dropLat, recent.dropLng)
+        && sameTime(b.scheduledAt, recent.scheduledAt)
+        && sameTime(b.departureAt, recent.departureAt)
+        && sameTime(b.hireStartAt, recent.hireStartAt)
+        && String(b.receiverPhone || '') === String(recent.receiverPhone || '')
+        && Number(b.packageHours || 0) === Number(recent.packageHours || 0)
+        && String(b.tripType || 'one_way') === String(recent.tripType || 'one_way')
+      if (same) {
+        return withCors({
+          success: true, duplicate: true,
+          ride: {
+            id: recent._id, otp: recent.otp, status: recent.status, fare: recent.fare, tip: recent.tip,
+            totalFare: recent.totalFare, commissionPercent: recent.commissionPercent, distance: recent.distance,
+            duration: recent.duration, routePolyline: recent.routePolyline, fareBreakdown: recent.fareBreakdown,
+          },
+        })
+      }
+    }
+
+    // The zone the pickup is actually in, from its coordinates alone.
+    let pickupZone: any = null
+    if (b.pickupLat != null && b.pickupLng != null) {
       const zones = await Zone.find({ isActive: true }).lean() as any[]
       for (const z of zones) {
         if (z.polygonPath?.length >= 3 && pointInPolygon({ lat: b.pickupLat, lng: b.pickupLng }, z.polygonPath)) {
-          zone = z; break
+          pickupZone = z; break
         }
       }
-      if (!zone) {
+      if (!pickupZone) {
         let nd = Infinity
         for (const z of zones) {
           const d = distanceKm({ lat: b.pickupLat, lng: b.pickupLng }, { lat: z.centerLat || 0, lng: z.centerLng || 0 })
-          if (d < nd) { nd = d; zone = z }
+          if (d < nd) { nd = d; pickupZone = z }
         }
-        if (nd > 25) zone = null
+        if (nd > 25) pickupZone = null
       }
     }
-    const zoneId = b.zoneId || (zone ? zone._id : undefined)
+
+    // The ride's zone is where its pickup is. A zoneId in the body used to win:
+    // no app sends one, but a crafted request could price a rental from a
+    // cheaper zone's packages, or send the ride to another zone's drivers.
+    const zone: any = pickupZone
+    const zoneId = zone ? zone._id : undefined
 
     // Pricing row for this vehicle in this zone+service
     let pricingRow: any = null
@@ -151,7 +206,7 @@ export async function POST(req: NextRequest) {
     let rentalQuote: RentalQuote | null = null
     let promo: PromoResult | null = null
     if (service === 'rental') {
-      const startAt = b.departureAt ? new Date(b.departureAt) : new Date()
+      const startAt = clientTime(b.departureAt) ?? new Date()
       rentalQuote = quoteRental({
         zone,
         vehicleType: b.vehicleType,
@@ -166,7 +221,7 @@ export async function POST(req: NextRequest) {
 
       // Coupons are now validated server-side against PromoCode (expiry, usage
       // cap, minimum fare) instead of trusting the client's own subtraction.
-      promo = await evaluatePromo(b.couponCode, computedFare)
+      promo = await evaluatePromo(b.couponCode, computedFare, pickupZone?._id)  // where the pickup is, never a zone the client names
       if (promo.discount > 0) computedFare = Math.max(0, computedFare - promo.discount)
     }
 
@@ -198,6 +253,17 @@ export async function POST(req: NextRequest) {
     }
 
     const fare = computedFare
+    // The per-km breakdown above is the taxi formula. Every other service is
+    // priced elsewhere (signed quote, rental packages), so on an outstation ride
+    // it stored ₹2535 / commission 507 beside a fare of ₹3450. Keep only what is
+    // true for those: the route measured and the fare actually booked.
+    if (breakdown && service !== 'taxi') {
+      breakdown = {
+        distanceKm: breakdown.distanceKm, durationMin: breakdown.durationMin,
+        subtotal: fare, surge: 0, tax: 0,
+        commission: +((fare * commissionPercent) / 100).toFixed(2),
+      }
+    }
     const tip = b.tip || 0
     const totalFare = fare + tip
 
@@ -224,8 +290,8 @@ export async function POST(req: NextRequest) {
       tripType: b.tripType || 'one_way',
       cityFrom: b.cityFrom,
       cityTo: b.cityTo,
-      departureAt: b.departureAt ? new Date(b.departureAt) : undefined,
-      returnAt: b.returnAt ? new Date(b.returnAt) : undefined,
+      departureAt: clientTime(b.departureAt),
+      returnAt: clientTime(b.returnAt),
       numPassengers: b.numPassengers || 1,
       multiStops: Array.isArray(b.multiStops) ? b.multiStops : [],
       nightHaltCharge: b.nightHaltCharge || 0,
@@ -238,8 +304,8 @@ export async function POST(req: NextRequest) {
       nightChargeRental: rentalQuote ? rentalQuote.nightCharge : 0,
       rentalPhase: service === 'rental' ? 'pending' : undefined,
       // Hire-a-driver fields
-      hireStartAt: b.hireStartAt ? new Date(b.hireStartAt) : undefined,
-      hireEndAt: b.hireEndAt ? new Date(b.hireEndAt) : undefined,
+      hireStartAt: clientTime(b.hireStartAt),
+      hireEndAt: clientTime(b.hireEndAt),
       hireTotalHours: b.hireTotalHours || 0,
       hirePerHour: b.hirePerHour || 0,
       transmission: b.transmission || '',
@@ -260,10 +326,9 @@ export async function POST(req: NextRequest) {
       // land only in `departureAt` (an outstation field), leaving scheduledAt
       // unset — so a rental booked for next week was broadcast to drivers
       // immediately and then aged out of the feed after 15 minutes.
-      scheduledAt: b.scheduledAt
-        ? new Date(b.scheduledAt)
-        : (service === 'rental' && b.departureAt && new Date(b.departureAt).getTime() > Date.now() + 60_000
-            ? new Date(b.departureAt)
+      scheduledAt: clientTime(b.scheduledAt)
+        ?? (service === 'rental' && (clientTime(b.departureAt)?.getTime() ?? 0) > Date.now() + 60_000
+            ? clientTime(b.departureAt)
             : undefined),
       deliveryStops: Array.isArray(b.deliveryStops) && b.deliveryStops.length ? b.deliveryStops : undefined,
       // Charged before booking (outstation wallet/online): presumed NOT yet tied

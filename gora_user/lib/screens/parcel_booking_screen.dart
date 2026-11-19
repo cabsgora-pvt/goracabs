@@ -41,6 +41,10 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   int _couponDiscount = 0;
   DateTime? _scheduledAt;   // null = deliver now
   final _itemValue = TextEditingController();
+  // What exactly is inside ("laptop charger", "house keys"). Sent with the
+  // category as "Electronics: laptop charger", so the driver app and admin
+  // show it without any change on their side.
+  final _itemDetails = TextEditingController();
   final _codAmount = TextEditingController();
   final List<String> _photoUrls = [];   // relative urls of uploaded parcel photos
   bool _uploading = false;
@@ -91,13 +95,14 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
 
   @override
   void dispose() { _debounce?.cancel();
-    for (final c in [_pickupCtrl, _dropCtrl, _senderName, _senderPhone, _receiverName, _receiverPhone, _itemValue, _codAmount]) { c.dispose(); }
+    for (final c in [_pickupCtrl, _dropCtrl, _senderName, _senderPhone, _receiverName, _receiverPhone, _itemValue, _codAmount, _itemDetails]) { c.dispose(); }
     super.dispose(); }
 
   Future<void> _initLocation() async {
     final pos = await LocationService.getCurrentLocation();
     if (pos == null || !mounted) return;
     _pLat = pos.latitude; _pLng = pos.longitude;
+    _center = LatLng(pos.latitude, pos.longitude);
     final addr = await ApiService.reverseGeocode(pos.latitude, pos.longitude);
     if (mounted && addr.isNotEmpty) setState(() => _pickupCtrl.text = addr);
     _loadFares();
@@ -123,7 +128,9 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   }
 
   Future<void> _loadFares() async {
-    if (_pLat == null) return;
+    // Reached after awaits (location, geocode, place details): the rider may
+    // already have left the screen, and setState on it then throws.
+    if (_pLat == null || !mounted) return;
     setState(() { _loading = true; _error = null; });
     try {
       final res = await ApiService.estimateFare(
@@ -131,13 +138,14 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         // Ola / Rapido style: no weight selection and no per-kg charge — the
         // parcel limits line covers weight, so the server's perKg term adds 0.
         weightKg: 0);
+      if (!mounted) return;
       if (res['available'] != true || res['vehicles'] is! List) { setState(() { _loading = false; _error = (res['message'] ?? 'Delivery not available here').toString(); }); return; }
       setState(() {
         _vehicles = (res['vehicles'] as List).map((v) => Map<String, dynamic>.from(v as Map)).toList();
         _loading = false;
         _error = _vehicles.isEmpty ? 'No delivery pricing configured for this zone' : null;
       });
-    } catch (_) { setState(() { _loading = false; _error = 'Failed to load'; }); }
+    } catch (_) { if (mounted) setState(() { _loading = false; _error = 'Failed to load'; }); }
   }
 
   /// Books the parcel and returns the server's answer; [bookAndTrack] reports a
@@ -152,12 +160,12 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         'quoteToken': v['quoteToken'],
         'senderName': _senderName.text, 'senderPhone': _senderPhone.text,
         'receiverName': _receiverName.text, 'receiverPhone': _receiverPhone.text,
-        'itemType': _itemType, 'weightKg': 0,
+        'itemType': _itemLabel, 'weightKg': 0,
         'packageSize': _packageSize, 'isFragile': _isFragile,
         'itemValue': double.tryParse(_itemValue.text) ?? 0,
         'codAmount': _cod ? (double.tryParse(_codAmount.text) ?? 0) : 0,
         'parcelPhotos': _photoUrls,
-        'scheduledAt': _scheduledAt?.toIso8601String(),
+        'scheduledAt': _scheduledAt?.toUtc().toIso8601String(),
         // 'cash', not 'cod'. The server only accepts cash / wallet / online, so
         // every parcel booked with COD on failed validation — and the failure was
         // swallowed, leaving the sender on "Finding your driver" for a parcel
@@ -194,6 +202,13 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     final url = await ApiService.uploadImage(x);
     if (!mounted) return;
     setState(() { if (url != null) _photoUrls.add(url); _uploading = false; });
+  }
+
+  /// The category, plus what is inside when the sender said.
+  String? get _itemLabel {
+    final d = _itemDetails.text.trim();
+    if (_itemType == null) return null;
+    return d.isEmpty ? _itemType : '$_itemType: $d';
   }
 
   bool get _formValid => _pLat != null && _dLat != null && _selectedVehicle != null && _itemType != null
@@ -307,12 +322,12 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           // Receiver's delivery OTP — show it so they can hand it to the driver
           if (incoming && !done && (p['dropOtp'] ?? '').toString().isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8),
             child: Container(padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: const Color(0xFF1C2656).withOpacity(0.06), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFF1C2656).withOpacity(0.3))),
-              child: Row(children: [const Icon(Icons.lock_outline, size: 18, color: Color(0xFF1C2656)), const SizedBox(width: 8),
+              decoration: BoxDecoration(color: const Color(0xFF0A3CC8).withOpacity(0.06), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFF0A3CC8).withOpacity(0.3))),
+              child: Row(children: [const Icon(Icons.lock_outline, size: 18, color: Color(0xFF0A3CC8)), const SizedBox(width: 8),
                 const Expanded(child: Text('Show this OTP to the driver to receive', style: TextStyle(fontSize: 11, color: Colors.black54))),
                 Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF1C2656))),
-                  child: Text((p['dropOtp'] ?? '----').toString(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 3, color: Color(0xFF1C2656))))]))),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFF0A3CC8))),
+                  child: Text((p['dropOtp'] ?? '----').toString(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 3, color: Color(0xFF0A3CC8))))]))),
           if (active) const Padding(padding: EdgeInsets.only(top: 6), child: Row(children: [Icon(Icons.my_location, size: 13, color: AppTheme.primaryBlue), SizedBox(width: 4),
             Text('Tap to track live', style: TextStyle(fontSize: 11, color: AppTheme.primaryBlue, fontWeight: FontWeight.w600))])),
           // A RETURNED badge on its own tells the sender their parcel came back
@@ -447,6 +462,25 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
 
           const ServiceSection('What are you sending?'),
           Wrap(spacing: 8, runSpacing: 8, children: _itemTypes.map(_chip).toList()),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: RideUi.fieldBox(context),
+            child: Row(children: [
+              Icon(Icons.inventory_2_outlined, size: 20, color: RideUi.muted(context)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: _itemDetails,
+                  maxLength: 60,
+                  textCapitalization: TextCapitalization.sentences,
+                  onChanged: (_) => setState(() {}),
+                  decoration: RideUi.bareInput(context, 'What is inside? e.g. laptop charger, keys')
+                      .copyWith(counterText: ''),
+                ),
+              ),
+            ]),
+          ),
 
           const SizedBox(height: 10),
           Text('Max 20 kg · must fit in a backpack · no illegal, alcohol or restricted items',
@@ -518,7 +552,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           else ...[
             const ServiceSection('Choose vehicle'),
             if (_loading) const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()))
-            else if (_error != null) _info(_error!)
+            else if (_error != null) NoticeRow(_error!, tone: NoticeTone.warning, onRetry: _loadFares)
             else if (_vehicles.isEmpty) _info('No delivery vehicles available here')
             else ..._vehicles.map(_vehicleCard),
           ],
@@ -590,7 +624,13 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     if (mounted) setState(() {});
   }
 
-  void _openMap({required bool pickup}) => setState(() { _pickingPickup = pickup; _mapAddr = ''; _showMap = true; });
+  // Opens on the point being edited, else the pickup. It used to open on a
+  // hard-coded Ahmedabad point wherever the rider was.
+  void _openMap({required bool pickup}) => setState(() {
+    final lat = pickup ? _pLat : (_dLat ?? _pLat), lng = pickup ? _pLng : (_dLng ?? _pLng);
+    if (lat != null && lng != null) _center = LatLng(lat, lng);
+    _pickingPickup = pickup; _mapAddr = ''; _showMap = true;
+  });
 
   void _showConfirm() {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
@@ -608,7 +648,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           SummaryVehicleTile(
             leading: VehicleThumb(networkUrl: raw.isEmpty ? '' : AppConfig.imageUrl(raw), fallbackIcon: Icons.local_shipping, size: 48),
             name: _selectedVehicle ?? '',
-            caption: _itemType ?? '',
+            caption: _itemLabel ?? '',
             price: '₹${v['fare'] ?? 0}',
           ),
           const SizedBox(height: 14),
@@ -616,7 +656,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           const RideDivider(vertical: 12),
           SummaryRow('From', '${_senderName.text} · ${_senderPhone.text}'),
           SummaryRow('To', '${_receiverName.text} · ${_receiverPhone.text}'),
-          SummaryRow('Item', _itemType ?? ''),
+          SummaryRow('Item', _itemLabel ?? ''),
           if (_cod) SummaryRow('COD (receiver pays)', '₹${_kg(codAmt)}'),
           if (_scheduledAt != null) SummaryRow('Pickup', serviceDateTime(_scheduledAt!)),
           SummaryRow('Payment', pay),
@@ -643,7 +683,15 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
       },
       map: GoogleMap(initialCameraPosition: CameraPosition(target: _center, zoom: 14),
         onMapCreated: (c) => _mapCtrl = c, onCameraMove: (p) => _center = p.target,
-        onCameraIdle: () async { final a = await ApiService.reverseGeocode(_center.latitude, _center.longitude); if (mounted) setState(() => _mapAddr = a); },
+        onCameraIdle: () async {
+          // A failed lookup used to leave "Locating address…" up for good, with
+          // Confirm disabled. The pin itself is still a valid place to send.
+          final at = _center;
+          var a = '';
+          try { a = await ApiService.reverseGeocode(at.latitude, at.longitude); } catch (_) {}
+          if (a.isEmpty) a = 'Pinned location (${at.latitude.toStringAsFixed(5)}, ${at.longitude.toStringAsFixed(5)})';
+          if (mounted) setState(() => _mapAddr = a);
+        },
         myLocationEnabled: true, myLocationButtonEnabled: false, zoomControlsEnabled: false),
       onConfirm: _mapAddr.isEmpty ? null : () {
         setState(() {

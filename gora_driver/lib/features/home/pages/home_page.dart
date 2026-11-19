@@ -7,6 +7,7 @@ import '../../../widgets/captain_ui/captain_ui.dart';
 import '../../../providers/driver_provider.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
+import '../../../services/ride_alert_service.dart';
 import '../../earnings/pages/earnings_page.dart';
 import '../../account/pages/account_page.dart';
 import '../../ride/pages/incoming_requests_page.dart';
@@ -292,20 +293,31 @@ class _GoButton extends StatelessWidget {
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: Cap.navy.withValues(alpha: 0.18),
+        color: Cap.orange.withValues(alpha: 0.22),
       ),
+      // The logo's orange: the one thing to press while offline, as Rapido
+      // Captain does with its own brand colour.
       child: Material(
-        color: Cap.navy,
         shape: const CircleBorder(),
         elevation: 6,
-        shadowColor: Cap.navy.withValues(alpha: 0.5),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onTap,
-          child: const SizedBox(
-            width: 82, height: 82,
-            child: Center(
-              child: Text('GO', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1)),
+        shadowColor: Cap.orange.withValues(alpha: 0.55),
+        clipBehavior: Clip.antiAlias,
+        child: Ink(
+          decoration: const BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft, end: Alignment.bottomRight,
+              colors: [Color(0xFFFF8A1F), Color(0xFFEA5E00)],
+            ),
+          ),
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onTap,
+            child: const SizedBox(
+              width: 82, height: 82,
+              child: Center(
+                child: Text('GO', style: TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900, letterSpacing: 1)),
+              ),
             ),
           ),
         ),
@@ -376,7 +388,7 @@ class _StatusSheet extends StatelessWidget {
           const SizedBox(height: 12),
           ClipRRect(
             borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(minHeight: 3, color: Cap.accent, backgroundColor: Cap.tile),
+            child: LinearProgressIndicator(minHeight: 3, color: Cap.orange, backgroundColor: Cap.tile),
           ),
         ],
         const SizedBox(height: 14),
@@ -555,6 +567,8 @@ class _RidePollerState extends State<_RidePoller> {
   }
 
   Future<void> _poll() async {
+    // The app is in front: the background service's own poll can rest.
+    RideAlertService.foregroundHeartbeat();
     if (_navigating || !mounted) return;
     // Not over a trip in progress. The pending feed does not leave out drivers
     // already on a job, and opt-in services (rental, hire, outstation, parcel)

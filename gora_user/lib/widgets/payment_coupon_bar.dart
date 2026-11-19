@@ -19,7 +19,7 @@ class PaymentCouponBar extends StatefulWidget {
     super.key,
     required this.baseFare,
     required this.onChanged,
-    this.accent = const Color(0xFF1C2656),
+    this.accent = const Color(0xFF0A3CC8),
     this.initialPaymentMode = 'cash',
     this.initialCouponCode = '',
     this.initialCouponDiscount = 0,

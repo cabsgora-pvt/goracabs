@@ -72,21 +72,21 @@ class _HomeScreenState extends State<HomeScreen>
   // 'tile' is the transparent 3D artwork shown on the home grid (Uber-style
   // grey tile); 'icon' stays as the legacy artwork used elsewhere.
   final List<Map<String, dynamic>> _services = [
-    {'icon': 'assets/images/bike-bluebg.png', 'tile': 'assets/images/services/bike.png', 'short': 'Bike', 'label': 'Bike ride', 'color': Color(0xFF1C2656), 'bgColor': Color(0xFFE3F2FD)},
+    {'icon': 'assets/images/bike-bluebg.png', 'tile': 'assets/images/services/bike.png', 'short': 'Bike', 'label': 'Bike ride', 'color': Color(0xFF0A3CC8), 'bgColor': Color(0xFFE3F2FD)},
     {'icon': 'assets/images/auto-bluebg.png', 'tile': 'assets/images/services/auto.png', 'short': 'Auto', 'label': 'Auto ride', 'color': Color(0xFF4CAF50), 'bgColor': Color(0xFFE8F5E9)},
     {'icon': 'assets/images/texi2-bluebg.png', 'tile': 'assets/images/services/cab.png', 'short': 'Cab', 'label': 'Cab ride', 'color': Color(0xFFFF9800), 'bgColor': Color(0xFFFFF3E0)},
     {'icon': 'assets/images/rental-bluebg.png', 'tile': 'assets/images/services/rental.png', 'short': 'Rental', 'label': 'Rentals', 'color': Color(0xFF9C27B0), 'bgColor': Color(0xFFF3E5F5)},
-    {'icon': 'assets/images/out-station-bluebg.png', 'tile': 'assets/images/services/outstation.png', 'short': 'Outstation', 'label': 'Outstation', 'color': Color(0xFF1C2656), 'bgColor': Color(0xFFE3F2FD)},
+    {'icon': 'assets/images/out-station-bluebg.png', 'tile': 'assets/images/services/outstation.png', 'short': 'Outstation', 'label': 'Outstation', 'color': Color(0xFF0A3CC8), 'bgColor': Color(0xFFE3F2FD)},
     {'icon': 'assets/images/parcel-bluebg.png', 'tile': 'assets/images/services/parcel.png', 'short': 'Parcel', 'label': 'Parcel', 'color': Color(0xFFFF9800), 'bgColor': Color(0xFFFFF3E0)},
     {'icon': 'assets/images/hiredriver-bluebg.png', 'tile': 'assets/images/services/hire_driver.png', 'short': 'Hire driver', 'label': 'Hire driver', 'color': Color(0xFF9C27B0), 'bgColor': Color(0xFFF3E5F5)},
     {'icon': 'assets/images/query-bluebg.png', 'tileIcon': Icons.support_agent_rounded, 'short': 'Inquiry', 'label': 'Any inquiry', 'color': Color(0xFF4CAF50), 'bgColor': Color(0xFFE8F5E9)},
   ];
 
   final List<Map<String, String>> _promos = [
-    {'title': 'Travel Safe with Gora', 'sub': 'Our drivers are vaccinated!', 'color': '0xFF0052CC', 'icon': 'security'},
-    {'title': 'Gora Prime Sedan', 'sub': 'Extra comfort at affordable prices', 'color': '0xFFE65100', 'icon': 'directions_car'},
-    {'title': 'Express Delivery', 'sub': 'Get your parcels delivered instantly', 'color': '0xFF2E7D32', 'icon': 'local_shipping'},
-    {'title': 'Weekend Gateway?', 'sub': 'Book Gora Outstation now!', 'color': '0xFF673AB7', 'icon': 'map'},
+    {'title': 'Travel Safe with Gora', 'sub': 'Our drivers are vaccinated!', 'color': '0xFF0A3CC8', 'icon': 'security'},
+    {'title': 'Gora Prime Sedan', 'sub': 'Extra comfort at affordable prices', 'color': '0xFFEA5E00', 'icon': 'directions_car'},
+    {'title': 'Express Delivery', 'sub': 'Get your parcels delivered instantly', 'color': '0xFF020820', 'icon': 'local_shipping'},
+    {'title': 'Weekend Gateway?', 'sub': 'Book Gora Outstation now!', 'color': '0xFF0A3CC8', 'icon': 'map'},
   ];
 
   @override
@@ -208,11 +208,14 @@ class _HomeScreenState extends State<HomeScreen>
         _lastRide = lastTaxi == null ? null : Map<String, dynamic>.from(lastTaxi as Map);
         _recentDrops = recent;
       });
-      // Auto-resume the active ride once when the app is (re)opened.
-      if (_activeRide != null && !_autoResumed && mounted) {
-        _autoResumed = true;
+      // Auto-resume a ride that was already active when the app was opened —
+      // only on this first check. Later checks used to fire too, pushing a
+      // duplicate screen over a ride the rider had just booked.
+      final firstCheck = !_autoResumed;
+      _autoResumed = true;
+      if (_activeRide != null && firstCheck && mounted) {
         final rideId = (_activeRide!['_id'] ?? _activeRide!['id'] ?? '').toString();
-        if (rideId.isNotEmpty) {
+        if (rideId.isNotEmpty && !ActiveRideScreen.open.contains(rideId)) {
           Navigator.push(context, MaterialPageRoute(builder: (_) => ActiveRideScreen(rideId: rideId)))
               .then((_) => _checkActiveRide());
         }
@@ -304,7 +307,7 @@ class _HomeScreenState extends State<HomeScreen>
       (Icons.person_rounded, 'Profile'),
     ];
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final capsule = dark ? const Color(0xFF5A6CB8) : const Color(0xFF1C2656);
+    final capsule = dark ? const Color(0xFF5A6CB8) : const Color(0xFF0A3CC8);
     final inactive = dark ? Colors.white60 : Colors.grey[500]!;
     return Container(
       decoration: BoxDecoration(
@@ -515,7 +518,11 @@ class _HomeScreenState extends State<HomeScreen>
           child: Padding(
             padding: const EdgeInsets.fromLTRB(18, 8, 8, 8),
             child: Row(children: [
-              Icon(Icons.search_rounded, color: RideUi.ink(context), size: 26),
+              Container(
+                width: 36, height: 36,
+                decoration: const BoxDecoration(color: AppTheme.ctaOrange, shape: BoxShape.circle),
+                child: const Icon(Icons.search_rounded, color: Colors.white, size: 22),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text('Where to?', maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -524,7 +531,8 @@ class _HomeScreenState extends State<HomeScreen>
               RidePillChip(
                 icon: Icons.schedule_rounded,
                 label: 'Now',
-                background: RideUi.surface(context),
+                background: Theme.of(context).brightness == Brightness.dark
+                    ? RideUi.surface(context) : AppTheme.orangeSoft,
                 onTap: _openSearch,
               ),
             ]),
@@ -1053,8 +1061,13 @@ class _HomeScreenState extends State<HomeScreen>
   // Uber "Suggestions" tile: light-grey rounded square with the service image,
   // short label underneath. The white-background artwork is multiplied onto the
   // grey so it sits IN the tile instead of as a white square on top of it.
-  Widget _buildServiceItem(Map<String, dynamic> s, double width) {
-    final tileColor = RideUi.tile(context);
+  Widget _buildServiceItem(Map<String, dynamic> s, double width, int index) {
+    // Tiles alternate the logo's two colours, softened, so the grid reads as
+    // Gora's own rather than a generic grey.
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final tileColor = dark
+        ? RideUi.tile(context)
+        : (index.isEven ? AppTheme.blueSoft : AppTheme.orangeSoft);
     final art = s['tile'] as String?;
     final tileIcon = s['tileIcon'] as IconData?;
     return SizedBox(
@@ -1096,7 +1109,7 @@ class _HomeScreenState extends State<HomeScreen>
         return Wrap(
           spacing: gap,
           runSpacing: 14,
-          children: _services.map((s) => _buildServiceItem(s, w)).toList(),
+          children: [for (final (i, s) in _services.indexed) _buildServiceItem(s, w, i)],
         );
       });
 

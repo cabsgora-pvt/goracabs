@@ -21,6 +21,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!ride.driverId || String(ride.driverId) !== String(payload.id)) {
       return withCors({ error: 'Not your ride' }, 403)
     }
+    // A repeat of a start that went through but whose answer was lost.
+    if (ride.status === 'ongoing' && String(otp) === String(ride.otp)) return withCors({ success: true, repeated: true })
     if (!['accepted', 'arrived'].includes(ride.status)) {
       return withCors({ error: `Ride cannot be started (status: ${ride.status})` }, 400)
     }
@@ -29,6 +31,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     ride.status = 'ongoing'
     ride.startedAt = new Date()
+    // outstationPhase only ever moved on a round trip's driver-reported legs,
+    // so every outstation ride read "pickup_pending" until — and after — the end.
+    if (ride.service === 'outstation') ride.outstationPhase = 'enroute'
     await ride.save()
 
     return withCors({ success: true })

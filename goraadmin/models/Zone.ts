@@ -25,6 +25,9 @@ const PricingSchema = new Schema({
   extraKmRate:    { type: Number, default: 0 }, // ₹ per km beyond the included limit
   driverAllowance:{ type: Number, default: 0 }, // ₹ per day driver bata
   gstPercent:     { type: Number, default: 0 }, // GST % applied on fare
+  // The super admin's fares, kept when a zone admin first edits this row, so
+  // a zone admin's changes are limited relative to them (zone-admin pricing).
+  adminRef: { type: Schema.Types.Mixed, default: undefined },
 })
 // Rental packages — multiple per vehicle per zone (e.g. Economy 4hr/40km, Economy 8hr/80km)
 const RentalPackageSchema = new Schema({
@@ -38,6 +41,7 @@ const RentalPackageSchema = new Schema({
   nightCharge: { type: Number, default: 0 },    // ₹ if booking spans night
   commissionPercent: { type: Number, default: 20 },
   isActive: { type: Boolean, default: true },
+  adminRef: { type: Schema.Types.Mixed, default: undefined },  // see PricingSchema.adminRef
 })
 const ZoneSchema = new Schema({
   name: String,
@@ -55,5 +59,7 @@ const ZoneSchema = new Schema({
   distancePricePercentage: { type: Number, default: 0 },
   maximumDistance: { type: Number, default: 0 },
   maximumOutstationDistance: { type: Number, default: 0 },
+  // Helpline shown to riders in this zone; set by the zone admin.
+  supportPhone: { type: String, default: '' },
 }, { timestamps: true })
 export default mongoose.models.Zone || mongoose.model('Zone', ZoneSchema)

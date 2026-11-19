@@ -157,10 +157,10 @@ class _OutstationScreenState extends State<OutstationScreen> {
   // Payment method chooser (Ola-style bottom sheet)
   Future<String?> _pickPayment() {
     Widget tile(String mode, IconData ic, String label, String sub) => ListTile(
-      leading: Icon(ic, color: const Color(0xFF1C2656)),
+      leading: Icon(ic, color: const Color(0xFF0A3CC8)),
       title: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
       subtitle: Text(sub, style: const TextStyle(fontSize: 11)),
-      trailing: _paymentMode == mode ? const Icon(Icons.check_circle, color: Color(0xFF1C2656)) : null,
+      trailing: _paymentMode == mode ? const Icon(Icons.check_circle, color: Color(0xFF0A3CC8)) : null,
       onTap: () => Navigator.pop(context, mode),
     );
     return showModalBottomSheet<String>(
@@ -178,9 +178,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
   // "Who's travelling" chooser
   Future<String?> _pickBookingFor() {
     Widget tile(String who, IconData ic) => ListTile(
-      leading: Icon(ic, color: const Color(0xFF1C2656)),
+      leading: Icon(ic, color: const Color(0xFF0A3CC8)),
       title: Text(who, style: const TextStyle(fontWeight: FontWeight.w700)),
-      trailing: _bookingFor == who ? const Icon(Icons.check_circle, color: Color(0xFF1C2656)) : null,
+      trailing: _bookingFor == who ? const Icon(Icons.check_circle, color: Color(0xFF0A3CC8)) : null,
       onTap: () => Navigator.pop(context, who),
     );
     return showModalBottomSheet<String>(
@@ -206,7 +206,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
       actions: [
         TextButton(onPressed: () { _couponCode = ''; _couponDiscount = 0; Navigator.pop(dctx); }, child: const Text('Remove')),
         ElevatedButton(
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1C2656)),
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0A3CC8)),
           onPressed: () async {
             _couponCode = ctrl.text.trim().toUpperCase();
             final f = (_tripType == 'One Way' ? selectedVehicleData['oneWayFare'] : selectedVehicleData['roundTripFare']) as num? ?? 0;
@@ -391,8 +391,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
     });
 
     try {
-      final oneWay = await oneWayF;
-      final round = await roundF;
+      // Together, so a failed one-way never leaves the round-trip error unhandled.
+      final both = await Future.wait([oneWayF, roundF]);
+      final oneWay = both[0], round = both[1];
       if (oneWay['available'] == false) {
         if (!mounted) return;
         setState(() { _vehicles = []; _loadingFares = false; });
@@ -400,11 +401,16 @@ class _OutstationScreenState extends State<OutstationScreen> {
           content: Text((oneWay['message'] as String?) ?? 'Outstation not available from here')));
         return;
       }
-      // Fetch actual road polyline so the map shows the real city-to-city route
-      final dir = await ApiService.getDirections(
-        originLat: _fromLat!, originLng: _fromLng!,
-        destLat: _toLat!, destLng: _toLng!,
-      );
+      // Fetch actual road polyline so the map shows the real city-to-city route.
+      // Only the map line depends on it: a failure here used to discard the
+      // fares already in hand and leave an empty, silent vehicle list.
+      Map<String, dynamic> dir = const {};
+      try {
+        dir = await ApiService.getDirections(
+          originLat: _fromLat!, originLng: _fromLng!,
+          destLat: _toLat!, destLng: _toLng!,
+        );
+      } catch (_) {}
       if (!mounted) return;
       final encoded = dir['polyline'] as String?;
       if (encoded != null && encoded.isNotEmpty) {
@@ -457,7 +463,12 @@ class _OutstationScreenState extends State<OutstationScreen> {
       });
       _fitMapToRoute();
     } catch (_) {
-      if (mounted) setState(() => _loadingFares = false);
+      if (!mounted) return;
+      setState(() => _loadingFares = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('Could not load prices. Check your connection.'),
+        action: SnackBarAction(label: 'Retry', onPressed: _loadOutstationFares),
+      ));
     }
   }
 
@@ -491,8 +502,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
         // on the ride screens, the driver's request and the admin list.
         'cityFrom': cityOf(_fromController.text),
         'cityTo': cityOf(_toController.text),
-        'departureAt': _departureDateTime?.toIso8601String(),
-        'returnAt': isRoundTrip ? _returnDateTime?.toIso8601String() : null,
+        'departureAt': _departureDateTime?.toUtc().toIso8601String(),
+        'returnAt': isRoundTrip ? _returnDateTime?.toUtc().toIso8601String() : null,
         'numPassengers': _numPassengers,
         'multiStops': _stops,
         'nightHaltCharge': (selVehicle['breakdown'] as Map?)?['nightHalt'] ?? 0,
@@ -562,7 +573,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
                       Polyline(
                         polylineId: const PolylineId('route'),
                         points: _routePoints,
-                        color: const Color(0xFF1C2656),
+                        color: const Color(0xFF0A3CC8),
                         width: 5,
                       ),
                   },

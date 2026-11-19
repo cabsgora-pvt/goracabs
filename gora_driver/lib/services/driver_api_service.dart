@@ -51,6 +51,12 @@ class DriverApiService {
     }
   }
 
+  /// How long one API call may take. Without it a request on a lossy network
+  /// could hang for minutes — the splash once sat on its spinner for 8 minutes
+  /// waiting on the profile call. A timeout throws a TimeoutException, which
+  /// every caller already handles the same way as a dropped connection.
+  static const requestTimeout = Duration(seconds: 20);
+
   static Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body, {bool auth = false}) async {
     final headers = <String, String>{'Content-Type': 'application/json'};
     if (auth) {
@@ -61,7 +67,7 @@ class DriverApiService {
       Uri.parse('$baseUrl$path'),
       headers: headers,
       body: jsonEncode(body),
-    );
+    ).timeout(requestTimeout);
     return _decode(res);
   }
 
@@ -71,7 +77,7 @@ class DriverApiService {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
     };
-    final res = await http.delete(Uri.parse('$baseUrl$path'), headers: headers);
+    final res = await http.delete(Uri.parse('$baseUrl$path'), headers: headers).timeout(requestTimeout);
     return _decode(res);
   }
 
@@ -81,7 +87,7 @@ class DriverApiService {
       'Content-Type': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token',
     };
-    final res = await http.get(Uri.parse('$baseUrl$path'), headers: headers);
+    final res = await http.get(Uri.parse('$baseUrl$path'), headers: headers).timeout(requestTimeout);
     return _decode(res);
   }
 
@@ -171,8 +177,13 @@ class DriverApiService {
   }
 
   // ── Online + location ─────────────────────────────────────
-  static Future<Map<String, dynamic>> setOnline(bool isOnline, double lat, double lng) =>
-      post('/auth/driver/online', {'isOnline': isOnline, 'lat': lat, 'lng': lng}, auth: true);
+  /// [lat]/[lng] only when there is a real fix: the server keeps the last
+  /// known position otherwise.
+  static Future<Map<String, dynamic>> setOnline(bool isOnline, [double? lat, double? lng]) =>
+      post('/auth/driver/online', {
+        'isOnline': isOnline,
+        if (lat != null && lng != null) ...{'lat': lat, 'lng': lng},
+      }, auth: true);
 
   static Future<Map<String, dynamic>> updateLocation(double lat, double lng) =>
       post('/auth/driver/location', {'lat': lat, 'lng': lng}, auth: true);
@@ -213,7 +224,7 @@ class DriverApiService {
       Uri.parse('$baseUrl/rides/$id/accept'),
       headers: headers,
       body: jsonEncode({}),
-    );
+    ).timeout(requestTimeout);
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     data['_status'] = res.statusCode;
     return data;

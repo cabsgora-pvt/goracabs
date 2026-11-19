@@ -9,7 +9,7 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer
 } from 'recharts'
 
-const PIE_COLORS = ['#1565C0', '#43A047', '#FB8C00', '#E53935', '#8E24AA']
+const PIE_COLORS = ['#405189', '#43A047', '#FB8C00', '#E53935', '#8E24AA']
 
 export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useState('')
@@ -95,7 +95,7 @@ export default function ReportsPage() {
                   <XAxis dataKey="service" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} />
                   <Tooltip />
-                  <Bar dataKey="revenue" fill="#1565C0" radius={[4, 4, 0, 0]} name="Revenue (₹)" />
+                  <Bar dataKey="revenue" fill="#405189" radius={[4, 4, 0, 0]} name="Revenue (₹)" />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

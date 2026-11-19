@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { Header } from '@/components/header'
 import { PageHeader } from '@/components/ui/page-header'
 import { Toast } from '@/components/ui/toast'
+import { FranchiseModeCard } from '@/components/franchise-mode'
 
 export default function GeneralSettingsPage() {
   const [settings, setSettings] = useState<any>(null)
@@ -44,6 +45,8 @@ export default function GeneralSettingsPage() {
       <Header title="General Settings" />
       <div className="p-6 space-y-6">
         <PageHeader title="General Settings" subtitle="Configure basic app information" />
+
+        <FranchiseModeCard />
 
         <form onSubmit={handleSave}>
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-5">
@@ -93,6 +96,31 @@ export default function GeneralSettingsPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Support Phone</label>
                 <input value={settings?.general?.supportPhone || ''}
                   onChange={e => setSettings({ ...settings, general: { ...settings.general, supportPhone: e.target.value } })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              {/* Shown on zone admin (franchise) subscription invoices. */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Company legal name (invoices)</label>
+                <input value={settings?.general?.companyLegalName ?? ''} placeholder="Gora Cabs Pvt Ltd"
+                  onChange={e => setSettings({ ...settings, general: { ...settings.general, companyLegalName: e.target.value } })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Company GSTIN (invoices)</label>
+                <input value={settings?.general?.companyGstin ?? ''} placeholder="24ABCDE1234F1Z5"
+                  onChange={e => setSettings({ ...settings, general: { ...settings.general, companyGstin: e.target.value } })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Company address (invoices)</label>
+                <input value={settings?.general?.companyAddress ?? ''} placeholder=""
+                  onChange={e => setSettings({ ...settings, general: { ...settings.general, companyAddress: e.target.value } })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">GST % on zone admin subscriptions (0 = none)</label>
+                <input value={settings?.general?.invoiceGstPercent ?? ''} placeholder="18"
+                  onChange={e => setSettings({ ...settings, general: { ...settings.general, invoiceGstPercent: e.target.value } })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
             </div>

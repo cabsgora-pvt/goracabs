@@ -66,7 +66,7 @@ export default function DashboardPage() {
                 <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} />
                 <Tooltip />
                 <Legend />
-                <Line yAxisId="left" type="monotone" dataKey="rides" stroke="#1565C0" strokeWidth={2} dot={false} name="Rides" />
+                <Line yAxisId="left" type="monotone" dataKey="rides" stroke="#405189" strokeWidth={2} dot={false} name="Rides" />
                 <Line yAxisId="right" type="monotone" dataKey="revenue" stroke="#43A047" strokeWidth={2} dot={false} name="Revenue (₹)" />
               </LineChart>
             </ResponsiveContainer>
@@ -142,7 +142,7 @@ export default function DashboardPage() {
                   <XAxis dataKey="service" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} />
                   <Tooltip />
-                  <Bar dataKey="revenue" fill="#1565C0" radius={[4, 4, 0, 0]} name="Revenue (₹)" />
+                  <Bar dataKey="revenue" fill="#405189" radius={[4, 4, 0, 0]} name="Revenue (₹)" />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

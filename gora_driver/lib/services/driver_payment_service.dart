@@ -50,7 +50,7 @@ class DriverPaymentService {
         'name': 'Gora Cabs',
         'description': 'Driver subscription',
         if (contact != null && contact.isNotEmpty) 'prefill': {'contact': contact},
-        'theme': {'color': '#1C2656'},
+        'theme': {'color': '#0A3CC8'},
       });
     } catch (e) {
       rzp.clear();

@@ -60,7 +60,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if ((exists as any).vehicleType !== driver.selectedVehicleTypeName) {
         return withCors({ error: 'This ride is for a different vehicle type' }, 403)
       }
+      // Already this driver's — a repeat of an accept whose answer was lost
+      // (the app gives up after 20 s while the server still finishes).
+      if (String((exists as any).driverId || '') === String(driver._id) && ['accepted', 'arrived', 'ongoing'].includes((exists as any).status)) {
+        const { otp: _o, dropOtp: _d, ...safe } = exists as any
+        return withCors({ success: true, ride: safe, repeated: true })
+      }
       return withCors({ error: 'Ride already taken' }, 409)
+    }
+
+    if (ride.service === 'outstation') {
+      await Ride.updateOne({ _id: ride._id }, { $set: { outstationPhase: 'driver_arriving' } }).catch(() => {})
     }
 
     // ── ETA telemetry ──
@@ -112,7 +122,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
     })
 
-    return withCors({ success: true, ride, predictedEtaMin })
+    // The pickup and drop OTPs are the rider's to read out; GET /rides/:id
+    // withholds them from drivers, so this must too.
+    const { otp: _otp, dropOtp: _dropOtp, ...safeRide } = ride.toObject ? ride.toObject() : ride
+    return withCors({ success: true, ride: safeRide, predictedEtaMin })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)
   }

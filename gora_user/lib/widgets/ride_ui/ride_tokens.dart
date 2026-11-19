@@ -9,7 +9,12 @@ import '../../theme/app_theme.dart';
 class RideUi {
   RideUi._();
 
+  /// The logo's royal blue — buttons, selection, links.
   static const Color navy = AppTheme.primaryBlue;
+  /// The logo's orange — offers, badges, highlights.
+  static const Color orange = AppTheme.brandOrange;
+  /// Filled call-to-action colour — the logo orange, as the driver app's GO.
+  static const Color cta = AppTheme.ctaOrange;
   static const double radius = 16;
   static const double gutter = 16;
 

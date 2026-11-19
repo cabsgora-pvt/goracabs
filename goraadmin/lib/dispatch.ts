@@ -98,6 +98,12 @@ export async function candidatesFor(ride: any): Promise<DriverCandidate[]> {
   else if (ride.service === 'hire_driver') { filter.acceptsHireDriver = true; filter.allowHireDriver = { $ne: false } }
   else if (ride.service === 'delivery') { filter.acceptsDelivery = true; filter.allowDelivery = { $ne: false } }
   else { filter.allowTaxi = { $ne: false }; if (ride.zoneId) filter.zoneId = String(ride.zoneId) }
+  // Opt-in services: the same zone rule as the driver's pending feed
+  // (rides/driver/pending), so a ride is never offered to a driver whose feed
+  // would then hide it. Drivers with no zone stay eligible, as there.
+  if (ride.service && ride.service !== 'taxi' && ride.zoneId && !filter.zoneId) {
+    filter.zoneId = { $in: [String(ride.zoneId), null, ''] }
+  }
 
   const rank = async (f: Record<string, any>): Promise<DriverCandidate[]> => {
     const [factor, drivers] = await Promise.all([

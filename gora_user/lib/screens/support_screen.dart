@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../services/location_service.dart';
 
 class SupportScreen extends StatefulWidget {
   const SupportScreen({super.key});
@@ -11,6 +12,8 @@ class SupportScreen extends StatefulWidget {
 
 class _SupportScreenState extends State<SupportScreen> {
   Map<String, dynamic>? _cfg;
+  // The helpline of the zone the rider is in, when its zone admin set one.
+  String? _zonePhone, _zoneName;
 
   @override
   void initState() {
@@ -18,12 +21,23 @@ class _SupportScreenState extends State<SupportScreen> {
     ApiService.getAppConfig().then((c) {
       if (mounted) setState(() => _cfg = c);
     });
+    _loadZoneHelpline();
+  }
+
+  Future<void> _loadZoneHelpline() async {
+    try {
+      final pos = await LocationService.getCurrentLocation();
+      if (pos == null) return;
+      final r = await ApiService.get('/zones/support?lat=${pos.latitude}&lng=${pos.longitude}');
+      final phone = _str(r['supportPhone']);
+      if (phone != null && mounted) setState(() { _zonePhone = phone; _zoneName = _str(r['zone']); });
+    } catch (_) {/* the app-wide number stays */}
   }
 
   @override
   Widget build(BuildContext context) {
     final support = _cfg?['support'] as Map<String, dynamic>?;
-    final phone = _str(support?['phone']) ?? '+91 1800-123-4567';
+    final phone = _zonePhone ?? _str(support?['phone']) ?? '+91 1800-123-4567';
     final email = _str(support?['email']) ?? 'support@goracabs.com';
     final whatsapp = _str(support?['whatsapp']);
     final address = _str(support?['address']);
@@ -69,7 +83,7 @@ class _SupportScreenState extends State<SupportScreen> {
           const SizedBox(height: 24),
           const Text('Contact Us', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          _buildContactCard(context, Icons.phone, 'Call Us', phone),
+          _buildContactCard(context, Icons.phone, _zoneName != null ? 'Call $_zoneName helpline' : 'Call Us', phone),
           const SizedBox(height: 10),
           _buildContactCard(context, Icons.email, 'Email Us', email),
           if (whatsapp != null) ...[
