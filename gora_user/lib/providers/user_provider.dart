@@ -4,9 +4,22 @@ import '../services/api_service.dart';
 class UserProvider extends ChangeNotifier {
   Map<String, dynamic>? _user;
   bool _loading = false;
+  bool _accountDeleted = false;
 
   Map<String, dynamic>? get user => _user;
   bool get loading => _loading;
+
+  /// The server said this account was deleted (an admin approved the rider's
+  /// deletion request). The token has already been cleared; the home screen
+  /// listens for this and sends the rider back to the welcome screen.
+  bool get accountDeleted => _accountDeleted;
+
+  /// The admin's hold on this account, or null: {kind, reason, message}.
+  /// A held rider cannot book; the home screen shows [message] in a banner.
+  Map<String, dynamic>? get hold {
+    final h = _user?['hold'];
+    return h is Map ? Map<String, dynamic>.from(h) : null;
+  }
 
   String get name => _user?['name'] ?? '';
   String get phone => _user?['phone'] ?? '';
@@ -27,7 +40,12 @@ class UserProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final res = await ApiService.getProfile();
-      if (res['user'] != null) {
+      if (res['accountDeleted'] == true) {
+        // 401 {accountDeleted: true}: sign out for good.
+        await ApiService.clearToken();
+        _user = null;
+        _accountDeleted = true;
+      } else if (res['user'] != null) {
         _user = Map<String, dynamic>.from(res['user']);
       }
     } catch (_) {}
@@ -68,6 +86,7 @@ class UserProvider extends ChangeNotifier {
 
   void clear() {
     _user = null;
+    _accountDeleted = false;
     notifyListeners();
   }
 }

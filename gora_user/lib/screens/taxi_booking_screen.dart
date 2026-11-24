@@ -19,6 +19,8 @@ import '../widgets/online_payment.dart';
 import '../widgets/finding_driver_view.dart';
 import '../widgets/cancel_reasons_sheet.dart';
 import '../widgets/no_driver_found.dart';
+import '../widgets/account_hold.dart';
+import '../widgets/ride_preferences.dart';
 import 'emergency_actions_screen.dart';
 import 'outstation_screen.dart';
 import 'rating_screen.dart';
@@ -79,6 +81,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   // ── Ola-style payment + coupon selection (UI only) ──
   String _paymentMode = 'cash';
   bool _preferFemaleDriver = false;
+  // Admin-defined ride preferences for taxi, and the keys the rider picked.
+  List<RidePreference> _ridePrefs = const [];
+  Set<String> _selectedPrefs = {};
   num _payableFare = 0;
   String _couponCode = '';
   int _couponDiscount = 0;
@@ -403,6 +408,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       onUpdate: () { if (mounted) setState(() {}); },
     );
     _nearbyTimer = Timer.periodic(const Duration(seconds: 5), (_) => _loadNearby());
+    loadRidePreferences('taxi').then((p) {
+      if (mounted) setState(() => _ridePrefs = p);
+    });
     // Set default locations
     _pickupController.text = widget.fromLocation ?? 'Current Location';
     // Empty so the hint/placeholder shows; user types to search
@@ -873,16 +881,34 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   Future<void> _startBooking() async {
     if (_bookingLocked) return;
     setState(() => _booking = true);
+    Map<String, dynamic> res;
     try {
-      await _bookRide();
+      res = await _bookRide();
     } finally {
       _booking = false;
     }
     if (!mounted) return;
+    if (res['ride'] == null && res['error'] != null) {
+      // No ride was created, so there is nothing to search for: a finding
+      // view here would spin for a ride that does not exist.
+      final error = res['error'].toString();
+      if (isAccountHoldResponse(res)) {
+        await showAccountHoldDialog(context, error);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Booking failed: $error'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 6),
+        ));
+      }
+      return;
+    }
     _showFinalWaitingDialog();
   }
 
-  Future<void> _bookRide() async {
+  /// Books the ride and returns the server's answer (an `error` map when the
+  /// request could not be sent at all).
+  Future<Map<String, dynamic>> _bookRide() async {
     final selectedVehicleData = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
     final basePrice = int.tryParse((selectedVehicleData['price'] as String).replaceAll('₹', '')) ?? 0;
     final tip = _selectedTip ?? 0;
@@ -908,6 +934,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
         'couponDiscount': _couponDiscount,
         'quoteToken': selectedVehicleData['quoteToken'],
         'preferFemaleDriver': _preferFemaleDriver,
+        // Only keys still on offer: the list may have changed since the pick.
+        if (_selectedPrefs.isNotEmpty)
+          'preferences': _ridePrefs.map((p) => p.key).where(_selectedPrefs.contains).toList(),
       });
       if (res['ride'] != null) {
         final r = res['ride'] as Map<String, dynamic>;
@@ -921,7 +950,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
           _routePoints = decodePolyline(_routePolylineEncoded);
         }
       }
-    } catch (_) {/* keep flow; polling will simply not find a ride */}
+      return res;
+    } catch (_) {
+      // post() throws, rather than returning an error map, with no connection.
+      return const {'error': 'Could not reach Gora. Check your connection and try again.'};
+    }
   }
 
   // Bottom sheet: show line-by-line fare breakdown
@@ -2416,6 +2449,16 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                             child: Text("We'll try to match you with one nearby — if none are free, your next-best driver is offered instead.",
                                 style: RideUi.caption(context, size: 11)),
                           ),
+                        // Admin-defined preferences (pet friendly, luggage ...);
+                        // hidden when none apply to taxi.
+                        if (_ridePrefs.isNotEmpty) ...[
+                          const RideDivider(vertical: 16),
+                          RidePreferenceChips(
+                            preferences: _ridePrefs,
+                            selected: _selectedPrefs,
+                            onChanged: (s) => setDialogState(() => setState(() => _selectedPrefs = s)),
+                          ),
+                        ],
                         const SizedBox(height: 18),
                         PrimaryRideButton(
                           label: _selectedTip != null ? 'Confirm with ₹$_selectedTip Tip' : 'Confirm Ride',

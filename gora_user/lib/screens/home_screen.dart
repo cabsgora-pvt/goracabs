@@ -27,6 +27,8 @@ import 'support_screen.dart';
 import 'settings_screen.dart';
 import 'profile_screen.dart';
 import 'offers_screen.dart';
+import 'notifications_screen.dart';
+import '../widgets/account_hold.dart';
 import 'service_selection_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -68,6 +70,9 @@ class _HomeScreenState extends State<HomeScreen>
   Timer? _homeGeoDebounce;
   // Admin-managed app config (banners / places / whyChooseUs)
   Map<String, dynamic>? _cfg;
+  // Listens for the server saying the account was deleted (see _onUserChanged).
+  UserProvider? _userProv;
+  bool _signingOut = false;
 
   // 'tile' is the transparent 3D artwork shown on the home grid (Uber-style
   // grey tile); 'icon' stays as the legacy artwork used elsewhere.
@@ -94,6 +99,7 @@ class _HomeScreenState extends State<HomeScreen>
     super.initState();
     _promoController = PageController(initialPage: 0, viewportFraction: 0.9);
     _startPromoTimer();
+    _userProv = context.read<UserProvider>()..addListener(_onUserChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<UserProvider>().loadProfile();
     });
@@ -253,8 +259,28 @@ class _HomeScreenState extends State<HomeScreen>
     });
   }
 
+  /// An admin approved this rider's deletion request: the profile call answered
+  /// 401 {accountDeleted: true} and the provider cleared the token. Leave for
+  /// the welcome screen — from wherever in the app the rider is — and say why.
+  void _onUserChanged() {
+    final u = _userProv;
+    if (u == null || !u.accountDeleted || _signingOut || !mounted) return;
+    _signingOut = true;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final nav = Navigator.of(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      u.clear();
+      nav.pushAndRemoveUntil(MaterialPageRoute(builder: (_) => const WelcomeScreen()), (route) => false);
+      messenger?.showSnackBar(const SnackBar(
+        content: Text('Your account has been deleted. You have been signed out.'),
+        duration: Duration(seconds: 6),
+      ));
+    });
+  }
+
   @override
   void dispose() {
+    _userProv?.removeListener(_onUserChanged);
     _promoTimer?.cancel();
     _activeTimer?.cancel();
     _vehiclesTimer?.cancel();
@@ -439,6 +465,17 @@ class _HomeScreenState extends State<HomeScreen>
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
                 children: [
                   const SheetHandle(bottom: 14),
+                  // An admin hold blocks booking; say so before anything else.
+                  if (context.watch<UserProvider>().hold case final hold?) ...[
+                    AccountHoldBanner(
+                      message: (hold['message'] ?? '').toString().isNotEmpty
+                          ? hold['message'].toString()
+                          : 'Your account is on hold. Please contact support.',
+                      onContactSupport: () => Navigator.push(
+                          context, MaterialPageRoute(builder: (_) => const SupportScreen())),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
                   // Live ride / Book Again lead the sheet when present.
                   if (_activeRide != null) ...[_buildActiveRideBanner(), const SizedBox(height: 14)],
                   if (_lastRide != null && _activeRide == null) ...[_buildBookAgainCard(), const SizedBox(height: 14)],
@@ -657,21 +694,25 @@ class _HomeScreenState extends State<HomeScreen>
               title: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
               onTap: () { Navigator.pop(ctx); Navigator.push(context, MaterialPageRoute(builder: (_) => screen)); },
             );
+        // Scrolls: eight rows no longer fit the sheet's height on short phones.
         return SafeArea(
           top: false,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const SizedBox(height: 10),
-            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
-            const SizedBox(height: 6),
-            item(Icons.person_outline, 'Profile', const ProfileScreen()),
-            item(Icons.history, 'My Rides', const RideHistoryScreen()),
-            item(Icons.call_split, 'Split Requests', const SplitRequestsScreen()),
-            item(Icons.account_balance_wallet_outlined, 'Wallet', const WalletScreen()),
-            item(Icons.local_offer_outlined, 'Offers', const OffersScreen()),
-            item(Icons.support_agent, 'Support', const SupportScreen()),
-            item(Icons.settings_outlined, 'Settings', const SettingsScreen()),
-            const SizedBox(height: 10),
-          ]),
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const SizedBox(height: 10),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+              const SizedBox(height: 6),
+              item(Icons.person_outline, 'Profile', const ProfileScreen()),
+              item(Icons.history, 'My Rides', const RideHistoryScreen()),
+              item(Icons.call_split, 'Split Requests', const SplitRequestsScreen()),
+              item(Icons.account_balance_wallet_outlined, 'Wallet', const WalletScreen()),
+              item(Icons.local_offer_outlined, 'Offers', const OffersScreen()),
+              item(Icons.notifications_none_rounded, 'Notifications', const NotificationsScreen()),
+              item(Icons.support_agent, 'Support', const SupportScreen()),
+              item(Icons.settings_outlined, 'Settings', const SettingsScreen()),
+              const SizedBox(height: 10),
+            ]),
+          ),
         );
       },
     );
@@ -1410,6 +1451,9 @@ class _HomeScreenState extends State<HomeScreen>
               }),
               _buildProfileMenuItem(Icons.card_giftcard_outlined, 'Offers & Promos', () {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const OffersScreen()));
+              }),
+              _buildProfileMenuItem(Icons.notifications_none_rounded, 'Notifications', () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen()));
               }),
               _buildProfileMenuItem(Icons.help_outline, 'Help & Support', () {
                 Navigator.push(context, MaterialPageRoute(builder: (_) => const SupportScreen()));

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/theme_provider.dart';
 import '../utils/emergency_contacts_store.dart';
+import 'delete_account_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -80,8 +81,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildSettingTile(
             Icons.delete_outline,
             'Delete Account',
-            'Permanently delete your account',
-            () => _showDeleteAccountDialog(),
+            'Ask us to close your account',
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DeleteAccountScreen())),
             color: Colors.red,
           ),
           const SizedBox(height: 20),
@@ -123,24 +124,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         value: value,
         onChanged: onChanged,
         activeColor: AppTheme.primaryBlue,
-      ),
-    );
-  }
-
-  void _showDeleteAccountDialog() {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete Account'),
-        content: const Text('Are you sure you want to permanently delete your account? This action cannot be undone.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete', style: TextStyle(color: Colors.white)),
-          ),
-        ],
       ),
     );
   }

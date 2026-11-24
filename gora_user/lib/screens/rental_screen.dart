@@ -6,6 +6,7 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../utils/ride_booking.dart';
 import '../widgets/payment_coupon_bar.dart';
+import '../widgets/ride_preferences.dart';
 import '../widgets/ride_ui/ride_ui.dart';
 
 class RentalScreen extends StatefulWidget {
@@ -47,6 +48,10 @@ class _RentalScreenState extends State<RentalScreen> {
   String _couponCode = '';
   int _couponDiscount = 0;
 
+  // Admin-defined ride preferences for rentals, and the keys the rider picked.
+  List<RidePreference> _ridePrefs = const [];
+  Set<String> _selectedPrefs = {};
+
   // The booked rental is tracked on ActiveRideScreen (see _confirmRental), so
   // this screen holds no live ride state.
 
@@ -54,6 +59,9 @@ class _RentalScreenState extends State<RentalScreen> {
   void initState() {
     super.initState();
     _initLocationAndPackages();
+    loadRidePreferences('rental').then((p) {
+      if (mounted) setState(() => _ridePrefs = p);
+    });
   }
 
   @override
@@ -174,6 +182,8 @@ class _RentalScreenState extends State<RentalScreen> {
         'paymentMode': _paymentMode,
         'couponCode': _couponCode,
         'couponDiscount': _couponDiscount,
+        if (_selectedPrefs.isNotEmpty)
+          'preferences': _ridePrefs.map((p) => p.key).where(_selectedPrefs.contains).toList(),
       });
   }
 
@@ -369,6 +379,15 @@ class _RentalScreenState extends State<RentalScreen> {
                 else
                   // Rows straight from the backend package vehicle names (no hardcoded list)
                   ..._packagesByVehicle.keys.map(_buildVehicleCard),
+                if (_ridePrefs.isNotEmpty) ...[
+                  const ServiceSection('Ride preferences', subtitle: 'Tell your driver what you need'),
+                  RidePreferenceChips(
+                    preferences: _ridePrefs,
+                    selected: _selectedPrefs,
+                    showTitle: false,
+                    onChanged: (s) => setState(() => _selectedPrefs = s),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 const CollapsibleInfo(
                   title: 'Package Benefits',

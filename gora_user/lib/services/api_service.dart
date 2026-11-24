@@ -124,6 +124,32 @@ class ApiService {
     return _decode(res);
   }
 
+  static Future<Map<String, dynamic>> delete(String path) async {
+    final token = await getToken();
+    final headers = {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+    final res = await http.delete(Uri.parse('$baseUrl$path'), headers: headers).timeout(requestTimeout);
+    return _decode(res);
+  }
+
+  // ── Account requests (delete my account) ─────────────────
+  // GET → { reasons: [..], requests: [{id, kind, status, reason, note, createdAt, handledAt, adminNote}] }
+  static Future<Map<String, dynamic>> getAccountRequests() => get('/auth/user/account-request');
+  static Future<Map<String, dynamic>> requestAccountDeletion(String reason, String note) =>
+      post('/auth/user/account-request', {'kind': 'delete', 'reason': reason, 'note': note}, auth: true);
+  static Future<Map<String, dynamic>> withdrawAccountRequest(String id) =>
+      delete('/auth/user/account-request?id=${Uri.encodeQueryComponent(id)}');
+
+  // ── Notifications feed ───────────────────────────────────
+  // { notifications: [{id, title, body, imageUrl, sentAt, type}] }
+  static Future<Map<String, dynamic>> getNotifications() => get('/auth/user/notifications');
+
+  // ── Admin-defined ride preferences ("Pet friendly", ...) ──
+  // { preferences: [{id, key, name, description, icon, services}] }
+  static Future<Map<String, dynamic>> getRidePreferences() => get('/ride-preferences');
+
   // ── App config (admin-managed content) ───────────────────
   static Map<String, dynamic>? _appConfigCache;
   static Future<Map<String, dynamic>> getAppConfig({bool force = false}) async {

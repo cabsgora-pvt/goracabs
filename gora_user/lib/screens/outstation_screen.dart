@@ -11,6 +11,10 @@ import '../services/payment_service.dart';
 import '../utils/polyline_utils.dart';
 import '../utils/fare_lines.dart';
 import '../utils/ride_booking.dart';
+import '../widgets/ride_preferences.dart';
+import '../widgets/account_hold.dart';
+import '../providers/user_provider.dart';
+import 'package:provider/provider.dart';
 
 class OutstationScreen extends StatefulWidget {
   const OutstationScreen({super.key});
@@ -72,6 +76,10 @@ class _OutstationScreenState extends State<OutstationScreen> {
   // Vehicles list — populated from backend (admin-configured outstation-enabled VehicleTypes)
   List<Map<String, dynamic>> _vehicles = [];
 
+  // Admin-defined ride preferences for outstation, and the keys the rider picked.
+  List<RidePreference> _ridePrefs = const [];
+  Set<String> _selectedPrefs = {};
+
   @override
   void initState() {
     super.initState();
@@ -79,6 +87,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
     _toController.text = '';
     _initCurrentLocation();
     _loadPaymentConfig();
+    loadRidePreferences('outstation').then((p) {
+      if (mounted) setState(() => _ridePrefs = p);
+    });
   }
 
   Future<void> _loadPaymentConfig() async {
@@ -512,6 +523,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
         'couponCode': _couponCode,
         'couponDiscount': _couponDiscount,
         'bookingFor': _bookingFor,
+        if (_selectedPrefs.isNotEmpty)
+          'preferences': _ridePrefs.map((p) => p.key).where(_selectedPrefs.contains).toList(),
         if (_prepaidProof != null) 'prepaid': _prepaidProof,
       });
   }
@@ -713,6 +726,14 @@ class _OutstationScreenState extends State<OutstationScreen> {
                                   const SizedBox(height: 12),
                                 if (_showVehicleSelection)
                                   _buildTripConditions(context),
+                                if (_ridePrefs.isNotEmpty) ...[
+                                  const SizedBox(height: 16),
+                                  RidePreferenceChips(
+                                    preferences: _ridePrefs,
+                                    selected: _selectedPrefs,
+                                    onChanged: (s) => setState(() => _selectedPrefs = s),
+                                  ),
+                                ],
                                 const SizedBox(height: 80),
                               ],
                             ),
@@ -1291,6 +1312,16 @@ class _OutstationScreenState extends State<OutstationScreen> {
   Future<void> _confirmOutstation() async {
     var paidUpfront = false;
     _prepaidProof = null;
+    // Outstation is paid before it is booked: never take the money of a rider
+    // the server will refuse to book. (The server checks again at booking.)
+    Map<String, dynamic>? hold;
+    try {
+      hold = context.read<UserProvider>().hold;
+    } catch (_) {/* no provider above this screen */}
+    if (hold != null) {
+      await showAccountHoldDialog(context, (hold['message'] ?? '').toString());
+      return;
+    }
     if (_selectedVehicle != null) {
       final selV = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => <String, dynamic>{});
       final rawFare = ((_tripType == 'Round Trip' ? selV['roundTripFare'] : selV['oneWayFare']) as num?) ?? 0;

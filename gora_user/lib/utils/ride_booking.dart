@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../screens/active_ride_screen.dart';
+import '../widgets/account_hold.dart';
 import 'ride_payable.dart';
 
 /// Books a ride once, then hands it to the live ride screen.
@@ -58,8 +59,22 @@ Future<String?> bookAndTrack(
   final id = (ride is Map ? ride['id'] ?? ride['_id'] : null)?.toString() ?? '';
   if (id.isEmpty) {
     final error = (res['error'] ?? 'Please try again.').toString();
+    // A payment taken before booking (outstation) that the server gave back
+    // because the booking was refused: tell the rider where the money is,
+    // instead of "contact support, do not pay again".
+    final refunded = res['refunded'];
+    final message = refunded is num && refunded > 0
+        ? refundedMessage(error, refunded)
+        : (failureMessage?.call(error) ?? 'Booking failed: $error');
+    // A held account is not a failure worth retrying: say so plainly.
+    if (isAccountHoldResponse(res)) {
+      // A rider who has already paid must be told what happened to the money.
+      final paidNote = refunded is num && refunded > 0 ? message : failureMessage?.call(error);
+      if (context.mounted) await showAccountHoldDialog(context, paidNote ?? error);
+      return null;
+    }
     messenger.showSnackBar(SnackBar(
-      content: Text(failureMessage?.call(error) ?? 'Booking failed: $error'),
+      content: Text(message),
       backgroundColor: Colors.red,
       duration: const Duration(seconds: 6),
     ));
@@ -72,4 +87,12 @@ Future<String?> bookAndTrack(
   onBooked?.call(res);
   navigator.pushReplacement(MaterialPageRoute(builder: (_) => ActiveRideScreen(rideId: id)));
   return id;
+}
+
+/// What a rider reads when a booking they had already paid for was refused and
+/// the server put the money back in their Gora wallet.
+String refundedMessage(String error, num amount) {
+  final rupees = amount == amount.roundToDouble() ? amount.toInt().toString() : amount.toStringAsFixed(2);
+  return 'The trip could not be booked ($error). '
+      'Your payment of ₹$rupees has been returned to your Gora wallet.';
 }

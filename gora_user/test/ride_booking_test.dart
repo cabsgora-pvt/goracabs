@@ -182,6 +182,28 @@ void main() {
     await _drain(tester);
   });
 
+  testWidgets('a refused paid-for trip whose money the server returned says it is in the wallet', (tester) async {
+    await tester.pumpWidget(_app(_BookingForm(
+      book: () async => {'error': 'Fare quote rejected', 'refunded': 3451, 'refundedTo': 'wallet'},
+      failureMessage: (e) => 'Your payment went through, but the trip could not be booked ($e). '
+          'Please contact support with this message. Do not pay again.',
+    )));
+    await tester.tap(find.text('Confirm Booking'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.textContaining('₹3451 has been returned to your Gora wallet'), findsOneWidget);
+    expect(find.textContaining('Fare quote rejected'), findsOneWidget);
+    expect(find.textContaining('Do not pay again'), findsNothing, reason: 'the money is already back');
+    expect(find.text('Confirm Booking'), findsOneWidget);
+    await _drain(tester);
+  });
+
+  test('refund message formats rupees', () {
+    expect(refundedMessage('x', 120), contains('₹120 has been returned'));
+    expect(refundedMessage('x', 99.5), contains('₹99.50 has been returned'));
+  });
+
   testWidgets('the coupon is stored with the ride before it opens', (tester) async {
     await http.runWithClient(() async {
       await tester.pumpWidget(_app(_BookingForm(
