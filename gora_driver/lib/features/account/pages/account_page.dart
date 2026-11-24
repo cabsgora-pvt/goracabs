@@ -114,6 +114,8 @@ class AccountPage extends StatelessWidget {
             CapMenuGroup(title: 'Profile & vehicle', children: [
               CapMenuRow(icon: Icons.person_outline_rounded, label: 'Profile', onTap: () => go('/profile')),
               CapMenuRow(icon: Icons.directions_car_outlined, label: 'Vehicle', onTap: () => go('/vehicle-info')),
+              CapMenuRow(icon: Icons.map_outlined, label: 'My zone', sub: dp.zoneName.isNotEmpty ? dp.zoneName : null,
+                  onTap: () => go('/zone')),
               CapMenuRow(icon: Icons.folder_outlined, label: 'Documents', onTap: () => go('/documents')),
               CapMenuRow(icon: Icons.badge_outlined, label: 'ID card', onTap: () => go('/id-card')),
               CapMenuRow(icon: Icons.qr_code_2_rounded, label: 'Payment QR code', onTap: () => go('/qr-code')),
@@ -134,6 +136,7 @@ class AccountPage extends StatelessWidget {
             CapMenuGroup(title: 'App', children: [
               CapMenuRow(icon: Icons.tune_rounded, label: 'Trip preferences', onTap: () => go('/preferences')),
               CapMenuRow(icon: Icons.settings_outlined, label: 'Settings', onTap: () => go('/settings')),
+              CapMenuRow(icon: Icons.person_remove_outlined, label: 'Delete account', onTap: () => go('/delete-account')),
               CapMenuRow(icon: Icons.logout_rounded, label: 'Logout', danger: true, onTap: () => _confirmLogout(context)),
             ]),
           ],

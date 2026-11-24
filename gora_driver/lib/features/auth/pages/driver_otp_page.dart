@@ -8,7 +8,6 @@ import '../../../providers/driver_provider.dart';
 import '../../../services/driver_api_service.dart';
 import '../../home/pages/home_page.dart';
 import '../../registration/kyc_pending_page.dart';
-import '../../registration/bank_details_page.dart';
 import '../../registration/rejection_page.dart';
 import '../../registration/personal_details_page.dart';
 import '../../registration/resume_registration.dart';
@@ -96,12 +95,10 @@ class _DriverOtpPageState extends State<DriverOtpPage> {
         );
       } else if (result['registrationStep'] == 'submitted') {
         Navigator.pushNamedAndRemoveUntil(context, KycPendingPage.route, (_) => false);
-      } else if (result['registrationStep'] == 'bank') {
-        // Documents already on file — only the bank step is left.
-        Navigator.pushNamedAndRemoveUntil(context, BankDetailsPage.route, (_) => false);
       } else {
         // Resume an unfinished registration at the server's step (after the
-        // selfie → vehicle, after the vehicle → documents…). A new account,
+        // selfie → vehicle, after the vehicle → documents, documents saved by
+        // an older build ('bank') → submit, no bank form…). A new account,
         // or a step not listed, starts at personal details as before.
         final driver = result['driver'] is Map
             ? Map<String, dynamic>.from(result['driver'] as Map)

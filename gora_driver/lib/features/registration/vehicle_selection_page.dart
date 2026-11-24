@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
-import '../../config/app_config.dart';
 import '../../widgets/captain_ui/captain_ui.dart';
+import 'widgets/reg_motion.dart';
 import 'widgets/reg_step_scaffold.dart';
+import 'widgets/reg_ui.dart';
+import 'widgets/vehicle_visuals.dart';
 import '../../services/driver_api_service.dart';
 import 'vehicle_details_page.dart';
+
+export 'widgets/vehicle_visuals.dart' show VehicleTypeImage, vehicleAssetFor;
 
 class VehicleSelectionPage extends StatefulWidget {
   static const route = '/registration/vehicle-selection';
@@ -59,44 +63,32 @@ class _VehicleSelectionPageState extends State<VehicleSelectionPage> {
       stepLabel: 'Vehicle',
       title: 'Which vehicle will you drive?',
       subtitle: 'Pick the type that matches your RC book. It decides which trips you get.',
-      bottom: CapButton(
-        label: 'Continue',
-        tone: _selected == null ? CapButtonTone.secondary : CapButtonTone.primary,
-        onPressed: _next,
-      ),
+      // Grey until a type is picked, but still tappable: it then says what
+      // is missing.
+      bottom: RegCta(label: 'Continue', dimmed: _selected == null, onPressed: _next),
       children: [
         if (_loading)
-          Padding(
-            padding: const EdgeInsets.only(top: 40),
-            child: Center(child: CircularProgressIndicator(color: Cap.accent, strokeWidth: 2.6)),
-          )
+          // Static placeholders in the shape of the cards (no spinner).
+          for (var i = 0; i < 3; i++)
+            Container(
+              height: 104,
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(color: Cap.tile, borderRadius: BorderRadius.circular(20)),
+            )
         else if (_vehicleTypes.isEmpty)
           const CapEmpty(icon: Icons.directions_car_rounded, title: 'No vehicle types available',
               message: 'Please try again in a little while.')
         else
-          // 2-column grid, Ola / Uber / Rapido Captain style: the vehicle's
-          // own image and its name — nothing else.
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            padding: EdgeInsets.zero,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              // Fixed height: every tile, and so every image, is the same size.
-              mainAxisExtent: 168,
-            ),
-            itemCount: _vehicleTypes.length,
-            itemBuilder: (_, i) {
-              final vt = _vehicleTypes[i];
-              return VehicleTypeTile(
+          // One full-width card per type, arriving one after another.
+          for (final vt in _vehicleTypes)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: VehicleTypeTile(
                 vt: vt,
                 selected: _isSelected(vt),
                 onTap: () => setState(() => _selected = vt),
-              );
-            },
-          ),
+              ),
+            ),
       ],
     );
   }
@@ -108,94 +100,183 @@ class _VehicleSelectionPageState extends State<VehicleSelectionPage> {
   }
 }
 
-/// The vehicle type's own image (admin-uploaded), at one fixed visual size so
-/// a bike and a truck sit in identical frames; an icon when there is none.
-class VehicleTypeImage extends StatelessWidget {
-  final Map<String, dynamic> vt;
-  final double width, height;
-  const VehicleTypeImage({super.key, required this.vt, this.width = 84, this.height = 64});
-
-  static IconData iconFor(String name) {
-    final s = name.toLowerCase();
-    if (s.contains('bike') || s.contains('moto') || s.contains('scooter')) return Icons.two_wheeler;
-    if (s.contains('auto') || s.contains('rickshaw')) return Icons.electric_rickshaw;
-    if (s.contains('truck') || s.contains('tempo')) return Icons.local_shipping;
-    if (s.contains('suv')) return Icons.airport_shuttle;
-    return Icons.directions_car_rounded;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final raw = (vt['imageUrl'] as String? ?? '').trim();
-    final url = raw.isEmpty ? '' : AppConfig.imageUrl(raw);
-    final icon = Icon(iconFor((vt['name'] ?? '').toString()), size: height * 0.55, color: Cap.muted);
-    return Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(color: Cap.surface, borderRadius: BorderRadius.circular(12)),
-      padding: const EdgeInsets.all(6),
-      child: url.isEmpty
-          ? Center(child: icon)
-          : Image.network(url, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Center(child: icon)),
-    );
-  }
-}
-
-/// One selectable vehicle type: its real image, centred in a fixed-height area,
-/// and its name. Light grey card; selected = navy 2px border + check badge.
+/// One selectable vehicle type: the real vehicle photo large on a soft tinted
+/// backdrop, the name in bold, "4 seats" from `capacity`, service chips from
+/// `services`, and a radio on the right. Selected: brand border, tinted card,
+/// the photo slides forward and grows a little, the check pops in.
 class VehicleTypeTile extends StatelessWidget {
   final Map<String, dynamic> vt;
   final bool selected;
   final VoidCallback onTap;
   const VehicleTypeTile({super.key, required this.vt, required this.selected, required this.onTap});
 
+  int? get _seats {
+    final c = vt['capacity'];
+    final n = c is num ? c.toInt() : int.tryParse('${c ?? ''}'.trim());
+    return n != null && n > 0 ? n : null;
+  }
+
+  /// Service keys with a label, one chip per label.
+  List<String> get _services {
+    final s = vt['services'];
+    if (s is! List) return const [];
+    final seen = <String>{};
+    final out = <String>[];
+    for (final k in s) {
+      final label = vehicleServiceLabel('$k');
+      if (label.isNotEmpty && seen.add(label)) out.add('$k');
+    }
+    return out;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(20);
+    final dur = regDuration(context, const Duration(milliseconds: 260));
+    final seats = _seats;
+    final services = _services;
     return Semantics(
       selected: selected,
       button: true,
-      child: Material(
-        color: selected ? Cap.accent.withValues(alpha: 0.05) : Cap.tile,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(Cap.radius),
-          side: BorderSide(color: selected ? Cap.accent : Colors.transparent, width: 2),
-        ),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(Cap.radius),
-          onTap: onTap,
-          child: Stack(children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(10, 14, 10, 10),
-              child: Column(children: [
-                // Same frame for every type, so a bike and a truck read at
-                // the same visual size.
-                SizedBox(
-                  height: 92,
-                  child: LayoutBuilder(
-                    builder: (context, box) => VehicleTypeImage(vt: vt, width: box.maxWidth, height: 92),
-                  ),
-                ),
-                const Spacer(),
-                Text((vt['name'] ?? '').toString(),
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Cap.body(size: 14.5, weight: FontWeight.w800).copyWith(height: 1.2)),
-                const Spacer(),
-              ]),
-            ),
-            if (selected)
-              Positioned(
-                top: 8, right: 8,
-                child: Container(
-                  width: 22, height: 22,
-                  decoration: BoxDecoration(color: Cap.accent, shape: BoxShape.circle),
-                  child: const Icon(Icons.check_rounded, size: 15, color: Colors.white),
-                ),
+      child: RegPressScale(
+        pressed: 0.97,
+        child: AnimatedContainer(
+          duration: dur,
+          curve: Curves.easeOut,
+          decoration: BoxDecoration(
+            color: selected ? Cap.accent.withValues(alpha: 0.06) : Cap.surface,
+            borderRadius: radius,
+            border: Border.all(color: selected ? Cap.accent : RegPalette.hairline, width: selected ? 2 : 1.2),
+            boxShadow: [
+              BoxShadow(
+                color: selected ? Cap.accent.withValues(alpha: 0.20) : Colors.black.withValues(alpha: 0.04),
+                blurRadius: selected ? 18 : 10,
+                offset: Offset(0, selected ? 6 : 3),
               ),
-          ]),
+            ],
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              borderRadius: radius,
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: LayoutBuilder(builder: (context, box) {
+                  final photoW = (box.maxWidth * 0.36).clamp(88.0, 138.0);
+                  return Row(children: [
+                    _photo(photoW, dur),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                        Text((vt['name'] ?? '').toString(),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Cap.body(size: 16, weight: FontWeight.w800, color: selected ? Cap.accent : null)
+                                .copyWith(height: 1.2)),
+                        if (seats != null) ...[
+                          const SizedBox(height: 3),
+                          Row(children: [
+                            Icon(Icons.person_rounded, size: 14, color: Cap.muted),
+                            const SizedBox(width: 3),
+                            Flexible(
+                              child: Text(seats == 1 ? '1 seat' : '$seats seats',
+                                  maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12.5)),
+                            ),
+                          ]),
+                        ],
+                        if (services.isNotEmpty) ...[
+                          const SizedBox(height: 7),
+                          Wrap(spacing: 4, runSpacing: 4, children: [
+                            for (final k in services) _ServiceChip(k),
+                          ]),
+                        ],
+                      ]),
+                    ),
+                    const SizedBox(width: 8),
+                    _RadioMark(selected: selected),
+                  ]);
+                }),
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
+
+  /// The photo on a soft tinted backdrop with a ground shadow under it.
+  Widget _photo(double w, Duration dur) => Container(
+        width: w,
+        height: 84,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: selected
+                ? [Cap.accent.withValues(alpha: 0.16), Cap.accent.withValues(alpha: 0.05)]
+                : [RegPalette.field, Cap.tile],
+          ),
+        ),
+        child: Stack(alignment: Alignment.center, children: [
+          Positioned(
+            bottom: 11,
+            child: Container(
+              width: w * 0.62,
+              height: 8,
+              decoration: BoxDecoration(
+                borderRadius: const BorderRadius.all(Radius.elliptical(60, 4)),
+                color: Colors.black.withValues(alpha: 0.08),
+              ),
+            ),
+          ),
+          AnimatedSlide(
+            offset: selected ? const Offset(0.05, 0) : Offset.zero,
+            duration: dur,
+            curve: Curves.easeOutBack,
+            child: AnimatedScale(
+              scale: selected ? 1.1 : 1,
+              duration: dur,
+              curve: Curves.easeOutBack,
+              child: VehicleTypeImage(vt: vt, width: w - 14, height: 70),
+            ),
+          ),
+        ]),
+      );
+}
+
+class _ServiceChip extends StatelessWidget {
+  final String service;
+  const _ServiceChip(this.service);
+
+  @override
+  Widget build(BuildContext context) {
+    final c = vehicleServiceColor(service);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(color: c.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(8)),
+      child: Text(vehicleServiceLabel(service),
+          maxLines: 1, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: c)),
+    );
+  }
+}
+
+/// Radio on the right of a vehicle card; the check pops in when selected.
+class _RadioMark extends StatelessWidget {
+  final bool selected;
+  const _RadioMark({required this.selected});
+
+  @override
+  Widget build(BuildContext context) => AnimatedContainer(
+        duration: regDuration(context, const Duration(milliseconds: 220)),
+        width: 26,
+        height: 26,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: selected ? Cap.accent : Colors.transparent,
+          border: Border.all(color: selected ? Cap.accent : const Color(0xFFC5CDDC), width: 2),
+        ),
+        child: selected ? const RegPopIn(child: Icon(Icons.check_rounded, size: 16, color: Colors.white)) : null,
+      );
 }

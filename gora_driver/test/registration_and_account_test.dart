@@ -44,9 +44,10 @@ void main() {
       expect(await _launchState({'_id': 'd1', 'status': 'approved', 'registrationStep': 'submitted'}),
           isA<AuthenticatedState>());
     });
-    test('documents saved, bank step left → bank details, not onboarding', () async {
-      expect(await _launchState({'_id': 'd1', 'status': 'pending', 'registrationStep': 'bank'}),
-          isA<RegistrationBankPendingState>());
+    test('documents saved by an older build (bank step) → submit the application, no bank form', () async {
+      final s = await _launchState({'_id': 'd1', 'status': 'pending', 'registrationStep': 'bank'});
+      expect(s, isA<RegistrationResumeState>());
+      expect((s as RegistrationResumeState).step, ResumeStep.submit);
     });
     test('rejected → rejection', () async {
       expect(await _launchState({'_id': 'd1', 'status': 'rejected', 'registrationStep': 'submitted'}),

@@ -9,7 +9,7 @@ import '../features/registration/face_capture_page.dart';
 import '../features/registration/vehicle_selection_page.dart';
 import '../features/registration/vehicle_details_page.dart';
 import '../features/registration/document_upload_page.dart';
-import '../features/registration/bank_details_page.dart';
+import '../features/registration/submit_application_page.dart';
 import '../features/registration/kyc_success_page.dart';
 import '../features/registration/kyc_pending_page.dart';
 import '../features/registration/rejection_page.dart';
@@ -33,6 +33,8 @@ import '../features/account/pages/preferences_page.dart';
 import '../features/account/pages/misc_pages.dart';
 import '../features/account/pages/id_card_page.dart';
 import '../features/account/pages/legal_pages.dart';
+import '../features/account/pages/zone_page.dart';
+import '../features/account/pages/delete_account_page.dart';
 
 class AppRoutes {
   static Map<String, WidgetBuilder> get routes => {
@@ -46,7 +48,7 @@ class AppRoutes {
     VehicleSelectionPage.route:    (_) => const VehicleSelectionPage(),
     VehicleDetailsPage.route:      (_) => const VehicleDetailsPage(),
     DocumentUploadPage.route:      (_) => const DocumentUploadPage(),
-    BankDetailsPage.route:         (_) => const BankDetailsPage(),
+    SubmitApplicationPage.route:   (_) => const SubmitApplicationPage(),
     KycSuccessPage.route:          (_) => const KycSuccessPage(),
     KycPendingPage.route:          (_) => const KycPendingPage(),
     RejectionPage.route:           (_) => const RejectionPage(),
@@ -79,5 +81,7 @@ class AppRoutes {
     IdCardPage.route:         (_) => const IdCardPage(),
     PrivacyPolicyPage.route:  (_) => const PrivacyPolicyPage(),
     TermsPage.route:          (_) => const TermsPage(),
+    ZonePage.route:           (_) => const ZonePage(),
+    DeleteAccountPage.route:  (_) => const DeleteAccountPage(),
   };
 }

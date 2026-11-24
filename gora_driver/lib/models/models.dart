@@ -363,7 +363,9 @@ class WalletTransaction {
 class NotificationModel {
   final String id, title, body, time, type;
   final bool isRead;
-  const NotificationModel({required this.id, required this.title, required this.body, required this.time, required this.type, required this.isRead});
+  /// '' or an /uploads/... path or a full https URL.
+  final String imageUrl;
+  const NotificationModel({required this.id, required this.title, required this.body, required this.time, required this.type, required this.isRead, this.imageUrl = ''});
 }
 
 class LeaderboardEntry {

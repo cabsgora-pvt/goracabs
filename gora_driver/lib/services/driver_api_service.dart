@@ -81,6 +81,16 @@ class DriverApiService {
     return _decode(res);
   }
 
+  static Future<Map<String, dynamic>> put(String path, Map<String, dynamic> body) async {
+    final token = await getToken();
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+    final res = await http.put(Uri.parse('$baseUrl$path'), headers: headers, body: jsonEncode(body)).timeout(requestTimeout);
+    return _decode(res);
+  }
+
   static Future<Map<String, dynamic>> get(String path) async {
     final token = await getToken();
     final headers = <String, String>{
@@ -146,11 +156,31 @@ class DriverApiService {
   static Future<Map<String, dynamic>> saveVehicle(Map<String, dynamic> data) =>
       post('/auth/driver/register/vehicle', data, auth: true);
 
-  static Future<Map<String, dynamic>> saveDocuments(List<Map<String, dynamic>> docs) =>
-      post('/auth/driver/register/documents', {'documents': docs}, auth: true);
+  /// With [finish] (registration's last step) the server also checks the
+  /// required documents and submits the application: registrationStep
+  /// 'submitted', status 'pending'. A missing one is a 400
+  /// {error: 'Please upload: …', missing: [...]}.
+  static Future<Map<String, dynamic>> saveDocuments(List<Map<String, dynamic>> docs, {bool finish = false}) =>
+      post('/auth/driver/register/documents', {'documents': docs, if (finish) 'finish': true}, auth: true);
 
-  static Future<Map<String, dynamic>> saveBank(Map<String, dynamic> data) =>
-      post('/auth/driver/register/bank', data, auth: true);
+  /// Submits the application of a driver whose documents were saved by an
+  /// older app build that still had a bank step (server registrationStep
+  /// 'bank'). The server re-checks the saved documents and replies
+  /// {success: true, registrationStep: 'submitted'} or 400 {error}.
+  /// The reply carries the HTTP code as 'statusCode', so the caller can tell
+  /// "documents incomplete" (4xx) from a server or network problem.
+  static Future<Map<String, dynamic>> submitRegistration() async {
+    final token = await getToken();
+    final res = await http.post(
+      Uri.parse('$baseUrl/auth/driver/register/submit'),
+      headers: {
+        'Content-Type': 'application/json',
+        if (token != null) 'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode(<String, dynamic>{}),
+    ).timeout(requestTimeout);
+    return {..._decode(res), 'statusCode': res.statusCode};
+  }
 
   // Register the device's FCM push token so the backend can wake the app with a
   // ride alert even when it's fully closed (Layer 2 — needs Firebase configured).
@@ -161,6 +191,33 @@ class DriverApiService {
   // allow-methods always includes POST. Returns the saved values.
   static Future<Map<String, dynamic>> updatePreferences(Map<String, dynamic> prefs) =>
       post('/auth/driver/preferences', prefs, auth: true);
+
+  // Admin-defined registration documents: { documents: [{key,name,category,description,needsNumber,numberLabel,
+  // frontLabel,backLabel,needsBack,needsExpiry,required,vehicleTypes,...}] }. With [vehicleType] the server
+  // returns only the documents for that vehicle type.
+  static Future<Map<String, dynamic>> getDocumentTypes({String? vehicleType}) {
+    final t = (vehicleType ?? '').trim();
+    return get(t.isEmpty ? '/document-types' : '/document-types?vehicleType=${Uri.encodeQueryComponent(t)}');
+  }
+
+  // Admin-defined ride preferences (pet friendly …): { preferences: [{key,name,description,icon,services}] }
+  static Future<Map<String, dynamic>> getRidePreferences() => get('/ride-preferences');
+
+  // ── My zone ──
+  // { zoneId, zoneName, zoneAuto, zones, pendingRequest, history }
+  static Future<Map<String, dynamic>> getMyZone() => get('/auth/driver/zone');
+
+  static Future<Map<String, dynamic>> setZoneAuto(bool on) => put('/auth/driver/zone', {'zoneAuto': on});
+
+  // ── Account requests (delete account / zone change) — the admin reviews them ──
+  // { reasons, requests: [{id,kind,status,reason,note,toZoneName,createdAt,...}] }
+  static Future<Map<String, dynamic>> getAccountRequests() => get('/auth/driver/account-request');
+
+  static Future<Map<String, dynamic>> createAccountRequest(Map<String, dynamic> body) =>
+      post('/auth/driver/account-request', body, auth: true);
+
+  static Future<Map<String, dynamic>> withdrawAccountRequest(String id) =>
+      delete('/auth/driver/account-request?id=${Uri.encodeQueryComponent(id)}');
 
   // Zones
   static Future<List<Map<String, dynamic>>> getZones() async {

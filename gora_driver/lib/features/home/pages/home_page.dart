@@ -57,6 +57,15 @@ class _HomePageState extends State<HomePage> {
         listener: (context, state) {
           if (state is FaceVerificationLockedState) {
             Navigator.push(context, MaterialPageRoute(builder: (_) => FaceReverifyPage(reason: state.reason)));
+          } else if (state is AccountHoldState) {
+            // Refresh so the red hold banner shows on the map too.
+            context.read<DriverProvider>().loadProfile();
+            showAccountHoldDialog(context, state.message);
+          } else if (state is OnlineStatusChanged && state.zoneChangedTo != null) {
+            context.read<DriverProvider>().loadProfile();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Your zone changed to ${state.zoneChangedTo}')),
+            );
           }
         },
         builder: (context, state) {
@@ -107,7 +116,8 @@ class _HomeTabState extends State<_HomeTab> {
       builder: (context, state) {
         final isOnline = widget.homeBloc.isOnline;
         final summary = widget.homeBloc.summary;
-        final loaded = state is HomeLoaded || state is OnlineStatusChanged;
+        // Anything after the first load (a refusal state included) keeps the stats.
+        final loaded = state is! HomeInitial && state is! HomeLoading;
         final dp = context.watch<DriverProvider>();
         final safeTop = MediaQuery.of(context).padding.top;
 
@@ -149,9 +159,20 @@ class _HomeTabState extends State<_HomeTab> {
                   const SizedBox(height: 10),
                   _TodayStats(summary: summary, onMore: () => widget.onOpenTab(1)),
                 ],
+                if (dp.hold != null) ...[
+                  const SizedBox(height: 10),
+                  _HoldBanner(
+                    message: dp.holdMessage,
+                    onTap: () => dp.hold?['kind'] == 'face'
+                        ? Navigator.push(context, MaterialPageRoute(builder: (_) => FaceReverifyPage(
+                            reason: (dp.data?['faceVerificationReason'] ?? 'mismatch').toString())))
+                        : Navigator.pushNamed(context, '/admin-chat'),
+                  ),
+                ],
                 if (dp.isLowBalance) ...[
                   const SizedBox(height: 10),
                   _LowBalanceBanner(
+                    negative: dp.isWalletNegative,
                     onTap: () => Navigator.pushNamed(context, WalletPage.route),
                   ),
                 ],
@@ -491,11 +512,69 @@ class _ActiveRideResumerState extends State<_ActiveRideResumer> {
   }
 }
 
-// Red alert shown on the home map when the driver's wallet balance is 0 or
-// negative. Tapping it opens the wallet so the driver can recharge.
-class _LowBalanceBanner extends StatelessWidget {
+/// Dialog shown when going online is refused because the account is on hold.
+Future<void> showAccountHoldDialog(BuildContext context, String message) => showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.block_rounded, color: Cap.red, size: 30),
+        title: const Text('Account on hold'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pushNamed(context, '/admin-chat');
+            },
+            child: const Text('Contact support'),
+          ),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+        ],
+      ),
+    );
+
+// Red banner on the home map while the account is on hold (profile `hold`).
+// You cannot go online until the admin releases it.
+class _HoldBanner extends StatelessWidget {
+  final String message;
   final VoidCallback onTap;
-  const _LowBalanceBanner({required this.onTap});
+  const _HoldBanner({required this.message, required this.onTap});
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Cap.red,
+    elevation: 4,
+    shadowColor: Colors.black26,
+    borderRadius: BorderRadius.circular(Cap.radius),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(Cap.radius),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+        child: Row(children: [
+          const Icon(Icons.block_rounded, color: Colors.white, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Account on hold',
+                  style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800)),
+              Text(message, maxLines: 3, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 12, height: 1.35)),
+            ]),
+          ),
+          const SizedBox(width: 6),
+          const Icon(Icons.chevron_right_rounded, color: Colors.white, size: 22),
+        ]),
+      ),
+    ),
+  );
+}
+
+// Red alert shown on the home map when the driver's wallet balance is 0 or
+// negative. Tapping it opens the wallet so the driver can recharge. Below zero
+// the server pauses cash rides, so the text says that instead.
+class _LowBalanceBanner extends StatelessWidget {
+  final bool negative;
+  final VoidCallback onTap;
+  const _LowBalanceBanner({required this.onTap, this.negative = false});
   @override
   Widget build(BuildContext context) {
     return Material(
@@ -517,9 +596,13 @@ class _LowBalanceBanner extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Low wallet balance', style: Cap.body(size: 14, weight: FontWeight.w800)),
-                Text('Your wallet balance is low. Please recharge to continue',
-                    maxLines: 2, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12)),
+                Text(negative ? 'Cash rides paused' : 'Low wallet balance',
+                    style: Cap.body(size: 14, weight: FontWeight.w800)),
+                Text(negative
+                        ? 'Wallet negative — cash rides are paused. Recharge to get cash rides again; '
+                            'online and wallet rides still come.'
+                        : 'Your wallet balance is low. Please recharge to continue',
+                    maxLines: 3, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12)),
               ]),
             ),
             const SizedBox(width: 6),

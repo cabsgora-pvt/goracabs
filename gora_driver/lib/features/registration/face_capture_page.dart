@@ -6,6 +6,8 @@ import '../../services/face_service.dart';
 import '../ride/widgets/face_camera_view.dart';
 import '../../widgets/captain_ui/captain_ui.dart';
 import 'vehicle_selection_page.dart';
+import 'widgets/reg_motion.dart';
+import 'widgets/reg_ui.dart';
 
 enum _Step { straight, sideA, sideB, tilt }
 
@@ -128,50 +130,109 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: FaceCameraView(builder: (context, capture) => Stack(children: [
-        // Scrim behind the header so white text stays readable against a
-        // bright patch of whatever the camera sees.
-        Positioned(left: 0, right: 0, top: 0, height: 170, child: IgnorePointer(child: Container(
-          decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
-            colors: [Colors.black.withValues(alpha: 0.6), Colors.transparent]))))),
-        // Oval guide so the driver frames their face consistently. Sits in
-        // the band between the header and the bottom panel.
-        Positioned.fill(
-          bottom: 230,
-          child: IgnorePointer(
-            child: Center(
-              child: LayoutBuilder(builder: (context, box) {
-                final h = (box.maxHeight - 150).clamp(160.0, 310.0);
-                return Container(
-                  width: h * 0.76, height: h,
-                  decoration: BoxDecoration(
-                    border: Border.all(color: _error != null ? AppColors.red : Colors.white, width: 3),
-                    borderRadius: BorderRadius.all(Radius.elliptical(h * 0.38, h * 0.5)),
-                  ),
-                );
-              }),
-            ),
+      body: FaceCameraView(builder: (context, capture) => FaceCaptureChrome(
+        stepIndex: _step.index,
+        stepShort: _stepShort,
+        instruction: _instruction,
+        error: _error,
+        busy: _busy,
+        saving: _saving,
+        onCapture: () => _onCapture(capture),
+      )),
+    );
+  }
+}
+
+/// Everything drawn over the selfie camera: the registration step header,
+/// the oval face guide and the bottom panel (pose dots, instruction, error,
+/// shutter). Visual only — the page owns the capture logic.
+///
+/// Motion: the header and panel slide in, the instruction cross-fades when the
+/// pose changes, the guide turns red on an error, the shutter dips while
+/// pressed. All of it is instant when the OS asks for reduced motion.
+class FaceCaptureChrome extends StatelessWidget {
+  /// 0-based pose (look straight, one side, other side, tilt).
+  final int stepIndex;
+  final String stepShort;
+  final String instruction;
+  final String? error;
+  final bool busy;
+  final bool saving;
+  final VoidCallback onCapture;
+  const FaceCaptureChrome({
+    super.key,
+    required this.stepIndex,
+    required this.stepShort,
+    required this.instruction,
+    this.error,
+    this.busy = false,
+    this.saving = false,
+    required this.onCapture,
+  });
+
+  static const poses = 4;
+
+  @override
+  Widget build(BuildContext context) {
+    final dur = regDuration(context, const Duration(milliseconds: 260));
+    return Stack(children: [
+      // Scrim behind the header so white text stays readable against a
+      // bright patch of whatever the camera sees.
+      Positioned(left: 0, right: 0, top: 0, height: 230, child: IgnorePointer(child: Container(
+        decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          colors: [RegPalette.heroTop.withValues(alpha: 0.85), RegPalette.heroTop.withValues(alpha: 0.35), Colors.transparent]))))),
+      // Oval guide so the driver frames their face consistently. Sits in
+      // the band between the header and the bottom panel.
+      Positioned.fill(
+        top: MediaQuery.paddingOf(context).top + 104,
+        bottom: 230,
+        child: IgnorePointer(
+          child: Center(
+            child: LayoutBuilder(builder: (context, box) {
+              final h = (box.maxHeight - 20).clamp(140.0, 310.0);
+              return AnimatedContainer(
+                duration: dur,
+                width: h * 0.76, height: h,
+                decoration: BoxDecoration(
+                  border: Border.all(color: error != null ? AppColors.red : Colors.white, width: 3),
+                  borderRadius: BorderRadius.all(Radius.elliptical(h * 0.38, h * 0.5)),
+                ),
+              );
+            }),
           ),
         ),
-        // Header: which registration step this is.
-        Positioned(
-          left: 0, right: 0, top: 0,
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Step ${CapRegSteps.face} of ${CapRegSteps.total} · Face verification',
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12.5, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 4),
-                const Text('Take a selfie', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800)),
+      ),
+      // Header: which registration step this is, with the same numbered
+      // stepper as the other steps (drawn for a dark background).
+      Positioned(
+        left: 0, right: 0, top: 0,
+        child: SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: RegEntrance(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(children: [
+                  const Expanded(
+                    child: Text('Take a selfie',
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w800)),
+                  ),
+                  const SizedBox(width: 8),
+                  Semantics(label: 'Face verification', child: const RegStepPill(step: CapRegSteps.face)),
+                ]),
+                const SizedBox(height: 14),
+                const RegStepper(step: CapRegSteps.face, dotSize: 26),
               ]),
             ),
           ),
         ),
-        // Bottom panel: progress dots, instruction, error, shutter.
-        Positioned(
-          left: 0, right: 0, bottom: 0,
+      ),
+      // Bottom panel: progress dots, instruction, error, shutter.
+      Positioned(
+        left: 0, right: 0, bottom: 0,
+        child: RegEntrance(
+          offset: 40,
           child: Container(
             decoration: BoxDecoration(
               color: Cap.surface,
@@ -182,10 +243,11 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(4, (i) {
-                    final done = i < _step.index, cur = i == _step.index;
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: List.generate(poses, (i) {
+                    final done = i < stepIndex, cur = i == stepIndex;
                     return AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
+                      duration: dur,
+                      curve: Curves.easeOutCubic,
                       margin: const EdgeInsets.symmetric(horizontal: 3),
                       width: cur ? 22 : 8, height: 8,
                       decoration: BoxDecoration(
@@ -195,49 +257,72 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
                     );
                   })),
                   const SizedBox(height: 12),
-                  Text('Step ${_step.index + 1} of 4 · $_stepShort',
-                      style: Cap.body(size: 12.5, weight: FontWeight.w800, color: Cap.accent)),
-                  const SizedBox(height: 4),
-                  Text(_instruction, textAlign: TextAlign.center, style: Cap.title(size: 18)),
-                  if (_error != null) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                      decoration: BoxDecoration(color: AppColors.red.withValues(alpha: 0.09), borderRadius: BorderRadius.circular(12)),
-                      child: Row(children: [
-                        const Icon(Icons.error_outline_rounded, size: 18, color: AppColors.red),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text(_error!, style: Cap.body(size: 12.5, weight: FontWeight.w600, color: AppColors.red))),
-                      ]),
+                  // The new pose's instruction slides in as the old one fades.
+                  AnimatedSwitcher(
+                    duration: dur,
+                    transitionBuilder: (child, a) => FadeTransition(
+                      opacity: a,
+                      child: SlideTransition(
+                        position: Tween(begin: const Offset(0.08, 0), end: Offset.zero).animate(a),
+                        child: child,
+                      ),
                     ),
-                  ],
+                    child: Column(key: ValueKey(stepIndex), mainAxisSize: MainAxisSize.min, children: [
+                      Text('Step ${stepIndex + 1} of $poses · $stepShort',
+                          textAlign: TextAlign.center,
+                          style: Cap.body(size: 12.5, weight: FontWeight.w800, color: Cap.accent)),
+                      const SizedBox(height: 4),
+                      Text(instruction, textAlign: TextAlign.center, style: Cap.title(size: 18)),
+                    ]),
+                  ),
+                  AnimatedSize(
+                    duration: dur,
+                    curve: Curves.easeOutCubic,
+                    child: error == null
+                        ? const SizedBox(width: double.infinity)
+                        : Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                              decoration: BoxDecoration(color: AppColors.red.withValues(alpha: 0.09), borderRadius: BorderRadius.circular(12)),
+                              child: Row(children: [
+                                const Icon(Icons.error_outline_rounded, size: 18, color: AppColors.red),
+                                const SizedBox(width: 8),
+                                Expanded(child: Text(error!, style: Cap.body(size: 12.5, weight: FontWeight.w600, color: AppColors.red))),
+                              ]),
+                            ),
+                          ),
+                  ),
                   const SizedBox(height: 14),
                   SizedBox(
                     height: 72,
                     child: Center(
-                      child: _saving
+                      child: saving
                           ? Row(mainAxisSize: MainAxisSize.min, children: [
                               SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.4, color: Cap.accent)),
                               const SizedBox(width: 12),
-                              Text('Saving your photo…', style: Cap.body(size: 14)),
+                              Flexible(child: Text('Saving your photo…', style: Cap.body(size: 14))),
                             ])
                           : Semantics(
                               button: true,
                               label: 'Capture',
-                              child: GestureDetector(
-                                onTap: _busy ? null : () => _onCapture(capture),
-                                child: Container(
-                                  width: 70, height: 70,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Cap.accent,
-                                    border: Border.all(color: Cap.tile, width: 5),
+                              child: RegPressScale(
+                                pressed: 0.9,
+                                child: GestureDetector(
+                                  onTap: busy ? null : onCapture,
+                                  child: Container(
+                                    width: 70, height: 70,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Cap.accent,
+                                      border: Border.all(color: Cap.tile, width: 5),
+                                    ),
+                                    child: busy
+                                        ? const Padding(padding: EdgeInsets.all(20),
+                                            child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
+                                        : const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 28),
                                   ),
-                                  child: _busy
-                                      ? const Padding(padding: EdgeInsets.all(20),
-                                          child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white))
-                                      : const Icon(Icons.camera_alt_rounded, color: Colors.white, size: 28),
                                 ),
                               ),
                             ),
@@ -248,7 +333,7 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
             ),
           ),
         ),
-      ])),
-    );
+      ),
+    ]);
   }
 }

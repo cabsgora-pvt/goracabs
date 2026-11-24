@@ -1,25 +1,83 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../core/constants/app_colors.dart';
-import '../../core/widgets/app_widgets.dart';
 import '../../widgets/captain_ui/captain_ui.dart';
 import '../../core/widgets/date_field.dart';
 import '../../services/driver_api_service.dart';
+import 'widgets/reg_motion.dart';
+import 'widgets/reg_step_scaffold.dart';
+import 'widgets/reg_ui.dart';
 
-// Describes one required document and which fields it needs.
+// Describes one registration document and which fields it needs.
 class DocSpec {
-  final String key;         // 'aadhaar' | 'pan' | 'rc' | 'insurance' | 'dl'
+  /// The categories the list page groups by, in display order.
+  static const categories = ['identity', 'vehicle', 'driving', 'other'];
+
+  final String key;         // 'aadhaar' | 'pan' | ... or an admin-defined key
   final String name;        // 'Aadhaar Card'
   final String numberLabel; // 'Aadhaar Number'
   final bool needsBack;     // front + back image
   final bool needsExpiry;   // expiry date (insurance)
+  final bool required;      // optional ones may be skipped
+  final String category;    // one of [categories]
+  final String description; // admin's instructions for the driver, may be ''
+  final bool needsNumber;   // false = photo only, no number field
+  final String frontLabel;  // label of the first photo
+  final String backLabel;   // label of the second photo
+  final List<String> vehicleTypes; // [] = every vehicle type
   const DocSpec({
     required this.key,
     required this.name,
     required this.numberLabel,
     this.needsBack = false,
     this.needsExpiry = false,
+    this.required = true,
+    this.category = 'other',
+    this.description = '',
+    this.needsNumber = true,
+    this.frontLabel = 'Front side',
+    this.backLabel = 'Back side',
+    this.vehicleTypes = const [],
   });
+
+  /// One row of GET /api/document-types. Null when it has no key or name.
+  /// Older servers send none of category/description/needsNumber/labels/
+  /// vehicleTypes, so each has a default that matches the old behaviour.
+  static DocSpec? fromJson(Map<String, dynamic> m) {
+    String str(String k) => (m[k] ?? '').toString().trim();
+    final key = str('key');
+    final name = str('name');
+    if (key.isEmpty || name.isEmpty) return null;
+    final label = str('numberLabel');
+    final cat = str('category').toLowerCase();
+    final front = str('frontLabel');
+    final back = str('backLabel');
+    final types = m['vehicleTypes'];
+    return DocSpec(
+      key: key,
+      name: name,
+      numberLabel: label.isNotEmpty ? label : 'Document Number',
+      needsBack: m['needsBack'] == true,
+      needsExpiry: m['needsExpiry'] == true,
+      required: m['required'] != false,
+      category: categories.contains(cat) ? cat : 'other',
+      description: str('description'),
+      needsNumber: m['needsNumber'] != false,
+      frontLabel: front.isNotEmpty ? front : 'Front side',
+      backLabel: back.isNotEmpty ? back : 'Back side',
+      vehicleTypes: types is List
+          ? types.map((t) => t.toString().trim()).where((t) => t.isNotEmpty).toList()
+          : const [],
+    );
+  }
+
+  /// Whether this document applies to [vehicleType] (case-insensitive).
+  /// An empty [vehicleTypes] list, or an unknown vehicle type, means yes.
+  bool appliesTo(String? vehicleType) {
+    final t = (vehicleType ?? '').trim().toLowerCase();
+    if (t.isEmpty || vehicleTypes.isEmpty) return true;
+    return vehicleTypes.any((v) => v.toLowerCase() == t);
+  }
 }
 
 // Data collected for one document.
@@ -33,7 +91,7 @@ class DocData {
   DocData copy() => DocData(number: number, expiry: expiry, frontUrl: frontUrl, backUrl: backUrl);
 
   bool isComplete(DocSpec s) =>
-      number.trim().isNotEmpty &&
+      (!s.needsNumber || number.trim().isNotEmpty) &&
       (frontUrl?.isNotEmpty ?? false) &&
       (!s.needsBack || (backUrl?.isNotEmpty ?? false)) &&
       (!s.needsExpiry || expiry.isNotEmpty);
@@ -131,12 +189,12 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
 
   void _save() {
     final s = widget.spec;
-    if (_number.text.trim().isEmpty) return _err('Please enter the ${s.numberLabel}');
-    if ((_frontUrl ?? '').isEmpty) return _err('Please upload the front image');
-    if (s.needsBack && (_backUrl ?? '').isEmpty) return _err('Please upload the back image');
+    if (s.needsNumber && _number.text.trim().isEmpty) return _err('Please enter the ${s.numberLabel}');
+    if ((_frontUrl ?? '').isEmpty) return _err('Please upload the photo: ${s.frontLabel}');
+    if (s.needsBack && (_backUrl ?? '').isEmpty) return _err('Please upload the photo: ${s.backLabel}');
     if (s.needsExpiry && _expiry == null) return _err('Please select the expiry date');
     Navigator.pop(context, DocData(
-      number: _number.text.trim(),
+      number: s.needsNumber ? _number.text.trim() : '',
       expiry: _expiry == null ? '' : fmtDate(_expiry!), // dd-MM-yyyy
       frontUrl: _frontUrl,
       backUrl: _backUrl,
@@ -148,118 +206,119 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
   @override
   Widget build(BuildContext context) {
     final s = widget.spec;
-    return Scaffold(
-      appBar: blueAppBar(s.name),
-      backgroundColor: Cap.surface,
-      body: ListView(padding: const EdgeInsets.fromLTRB(20, 16, 20, 24), children: [
-        // Example: what a good photo looks like.
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(color: Cap.accent.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(14)),
-          child: Row(children: [
-            Container(
-              width: 64, height: 44,
-              decoration: BoxDecoration(
-                color: Cap.surface,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: Cap.green, width: 2),
+    // Part of the documents step, so it carries the same "Step 4 of 4" header;
+    // the document's name is the page title. Fields are unchanged.
+    return RegStepScaffold(
+      step: CapRegSteps.documents,
+      stepLabel: 'Documents',
+      title: s.name,
+      subtitle: 'Add the details and a clear photo of this document.',
+      bottom: RegCta(label: 'Save', trailing: Icons.check_rounded, onPressed: _save),
+      children: [
+        // The admin's instructions for this document.
+        if (s.description.isNotEmpty)
+          Container(
+            key: const ValueKey('doc_description'),
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(18),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Cap.accent.withValues(alpha: 0.10), Cap.accent.withValues(alpha: 0.03)],
               ),
-              child: Icon(Icons.badge_outlined, color: Cap.ink, size: 24),
+              border: Border.all(color: Cap.accent.withValues(alpha: 0.18)),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Upload a clear photo', style: Cap.body(size: 14, weight: FontWeight.w800)),
-                const SizedBox(height: 4),
-                for (final tip in const ['All four corners visible', 'No glare or blur', 'Every detail readable'])
-                  Row(children: [
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              RegIconBadge(icon: Icons.info_rounded, color: Cap.accent, size: 32),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(s.description, style: Cap.caption(size: 13, color: Cap.ink).copyWith(height: 1.4)),
+                ),
+              ),
+            ]),
+          ),
+        // What a good photo looks like.
+        Container(
+          margin: const EdgeInsets.only(bottom: 18),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: RegPalette.field,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              const RegIconBadge(icon: Icons.photo_camera_back_rounded, color: RegPalette.green, size: 32),
+              const SizedBox(width: 10),
+              Expanded(child: Text('Upload a clear photo', style: Cap.body(size: 14, weight: FontWeight.w800))),
+            ]),
+            const SizedBox(height: 10),
+            Wrap(spacing: 6, runSpacing: 6, children: [
+              for (final tip in const ['All four corners visible', 'No glare or blur', 'Every detail readable'])
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(color: Cap.surface, borderRadius: BorderRadius.circular(20)),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
                     const Icon(Icons.check_circle_rounded, size: 14, color: Cap.green),
-                    const SizedBox(width: 6),
-                    Flexible(child: Text(tip, style: Cap.caption(size: 12.5, color: Cap.ink))),
+                    const SizedBox(width: 5),
+                    Flexible(child: Text(tip, style: Cap.caption(size: 12, color: Cap.ink))),
                   ]),
-              ]),
-            ),
+                ),
+            ]),
           ]),
         ),
-        const SizedBox(height: 22),
-        CapField(
-          label: s.numberLabel,
-          required: true,
-          child: TextField(
-            controller: _number,
-            textCapitalization: TextCapitalization.characters,
-            style: Cap.body(size: 15.5, weight: FontWeight.w700).copyWith(letterSpacing: 0.8),
-            decoration: Cap.input(hint: 'Enter ${s.numberLabel}'),
+        if (s.needsNumber)
+          RegField(
+            label: s.numberLabel,
+            required: true,
+            child: TextField(
+              controller: _number,
+              textCapitalization: TextCapitalization.characters,
+              style: Cap.body(size: 15.5, weight: FontWeight.w700).copyWith(letterSpacing: 0.8),
+              decoration: regInput(hint: 'Enter ${s.numberLabel}', icon: Icons.tag_rounded),
+            ),
           ),
-        ),
         // Expiry (insurance)
-        if (s.needsExpiry) ...[
-          DateField(label: 'Expiry Date', value: _expiry, hint: 'Select expiry date (dd-mm-yyyy)', onTap: _pickExpiry),
-          const SizedBox(height: 18),
-        ],
+        if (s.needsExpiry)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 18),
+            child: DateField(label: 'Expiry Date', value: _expiry, hint: 'Select expiry date (dd-mm-yyyy)', onTap: _pickExpiry),
+          ),
         // Images
-        _imageTile('Front side', _frontUrl, _frontBusy, () => _pick(true), () => _remove(true)),
-        if (s.needsBack) ...[
-          const SizedBox(height: 18),
-          _imageTile('Back side', _backUrl, _backBusy, () => _pick(false), () => _remove(false)),
-        ],
-      ]),
-      bottomNavigationBar: CapBottomBar(child: CapButton(label: 'Save', onPressed: _save)),
+        _imageTile(s.frontLabel, _frontUrl, _frontBusy, () => _pick(true), () => _remove(true)),
+        if (s.needsBack)
+          Padding(
+            padding: const EdgeInsets.only(top: 18),
+            child: _imageTile(s.backLabel, _backUrl, _backBusy, () => _pick(false), () => _remove(false)),
+          ),
+      ],
     );
   }
 
   Widget _imageTile(String label, String? url, bool busy, VoidCallback onPick, VoidCallback onRemove) {
     final has = (url ?? '').isNotEmpty;
     final src = url ?? '';
+    final state = busy ? 'busy' : (has ? 'has:$src' : 'empty');
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       CapLabel(label, required: true),
-      if (busy)
-        CapDashedBox(
-          height: 150,
-          child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.4, color: Cap.accent))),
-        )
-      else if (has)
-        GestureDetector(
-          onTap: () => _previewImage(label, src),
-          child: Container(
-            height: 170,
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              color: Cap.tile,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Cap.green, width: 1.5),
-            ),
-            child: Stack(fit: StackFit.expand, children: [
-              Image.network(src, fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Center(child: Icon(Icons.broken_image_rounded, color: Cap.muted, size: 36))),
-              const Positioned(top: 8, left: 8, child: CapChip('Uploaded', color: AppColors.green, icon: Icons.check_circle_rounded, solid: true)),
-              Positioned(
-                top: 8, right: 8,
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
-                  child: const Icon(Icons.zoom_in_rounded, color: Colors.white, size: 18),
-                ),
-              ),
-            ]),
-          ),
-        )
-      else
-        CapDashedBox(
-          height: 170,
-          onTap: onPick,
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Container(
-              width: 46, height: 46,
-              decoration: BoxDecoration(color: Cap.surface, shape: BoxShape.circle),
-              child: Icon(Icons.photo_camera_rounded, color: Cap.ink, size: 22),
-            ),
-            const SizedBox(height: 10),
-            Text('Tap to upload', style: Cap.body(size: 13.5, weight: FontWeight.w800)),
-            const SizedBox(height: 2),
-            Text(label, style: Cap.caption(size: 12)),
-          ]),
+      // Uploading → uploaded → empty cross-fade with a slight zoom; the
+      // "Uploaded" chip pops in once the photo is there.
+      AnimatedSwitcher(
+        duration: regDuration(context, const Duration(milliseconds: 280)),
+        switchInCurve: Curves.easeOutCubic,
+        transitionBuilder: (child, a) => FadeTransition(
+          opacity: a,
+          child: ScaleTransition(scale: Tween(begin: 0.96, end: 1.0).animate(a), child: child),
         ),
+        layoutBuilder: (current, previous) => Stack(
+          alignment: Alignment.topCenter,
+          children: [...previous, if (current != null) current],
+        ),
+        child: KeyedSubtree(key: ValueKey(state), child: _imageBody(label, src, has, busy, onPick)),
+      ),
       // Change / Remove actions once an image is present
       if (has && !busy) ...[
         const SizedBox(height: 8),
@@ -267,12 +326,12 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
           Expanded(
             child: TextButton.icon(
               onPressed: onPick,
-              icon: Icon(Icons.photo_camera_outlined, size: 18, color: Cap.ink),
-              label: Text('Retake', style: Cap.body(size: 13, weight: FontWeight.w700)),
+              icon: Icon(Icons.photo_camera_outlined, size: 18, color: Cap.accent),
+              label: Text('Retake', style: Cap.body(size: 13, weight: FontWeight.w700, color: Cap.accent)),
               style: TextButton.styleFrom(
-                backgroundColor: Cap.tile,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                backgroundColor: Cap.accent.withValues(alpha: 0.08),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(vertical: 11),
               ),
             ),
           ),
@@ -284,13 +343,73 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
               label: Text('Remove', style: Cap.body(size: 13, weight: FontWeight.w700, color: AppColors.red)),
               style: TextButton.styleFrom(
                 backgroundColor: AppColors.red.withValues(alpha: 0.08),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(vertical: 11),
               ),
             ),
           ),
         ]),
       ],
     ]);
+  }
+
+  Widget _imageBody(String label, String src, bool has, bool busy, VoidCallback onPick) {
+    if (busy) {
+      return RegDropZone(
+        height: 168,
+        child: Center(child: SizedBox(width: 26, height: 26, child: CircularProgressIndicator(strokeWidth: 2.6, color: Cap.accent))),
+      );
+    }
+    if (has) {
+      return GestureDetector(
+        onTap: () => _previewImage(label, src),
+        child: Container(
+          height: 176,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: Cap.tile,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Cap.green, width: 2),
+          ),
+          child: Stack(fit: StackFit.expand, children: [
+            Image.network(src, fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Center(child: Icon(Icons.broken_image_rounded, color: Cap.muted, size: 36))),
+            const Positioned(
+              top: 10, left: 10,
+              child: RegPopIn(child: CapChip('Uploaded', color: AppColors.green, icon: Icons.check_circle_rounded, solid: true)),
+            ),
+            Positioned(
+              top: 10, right: 10,
+              child: Container(
+                padding: const EdgeInsets.all(7),
+                decoration: const BoxDecoration(color: Colors.black45, shape: BoxShape.circle),
+                child: const Icon(Icons.zoom_in_rounded, color: Colors.white, size: 18),
+              ),
+            ),
+          ]),
+        ),
+      );
+    }
+    return RegPressScale(
+      child: RegDropZone(
+        height: 168,
+        onTap: onPick,
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Container(
+            width: 56, height: 56,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RegPalette.ctaAction,
+              boxShadow: [BoxShadow(color: AppColors.primary.withValues(alpha: 0.28), blurRadius: 14, offset: const Offset(0, 5))],
+            ),
+            child: const Icon(Icons.photo_camera_rounded, color: Colors.white, size: 26),
+          ),
+          const SizedBox(height: 12),
+          Text('Tap to upload', style: Cap.body(size: 14, weight: FontWeight.w800)),
+          const SizedBox(height: 2),
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12)),
+        ]),
+      ),
+    );
   }
 }

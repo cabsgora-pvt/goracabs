@@ -36,6 +36,7 @@ class NotifBloc extends Bloc<NotifEvent, NotifState> {
           body: (m['body'] ?? '').toString(),
           time: _ago(m['sentAt']),
           type: (m['type'] ?? 'broadcast').toString(),
+          imageUrl: (m['imageUrl'] ?? '').toString(),
           // The backend does not track per-driver read state yet, so nothing
           // is claimed to be read rather than inventing a flag.
           isRead: false,

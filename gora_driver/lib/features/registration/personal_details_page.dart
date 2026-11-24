@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 import '../../providers/driver_provider.dart';
 import '../../core/constants/app_colors.dart';
 import '../../widgets/captain_ui/captain_ui.dart';
+import 'widgets/reg_motion.dart';
 import 'widgets/reg_step_scaffold.dart';
+import 'widgets/reg_ui.dart';
 import '../../services/driver_api_service.dart';
 import 'face_capture_page.dart';
 
@@ -152,125 +154,180 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       stepLabel: 'Personal details',
       title: 'Tell us about yourself',
       subtitle: 'This is how riders and our team will know you.',
-      bottom: CapButton(label: 'Continue', loading: _loading, onPressed: _submit),
+      bottom: RegCta(label: 'Continue', loading: _loading, onPressed: _submit),
+      staggerChildren: false,
       children: [
+        // Sections only group the fields visually: every field, validator and
+        // value sent to /register/personal is unchanged.
         Form(
           key: _form,
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            CapField(
-              label: 'Full name',
-              required: true,
-              child: TextFormField(
-                controller: _name,
-                textCapitalization: TextCapitalization.words,
-                decoration: Cap.input(hint: 'As on your driving licence'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Full name is required' : null,
-              ),
-            ),
-            CapField(
-              label: 'Mobile number',
-              child: TextFormField(
-                readOnly: true,
-                initialValue: '+91 $_phone',
-                decoration: Cap.input(suffix: Icon(Icons.lock_outline_rounded, size: 18, color: Cap.muted)),
-                style: Cap.body(size: 15, weight: FontWeight.w600, color: Cap.muted),
-              ),
-            ),
-            CapField(
-              label: 'Email address',
-              child: TextFormField(
-                controller: _email,
-                keyboardType: TextInputType.emailAddress,
-                decoration: Cap.input(hint: 'name@example.com'),
-                validator: (v) {
-                  if (v != null && v.isNotEmpty && !v.contains('@')) return 'Enter valid email';
-                  return null;
-                },
-              ),
-            ),
-            // Optional and self-declared — used only so a rider who asks
-            // for a female driver can actually be matched with one; never
-            // shown publicly and never required to keep driving.
-            CapField(
-              label: 'Gender (optional)',
-              child: DropdownButtonFormField<String>(
-                value: _selectedGender,
-                isExpanded: true,
-                decoration: Cap.input(hint: 'Select'),
-                items: const [
-                  DropdownMenuItem(value: 'female', child: Text('Female')),
-                  DropdownMenuItem(value: 'male', child: Text('Male')),
-                  DropdownMenuItem(value: 'other', child: Text('Other')),
-                ],
-                onChanged: (v) => setState(() => _selectedGender = v),
-              ),
-            ),
-            CapField(
-              label: 'State',
-              required: true,
-              child: DropdownButtonFormField<String>(
-                value: _selectedState,
-                // Without isExpanded the dropdown sizes to its longest
-                // item, so a long state name overflowed a 320pt screen.
-                // Expanding it makes the label ellipsise instead.
-                isExpanded: true,
-                decoration: Cap.input(hint: 'Select your state'),
-                items: _indianStates.map((s) => DropdownMenuItem(
-                  value: s,
-                  child: Text(s, maxLines: 1, overflow: TextOverflow.ellipsis),
-                )).toList(),
-                onChanged: (v) => setState(() => _selectedState = v),
-              ),
-            ),
-            CapField(
-              label: 'City / zone',
-              required: true,
-              child: _zonesLoading
-                  ? Container(
-                      height: 54,
-                      decoration: BoxDecoration(color: Cap.tile, borderRadius: BorderRadius.circular(12)),
-                      alignment: Alignment.center,
-                      child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Cap.accent)),
-                    )
-                  : DropdownButtonFormField<String>(
-                      value: _selectedZoneId,
-                      isExpanded: true,
-                      decoration: Cap.input(hint: 'Where will you drive?'),
-                      items: _zones.map((z) => DropdownMenuItem(
-                        value: z['_id'] as String? ?? z['id'] as String?,
-                        child: Text(z['name'] as String? ?? '',
-                          maxLines: 1, overflow: TextOverflow.ellipsis),
-                      )).toList(),
-                      onChanged: (v) {
-                        final zone = _zones.firstWhere(
-                          (z) => (z['_id'] ?? z['id']) == v,
-                          orElse: () => {},
-                        );
-                        setState(() {
-                          _selectedZoneId = v;
-                          _selectedZoneName = zone['name'] as String?;
-                        });
-                      },
-                    ),
-            ),
-            CapField(
-              label: 'Referral code (optional)',
-              child: TextFormField(
-                controller: _referralController,
-                textCapitalization: TextCapitalization.characters,
-                decoration: Cap.input(hint: "Enter a friend's code"),
-              ),
-            ),
+            RegEntrance(index: RegStepScaffold.firstChildIndex, child: RegSectionCard(
+              icon: Icons.person_rounded,
+              color: RegPalette.blue,
+              title: 'About you',
+              caption: 'Your name exactly as on your licence.',
+              children: [
+                RegField(
+                  label: 'Full name',
+                  required: true,
+                  child: TextFormField(
+                    controller: _name,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: regInput(hint: 'As on your driving licence', icon: Icons.person_outline_rounded),
+                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Full name is required' : null,
+                  ),
+                ),
+                RegField(
+                  label: 'Mobile number',
+                  child: TextFormField(
+                    readOnly: true,
+                    initialValue: '+91 $_phone',
+                    decoration: regInput(icon: Icons.phone_iphone_rounded, iconColor: RegPalette.green,
+                        suffix: Icon(Icons.lock_outline_rounded, size: 18, color: Cap.muted)),
+                    style: Cap.body(size: 15, weight: FontWeight.w600, color: Cap.muted),
+                  ),
+                ),
+                RegField(
+                  label: 'Email address',
+                  child: TextFormField(
+                    controller: _email,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: regInput(hint: 'name@example.com', icon: Icons.alternate_email_rounded, iconColor: RegPalette.purple),
+                    validator: (v) {
+                      if (v != null && v.isNotEmpty && !v.contains('@')) return 'Enter valid email';
+                      return null;
+                    },
+                  ),
+                ),
+                // Optional and self-declared — used only so a rider who asks
+                // for a female driver can actually be matched with one; never
+                // shown publicly and never required to keep driving.
+                RegField(
+                  label: 'Gender (optional)',
+                  child: DropdownButtonFormField<String>(
+                    value: _selectedGender,
+                    isExpanded: true,
+                    decoration: regInput(hint: 'Select', icon: Icons.wc_rounded, iconColor: RegPalette.pink),
+                    items: const [
+                      DropdownMenuItem(value: 'female', child: Text('Female')),
+                      DropdownMenuItem(value: 'male', child: Text('Male')),
+                      DropdownMenuItem(value: 'other', child: Text('Other')),
+                    ],
+                    onChanged: (v) => setState(() => _selectedGender = v),
+                  ),
+                ),
+              ],
+            )),
+            RegEntrance(index: RegStepScaffold.firstChildIndex + 1, child: RegSectionCard(
+              icon: Icons.place_rounded,
+              color: RegPalette.orange,
+              title: 'Where you will drive',
+              caption: 'You will get trips in this city.',
+              children: [
+                RegField(
+                  label: 'State',
+                  required: true,
+                  child: DropdownButtonFormField<String>(
+                    value: _selectedState,
+                    // Without isExpanded the dropdown sizes to its longest
+                    // item, so a long state name overflowed a 320pt screen.
+                    // Expanding it makes the label ellipsise instead.
+                    isExpanded: true,
+                    decoration: regInput(hint: 'Select your state', icon: Icons.map_outlined, iconColor: RegPalette.orange),
+                    items: _indianStates.map((s) => DropdownMenuItem(
+                      value: s,
+                      child: Text(s, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    )).toList(),
+                    onChanged: (v) => setState(() => _selectedState = v),
+                  ),
+                ),
+                RegField(
+                  label: 'City / zone',
+                  required: true,
+                  child: _zonesLoading
+                      ? Container(
+                          height: 56,
+                          decoration: BoxDecoration(
+                            color: RegPalette.field,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: RegPalette.hairline, width: 1.2),
+                          ),
+                          alignment: Alignment.center,
+                          child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Cap.accent)),
+                        )
+                      : DropdownButtonFormField<String>(
+                          value: _selectedZoneId,
+                          isExpanded: true,
+                          decoration: regInput(hint: 'Where will you drive?', icon: Icons.location_city_rounded, iconColor: RegPalette.teal),
+                          items: _zones.map((z) => DropdownMenuItem(
+                            value: z['_id'] as String? ?? z['id'] as String?,
+                            child: Text(z['name'] as String? ?? '',
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                          )).toList(),
+                          onChanged: (v) {
+                            final zone = _zones.firstWhere(
+                              (z) => (z['_id'] ?? z['id']) == v,
+                              orElse: () => {},
+                            );
+                            setState(() {
+                              _selectedZoneId = v;
+                              _selectedZoneName = zone['name'] as String?;
+                            });
+                          },
+                        ),
+                ),
+              ],
+            )),
+            RegEntrance(index: RegStepScaffold.firstChildIndex + 2, child: RegSectionCard(
+              icon: Icons.card_giftcard_rounded,
+              color: RegPalette.green,
+              title: 'Referral',
+              children: [
+                RegField(
+                  label: 'Referral code (optional)',
+                  child: TextFormField(
+                    controller: _referralController,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: regInput(hint: "Enter a friend's code", icon: Icons.redeem_rounded, iconColor: RegPalette.green),
+                  ),
+                ),
+              ],
+            )),
             // Profile photo + identity signature are captured live on the
             // next screen (camera, not a gallery picker) — that shot becomes
             // both.
-            const CapBanner(
-              icon: Icons.face_retouching_natural_rounded,
+            const RegEntrance(index: RegStepScaffold.firstChildIndex + 3, child: _NextUpCard(
               text: "Next, you'll take a quick selfie. It becomes your profile photo and keeps your account secure.",
-            ),
+            )),
           ]),
         ),
       ],
     );
   }
+}
+
+/// "Up next" teaser for the selfie step.
+class _NextUpCard extends StatelessWidget {
+  final String text;
+  const _NextUpCard({required this.text});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [RegPalette.orange.withValues(alpha: 0.12), RegPalette.orange.withValues(alpha: 0.04)],
+          ),
+          border: Border.all(color: RegPalette.orange.withValues(alpha: 0.22)),
+        ),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const RegIconBadge(icon: Icons.face_retouching_natural_rounded, color: RegPalette.orange, size: 40),
+          const SizedBox(width: 12),
+          Expanded(child: Text(text, style: Cap.caption(size: 13, color: Cap.ink).copyWith(height: 1.4))),
+        ]),
+      );
 }

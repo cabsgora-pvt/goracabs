@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../config/app_config.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../models/models.dart';
@@ -84,11 +85,35 @@ class _NotifCard extends StatelessWidget {
         Text(notif.title, style: TextStyle(fontWeight: notif.isRead ? FontWeight.w600 : FontWeight.w800, fontSize: 13, color: AppColors.textDark)),
         const SizedBox(height: 3),
         Text(notif.body, style: TextStyle(fontSize: 12, color: AppColors.textGrey, height: 1.4), maxLines: 2, overflow: TextOverflow.ellipsis),
+        if (notif.imageUrl.trim().isNotEmpty) _NotifImage(url: AppConfig.imageUrl(notif.imageUrl.trim())),
         const SizedBox(height: 4),
         Text(notif.time, style: TextStyle(fontSize: 10, color: AppColors.textGrey)),
       ])),
       if (!notif.isRead)
         Container(width: 8, height: 8, decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle)),
     ]),
+  );
+}
+
+/// The notification's picture under its text. A broken link hides it.
+class _NotifImage extends StatelessWidget {
+  final String url;
+  const _NotifImage({required this.url});
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 8),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 180),
+        child: Image.network(
+          url,
+          key: const ValueKey('notif_image'),
+          width: double.infinity,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+        ),
+      ),
+    ),
   );
 }

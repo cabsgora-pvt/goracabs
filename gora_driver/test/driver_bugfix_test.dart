@@ -388,8 +388,8 @@ void main() {
       });
     }
 
-    test('control: bank and submitted keep their own pages, not a resume', () {
-      expect(resumeStepFor({'registrationStep': 'bank'}), isNull);
+    test('control: submitted keeps its own page; bank resumes at submit (no bank form)', () {
+      expect(resumeStepFor({'registrationStep': 'bank'}), ResumeStep.submit);
       expect(resumeStepFor({'registrationStep': 'submitted'}), isNull);
       expect(resumeStepFor({'registrationStep': 'documents'}), ResumeStep.documents);
     });
@@ -642,8 +642,10 @@ void main() {
   });
 
 
-  // ── G. Vehicle type page: a 2-column grid of image + name ───────────────────
-  testWidgets('G vehicle types show as a 2-column grid, image + name only', (tester) async {
+  // ── G. Vehicle type page: one full-width card per type ───────────────────
+  // (Was a 2-column grid of image + name only; redesigned into full-width
+  // cards with the real photo, seats and service chips.)
+  testWidgets('G vehicle types show as full-width cards with photo, seats and services', (tester) async {
     _setSize(tester, const Size(360, 1400));
     await http.runWithClient(() async {
       await tester.pumpWidget(_app(const VehicleSelectionPage()));
@@ -651,13 +653,15 @@ void main() {
       for (final n in ['Bike', 'Auto', 'Cab', 'Prime Sedan', 'Prime SUV', 'Mini Truck']) {
         expect(find.text(n), findsOneWidget);
       }
-      // Two per row: Bike/Auto share a row, Cab starts the next.
-      expect(tester.getCenter(find.text('Bike')).dy, tester.getCenter(find.text('Auto')).dy);
-      expect(tester.getCenter(find.text('Cab')).dy, greaterThan(tester.getCenter(find.text('Bike')).dy));
-      expect(tester.getCenter(find.text('Bike')).dx, lessThan(tester.getCenter(find.text('Auto')).dx));
-      // Nothing but the name: no seats line, no service chips.
-      expect(find.textContaining('seat'), findsNothing);
-      expect(find.text('Taxi'), findsNothing);
+      // One per row, in server order: Auto sits below Bike, Cab below Auto.
+      expect(tester.getCenter(find.text('Auto')).dy, greaterThan(tester.getCenter(find.text('Bike')).dy));
+      expect(tester.getCenter(find.text('Cab')).dy, greaterThan(tester.getCenter(find.text('Auto')).dy));
+      expect(tester.getTopLeft(find.text('Bike')).dx, tester.getTopLeft(find.text('Auto')).dx);
+      // Seats from capacity, chips from services, a real photo on every card.
+      expect(find.text('4 seats'), findsNWidgets(6));
+      expect(find.text('Taxi'), findsNWidgets(6));
+      expect(find.text('Parcel'), findsNWidgets(6));
+      expect(find.byKey(const ValueKey('vehicle_asset')), findsNWidgets(6));
       expect(find.byIcon(Icons.check_rounded), findsNothing);
       await tester.tap(find.text('Prime SUV'));
       await tester.pump();

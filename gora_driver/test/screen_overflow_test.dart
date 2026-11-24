@@ -29,8 +29,8 @@ import 'package:gora_driver/features/auth/pages/login_page.dart';
 import 'package:gora_driver/features/earnings/pages/earnings_page.dart';
 import 'package:gora_driver/features/history/pages/history_page.dart';
 import 'package:gora_driver/features/notifications/pages/notification_page.dart';
-import 'package:gora_driver/features/registration/bank_details_page.dart';
 import 'package:gora_driver/features/registration/kyc_pending_page.dart';
+import 'package:gora_driver/features/registration/submit_application_page.dart';
 import 'package:gora_driver/features/registration/personal_details_page.dart';
 import 'package:gora_driver/features/registration/vehicle_details_page.dart';
 import 'package:gora_driver/features/registration/vehicle_selection_page.dart';
@@ -253,7 +253,7 @@ void main() {
       'EarningsPage': () => const EarningsPage(),
       'HistoryPage': () => const HistoryPage(),
       'NotificationPage': () => const NotificationPage(),
-      'BankDetailsPage': () => const BankDetailsPage(),
+      'SubmitApplicationPage': () => const SubmitApplicationPage(),
       'KycPendingPage': () => const KycPendingPage(),
       'PersonalDetailsPage': () => const PersonalDetailsPage(),
       'VehicleDetailsPage': () => const VehicleDetailsPage(),

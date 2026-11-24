@@ -22,7 +22,6 @@ import 'package:gora_driver/features/history/pages/history_page.dart';
 import 'package:gora_driver/features/history/pages/trip_detail_page.dart';
 import 'package:gora_driver/features/home/pages/home_page.dart';
 import 'package:gora_driver/features/onboarding/onboarding_page.dart';
-import 'package:gora_driver/features/registration/bank_details_page.dart';
 import 'package:gora_driver/features/registration/document_detail_page.dart';
 import 'package:gora_driver/features/registration/document_upload_page.dart';
 import 'package:gora_driver/features/registration/face_capture_page.dart';
@@ -30,6 +29,7 @@ import 'package:gora_driver/features/registration/kyc_pending_page.dart';
 import 'package:gora_driver/features/registration/kyc_success_page.dart';
 import 'package:gora_driver/features/registration/personal_details_page.dart';
 import 'package:gora_driver/features/registration/rejection_page.dart';
+import 'package:gora_driver/features/registration/submit_application_page.dart';
 import 'package:gora_driver/features/registration/vehicle_details_page.dart';
 import 'package:gora_driver/features/registration/vehicle_selection_page.dart';
 import 'package:gora_driver/features/ride/pages/collect_fare_page.dart';
@@ -59,6 +59,8 @@ const _sizes = [Size(320, 568), Size(360, 640), Size(412, 915)];
 final _now = DateTime.now().toUtc().toIso8601String();
 
 const _longName = 'Chandrashekhar Venkatasubramanian Balasubramanian';
+const _longError = 'Please upload: Police Verification Certificate, Vehicle Insurance Certificate (Comprehensive), '
+    'RC Book (Registration Certificate)';
 const _pickup = 'Shop 14, Ground Floor, Sardar Patel Complex - Near Municipal Market, Navrangpura, Ahmedabad, Gujarat 380009';
 const _drop = 'Block C, Tower 3, Flat 1802, Silver Oak Residency - Off S.G. Highway, Bodakdev, Ahmedabad, Gujarat 380054';
 
@@ -150,6 +152,7 @@ Object? _body(String path) {
     ]};
   }
   if (path.endsWith('/rides/driver/active')) return {'ride': null};
+  if (path.endsWith('/register/submit')) return {'error': _longError};
   return <String, dynamic>{};
 }
 
@@ -304,9 +307,18 @@ void main() {
         number: 'POL-9988776655443322110', expiry: '05-07-2030',
         frontUrl: 'https://example.invalid/front.jpg', backUrl: 'https://example.invalid/back.jpg')),
         args: null, profile: false, interact: null),
-    'BankDetails': (build: () => const BankDetailsPage(), args: null, profile: false, interact: (t) async {
-      await _tapText(t, 'Current');
-    }),
+    'DocumentUpload with error': (build: () => const DocumentUploadPage(), args: {'error': _longError},
+        profile: false, interact: null),
+    'SubmitApplication': (build: () => const SubmitApplicationPage(), args: null, profile: false, interact: null),
+    'FaceCaptureChrome': (build: () => FaceCaptureChrome(stepIndex: 1, stepShort: 'Turn to one side',
+        instruction: 'Turn your head to one side', onCapture: () {}), args: null, profile: false, interact: null),
+    'FaceCaptureChrome error': (build: () => FaceCaptureChrome(stepIndex: 3, stepShort: 'Tilt your head',
+        instruction: 'Tilt your head up or down slightly',
+        error: 'No single clear face found — make sure only your face is in frame.', onCapture: () {}),
+        args: null, profile: false, interact: null),
+    'FaceCaptureChrome saving': (build: () => FaceCaptureChrome(stepIndex: 3, stepShort: 'Tilt your head',
+        instruction: 'Tilt your head up or down slightly', saving: true, onCapture: () {}),
+        args: null, profile: false, interact: null),
     'KycSuccess': (build: () => const KycSuccessPage(), args: null, profile: false, interact: null),
     'KycPending': (build: () => const KycPendingPage(), args: null, profile: false, interact: null),
     'Rejection': (build: () => const RejectionPage(), args: {
@@ -361,6 +373,27 @@ void main() {
     }
   });
 
+  // Registration on the smallest supported phone with the system font at
+  // 130 %: every page of the flow, with long real-shaped content.
+  group('registration - 320x568 with text scale 1.3, no overflow', () {
+    const regScreens = [
+      'PersonalDetails', 'FaceCapture', 'FaceCaptureChrome', 'FaceCaptureChrome error', 'FaceCaptureChrome saving',
+      'VehicleSelection', 'VehicleDetails', 'VehicleDetails with image', 'DocumentUpload', 'DocumentUpload with error',
+      'DocumentDetail empty', 'DocumentDetail filled', 'SubmitApplication', 'KycSuccess', 'KycPending', 'Rejection',
+    ];
+    for (final name in regScreens) {
+      testWidgets(name, (tester) async {
+        final s = screens[name]!;
+        if (name.startsWith('Kyc')) _status = 'pending';
+        tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final o = await _overflows(tester, s.build(), const Size(320, 568),
+            args: s.args, withProfile: s.profile, interact: s.interact);
+        expect(o, isEmpty, reason: '$name overflowed at 320x568 x1.3: $o');
+      });
+    }
+  });
+
   testWidgets('home shows real earnings, the GO button and the low-balance banner', (tester) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1.0;
@@ -376,24 +409,24 @@ void main() {
       expect(find.text('₹ 1249999'), findsOneWidget, reason: "today's earnings from /rides/driver/summary");
       expect(find.text('GO'), findsOneWidget);
       expect(find.text("You're offline"), findsOneWidget);
-      expect(find.text('Low wallet balance'), findsOneWidget, reason: 'wallet is negative');
+      // Below zero the banner says cash rides are paused (server rule).
+      expect(find.text('Cash rides paused'), findsOneWidget, reason: 'wallet is negative');
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(seconds: 1));
     }, () => _api);
     while (tester.takeException() != null) {}
   });
 
-  testWidgets('registration steps carry the 5-step checklist header', (tester) async {
+  testWidgets('registration steps carry the 4-step checklist header', (tester) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await http.runWithClient(() async {
       for (final (screen, step) in [
-        (const PersonalDetailsPage(), 'Step 1 of 5'),
-        (const VehicleSelectionPage(), 'Step 3 of 5'),
-        (const DocumentUploadPage(), 'Step 4 of 5'),
-        (const BankDetailsPage(), 'Step 5 of 5'),
+        (const PersonalDetailsPage(), 'Step 1 of 4'),
+        (const VehicleSelectionPage(), 'Step 3 of 4'),
+        (const DocumentUploadPage(), 'Step 4 of 4'),
       ]) {
         await tester.pumpWidget(KeyedSubtree(key: ValueKey(step), child: _wrap(screen, args: {'phone': '9876543210'})));
         await tester.pump(const Duration(milliseconds: 200));

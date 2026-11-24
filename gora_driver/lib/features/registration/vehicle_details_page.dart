@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/constants/app_colors.dart';
 import '../../widgets/captain_ui/captain_ui.dart';
+import 'widgets/reg_motion.dart';
 import 'widgets/reg_step_scaffold.dart';
 import '../../services/driver_api_service.dart';
 import 'document_upload_page.dart';
-import 'vehicle_selection_page.dart' show VehicleTypeImage;
+import 'widgets/reg_ui.dart';
+import 'widgets/vehicle_visuals.dart';
 
 class VehicleDetailsPage extends StatefulWidget {
   static const route = '/registration/vehicle-details';
@@ -42,7 +44,8 @@ class _VehicleDetailsPageState extends State<VehicleDetailsPage> {
       if (res['error'] != null) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['error'].toString()), backgroundColor: AppColors.red));
       } else {
-        Navigator.pushNamed(context, DocumentUploadPage.route);
+        // The documents asked for depend on the vehicle type.
+        Navigator.pushNamed(context, DocumentUploadPage.route, arguments: {'vehicleType': _vehicle['name']});
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.red));
@@ -66,61 +69,195 @@ class _VehicleDetailsPageState extends State<VehicleDetailsPage> {
       stepLabel: 'Vehicle',
       title: 'Vehicle details',
       subtitle: 'Enter them exactly as on your RC book.',
-      bottom: CapButton(label: 'Continue', loading: _loading, onPressed: _submit),
+      bottom: RegCta(label: 'Continue', loading: _loading, onPressed: _submit),
+      staggerChildren: false,
       children: [
+        // Sections only group the fields visually: both fields, their
+        // validators and the body sent to /register/vehicle are unchanged.
         Form(
           key: _form,
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            if (typeName.isNotEmpty) ...[
-              CapTile(
-                onTap: () => Navigator.maybePop(context),
-                padding: const EdgeInsets.all(12),
-                child: Row(children: [
-                  VehicleTypeImage(vt: _vehicle, width: 72, height: 54),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text('Vehicle type', style: Cap.caption(size: 12)),
-                      Text(typeName, maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: Cap.body(size: 15, weight: FontWeight.w800)),
-                    ]),
+            if (typeName.isNotEmpty)
+              RegEntrance(
+                index: RegStepScaffold.firstChildIndex,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 14),
+                  child: _vehicleCard(typeName),
+                ),
+              ),
+            RegEntrance(
+              index: RegStepScaffold.firstChildIndex + 1,
+              child: RegSectionCard(
+                icon: Icons.directions_car_rounded,
+                color: RegPalette.blue,
+                title: 'Your vehicle',
+                caption: 'As printed on your number plate and RC book.',
+                children: [
+                  RegField(
+                    label: 'Vehicle name / model',
+                    required: true,
+                    child: TextFormField(
+                      controller: _vehicleModel,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: regInput(hint: 'e.g. Maruti Swift Dzire', icon: Icons.directions_car_filled_outlined),
+                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Vehicle model is required' : null,
+                    ),
                   ),
-                  Text('Change', style: Cap.body(size: 13, weight: FontWeight.w800, color: Cap.accent)),
-                ]),
-              ),
-              const SizedBox(height: 20),
-            ],
-            CapField(
-              label: 'Vehicle name / model',
-              required: true,
-              child: TextFormField(
-                controller: _vehicleModel,
-                textCapitalization: TextCapitalization.words,
-                decoration: Cap.input(hint: 'e.g. Maruti Swift Dzire'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Vehicle model is required' : null,
-              ),
-            ),
-            CapField(
-              label: 'Registration number',
-              required: true,
-              child: TextFormField(
-                controller: _regNumber,
-                textCapitalization: TextCapitalization.characters,
-                style: Cap.body(size: 15.5, weight: FontWeight.w800).copyWith(letterSpacing: 1.2),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9\s]')),
-                  UpperCaseTextFormatter(),
+                  RegField(
+                    label: 'Registration number',
+                    required: true,
+                    child: TextFormField(
+                      controller: _regNumber,
+                      textCapitalization: TextCapitalization.characters,
+                      style: Cap.body(size: 15.5, weight: FontWeight.w800).copyWith(letterSpacing: 1.2),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9\s]')),
+                        UpperCaseTextFormatter(),
+                      ],
+                      decoration: regInput(hint: 'e.g. GJ 03 AB 1234', icon: Icons.pin_outlined, iconColor: RegPalette.orange),
+                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Registration number is required' : null,
+                    ),
+                  ),
                 ],
-                decoration: Cap.input(hint: 'e.g. GJ 03 AB 1234'),
-                validator: (v) => (v == null || v.trim().isEmpty) ? 'Registration number is required' : null,
               ),
             ),
-            Text('As printed on your number plate and RC book.', style: Cap.caption(size: 12.5)),
+            // Live number-plate preview of what is typed above (display only).
+            RegEntrance(
+              index: RegStepScaffold.firstChildIndex + 2,
+              child: _PlatePreview(controller: _regNumber),
+            ),
           ]),
         ),
       ],
     );
   }
+
+  /// The chosen type with its real photo; tapping goes back to change it.
+  Widget _vehicleCard(String typeName) {
+    final radius = BorderRadius.circular(20);
+    return RegPressScale(
+      child: Material(
+        color: Colors.transparent,
+        child: Ink(
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Cap.accent.withValues(alpha: 0.12), Cap.accent.withValues(alpha: 0.03)],
+            ),
+            border: Border.all(color: Cap.accent.withValues(alpha: 0.25)),
+          ),
+          child: InkWell(
+            borderRadius: radius,
+            onTap: () => Navigator.maybePop(context),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(children: [
+                Container(
+                  width: 96,
+                  height: 66,
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(color: Cap.surface, borderRadius: BorderRadius.circular(14)),
+                  child: VehicleTypeImage(vt: _vehicle, width: 88, height: 58),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text('Vehicle type', style: Cap.caption(size: 12)),
+                    const SizedBox(height: 2),
+                    Text(typeName, maxLines: 2, overflow: TextOverflow.ellipsis,
+                        style: Cap.body(size: 16, weight: FontWeight.w800).copyWith(height: 1.2)),
+                  ]),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(color: Cap.surface, borderRadius: BorderRadius.circular(20)),
+                  child: Text('Change', style: Cap.body(size: 12.5, weight: FontWeight.w800, color: Cap.accent)),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A small Indian number plate showing the registration number as typed.
+class _PlatePreview extends StatelessWidget {
+  final TextEditingController controller;
+  const _PlatePreview({required this.controller});
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<TextEditingValue>(
+        valueListenable: controller,
+        builder: (context, v, _) {
+          final text = v.text.trim();
+          return Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: RegPalette.field,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Plate preview', style: Cap.body(size: 13, weight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text('Check it matches your vehicle.', style: Cap.caption(size: 12)),
+                ]),
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: Container(
+                  height: 40,
+                  constraints: const BoxConstraints(minWidth: 96),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(7),
+                    border: Border.all(color: const Color(0xFF111111), width: 2),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Container(
+                      width: 16,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF1D4ED8),
+                        borderRadius: BorderRadius.horizontal(left: Radius.circular(4)),
+                      ),
+                      alignment: Alignment.center,
+                      child: const RotatedBox(
+                        quarterTurns: 3,
+                        child: Text('IND', textScaler: TextScaler.noScaling,
+                            style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w800)),
+                      ),
+                    ),
+                    Flexible(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            text.isEmpty ? 'GJ 03 AB 1234' : text,
+                            maxLines: 1,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 1.2,
+                              color: text.isEmpty ? const Color(0xFFB0B6C3) : const Color(0xFF111111),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            ]),
+          );
+        },
+      );
 }
 
 class UpperCaseTextFormatter extends TextInputFormatter {

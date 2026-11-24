@@ -43,6 +43,15 @@ class SettingsPage extends StatelessWidget {
             CapMenuRow(icon: Icons.description_outlined, label: 'Terms of Service', onTap: () => Navigator.pushNamed(context, TermsPage.route)),
           ]),
 
+          CapMenuGroup(title: 'Account', children: [
+            CapMenuRow(
+              icon: Icons.person_remove_outlined,
+              label: 'Delete account',
+              sub: 'Ask the admin to delete your account',
+              onTap: () => Navigator.pushNamed(context, '/delete-account'),
+            ),
+          ]),
+
           CapMenuGroup(title: 'About', children: [
             CapMenuRow(icon: Icons.info_outline_rounded, label: 'App Version 1.0.0', onTap: () {}),
             CapMenuRow(icon: Icons.star_outline_rounded, label: 'Rate the App', onTap: () {}),

@@ -59,53 +59,85 @@ class CapHeading extends StatelessWidget {
       );
 }
 
-/// "Step 2 of 5 · Vehicle" with a segmented progress bar — the registration
-/// checklist shown on top of every registration step page.
+/// "Step 2 of 4 · Vehicle" with a segmented progress bar — the registration
+/// checklist shown on top of every registration step page. Finished segments
+/// are full; the current one fills in when the page opens (instantly when the
+/// OS asks for reduced motion). [onDark] is the white variant drawn over the
+/// selfie camera.
 class CapStepper extends StatelessWidget {
   /// 1-based.
   final int step;
   final int total;
   final String label;
-  const CapStepper({super.key, required this.step, required this.total, required this.label});
+  final bool onDark;
+  const CapStepper({super.key, required this.step, required this.total, required this.label, this.onDark = false});
 
   @override
-  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Text('Step $step of $total', style: Cap.body(size: 12.5, weight: FontWeight.w800, color: Cap.accent)),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text('· $label',
-                maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12.5)),
+  Widget build(BuildContext context) {
+    final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    final on = onDark ? Colors.white : Cap.accent;
+    final off = onDark ? Colors.white.withValues(alpha: 0.28) : Cap.divider;
+    final labelColor = onDark ? Colors.white.withValues(alpha: 0.82) : Cap.muted;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: onDark ? Colors.white.withValues(alpha: 0.16) : Cap.accent.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(20),
           ),
-        ]),
-        const SizedBox(height: 8),
-        Row(
-          children: List.generate(
-            total,
-            (i) => Expanded(
-              child: Container(
-                height: 4,
-                margin: EdgeInsets.only(right: i == total - 1 ? 0 : 4),
-                decoration: BoxDecoration(
-                  color: i < step ? Cap.accent : Cap.divider,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-          ),
+          child: Text('Step $step of $total', style: Cap.body(size: 12, weight: FontWeight.w800, color: on)),
         ),
-      ]);
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Cap.body(size: 12.5, weight: FontWeight.w700, color: labelColor)),
+        ),
+      ]),
+      const SizedBox(height: 10),
+      Row(
+        children: List.generate(total, (i) {
+          final n = i + 1;
+          Widget fill(double f) => FractionallySizedBox(
+                alignment: Alignment.centerLeft,
+                widthFactor: f,
+                child: Container(decoration: BoxDecoration(color: on, borderRadius: BorderRadius.circular(3))),
+              );
+          return Expanded(
+            child: Container(
+              height: 5,
+              margin: EdgeInsets.only(right: i == total - 1 ? 0 : 5),
+              decoration: BoxDecoration(color: off, borderRadius: BorderRadius.circular(3)),
+              child: n < step
+                  ? fill(1)
+                  : n == step
+                      ? TweenAnimationBuilder<double>(
+                          tween: Tween(begin: reduce ? 1 : 0, end: 1),
+                          duration: reduce ? Duration.zero : const Duration(milliseconds: 700),
+                          curve: Curves.easeOutCubic,
+                          builder: (_, v, __) => fill(v),
+                        )
+                      : null,
+            ),
+          );
+        }),
+      ),
+    ]);
+  }
 }
 
 /// The registration checklist, in order. Used by [CapStepper] on each page.
+/// Bank details are no longer part of registration: the documents step
+/// submits the application.
 class CapRegSteps {
   CapRegSteps._();
-  static const total = 5;
+  static const total = 4;
   static const personal = 1;
   static const face = 2;
   static const vehicle = 3;
   static const documents = 4;
-  static const bank = 5;
 }
 
 /// Small bold label above a field.

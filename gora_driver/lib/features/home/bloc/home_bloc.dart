@@ -29,8 +29,20 @@ class HomeLoaded extends HomeState {
 }
 class OnlineStatusChanged extends HomeState {
   final bool isOnline;
-  OnlineStatusChanged(this.isOnline);
-  @override List<Object?> get props => [isOnline];
+  /// Set when going online moved the driver to another zone (zone auto-follow).
+  final String? zoneChangedTo;
+  OnlineStatusChanged(this.isOnline, {this.zoneChangedTo});
+  @override List<Object?> get props => [isOnline, zoneChangedTo];
+}
+// The server refused to put this driver online: the account is on hold
+// (wrong face scan, wallet mis-transaction, held by admin …).
+class AccountHoldState extends HomeState {
+  final String message;
+  final String kind;
+  /// Bumped per refusal, so tapping GO again shows the dialog again.
+  final int seq;
+  AccountHoldState(this.message, {this.kind = 'manual', this.seq = 0});
+  @override List<Object?> get props => [message, kind, seq];
 }
 // A mid-ride face check came back mismatched/unanswered on a previous ride —
 // the server refused to let this driver go online again until they re-verify.
@@ -44,6 +56,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   bool isOnline = false;
   DriverModel? driver;
   Map<String, String> summary = {};
+  int _holdSeq = 0;
 
   HomeBloc() : super(HomeInitial()) {
     on<LoadHomeDataEvent>(_onLoad);
@@ -90,16 +103,28 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     // Going online specifically can be refused server-side (face verification
     // lock) — check that BEFORE touching local state or the foreground
     // service, so a refusal doesn't leave the UI showing "online" anyway.
+    String? zoneChangedTo;
     if (e.isOnline) {
       try {
         // No fix yet → send none. A made-up point (this used to be Ahmedabad)
         // put the driver in another city for dispatch until the first ping.
         final pos = await LocationService.getCurrentLocation();
         final res = await DriverApiService.setOnline(true, pos?.latitude, pos?.longitude);
+        if (res['accountHold'] == true) {
+          final msg = (res['error'] ?? '').toString();
+          emit(AccountHoldState(
+            msg.isNotEmpty ? msg : 'Your account is on hold. Please contact support.',
+            kind: (res['holdKind'] ?? 'manual').toString(),
+            seq: ++_holdSeq,
+          ));
+          return;
+        }
         if (res['faceVerificationRequired'] == true) {
           emit(FaceVerificationLockedState((res['faceVerificationReason'] ?? 'mismatch').toString()));
           return;
         }
+        final z = (res['zoneChangedTo'] ?? '').toString();
+        if (z.isNotEmpty) zoneChangedTo = z;
       } catch (_) {/* network blip — proceed optimistically, same as before */}
     } else {
       try { await DriverApiService.setOnline(false); } catch (_) {}
@@ -119,6 +144,6 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         await RideAlertService.stop();
       }
     } catch (_) {}
-    emit(OnlineStatusChanged(e.isOnline));
+    emit(OnlineStatusChanged(e.isOnline, zoneChangedTo: zoneChangedTo));
   }
 }

@@ -36,11 +36,7 @@ class AuthOfflineState extends AuthState {
   @override List<Object?> get props => [_nonce];
 }
 class RegistrationSubmittedState extends AuthState {}
-// Documents saved but bank details (the last registration step) not yet —
-// server registrationStep == 'bank'. Resumes at the bank page instead of
-// sending the driver back to onboarding/login.
-class RegistrationBankPendingState extends AuthState {}
-/// Registration started but not finished, at a step before bank details.
+/// Registration started but not submitted yet.
 class RegistrationResumeState extends AuthState {
   final ResumeStep step;
   final Map<String, dynamic> driver;
@@ -48,15 +44,19 @@ class RegistrationResumeState extends AuthState {
   @override List<Object?> get props => [step];
 }
 
-/// Where an unfinished registration picks up again.
-enum ResumeStep { personal, face, vehicle, documents }
+/// Where an unfinished registration picks up again. [submit] is a driver whose
+/// documents an older app build saved (server step 'bank'): bank details are
+/// no longer asked for, so the app only submits the application
+/// (POST /register/submit) — it never opens a bank form.
+enum ResumeStep { personal, face, vehicle, documents, submit }
 
 /// The registration page to resume at for [driver], from the server's own
 /// registrationStep — the only steps it writes are 'otp' (account created),
 /// 'vehicle' (personal details saved), 'documents' (vehicle saved), 'bank'
 /// (documents saved) and 'submitted'. The selfie writes no step of its own,
 /// only faceSignatureSavedAt, so 'vehicle' without it means the selfie is
-/// still to do. Null for 'bank', 'submitted' and any value not listed here.
+/// still to do. 'bank' resumes at [ResumeStep.submit]. Null for 'submitted'
+/// and any value not listed here.
 ResumeStep? resumeStepFor(Map<String, dynamic>? driver) {
   if (driver == null) return null;
   final step = (driver['registrationStep'] ?? '').toString();
@@ -72,6 +72,8 @@ ResumeStep? resumeStepFor(Map<String, dynamic>? driver) {
       return faceDone ? ResumeStep.vehicle : ResumeStep.face;
     case 'documents':
       return ResumeStep.documents;
+    case 'bank':
+      return ResumeStep.submit;
     default:
       return null;
   }
@@ -121,11 +123,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           } else if (regStep == 'submitted') {
             emit(RegistrationSubmittedState());
             return;
-          } else if (regStep == 'bank') {
-            emit(RegistrationBankPendingState());
-            return;
           }
-          // Closed part-way through (after the selfie, after the vehicle…):
+          // Closed part-way through (after the selfie, after the vehicle,
+          // documents saved by an older build but not submitted…):
           // resume at that step instead of sending a signed-in driver back to
           // onboarding and login.
           final resume = resumeStepFor(driverData);

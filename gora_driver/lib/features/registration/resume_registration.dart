@@ -3,6 +3,7 @@ import '../auth/bloc/auth_bloc.dart';
 import 'document_upload_page.dart';
 import 'face_capture_page.dart';
 import 'personal_details_page.dart';
+import 'submit_application_page.dart';
 import 'vehicle_selection_page.dart';
 
 /// Opens the registration page for [step] as the only route — used from the
@@ -16,7 +17,10 @@ void openRegistrationStep(NavigatorState nav, ResumeStep step, {String phone = '
     // reached straight from personal details.
     ResumeStep.face => (FaceCapturePage.route, {'zoneId': driver?['zoneId'], 'zoneName': driver?['zoneName']}),
     ResumeStep.vehicle => (VehicleSelectionPage.route, null),
-    ResumeStep.documents => (DocumentUploadPage.route, null),
+    // The documents asked for depend on the vehicle type chosen earlier.
+    ResumeStep.documents => (DocumentUploadPage.route, {'vehicleType': driver?['selectedVehicleTypeName']}),
+    // Documents already saved (server step 'bank'): submit, no bank form.
+    ResumeStep.submit => (SubmitApplicationPage.route, {'driver': driver}),
   };
   nav.pushNamedAndRemoveUntil(route, (_) => false, arguments: args);
 }

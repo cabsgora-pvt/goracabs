@@ -17,6 +17,9 @@ class _PreferencesPageState extends State<PreferencesPage> {
   // Admin allow-gates (a disallowed service is hidden here)
   bool _allowTaxi = true, _allowRental = true, _allowOutstation = true, _allowHireDriver = true, _allowDelivery = true;
   bool _loading = true, _saving = false;
+  // Admin-defined ride preferences and the ones this driver offers
+  List<RidePrefDef> _prefDefs = const [];
+  Set<String> _ridePrefs = {};
 
   @override
   void initState() {
@@ -25,12 +28,14 @@ class _PreferencesPageState extends State<PreferencesPage> {
   }
 
   Future<void> _loadCurrent() async {
+    final defs = loadRidePrefDefs();
     try {
       final res = await DriverApiService.getProfile();
       // Accept both shapes: { driver: {...} } or the driver object directly.
       final d = (res['driver'] ?? res) as Map?;
       if (d != null && mounted) {
         setState(() {
+          _ridePrefs = ridePrefKeysOf(d['ridePreferences']);
           _outstation = d['acceptsOutstation'] == true;
           _rental = d['acceptsRental'] == true;
           _hireDriver = d['acceptsHireDriver'] == true;
@@ -43,8 +48,9 @@ class _PreferencesPageState extends State<PreferencesPage> {
         });
       }
     } catch (_) {}
+    final loadedDefs = await defs;
     // Always clear the loader — never leave the page stuck on the spinner.
-    if (mounted) setState(() => _loading = false);
+    if (mounted) setState(() { _prefDefs = loadedDefs; _loading = false; });
   }
 
   Future<void> _savePrefs() async {
@@ -55,6 +61,8 @@ class _PreferencesPageState extends State<PreferencesPage> {
         'acceptsRental': _rental,
         'acceptsHireDriver': _hireDriver,
         'acceptsDelivery': _delivery,
+        // Only sent once the list loaded, so a failed load never clears them.
+        if (_prefDefs.isNotEmpty) 'ridePreferences': _ridePrefs.toList(),
       });
       if (!mounted) return;
       if (res['error'] != null) {
@@ -67,6 +75,7 @@ class _PreferencesPageState extends State<PreferencesPage> {
         _rental = (prefs?['acceptsRental'] as bool?) ?? _rental;
         _hireDriver = (prefs?['acceptsHireDriver'] as bool?) ?? _hireDriver;
         _delivery = (prefs?['acceptsDelivery'] as bool?) ?? _delivery;
+        if (prefs?['ridePreferences'] is List) _ridePrefs = ridePrefKeysOf(prefs?['ridePreferences']);
       });
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preferences saved'), backgroundColor: AppColors.green));
     } catch (e) {
@@ -130,6 +139,11 @@ class _PreferencesPageState extends State<PreferencesPage> {
                       value: _valueOf(s.key),
                       onChanged: (v) => _setValue(s.key, v),
                     )),
+                RidePrefsSection(
+                  defs: _prefDefs,
+                  selected: _ridePrefs,
+                  onChanged: (key, on) => setState(() => on ? _ridePrefs.add(key) : _ridePrefs.remove(key)),
+                ),
                 const SizedBox(height: 18),
                 PrimaryButton(
                   label: _saving ? 'Saving...' : 'Save Preferences',

@@ -14,6 +14,24 @@ class DriverProvider extends ChangeNotifier {
   double get walletBalance => _walletBalance ?? 0;
   bool get balanceLoaded => _walletBalance != null;
   bool get isLowBalance => balanceLoaded && walletBalance <= 0;
+  // Below zero the server stops offering (and accepting) cash rides.
+  bool get isWalletNegative => balanceLoaded && walletBalance < 0;
+
+  String get zoneName => (_data?['zoneName'] ?? '').toString();
+
+  /// Account hold from the profile: {kind, reason, message} or null.
+  Map<String, dynamic>? get hold {
+    final h = _data?['hold'];
+    return h is Map ? Map<String, dynamic>.from(h) : null;
+  }
+  String get holdMessage {
+    final h = hold;
+    if (h == null) return '';
+    final m = (h['message'] ?? '').toString();
+    if (m.isNotEmpty) return m;
+    final r = (h['reason'] ?? '').toString();
+    return r.isNotEmpty ? 'Your account is on hold: $r' : 'Your account is on hold. Please contact support.';
+  }
 
   String get name => _data?['name'] as String? ?? '';
   String get phone => _data?['phone'] as String? ?? '';
