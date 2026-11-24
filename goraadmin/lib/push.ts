@@ -86,8 +86,8 @@ async function credentials(): Promise<Creds | null> {
   // they were saved into rather than silently doing nothing.
   if (!value) {
     try {
-      const { getSettings } = await import('./settings')
-      value = fromBlock((getSettings() as any)?.firebase)
+      const { getSettingsAsync } = await import('./settings')
+      value = fromBlock((await getSettingsAsync() as any)?.firebase)
     } catch {
       // No settings file, or unreadable — the Mongo result stands.
     }

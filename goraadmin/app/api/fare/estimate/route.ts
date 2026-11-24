@@ -7,8 +7,8 @@ import VehicleType from '@/models/VehicleType'
 import { pointInPolygon, distanceKm } from '@/lib/geo'
 import { etaByVehicleType, getEtaFactor, displayRoadKm } from '@/lib/eta'
 import { withCors, corsOptions } from '@/lib/cors'
-import { getSettings } from '@/lib/settings'
-import { signQuote, quoteCell } from '@/lib/quote'
+import { getSettingsAsync } from '@/lib/settings'
+import { signQuote, quoteCell, stopsKey, weightKey, hireHours } from '@/lib/quote'
 import { rateLimit } from '@/lib/rate-limit'
 
 export async function OPTIONS() { return corsOptions() }
@@ -16,7 +16,7 @@ export async function OPTIONS() { return corsOptions() }
 // Ask Google for road distance + duration (used by outstation fare)
 async function fetchDirections(originLat: number, originLng: number, destLat: number, destLng: number) {
   try {
-    const s: any = getSettings()
+    const s: any = await getSettingsAsync()
     const key = s?.maps?.googleMapsApiKey || s?.maps?.javascriptApiKey || ''
     if (!key) return null
     const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLng}&destination=${destLat},${destLng}&mode=driving&key=${key}`
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
         }
         if (!zoneH || nd > 25) return withCors({ available: false, message: 'Hire a Driver not available here' })
       }
-      const hours = Math.max(1, Math.ceil(totalHours || 0))
+      const hours = hireHours(totalHours)
       const hirePricing = (zoneH.pricing || []).filter((p: any) => p.service === 'hire_driver' && p.isActive !== false)
       const nearH = await etaByVehicleType(
         Driver,
@@ -90,6 +90,8 @@ export async function POST(req: NextRequest) {
           quoteToken: signQuote({
             service: 'hire_driver', vehicleType: p.vehicleTypeName, fare,
             cell: quoteCell(pickupLat, pickupLng, null, null),
+            // Hours, rate and trip type all change the price: signed with it.
+            x: { tripType: isHireRT ? 'round_trip' : 'one_way', hours, perHour },
           }),
           etaMin: eta?.min ?? null,
           driverDistanceKm: eta?.km ?? null,
@@ -224,6 +226,10 @@ export async function POST(req: NextRequest) {
           quoteToken: signQuote({
             service: 'outstation', vehicleType: v.name, fare,
             cell: quoteCell(pickupLat, pickupLng, dropLat, dropLng),
+            x: {
+              tripType: isRT ? 'round_trip' : 'one_way', stops: stopsKey(stopPts), days,
+              nh: breakdown.nightHalt || 0, er: breakdown.emptyReturn || 0,
+            },
           }),
           etaMin: eta?.min ?? null,
           driverDistanceKm: eta?.km ?? null,
@@ -346,6 +352,7 @@ export async function POST(req: NextRequest) {
           quoteToken: signQuote({
             service, vehicleType: p.vehicleTypeName, fare,
             cell: quoteCell(pickupLat, pickupLng, dropLat, dropLng),
+            x: { stops: stopsKey(stops), weight: service === 'delivery' ? weightKey(weightKg) : 0 },
           }),
           // null = no driver currently available of this type
           etaMin: eta?.min ?? null,

@@ -1,53 +1,49 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
-import Ride from '@/models/Ride'
 import { guardAdmin } from '@/lib/admin-guard'
+import { financeTotals, istMidnight, istMonthStart } from '@/lib/finance'
 
-// GET → finance summary: rides, gross revenue, admin commission profit, driver payout
+// GET → finance summary (all time + today + this month, IST).
+// Revenue, commission and payout count only rides whose payment was collected
+// (lib/finance.ts); completed rides still awaiting an online payment are in
+// pending*. Existing fields kept: totalRides, grossRevenue, totalCommission,
+// totalDriverPayout, todayCommission, todayRevenue.
 export async function GET(req: NextRequest) {
   try {
     const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
 
-    const startOfDay = new Date()
-    startOfDay.setHours(0, 0, 0, 0)
-
-    const [allAgg, todayAgg] = await Promise.all([
-      Ride.aggregate([
-        { $match: { status: 'completed' } },
-        {
-          $group: {
-            _id: null,
-            totalRides: { $sum: 1 },
-            grossRevenue: { $sum: { $ifNull: ['$totalFare', '$fare'] } },
-            totalCommission: { $sum: { $ifNull: ['$commissionAmount', 0] } },
-            totalDriverPayout: { $sum: { $ifNull: ['$driverEarning', 0] } },
-          },
-        },
-      ]),
-      Ride.aggregate([
-        { $match: { status: 'completed', completedAt: { $gte: startOfDay } } },
-        {
-          $group: {
-            _id: null,
-            todayCommission: { $sum: { $ifNull: ['$commissionAmount', 0] } },
-            todayRevenue: { $sum: { $ifNull: ['$totalFare', '$fare'] } },
-          },
-        },
-      ]),
+    const [all, today, month] = await Promise.all([
+      financeTotals(),
+      financeTotals({ from: istMidnight() }),
+      financeTotals({ from: istMonthStart() }),
     ])
 
-    const a = allAgg[0] || {}
-    const t = todayAgg[0] || {}
-
     return NextResponse.json({
-      totalRides: a.totalRides || 0,
-      grossRevenue: a.grossRevenue || 0,
-      totalCommission: a.totalCommission || 0,   // ADMIN PROFIT
-      totalDriverPayout: a.totalDriverPayout || 0,
-      todayCommission: t.todayCommission || 0,
-      todayRevenue: t.todayRevenue || 0,
+      totalRides: all.completedRides,
+      grossRevenue: all.collectedRevenue,
+      totalCommission: all.commission,   // ADMIN PROFIT (before franchise share)
+      totalDriverPayout: all.driverPayout,
+      todayCommission: today.commission,
+      todayRevenue: today.collectedRevenue,
+      // added
+      bookedRevenue: all.bookedRevenue,
+      pendingRevenue: all.pendingRevenue,
+      pendingRides: all.pendingRides,
+      pendingOnlineRevenue: all.pendingOnlineRevenue,
+      pendingOnlineRides: all.pendingOnlineRides,
+      franchiseShare: all.rideFranchiseShare,
+      subscriptionRevenue: all.subscriptionRevenue,
+      subscriptionFranchiseShare: all.subscriptionFranchiseShare,
+      cancellationFeesCollected: all.cancellationFeesCollected,
+      refunds: all.refunds,
+      refundsOnCompletedRides: all.refundsOnCompletedRides,
+      netCollectedRevenue: all.netCollectedRevenue,
+      platformNet: all.platformNet,
+      today,
+      month,
+      timezone: 'Asia/Kolkata',
     })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

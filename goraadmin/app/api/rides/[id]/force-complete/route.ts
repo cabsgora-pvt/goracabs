@@ -1,50 +1,34 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
+import mongoose from 'mongoose'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
-import { requireAuth } from '@/lib/auth'
+import { requireAdmin } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
+import { completeRide } from '@/lib/settlement'
 
 export async function OPTIONS() { return corsOptions() }
 
 // Admin escape hatch for a ride that has been priced but never settled — e.g.
 // a cash rental where the driver's app died between collecting the money and
-// calling /complete. Without this the ride sits at status 'ongoing' with
-// rentalPhase 'completed' forever and the commission is never taken.
-//
-// This deliberately does NOT reimplement settlement: it clears awaitingPayment
-// and forwards to /rides/{id}/complete so there is exactly one place where
-// money moves.
+// calling /complete. Admin only. It calls the single settlement path
+// (lib/settlement.ts completeRide) directly — no HTTP hop, so nothing depends
+// on the request's Host header. Same rules as the driver ending the ride: only
+// an ongoing ride, and an online ride is left awaiting its payment.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const admin = requireAuth(req) as any
+    const admin = requireAdmin(req) as any
     if (!admin?.id) return withCors({ error: 'Unauthorized' }, 401)
+    if (!mongoose.isValidObjectId(params.id)) return withCors({ error: 'Ride not found' }, 404)
 
     await connectDB()
-    const ride: any = await Ride.findById(params.id)
+    const ride: any = await Ride.findById(params.id).select('status').lean()
     if (!ride) return withCors({ error: 'Ride not found' }, 404)
     if (ride.status === 'completed') return withCors({ error: 'Already completed' }, 400)
     if (ride.status === 'cancelled') return withCors({ error: 'Ride was cancelled' }, 400)
 
-    ride.awaitingPayment = false
-    await ride.save()
-
-    // Reuse the single settlement path (commission split, wallet, Transaction).
-    const url = new URL(`/api/rides/${params.id}/complete`, req.nextUrl.origin)
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // Forward the admin's credentials so /complete's ownership check can be
-        // satisfied by the admin-override branch below.
-        authorization: req.headers.get('authorization') || '',
-        cookie: req.headers.get('cookie') || '',
-        'x-admin-override': '1',
-      },
-      body: '{}',
-    })
-    const data = await res.json()
-    return withCors({ forced: true, ...data }, res.status)
+    const out = await completeRide(params.id, { kind: 'admin', id: String(admin.id) })
+    return withCors({ forced: true, ...out.body }, out.status)
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)
   }

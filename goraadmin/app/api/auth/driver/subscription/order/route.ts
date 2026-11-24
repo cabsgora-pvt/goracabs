@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
+import mongoose from 'mongoose'
 import { connectDB } from '@/lib/mongodb'
 import SubscriptionPlan from '@/models/SubscriptionPlan'
 import { requireDriverAuth } from '@/lib/auth'
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { planId } = await req.json()
-    if (!planId) return withCors({ error: 'planId required' }, 400)
+    if (!planId || !mongoose.isValidObjectId(String(planId))) return withCors({ error: 'planId required' }, 400)
     console.log(`[SubOrder] driver=${payload.id} planId=${planId}`)
 
     await connectDB()
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
 
     const receipt = `sub_${payload.id}_${Date.now()}`.slice(0, 40)
     const result = await createRazorpayOrder(price, receipt, {
-      driverId: String(payload.id), planId: String(planId), purpose: 'subscription',
+      driverId: String(payload.id), planId: String(plan._id), purpose: 'driver_subscription',
     })
     if (!result.ok) return withCors({ error: result.error }, 502)
 

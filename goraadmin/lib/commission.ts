@@ -37,9 +37,25 @@ export function hasActiveSubscription(driver: any, now = Date.now()): boolean {
     && new Date(driver.subscriptionExpiresAt).getTime() > now)
 }
 
+/**
+ * Whether the driver's subscription covers this ride. It must be active now AND
+ * have started no later than the moment the driver accepted the ride — so a
+ * 1-day pass bought half-way through a big trip does not wipe its commission.
+ * Renewals keep subscriptionStartedAt (subscription/buy only resets it on a
+ * fresh purchase), so a continuously subscribed driver is unaffected. Rides
+ * with no acceptedAt (legacy) or drivers with no start date keep the old rule.
+ */
+export function subscriptionCoversRide(driver: any, ride: any, now = Date.now()): boolean {
+  if (!hasActiveSubscription(driver, now)) return false
+  const accepted = ride?.acceptedAt ? new Date(ride.acceptedAt).getTime() : NaN
+  const started = driver?.subscriptionStartedAt ? new Date(driver.subscriptionStartedAt).getTime() : NaN
+  if (Number.isFinite(accepted) && Number.isFinite(started) && started > accepted) return false
+  return true
+}
+
 /** The commission % this driver pays on this ride. */
 export async function commissionPercentFor(driver: any, ride: any): Promise<number> {
-  if (hasActiveSubscription(driver)) return Math.max(0, Number(driver.subscriptionCommissionPercent) || 0)
+  if (subscriptionCoversRide(driver, ride)) return Math.max(0, Number(driver.subscriptionCommissionPercent) || 0)
   if (ride.commissionPercent != null) return ride.commissionPercent
   const zone: any = ride.zoneId ? await Zone.findById(ride.zoneId).select('pricing').lean() : null
   const p = zone?.pricing?.find((x: any) => x.vehicleTypeName === ride.vehicleType && x.service === ride.service)

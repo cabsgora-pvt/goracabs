@@ -13,8 +13,9 @@
 //   wallet → the rider's own, still-unlinked ride debit from the last few
 //            minutes (claimed atomically, so one debit can back only one ride)
 //   online → a Razorpay order whose signature verifies, that Razorpay itself
-//            reports as paid, and whose notes name this rider and purpose
-//            'ride' (we stamped those notes when creating the order)
+//            reports as paid, and whose notes name this rider and are a PREPAY
+//            order (isPrepayOrder: purpose 'outstation_prepay', or legacy
+//            'ride' with no rideId created in the last 30 minutes)
 // A client-sent amount is never trusted.
 //
 // When a ride was charged upfront but the payment cannot be tied to it (an app
@@ -35,7 +36,28 @@ export function chargedAtBooking(service: string, paymentMode: string): boolean 
   return service === 'outstation' && (paymentMode === 'wallet' || paymentMode === 'online')
 }
 
-type Linked = { amount: number; via: 'wallet' | 'online'; ref: string }
+export type Linked = { amount: number; via: 'wallet' | 'online'; ref: string }
+
+/** A legacy prepay order (purpose 'ride', no rideId) only counts this fresh. */
+export const LEGACY_PREPAY_ORDER_MS = 30 * 60 * 1000
+
+/**
+ * Whether a Razorpay order is an outstation PREPAYMENT (as opposed to a
+ * post-ride payment, a wallet top-up, ...). New app builds create these with
+ * notes.purpose 'outstation_prepay'. Older builds used purpose 'ride' with no
+ * rideId; those count only when the order was created in the last 30 minutes.
+ * A purpose 'ride' order that names a rideId is a payment FOR that ride and is
+ * never a prepayment — so it can neither back a booking nor be "refunded" by a
+ * refused booking.
+ */
+export function isPrepayOrder(o: any, now = Date.now()): boolean {
+  const purpose = String(o?.notes?.purpose || '')
+  if (purpose === 'outstation_prepay') return true
+  if (purpose !== 'ride') return false
+  if (String(o?.notes?.rideId || '')) return false
+  const created = Number(o?.created_at) * 1000
+  return Number.isFinite(created) && created > 0 && now - created <= LEGACY_PREPAY_ORDER_MS
+}
 
 async function linkWallet(ride: any, riderId: string): Promise<Linked | null> {
   const since = new Date(new Date(ride.createdAt || Date.now()).getTime() - PREPAY_WALLET_WINDOW_MS)
@@ -68,7 +90,7 @@ async function linkOnline(ride: any, riderId: string, prepaid: any): Promise<Lin
   if (!res.ok || !res.order) return null
   const o = res.order
   if (String(o.notes?.userId || '') !== String(riderId)) return null
-  if (String(o.notes?.purpose || '') !== 'ride') return null
+  if (!isPrepayOrder(o)) return null
   const amount = Math.round((Number(o.amount_paid) || 0)) / 100
   if (amount <= 0) return null
   if (amount > (Number(ride.totalFare ?? ride.fare) || 0) + 1) return null
@@ -101,8 +123,8 @@ export type RefusedRefund = { amount: number; via: 'wallet' | 'online'; balance:
  *
  * Same trust rules as linking: only money the server itself can verify —
  *   wallet → the rider's own unlinked ride debit from the last few minutes
- *   online → a verified, paid Razorpay order with this rider's notes, purpose
- *            'ride', not already tied to a ride
+ *   online → a verified, paid Razorpay PREPAY order (isPrepayOrder) with this rider's notes,
+ *            not already tied to a ride
  * It is refunded to the rider's Gora wallet, the convention every refund here
  * follows (lib/refunds.ts). Each payment can be claimed once, atomically:
  * a retried or doubled request refunds nothing more. Never throws.
@@ -139,7 +161,7 @@ export async function refundRefusedPrepayment(riderId: string, body: any): Promi
     if (!res.ok || !res.order) return null
     const o = res.order
     if (String(o.notes?.userId || '') !== String(riderId)) return null
-    if (String(o.notes?.purpose || '') !== 'ride') return null
+    if (!isPrepayOrder(o)) return null
     const amount = Math.round(Number(o.amount_paid) || 0) / 100
     if (amount <= 0) return null
     if (await Ride.exists({ prepaidRef: paymentId })) return null
@@ -163,6 +185,49 @@ async function credit(riderId: string, amount: number, token: string, txRef: str
     note: 'Refund: your outstation trip could not be booked', source: 'refund', ref: txRef,
   })
   return { amount, via, balance: user.walletBalance || 0 }
+}
+
+/**
+ * Claims the upfront payment for a ride that is ABOUT to be created (its _id
+ * chosen by the caller), from a server-verified source only. Used by
+ * /rides/book, which refuses (402) to create a prepaid ride whose verified
+ * payment does not cover the fare. Never throws.
+ */
+export async function claimPrepayment(
+  ride: { _id: any; service: string; paymentMode: string; totalFare: number; fare: number; createdAt?: Date },
+  riderId: string | undefined,
+  body: any,
+): Promise<Linked | null> {
+  if (!chargedAtBooking(String(ride.service || ''), String(ride.paymentMode || ''))) return null
+  if (!riderId) return null
+  try {
+    return ride.paymentMode === 'wallet'
+      ? await linkWallet(ride, String(riderId))
+      : await linkOnline(ride, String(riderId), body?.prepaid)
+  } catch (e) {
+    console.error('[prepay] claim failed', e)
+    return null
+  }
+}
+
+/**
+ * Gives back a prepayment claimed by claimPrepayment for a booking that was
+ * then refused (it did not cover the fare). Once per payment. Never throws.
+ */
+export async function refundClaimedPrepayment(riderId: string, linked: Linked): Promise<RefusedRefund | null> {
+  try {
+    const amount = Math.round((Number(linked.amount) || 0) * 100) / 100
+    if (amount <= 0) return null
+    if (linked.via === 'wallet') {
+      // The debit was claimed for the never-created ride; mark it refused.
+      await WalletTransaction.updateOne({ _id: linked.ref }, { $set: { ref: 'refused-booking' } })
+      return await credit(riderId, amount, `refund:refused:${linked.ref}`, `refund:refused:${linked.ref}`, 'wallet')
+    }
+    return await credit(riderId, amount, `refund:short:${linked.ref}`, `refund:refused:${linked.ref}`, 'online')
+  } catch (e) {
+    console.error('[prepay] refund of claimed prepayment failed', e)
+    return null
+  }
 }
 
 /**

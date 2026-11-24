@@ -1,32 +1,38 @@
 import { NextRequest } from 'next/server'
-import { writeFile } from 'fs/promises'
+import { writeFile, mkdir } from 'fs/promises'
 import path from 'path'
+import crypto from 'crypto'
 import { withCors, corsOptions } from '@/lib/cors'
-import { requireAuth, requireDriverAuth } from '@/lib/auth'
+import { requireDriverAuth, requireRider, requireAdmin } from '@/lib/auth'
+import { validateUpload, MAX_UPLOAD_BYTES } from '@/lib/upload-validate'
 
 export async function OPTIONS() { return corsOptions() }
 
 export async function POST(req: NextRequest) {
   try {
-    // Uploads write files to disk and were completely open — any caller could
-    // fill the server's storage or park arbitrary content on the domain.
-    // Any signed-in actor (rider, driver or admin) may upload; anonymous may not.
-    const asDriver = requireDriverAuth(req) as any
-    const asUser = requireAuth(req) as any
-    if (!asDriver?.id && !asUser?.id) return withCors({ error: 'Unauthorized' }, 401)
+    // Signed-in rider, driver or admin only.
+    const actor = (requireDriverAuth(req) as any) || (requireRider(req) as any) || (requireAdmin(req) as any)
+    if (!actor?.id) return withCors({ error: 'Unauthorized' }, 401)
 
-    const formData = await req.formData()
-    const file = formData.get('file') as File
-    if (!file) return withCors({ error: 'No file provided' }, 400)
+    // Refuse oversized bodies before buffering them.
+    const len = Number(req.headers.get('content-length') || 0)
+    if (len && len > MAX_UPLOAD_BYTES + 64 * 1024) return withCors({ error: 'File too large (max 8 MB)' }, 413)
 
-    const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
+    let formData: FormData
+    try { formData = await req.formData() } catch { return withCors({ error: 'No file provided' }, 400) }
+    const file = formData.get('file')
+    if (!file || typeof file === 'string') return withCors({ error: 'No file provided' }, 400)
+    if (file.size > MAX_UPLOAD_BYTES) return withCors({ error: 'File too large (max 8 MB)' }, 413)
 
-    const ext = file.name.split('.').pop() || 'jpg'
-    const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-    const uploadPath = path.join(process.cwd(), 'public', 'uploads', filename)
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const v = validateUpload(file.name, file.size, buffer)
+    if ('error' in v) return withCors({ error: v.error }, 400)
 
-    await writeFile(uploadPath, buffer)
+    // Extension from the detected content type, never the client's filename.
+    const filename = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}.${v.type.ext}`
+    const dir = path.join(process.cwd(), 'public', 'uploads')
+    await mkdir(dir, { recursive: true })
+    await writeFile(path.join(dir, filename), buffer)
 
     return withCors({ url: `/uploads/${filename}` })
   } catch (e) {

@@ -4,12 +4,11 @@ import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
 import { requireDriverAuth } from '@/lib/auth'
-import Settings from '@/models/Settings'
 import { crowKm, getEtaFactor, predictEtaMin, ETA_CONFIG } from '@/lib/eta'
-import { holdOf, holdMessage } from '@/lib/account-hold'
 import { withCors, corsOptions } from '@/lib/cors'
 import { pushToUserAsync } from '@/lib/push'
-import { driverIsBusy } from '@/lib/dispatch'
+import { driverIsBusy, driverEligibleFor, cachedGlobalSettings, acquireAcceptLease, releaseAcceptLease } from '@/lib/dispatch'
+import { driverSafeRide } from '@/lib/ride-view'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -23,65 +22,84 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const driver: any = await Driver.findById(payload.id).lean()
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
 
-    // Same wallet block the pending feed applies — the feed only hides rides,
-    // so without this a blocked driver could still accept one by id.
-    const settings: any = await Settings.findOne({ key: 'global' }).lean()
-    const da = settings?.driverApp || {}
-    const maxNeg = Math.abs(Number(da.maxNegativeWallet ?? 500))
-    if (da.walletBlockEnabled !== false && (driver.walletBalance || 0) < -maxNeg) {
-      return withCors({ error: `Low wallet balance (₹${Math.round(driver.walletBalance || 0)}). Please recharge to accept rides.` }, 403)
+    const pre: any = await Ride.findById(params.id).lean()
+    if (!pre) return withCors({ error: 'Ride not found' }, 404)
+
+    // Already this driver's — a repeat of an accept whose answer was lost
+    // (the app gives up after 20 s while the server still finishes).
+    if (String(pre.driverId || '') === String(driver._id) && ['accepted', 'arrived', 'ongoing'].includes(pre.status)) {
+      return withCors({ success: true, ride: driverSafeRide(pre), repeated: true })
+    }
+    if (pre.status !== 'pending') return withCors({ error: 'Ride already taken', code: 'RIDE_TAKEN' }, 409)
+
+    // ONE rule shared with the pending feed (lib/dispatch driverEligibleFor):
+    // approved, online, not held / face-locked, wallet, vehicle type, service
+    // allowed + opted in, zone, not declined, not offered exclusively to
+    // someone else, scheduled ride open, female-driver preference.
+    const settings = await cachedGlobalSettings()
+    const no = await driverEligibleFor(driver, pre, { settings })
+    if (no) {
+      const { status, ...body } = no
+      return withCors(body, status)
     }
 
-    // On hold (wrong face scan, wallet issue, admin): no rides.
-    const hold = holdOf(driver)
-    if (hold.held) return withCors({ error: holdMessage(hold), accountHold: true }, 403)
-
-    // A negative wallet means the driver owes commission already: cash rides
-    // (where the driver keeps the money) are paused; online and wallet rides,
-    // which settle through Gora, still come.
-    if ((driver.walletBalance || 0) < 0) {
-      const pre: any = await Ride.findById(params.id).select('paymentMode').lean()
-      if (pre?.paymentMode === 'cash') {
-        return withCors({ error: 'Your wallet is negative, so cash rides are paused. Recharge your wallet to take cash rides again.', cashPaused: true }, 403)
+    // One accept at a time per driver (a short lease on the driver document),
+    // so the busy check and the claim below cannot interleave with the same
+    // driver's accept of another ride. A second tap waits for the first.
+    const lease = await acquireAcceptLease(String(driver._id))
+    if (!lease) return withCors({ error: 'Another accept is in progress. Please try again.', code: 'ACCEPT_IN_PROGRESS' }, 409)
+    let ride: any
+    try {
+      // A busy driver (see BUSY in lib/dispatch.ts) takes no other ride. The feed hides requests from
+      // a busy driver; this stops one accepted from a stale screen or by id.
+      if (await driverIsBusy(String(driver._id), params.id)) {
+        return withCors({ error: 'Finish your current ride before accepting another', code: 'DRIVER_BUSY' }, 409)
       }
-    }
 
-    // A busy driver (see BUSY in lib/dispatch.ts) takes no other ride. The feed hides requests from
-    // a busy driver; this stops one accepted from a stale screen or by id.
-    // (The ride being accepted is excluded, so a repeated tap reads as before.)
-    if (await driverIsBusy(String(driver._id), params.id)) {
-      return withCors({ error: 'Finish your current ride before accepting another' }, 409)
-    }
-
-    // Atomic claim: only succeeds if still pending, and only for the vehicle
-    // type the rider booked (the feed is filtered the same way).
-    const ride: any = await Ride.findOneAndUpdate(
-      { _id: params.id, status: 'pending', vehicleType: driver.selectedVehicleTypeName },
-      {
-        $set: {
-          status: 'accepted',
-          driverId: driver._id,
-          driverName: driver.name,
-          driverPhone: driver.phone,
-          acceptedAt: new Date(),
+      // Atomic claim: only succeeds if still pending, for the vehicle type the
+      // rider booked, not declined by this driver, and not held by someone
+      // else's live offer — re-checked here so a race with the offer ladder
+      // cannot slip through between the read above and this write.
+      const now = new Date()
+      ride = await Ride.findOneAndUpdate(
+        {
+          _id: params.id, status: 'pending', vehicleType: driver.selectedVehicleTypeName,
+          rejectedBy: { $ne: String(driver._id) },
+          $or: [{ offeredTo: null }, { offeredTo: driver._id }, { offerExpiresAt: null }, { offerExpiresAt: { $lte: now } }],
         },
-      },
-      { new: true }
-    )
+        {
+          $set: {
+            status: 'accepted',
+            driverId: driver._id,
+            driverName: driver.name,
+            driverPhone: driver.phone,
+            acceptedAt: now,
+          },
+        },
+        { new: true }
+      )
 
-    if (!ride) {
-      const exists = await Ride.findById(params.id).lean()
-      if (!exists) return withCors({ error: 'Ride not found' }, 404)
-      if ((exists as any).vehicleType !== driver.selectedVehicleTypeName) {
-        return withCors({ error: 'This ride is for a different vehicle type' }, 403)
+      if (!ride) {
+        const exists: any = await Ride.findById(params.id).lean()
+        if (!exists) return withCors({ error: 'Ride not found' }, 404)
+        if (String(exists.driverId || '') === String(driver._id) && ['accepted', 'arrived', 'ongoing'].includes(exists.status)) {
+          return withCors({ success: true, ride: driverSafeRide(exists), repeated: true })
+        }
+        return withCors({ error: 'Ride already taken', code: 'RIDE_TAKEN' }, 409)
       }
-      // Already this driver's — a repeat of an accept whose answer was lost
-      // (the app gives up after 20 s while the server still finishes).
-      if (String((exists as any).driverId || '') === String(driver._id) && ['accepted', 'arrived', 'ongoing'].includes((exists as any).status)) {
-        const { otp: _o, dropOtp: _d, ...safe } = exists as any
-        return withCors({ success: true, ride: safe, repeated: true })
+
+      // Backstop for the double-acceptance race (e.g. a lease that expired
+      // mid-request): with this claim in, the driver must have no OTHER active
+      // ride due now. If they do, this claim is undone.
+      if (await driverIsBusy(String(driver._id), String(ride._id))) {
+        await Ride.updateOne(
+          { _id: ride._id, driverId: driver._id, status: 'accepted' },
+          { $set: { status: 'pending', driverId: null, driverName: null, driverPhone: null }, $unset: { acceptedAt: 1 } },
+        )
+        return withCors({ error: 'Finish your current ride before accepting another', code: 'DRIVER_BUSY' }, 409)
       }
-      return withCors({ error: 'Ride already taken' }, 409)
+    } finally {
+      await releaseAcceptLease(String(driver._id), lease)
     }
 
     if (ride.service === 'outstation') {
@@ -139,8 +157,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     // The pickup and drop OTPs are the rider's to read out; GET /rides/:id
     // withholds them from drivers, so this must too.
-    const { otp: _otp, dropOtp: _dropOtp, ...safeRide } = ride.toObject ? ride.toObject() : ride
-    return withCors({ success: true, ride: safeRide, predictedEtaMin })
+    return withCors({ success: true, ride: driverSafeRide(ride.toObject ? ride.toObject() : ride), predictedEtaMin })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)
   }

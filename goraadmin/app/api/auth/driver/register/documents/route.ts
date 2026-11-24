@@ -5,6 +5,8 @@ import Driver from '@/models/Driver'
 import { requireDriverAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 import { missingRequiredDocs } from '@/lib/doc-types'
+import { registrationLocked, LOCKED_CODE } from '@/lib/driver-registration'
+import { uploadRef } from '@/lib/ride-view'
 
 export async function OPTIONS() {
   return corsOptions()
@@ -29,37 +31,73 @@ export async function POST(req: NextRequest) {
       return withCors({ error: 'Documents are required' }, 400)
     }
 
+    // Every image must be a file uploaded through /api/upload.
+    const docsIn: any[] = []
+    for (const doc of documents.slice(0, 30)) {
+      const front = uploadRef(doc?.frontUrl || doc?.fileUrl, req)
+      if (!front) return withCors({ error: `${doc?.name || 'Document'}: upload the photo again`, code: 'BAD_FILE_URL' }, 400)
+      let back: string | undefined
+      if (doc?.backUrl) {
+        const b2 = uploadRef(doc.backUrl, req)
+        if (!b2) return withCors({ error: `${doc?.name || 'Document'}: upload the back photo again`, code: 'BAD_FILE_URL' }, 400)
+        back = b2
+      }
+      docsIn.push({
+        name: String(doc.name || '').slice(0, 80),
+        type: doc.type ? String(doc.type).slice(0, 60) : undefined,
+        number: doc.number != null ? String(doc.number).slice(0, 60) : undefined,
+        fileUrl: front,
+        frontUrl: front,
+        backUrl: back,
+        expiryDate: doc.expiryDate ? String(doc.expiryDate).slice(0, 10) : undefined,
+        status: 'pending',
+        uploadedAt: new Date(),
+      })
+    }
+
     await connectDB()
-    const current: any = await Driver.findById(payload.id).select('selectedVehicleTypeName vehicleType').lean()
+    const current: any = await Driver.findById(payload.id).select('status registrationStep documents selectedVehicleTypeName vehicleType').lean()
     if (!current) return withCors({ error: 'Driver not found' }, 404)
 
-    const missing = await missingRequiredDocs(documents, current.selectedVehicleTypeName || current.vehicleType)
+    // Under review / approved (lib/driver-registration.ts): documents may only
+    // be ADDED — a type not on file yet, or one an admin rejected. A verified
+    // or pending document is never replaced, and the driver's status and
+    // registration step are left alone.
+    if (registrationLocked(current)) {
+      const existing: any[] = current.documents || []
+      const keyOf = (d: any) => String(d.type || d.name || '').toLowerCase()
+      const byKey = new Map<string, any>(existing.map(d => [keyOf(d), d]))
+      const added = docsIn.filter(d => { const e = byKey.get(keyOf(d)); return !e || e.status === 'rejected' })
+      if (!added.length) {
+        return withCors({ error: 'Your documents are already submitted. Contact support to change a document.', code: LOCKED_CODE }, 409)
+      }
+      const addedKeys = new Set(added.map(keyOf))
+      const merged = [...existing.filter(d => !addedKeys.has(keyOf(d))), ...added]
+      const missing = await missingRequiredDocs(merged, current.selectedVehicleTypeName || current.vehicleType)
+      const incomplete = missing.filter(m => addedKeys.has(String(m.key).toLowerCase()))
+      if (incomplete.length) {
+        return withCors({ error: `Please complete: ${incomplete.map(m => m.name).join(', ')}`, missing: incomplete.map(m => m.key) }, 400)
+      }
+      await Driver.updateOne({ _id: payload.id }, { $set: { documents: merged } })
+      return withCors({
+        success: true, registrationStep: current.registrationStep,
+        added: added.map(d => d.type || d.name),
+        ignored: docsIn.filter(d => !addedKeys.has(keyOf(d))).map(d => d.type || d.name),
+      })
+    }
+
+    const missing = await missingRequiredDocs(docsIn, current.selectedVehicleTypeName || current.vehicleType)
     if (missing.length) {
       return withCors({ error: `Please upload: ${missing.map(m => m.name).join(', ')}`, missing: missing.map(m => m.key) }, 400)
     }
 
-    const docs = documents.slice(0, 30).map((doc: {
-      name: string; type?: string; number?: string;
-      fileUrl?: string; frontUrl?: string; backUrl?: string; expiryDate?: string;
-    }) => ({
-      name: doc.name,
-      type: doc.type,
-      number: doc.number,
-      fileUrl: doc.frontUrl || doc.fileUrl,
-      frontUrl: doc.frontUrl || doc.fileUrl,
-      backUrl: doc.backUrl,
-      expiryDate: doc.expiryDate,
-      status: 'pending',
-      uploadedAt: new Date(),
-    }))
-
     const driver = await Driver.findByIdAndUpdate(
       payload.id,
       finish === true
-        ? { documents: docs, registrationStep: 'submitted', status: 'pending' }
-        : { documents: docs, registrationStep: 'bank' },
+        ? { documents: docsIn, registrationStep: 'submitted', status: 'pending' }
+        : { documents: docsIn, registrationStep: 'bank' },
       { new: true }
-    ).lean()
+    ).select('_id').lean()
 
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
     return withCors({ success: true, registrationStep: finish === true ? 'submitted' : 'bank' })

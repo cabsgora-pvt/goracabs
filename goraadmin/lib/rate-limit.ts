@@ -5,9 +5,14 @@ import { NextRequest } from 'next/server'
 
 const hits = new Map<string, number[]>()
 
-function clientIp(req: NextRequest): string {
+// The LAST X-Forwarded-For entry is the one our nginx appended (the real peer);
+// earlier entries are whatever the client sent and are trivially spoofed.
+export function clientIp(req: NextRequest): string {
   const fwd = req.headers.get('x-forwarded-for')
-  if (fwd) return fwd.split(',')[0].trim()
+  if (fwd) {
+    const parts = fwd.split(',').map(s => s.trim()).filter(Boolean)
+    if (parts.length) return parts[parts.length - 1]
+  }
   return req.headers.get('x-real-ip') || 'unknown'
 }
 

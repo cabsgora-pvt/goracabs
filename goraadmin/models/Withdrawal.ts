@@ -13,5 +13,14 @@ const WithdrawalSchema = new Schema({
   status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
   processedAt: Date,
   note: String,              // rejection reason / admin note
+  // true = the amount was taken off the wallet when the driver requested it
+  // (approve just marks it paid, reject gives it back). Absent on requests made
+  // before holds existed — those are debited at approval instead.
+  holdPlaced: { type: Boolean, default: false },
+  holdReleased: { type: Boolean, default: false },
+  payoutRef: { type: String, default: '' },   // bank UTR / payout reference entered at approval
+  processedBy: { type: String, default: '' }, // admin email
 }, { timestamps: true })
+WithdrawalSchema.index({ driverId: 1, createdAt: -1 })
+WithdrawalSchema.index({ status: 1, createdAt: -1 })
 export default mongoose.models.Withdrawal || mongoose.model('Withdrawal', WithdrawalSchema)

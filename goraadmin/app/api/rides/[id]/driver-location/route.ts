@@ -1,21 +1,29 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
+import mongoose from 'mongoose'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
 import { withCors, corsOptions } from '@/lib/cors'
+import { rideActor, ACTIVE_STATUSES } from '@/lib/ride-view'
 
 export async function OPTIONS() { return corsOptions() }
 
 // GET /api/rides/{id}/driver-location
-// Returns the assigned driver's current lat/lng/heading + a freshness timestamp.
+// The assigned driver's current lat/lng/heading + a freshness timestamp.
 // Polled by the rider's map every 5s while the ride is accepted/arrived/ongoing.
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+// Only the ride's rider, its assigned driver or an admin may read it, and the
+// position is only given while the ride is accepted / arrived / ongoing —
+// before and after that `driver` is null. (It used to need no auth at all.)
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    if (!mongoose.isValidObjectId(params.id)) return withCors({ error: 'Ride not found' }, 404)
     await connectDB()
-    const ride: any = await Ride.findById(params.id).select('driverId status').lean()
+    const ride: any = await Ride.findById(params.id).select('riderId driverId status').lean()
     if (!ride) return withCors({ error: 'Ride not found' }, 404)
-    if (!ride.driverId) return withCors({ driver: null, status: ride.status })
+    const who = rideActor(req, ride)
+    if (!('actor' in who)) return withCors({ error: who.error, code: who.code }, who.status)
+    if (!ride.driverId || !ACTIVE_STATUSES.includes(ride.status)) return withCors({ driver: null, status: ride.status })
 
     const driver: any = await Driver.findById(ride.driverId)
       .select('currentLat currentLng currentHeading locationUpdatedAt')

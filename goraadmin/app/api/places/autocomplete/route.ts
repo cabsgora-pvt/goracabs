@@ -1,20 +1,26 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
 import { withCors, corsOptions } from '@/lib/cors'
-import { getSettings } from '@/lib/settings'
+import { getSettingsAsync } from '@/lib/settings'
+import { rateLimit } from '@/lib/rate-limit'
 
 export async function OPTIONS() { return corsOptions() }
 
 export async function GET(req: NextRequest) {
   try {
+    // Public endpoint that bills a paid Google API: capped per IP.
+    if (!rateLimit(req, 'places-autocomplete', 60, 60_000)) {
+      return withCors({ error: 'Too many requests, please slow down' }, 429)
+    }
     const q = req.nextUrl.searchParams.get('q') || ''
     if (q.length < 2) return withCors({ predictions: [] })
+    if (q.length > 200) return withCors({ error: 'Query too long' }, 400)
 
-    const s: any = getSettings()
+    const s: any = await getSettingsAsync()
     const key = s?.maps?.googleMapsApiKey || s?.maps?.javascriptApiKey || ''
     if (!key) return withCors({ error: 'Maps API key not configured' }, 500)
 
-    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(q)}&components=country:in&key=${key}`
+    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(q)}&components=country:in&key=${encodeURIComponent(key)}`
     const r = await fetch(url)
     const data = await r.json()
 
@@ -36,6 +42,6 @@ export async function GET(req: NextRequest) {
       }))
     return withCors({ predictions })
   } catch (e: any) {
-    return withCors({ error: e.message || 'Server error' }, 500)
+    return withCors({ error: 'Server error' }, 500)
   }
 }

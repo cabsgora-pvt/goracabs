@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import mongoose from 'mongoose'
 import { connectDB } from '@/lib/mongodb'
 import User from '@/models/User'
 import Ride from '@/models/Ride'
 import { guardAdmin } from '@/lib/admin-guard'
+import { softDeleteAccount } from '@/lib/account-delete'
 import { pick, USER_EDITABLE, validateAccountEdit } from '@/lib/admin-account'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
@@ -44,10 +46,14 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const denied = guardAdmin(req); if (denied) return denied
+    if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     await connectDB()
-    await User.findByIdAndDelete(params.id)
-    return NextResponse.json({ success: true })
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    // Soft delete only (lib/account-delete): history stays, PII is blanked,
+    // refused during a live ride or with money in the wallet.
+    const del = await softDeleteAccount('rider', params.id, { requireZeroBalance: true })
+    if (!del.ok) return NextResponse.json({ error: del.error }, { status: del.status })
+    return NextResponse.json({ success: true, softDeleted: true })
+  } catch {
+    return NextResponse.json({ error: 'Delete failed' }, { status: 500 })
   }
 }

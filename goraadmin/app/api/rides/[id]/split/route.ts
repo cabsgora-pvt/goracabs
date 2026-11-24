@@ -2,7 +2,9 @@ export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
-import { requireAuth } from '@/lib/auth'
+import mongoose from 'mongoose'
+import User from '@/models/User'
+import { requireRider, requireDriverAuth, requireAdmin } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 
 export async function OPTIONS() { return corsOptions() }
@@ -14,13 +16,37 @@ function normPhone(p: string): string {
   return digits.slice(-10)
 }
 
-// GET /api/rides/{id}/split → current split state (share amounts, who's paid)
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+// GET /api/rides/{id}/split → current split state (share amounts, who's paid).
+// Participants only: the ride's rider, its assigned driver, a co-rider named
+// in the split, or an admin. It used to be public and listed every
+// co-rider's phone number to anyone who knew a ride id. A co-rider sees the
+// other co-riders' numbers masked.
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    if (!mongoose.isValidObjectId(params.id)) return withCors({ error: 'Ride not found' }, 404)
+    const rider = requireRider(req) as any
+    const driver = requireDriverAuth(req) as any
+    const admin = requireAdmin(req) as any
+    if (!rider && !driver && !admin) return withCors({ error: 'Unauthorized' }, 401)
     await connectDB()
-    const ride: any = await Ride.findById(params.id).select('fare splitRequests splitCollected').lean()
+    const ride: any = await Ride.findById(params.id).select('fare riderId driverId splitRequests splitCollected').lean()
     if (!ride) return withCors({ error: 'Ride not found' }, 404)
-    return withCors({ fare: ride.fare || 0, splitRequests: ride.splitRequests || [], splitCollected: ride.splitCollected || 0 })
+    const reqs: any[] = ride.splitRequests || []
+    const isOwner = !!rider && String(ride.riderId) === String(rider.id)
+    const isDriver = !!driver && !!ride.driverId && String(ride.driverId) === String(driver.id)
+    let myPhone = ''
+    if (rider && !isOwner) {
+      const u: any = await User.findById(rider.id).select('phone').lean()
+      myPhone = normPhone(u?.phone || rider.phone || '')
+    }
+    const isCoRider = !!myPhone && reqs.some(s => s.phone === myPhone)
+    if (!isOwner && !isDriver && !isCoRider && !admin) return withCors({ error: 'Not a participant in this ride' }, 403)
+    const mask = (p: string) => (p && p.length >= 4 ? '******' + p.slice(-4) : '')
+    const list = reqs.map(s => ({
+      ...s,
+      phone: isOwner || admin || s.phone === myPhone ? s.phone : mask(s.phone),
+    }))
+    return withCors({ fare: ride.fare || 0, splitRequests: list, splitCollected: ride.splitCollected || 0 })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)
   }
@@ -32,7 +58,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 // payment attached to a number that no longer matches.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const payload = requireAuth(req) as any
+    const payload = requireRider(req) as any
     if (!payload) return withCors({ error: 'Unauthorized' }, 401)
     const { contacts } = await req.json()
     if (!Array.isArray(contacts) || contacts.length === 0 || contacts.length > 3) {

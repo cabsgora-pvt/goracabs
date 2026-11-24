@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
       status: { $in: ['accepted', 'arrived', 'ongoing'] },
     })
       .sort({ createdAt: -1 })
+      .select('-otp -dropOtp -otpAttempts -dropOtpAttempts -messages')
       .lean()
     if (!r) return withCors({ ride: null })
     // Format like /pending so the app's RideRequestModel.fromJson works.
@@ -32,7 +33,9 @@ export async function GET(req: NextRequest) {
       pickupLat: r.pickupLat, pickupLng: r.pickupLng, dropLat: r.dropLat, dropLng: r.dropLng,
       fare: r.fare, tip: r.tip, totalFare: r.totalFare, distance: r.distance, duration: r.duration,
       vehicleType: r.vehicleType, paymentMode: r.paymentMode, routePolyline: r.routePolyline,
-      status: r.status, otp: r.otp, createdAt: r.createdAt, stops: r.stops,
+      // The pickup OTP is the RIDER's to read out — never sent to the driver.
+      // otpLocked: 5 wrong codes were tried; support must unlock the ride.
+      status: r.status, otpLocked: !!r.otpLocked, dropOtpLocked: !!r.dropOtpLocked, createdAt: r.createdAt, stops: r.stops,
       service: r.service, tripType: r.tripType, cityFrom: r.cityFrom, cityTo: r.cityTo,
       departureAt: r.departureAt, returnAt: r.returnAt, numPassengers: r.numPassengers,
       packageHours: r.packageHours, packageKm: r.packageKm,

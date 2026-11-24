@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
 import { guardAdmin } from '@/lib/admin-guard'
+import { parsePaging, escapeRegex } from '@/lib/list-params'
 
 export async function GET(req: NextRequest) {
   try {
     const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const { searchParams } = new URL(req.url)
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '50')
-    const search = searchParams.get('search') || ''
+    const { page, limit, skip } = parsePaging(searchParams)
+    const search = escapeRegex((searchParams.get('search') || '').trim())
     const status = searchParams.get('status') || ''
 
     const query: any = {}
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     const total = await Driver.countDocuments(query)
     const drivers = await Driver.find(query)
       .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
+      .skip(skip)
       .limit(limit)
       .lean()
 

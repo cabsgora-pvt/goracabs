@@ -199,6 +199,9 @@ const RideSchema = new Schema({
   faceVerifyDueAt: Date,                 // when the next poll should demand a check; set lazily on first poll
   faceVerifyTriggered: { type: Boolean, default: false }, // already asked for one this ride — don't ask twice
   cancellationFee: { type: Number, default: 0 },
+  // Configured fee a rider owed for cancelling but which nothing collected
+  // (non-prepaid ride). Reporting only; see lib/refunds.ts.
+  cancellationFeeUncollected: { type: Number, default: 0 },
   // ── Money captured BEFORE a driver was found (outstation pays at booking) ──
   // Recorded at booking from a server-verified source — the rider's own wallet
   // debit row, or a signature-checked Razorpay order — never from a client
@@ -239,6 +242,46 @@ const RideSchema = new Schema({
   offerRound: { type: Number, default: 0 },   // how many candidates have been tried
   offerEtaMin: Number,                        // ETA quoted to the offered driver
   otp: String,
+  // ── Ride-OTP guessing guard (lib/ride-otp.ts) ──
+  // Every OTP check reserves one attempt atomically; after RIDE_OTP.MAX_ATTEMPTS
+  // wrong ones the code is locked (423) until an admin unlocks it
+  // (POST /api/rides/{id}/otp-unlock). The rider sees otpLocked on GET /rides/:id.
+  otpAttempts: { type: Number, default: 0 },
+  otpLocked: { type: Boolean, default: false },
+  dropOtpAttempts: { type: Number, default: 0 },
+  dropOtpLocked: { type: Boolean, default: false },
+  // /arrived: distance (km) from pickup when the driver was more than 1 km
+  // away by their last known fix, and whether that fix was too old to check.
+  arrivedFarKm: Number,
+  arrivedUnverified: Boolean,
+  // Scheduled rides: the offer ladder starts DISPATCH.SCHEDULE_LEAD_MIN before
+  // the due time (lib/dispatch activateScheduledRides), stamped here once.
+  dispatchActivatedAt: Date,
+  // Rental / hire extension asked for by the driver, waiting for the rider to
+  // confirm (action 'confirm_extend') — priced server-side, never by a client.
+  pendingExtension: {
+    type: new Schema({
+      kind: { type: String, enum: ['rental', 'hire'] },
+      hours: Number,
+      amount: Number,
+      addKm: Number,          // rental: included km the extension adds
+      requestedAt: Date,
+      expiresAt: Date,
+    }, { _id: false }),
+    default: undefined,
+  },
+  extensions: {
+    type: [{ kind: String, hours: Number, amount: Number, addKm: Number, requestedAt: Date, confirmedAt: Date, _id: false }],
+    default: undefined,
+  },
+  rentalLastPingAt: Date,
+  // Delivery state machine timestamps / failure proof.
+  collectedAt: Date,
+  failedAt: Date,
+  deliveryFailPhoto: String,
+  // Last 10 digits of receiverPhone, maintained by the pre-save hook below so
+  // the receiver's "incoming parcels" lookup is an indexed equality match.
+  receiverPhoneNorm: String,
   zoneId: { type: Schema.Types.ObjectId, ref: 'Zone' },
   // Online payment gating: driver ended an online ride → rider must pay before it completes
   awaitingPayment: { type: Boolean, default: false },
@@ -256,6 +299,36 @@ const RideSchema = new Schema({
   // are observed, so unlike the old observedSpeedKmph this cannot launder a
   // wrong circuity assumption back into the model.
   observedMinPerKm: Number,
+  // ── Booking-time money, all server-derived (rides/book) ──
+  // Coupon validated on the server (PromoCode or the admin AppConfig coupons
+  // list). For every service but rental `fare` stays the FULL quoted fare and
+  // couponDiscount comes off what the rider owes at completion; a rental's fare
+  // already has it taken off (legacy rule), so there it is informational only.
+  couponCode: String,
+  couponDiscount: { type: Number, default: 0 },
+  couponSource: String,            // 'promo' | 'app'
+  // Optional idempotency key from the rider app (one ride per rider + key).
+  clientRequestId: String,
+  // ── Settlement (lib/settlement.ts) ──
+  amountDue: Number,               // what the rider owes at completion (after split/coupon/prepay)
+  pendingCommission: Number,       // commission on the not-yet-settled portion
+  pendingDriverEarning: Number,    // what the driver is credited once an online ride is paid
+  pendingCoupon: Number,           // coupon taken off amountDue (Gora reimburses the driver on cash)
+  riderWalletDebit: Number,        // wallet ride: amount /complete debited from the rider
+  paymentSwitchedToCash: { type: Boolean, default: false },
+  couponReimbursed: Number,        // cash ride: coupon Gora credited back to the driver
+  paidAt: Date,
+  cashCollectedAt: Date,           // online ride converted to cash by the driver (collect-cash)
+  // A verified Razorpay payment for this ride (payment/razorpay/verify).
+  // `settled` once it paid the ride; a payment that could not be used is
+  // removed again and refunded to the rider's wallet.
+  onlinePayment: {
+    type: new Schema({
+      paymentId: String, orderId: String, amount: Number, at: Date,
+      settled: { type: Boolean, default: false },
+    }, { _id: false }),
+    default: undefined,
+  },
   // In-ride chat between rider and driver
   messages: [{
     sender: { type: String, enum: ['user', 'driver'] },
@@ -274,5 +347,39 @@ RideSchema.index({ 'franchiseShare.zoneAdminId': 1, completedAt: 1 }, { sparse: 
 RideSchema.index({ riderId: 1, createdAt: -1 })
 // Speed-profile aggregation scans completed rides with usable ETA telemetry.
 RideSchema.index({ observedMinPerKm: 1, arrivedAt: -1 })
+// Receiver's incoming-parcel list (rides/delivery/incoming).
+RideSchema.index({ receiverPhoneNorm: 1, createdAt: -1 }, { sparse: true })
+
+/** Last 10 digits of a phone number ('' when it has fewer than 10). */
+export function phoneLast10(p: any): string {
+  const d = String(p || '').replace(/\D/g, '')
+  return d.length >= 10 ? d.slice(-10) : ''
+}
+// Mongoose 9: sync pre hook (no `next`).
+RideSchema.pre('save', function () {
+  const doc: any = this
+  if (doc.isNew || doc.isModified('receiverPhone')) {
+    const n = phoneLast10(doc.receiverPhone)
+    doc.receiverPhoneNorm = n || undefined
+  }
+})
+// Booking idempotency: one ride per rider + clientRequestId (rides/book).
+RideSchema.index({ riderId: 1, clientRequestId: 1 }, { unique: true, partialFilterExpression: { clientRequestId: { $type: 'string' } } })
+RideSchema.index({ 'onlinePayment.paymentId': 1 }, { sparse: true })
+RideSchema.index({ riderId: 1, couponCode: 1 }, { sparse: true })
+
+// Driver history, zone reports, finance/completion reports, offer-expiry sweep,
+// pending-refund queue and scheduled-ride sweep (additive).
+RideSchema.index({ driverId: 1, createdAt: -1 })
+RideSchema.index({ zoneId: 1, createdAt: -1 })
+RideSchema.index({ status: 1, completedAt: -1 })
+RideSchema.index({ status: 1, offerExpiresAt: 1 })
+RideSchema.index({ refundPending: 1 }, { partialFilterExpression: { refundPending: true } })
+RideSchema.index({ scheduledAt: 1 })
+
+// Dev only: mongoose.models survives hot reloads (mongoose is an external
+// package), so a field added here would be silently stripped by the stale
+// schema until a server restart. Rebuild the model whenever this file reloads.
+if (process.env.NODE_ENV !== 'production' && mongoose.models.Ride) mongoose.deleteModel('Ride')
 
 export default mongoose.models.Ride || mongoose.model('Ride', RideSchema)

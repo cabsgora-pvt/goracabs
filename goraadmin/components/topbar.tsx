@@ -35,6 +35,16 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
 
+  // Sign out: clear the httpOnly admin_token cookie server-side (JS cannot),
+  // drop any token an older build left in localStorage, then go to /login.
+  const logout = async () => {
+    setDropdownOpen(false)
+    try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }) } catch {}
+    try { localStorage.removeItem('admin_token') } catch {}
+    router.replace('/login')
+    router.refresh()
+  }
+
   const fullscreen = () => {
     if (document.fullscreenElement) document.exitFullscreen?.()
     else document.documentElement.requestFullscreen?.().catch(() => {})
@@ -146,7 +156,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
               <Settings className="w-4 h-4" /> Profile Settings
             </Link>
             <button
-              onClick={() => router.push('/login')}
+              onClick={logout}
               className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50"
             >
               <LogOut className="w-4 h-4" /> Logout

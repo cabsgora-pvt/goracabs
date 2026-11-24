@@ -3,35 +3,66 @@ import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import { distanceKm } from '@/lib/geo'
-import { requireAuth, requireDriverAuth } from '@/lib/auth'
+import { requireDriverAuth, requireRider } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 import { rentalExtras } from '@/lib/ride-extras'
 import { secondsSince } from '@/lib/ride-phase'
+import {
+  parseExtraHours, priceRentalExtension, requestExtension, confirmExtension,
+  livePendingExtension, MAX_EXTEND_HOURS,
+} from '@/lib/ride-extension'
 
 export async function OPTIONS() { return corsOptions() }
 
 // POST /api/rides/{id}/rental  body.action:
-//  'start'    { lat, lng }        driver → mark start, set rentalStartedAt
-//  'ping'     { lat, lng }        driver → accumulate actualKm + actualHours
-//  'wait'     { isWaiting }       driver → toggle halt
-//  'addStop'  { address,lat,lng } rider  → append a destination
-//  'extend'   { extraHours }      driver → increase packageHours (+ included km)
-//  'end'      { lat, lng }        driver → finalize extras + finalFare
-//
-// AUTH: this route previously had NONE — no requireAuth, no requireDriverAuth,
-// no ownership check. Anyone who knew a rideId could end a live rental, extend
-// it, or spam pings to inflate the odometer. Actions are now split by role and
-// the caller must be the ride's own driver/rider.
+//  driver (the ASSIGNED driver, ride status 'ongoing'):
+//  'start'    { lat, lng }        mark start, set rentalStartedAt (idempotent)
+//  'ping'     { lat, lng, at? }   accumulate actualKm + actualHours. Implausible
+//                                 points are IGNORED (not stored): older than the
+//                                 last accepted ping (`at`, ms or ISO), a jump
+//                                 implying > MAX_KMPH since the last ping, or more
+//                                 than MAX_PING_KM in one ping.
+//  'wait'     { isWaiting }       toggle halt
+//  'extend'   { extraHours }      ASK the rider for 1..12 more hours, priced
+//                                 server-side → pendingExtension (nothing changes yet)
+//  'end'      { lat, lng }        finalize extras + finalFare
+//  rider (the ride's rider):
+//  'addStop'        { address,lat,lng }  append a destination (accepted/arrived/ongoing)
+//  'confirm_extend'                      apply pendingExtension: packageHours += h,
+//                                        packageKm += addKm, fare += amount
+//  'decline_extend'                      drop pendingExtension
 
 const DRIVER_ACTIONS = new Set(['start', 'ping', 'wait', 'extend', 'end'])
-const RIDER_ACTIONS = new Set(['addStop'])
-const MAX_EXTEND_HOURS = 12
+const RIDER_ACTIONS = new Set(['addStop', 'confirm_extend', 'decline_extend'])
+const RENTAL_PING = { MAX_KMPH: 150, MAX_PING_KM: 30, JITTER_KM: 0.02 }
+
+/** Distance to add for a move from the last anchor, or null when implausible. */
+function plausibleKm(ride: any, lat: number, lng: number, at: number): number | null {
+  if (ride.rentalLastLat == null || ride.rentalLastLng == null) return 0
+  const km = distanceKm({ lat: ride.rentalLastLat, lng: ride.rentalLastLng }, { lat, lng })
+  if (km <= RENTAL_PING.JITTER_KM) return 0
+  if (km > RENTAL_PING.MAX_PING_KM) return null
+  const since = ride.rentalLastPingAt || ride.rentalStartedAt
+  if (since) {
+    const hours = Math.max(0, (at - new Date(since).getTime()) / 3_600_000)
+    // A ~1 km tolerance absorbs a GPS fix landing a little late or early.
+    if (km > 1 && (hours <= 0 || km / hours > RENTAL_PING.MAX_KMPH)) return null
+  }
+  return km
+}
+
+function validFix(b: any): { lat: number; lng: number } | null {
+  const lat = b?.lat, lng = b?.lng
+  if (typeof lat !== 'number' || typeof lng !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) return null
+  return { lat, lng }
+}
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     await connectDB()
-    const b = await req.json()
-    const action = String(b.action || '')
+    const b = await req.json().catch(() => ({}))
+    const action = String(b?.action || '')
 
     if (!DRIVER_ACTIONS.has(action) && !RIDER_ACTIONS.has(action)) {
       return withCors({ error: 'Unknown action' }, 400)
@@ -41,7 +72,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (!ride) return withCors({ error: 'Ride not found' }, 404)
     if (ride.service !== 'rental') return withCors({ error: 'Not a rental ride' }, 400)
 
-    // ── Authorise: the assigned driver for driver actions, the rider for theirs
+    // ── Authorise from the token: the assigned driver for driver actions, the
+    // ride's rider for theirs.
     if (DRIVER_ACTIONS.has(action)) {
       const d = requireDriverAuth(req) as any
       if (!d?.id) return withCors({ error: 'Unauthorized' }, 401)
@@ -49,7 +81,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         return withCors({ error: 'Not your ride' }, 403)
       }
     } else {
-      const u = requireAuth(req) as any
+      const u = requireRider(req) as any
       if (!u?.id) return withCors({ error: 'Unauthorized' }, 401)
       if (!ride.riderId || String(ride.riderId) !== String(u.id)) {
         return withCors({ error: 'Not your ride' }, 403)
@@ -57,123 +89,115 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     // ── Idempotency: once billed, the rental is closed for changes ──
-    // Without this, calling 'end' twice recomputed actualHours against a fresh
-    // `now` each time, so finalFare grew on every extra call.
     if (ride.rentalPhase === 'completed' || ride.status === 'completed') {
       return withCors({ error: 'Rental already completed' }, 409)
     }
     if (ride.status === 'cancelled') return withCors({ error: 'Ride cancelled' }, 409)
+    const okStatus = action === 'addStop' ? ['accepted', 'arrived', 'ongoing'] : ['ongoing']
+    if (!okStatus.includes(ride.status)) {
+      return withCors({ error: `Not allowed while the ride is ${ride.status}`, code: 'NOT_ONGOING' }, 409)
+    }
 
     const now = new Date()
-
-    // A "waiting" rental should be parked. If the vehicle has clearly moved on
-    // from where it halted, waiting is auto-released and the odometer resumes —
-    // otherwise a driver could hold the toggle down and drive the whole rental
-    // for free, since km never accrue while waiting.
     const WAIT_DRIFT_KM = 0.5
-
-    // 'start' is idempotent. A reopened rental screen calls it again, and it
-    // used to answer 409 with no rental in the body — so the screen fell back to
-    // the phone's "now" and showed a clock reading 0:00 on a rental hours in.
-    // A repeat start changes nothing and returns the rental as it stands.
     let alreadyStarted = false
+    let ignoredPing = false
+    let pendingExtension: any = livePendingExtension(ride)
+
     if (action === 'start') {
       if (ride.rentalStartedAt) {
         alreadyStarted = true
       } else {
+        const f = validFix(b)
         ride.rentalStartedAt = now
+        ride.rentalLastPingAt = now
         ride.rentalPhase = 'ongoing'
-        ride.rentalLastLat = b.lat ?? ride.pickupLat
-        ride.rentalLastLng = b.lng ?? ride.pickupLng
+        ride.rentalLastLat = f ? f.lat : ride.pickupLat
+        ride.rentalLastLng = f ? f.lng : ride.pickupLng
         ride.actualKm = 0
         ride.actualHours = 0
       }
     } else if (action === 'ping') {
-      // Auto-release a "wait" the vehicle has driven away from.
-      if (ride.isWaiting && b.lat != null && b.lng != null && ride.rentalLastLat != null) {
-        const drift = distanceKm(
-          { lat: ride.rentalLastLat, lng: ride.rentalLastLng },
-          { lat: b.lat, lng: b.lng },
-        )
-        if (drift > WAIT_DRIFT_KM) {
-          ride.isWaiting = false
-          ride.actualKm = +(ride.actualKm + drift).toFixed(2)
-          ride.rentalLastLat = b.lat
-          ride.rentalLastLng = b.lng
-          ride.rentalPhase = ride.actualHours > ride.packageHours ? 'extra_time' : 'ongoing'
+      if (!ride.rentalStartedAt) return withCors({ error: 'Rental not started', code: 'NOT_STARTED' }, 409)
+      const f = validFix(b)
+      const atRaw = b.at != null ? new Date(typeof b.at === 'number' ? b.at : String(b.at)).getTime() : NaN
+      const at = Number.isFinite(atRaw) && atRaw <= now.getTime() + 60_000 ? Math.min(atRaw, now.getTime()) : now.getTime()
+      const last = ride.rentalLastPingAt ? new Date(ride.rentalLastPingAt).getTime() : 0
+      if (f && at <= last) {
+        ignoredPing = true          // older than the last accepted point
+      } else if (f) {
+        const km = plausibleKm(ride, f.lat, f.lng, at)
+        if (km == null) {
+          ignoredPing = true        // teleport / impossible speed — not stored
+        } else if (ride.isWaiting) {
+          // Auto-release a "wait" the vehicle has driven away from.
+          if (km > WAIT_DRIFT_KM) {
+            ride.isWaiting = false
+            ride.actualKm = +(ride.actualKm + km).toFixed(2)
+            ride.rentalLastLat = f.lat; ride.rentalLastLng = f.lng
+            ride.rentalLastPingAt = new Date(at)
+            ride.rentalPhase = ride.actualHours > ride.packageHours ? 'extra_time' : 'ongoing'
+          }
+        } else if (km > 0) {
+          ride.actualKm = +(ride.actualKm + km).toFixed(2)
+          ride.rentalLastLat = f.lat; ride.rentalLastLng = f.lng
+          ride.rentalLastPingAt = new Date(at)
         }
       }
-      // Accumulate distance from last point (skip while waiting)
-      if (!ride.isWaiting && b.lat != null && b.lng != null && ride.rentalLastLat != null) {
-        const d = distanceKm({ lat: ride.rentalLastLat, lng: ride.rentalLastLng }, { lat: b.lat, lng: b.lng })
-        if (d > 0.02) { // ignore GPS jitter < 20m
-          ride.actualKm = +(ride.actualKm + d).toFixed(2)
-          ride.rentalLastLat = b.lat
-          ride.rentalLastLng = b.lng
-        }
-      }
-      if (ride.rentalStartedAt) {
-        ride.actualHours = +(((now.getTime() - new Date(ride.rentalStartedAt).getTime()) / 3600000)).toFixed(2)
-      }
+      ride.actualHours = +(((now.getTime() - new Date(ride.rentalStartedAt).getTime()) / 3600000)).toFixed(2)
       if (ride.actualHours > ride.packageHours || ride.actualKm > ride.packageKm) {
         if (ride.rentalPhase === 'ongoing') ride.rentalPhase = 'extra_time'
       }
-      // NOTE: extraHoursCharge / extraKmCharge are deliberately NOT written
-      // here. They are the billed figures and belong to 'end' alone. The live
-      // projection below is returned but never persisted, so nothing can settle
-      // against a mid-ride estimate.
+      // extraHoursCharge / extraKmCharge are the billed figures and belong to
+      // 'end' alone; the live projection below is never persisted.
     } else if (action === 'wait') {
       ride.isWaiting = !!b.isWaiting
       ride.rentalPhase = b.isWaiting ? 'paused' : (ride.actualHours > ride.packageHours ? 'extra_time' : 'ongoing')
-      if (b.lat != null) { ride.rentalLastLat = b.lat; ride.rentalLastLng = b.lng } // reset anchor on resume
+      const f = validFix(b)
+      if (f) { ride.rentalLastLat = f.lat; ride.rentalLastLng = f.lng; ride.rentalLastPingAt = now } // reset anchor
     } else if (action === 'addStop') {
-      if (!b.address || b.lat == null || b.lng == null) {
-        return withCors({ error: 'address, lat and lng required' }, 400)
-      }
+      const f = validFix(b)
+      if (!b.address || !f) return withCors({ error: 'address, lat and lng required' }, 400)
       ride.rentalStops = ride.rentalStops || []
-      ride.rentalStops.push({ address: String(b.address), lat: b.lat, lng: b.lng, at: now })
+      if (ride.rentalStops.length >= 20) return withCors({ error: 'Too many stops' }, 400)
+      ride.rentalStops.push({ address: String(b.address).slice(0, 200), lat: f.lat, lng: f.lng, at: now })
     } else if (action === 'extend') {
-      const extra = Number(b.extraHours)
-      // Was unvalidated: a negative value shrank the package and instantly
-      // manufactured extra-hour charges.
-      if (!Number.isFinite(extra) || extra <= 0 || extra > MAX_EXTEND_HOURS) {
-        return withCors({ error: `extraHours must be between 1 and ${MAX_EXTEND_HOURS}` }, 400)
+      const extra = parseExtraHours(b.extraHours)
+      if (extra == null) return withCors({ error: `extraHours must be a whole number between 1 and ${MAX_EXTEND_HOURS}` }, 400)
+      const price = await priceRentalExtension(ride, extra)
+      pendingExtension = await requestExtension(ride, 'rental', extra, price.amount, price.addKm)
+      return withCors({ success: true, awaitingRiderConfirmation: true, pendingExtension, basis: price.basis })
+    } else if (action === 'confirm_extend') {
+      const done: any = await confirmExtension(ride._id, 'rental', (p) => ({ inc: { packageHours: p.hours, packageKm: p.addKm || 0 } }))
+      if (!done) return withCors({ error: 'No extension is waiting for your confirmation', code: 'NO_PENDING_EXTENSION' }, 409)
+      if (done.actualHours <= done.packageHours && done.actualKm <= done.packageKm && done.rentalPhase === 'extra_time') {
+        await Ride.updateOne({ _id: done._id, rentalPhase: 'extra_time' }, { $set: { rentalPhase: 'ongoing' } })
+        done.rentalPhase = 'ongoing'
       }
-      const oldHours = ride.packageHours || 0
-      // Scale included km off the ORIGINAL rate. The previous version divided by
-      // the already-updated hours, so packageKm came out identical every time
-      // and the rider paid extra-km for the hours they had just bought.
-      const perHrKm = oldHours > 0 ? (ride.packageKm || 0) / oldHours : 0
-      ride.packageHours = oldHours + extra
-      ride.packageKm = Math.round(perHrKm * ride.packageHours)
-      if (ride.actualHours <= ride.packageHours && ride.actualKm <= ride.packageKm) {
-        ride.rentalPhase = 'ongoing'
-      }
+      return respond(done, false, false, null)
+    } else if (action === 'decline_extend') {
+      await Ride.updateOne({ _id: ride._id }, { $unset: { pendingExtension: 1 } })
+      return withCors({ success: true, declined: true })
     } else if (action === 'end') {
       if (!ride.rentalStartedAt) return withCors({ error: 'Rental not started' }, 409)
-      if (b.lat != null && ride.rentalLastLat != null) {
-        const d = distanceKm({ lat: ride.rentalLastLat, lng: ride.rentalLastLng }, { lat: b.lat, lng: b.lng })
-        if (d > 0.02) ride.actualKm = +(ride.actualKm + d).toFixed(2)
+      const f = validFix(b)
+      if (f && !ride.isWaiting) {
+        const km = plausibleKm(ride, f.lat, f.lng, now.getTime())
+        if (km != null && km > 0) ride.actualKm = +(ride.actualKm + km).toFixed(2)
       }
       ride.actualHours = +(((now.getTime() - new Date(ride.rentalStartedAt).getTime()) / 3600000)).toFixed(2)
 
-      // Shared formula (lib/ride-extras.ts), proven identical to the inline
-      // version it replaces, so the bill and the rider's live total agree.
       const ex = rentalExtras(ride)
       ride.extraHoursCharge = ex.extraHoursCharge
       ride.extraKmCharge = ex.extraKmCharge
       const base = ride.fare || 0
       ride.finalFare = Math.round(base + ride.extraHoursCharge + ride.extraKmCharge + (ride.nightChargeRental || 0))
-      // totalFare drives what the rider is asked to pay — extras included.
       ride.totalFare = ride.finalFare + (ride.tip || 0)
       ride.rentalPhase = 'completed'
       ride.rentalEndedAt = now
-
-      // The ride is NOT marked completed here. Settlement (commission split,
-      // driver wallet, Transaction row) happens in /rides/{id}/complete, which
-      // the driver app calls after collecting cash and the rider app calls
-      // after paying online. Completing inline was why rentals never produced
-      // any commission at all.
+      ride.pendingExtension = undefined
+      pendingExtension = null
+      // Settlement happens in /rides/{id}/complete, never here.
       if (ride.paymentMode === 'online' || ride.paymentMode === 'wallet') {
         ride.awaitingPayment = true
         ride.paymentStatus = 'pending'
@@ -181,43 +205,36 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     await ride.save()
-
-    // Same formula 'end' uses, so the running total and the final bill cannot
-    // drift apart and surprise the rider.
-    const live = rentalExtras(ride)
-    const liveExtraHrs = live.extraHours
-    const liveExtraKms = live.extraKm
-    const liveExtraCharge = Math.round(live.total)
-
-    return withCors({
-      success: true,
-      alreadyStarted,
-      rental: {
-        // Server-clock seconds since the rental began, so the driver's clock
-        // does not inherit the phone's time error. Null before the start.
-        elapsedSec: secondsSince(ride.rentalStartedAt),
-        // Live, non-binding projection of what the extras have reached so far.
-        // The driver could see the phase flip to 'extra_time' but had no idea
-        // how much money was accruing — the charges were only ever computed at
-        // 'end', by which point the rider is already being handed a bill.
-        liveExtraHours: liveExtraHrs,
-        liveExtraKm: liveExtraKms,
-        liveExtraCharge: liveExtraCharge,
-        phase: ride.rentalPhase, isWaiting: ride.isWaiting,
-        actualHours: ride.actualHours, actualKm: ride.actualKm,
-        packageHours: ride.packageHours, packageKm: ride.packageKm,
-        extraHoursCharge: ride.extraHoursCharge, extraKmCharge: ride.extraKmCharge,
-        nightCharge: ride.nightChargeRental || 0,
-        baseFare: ride.fare || 0,
-        finalFare: ride.finalFare,
-        totalFare: ride.totalFare,
-        awaitingPayment: !!ride.awaitingPayment,
-        status: ride.status,
-        rentalStartedAt: ride.rentalStartedAt,
-        rentalStops: ride.rentalStops || [],
-      },
-    })
+    return respond(ride, alreadyStarted, ignoredPing, pendingExtension)
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)
   }
+}
+
+function respond(ride: any, alreadyStarted: boolean, ignoredPing: boolean, pendingExtension: any) {
+  const live = rentalExtras(ride)
+  return withCors({
+    success: true,
+    alreadyStarted,
+    ...(ignoredPing ? { ignoredPing: true } : {}),
+    rental: {
+      elapsedSec: secondsSince(ride.rentalStartedAt),
+      liveExtraHours: live.extraHours,
+      liveExtraKm: live.extraKm,
+      liveExtraCharge: Math.round(live.total),
+      phase: ride.rentalPhase, isWaiting: ride.isWaiting,
+      actualHours: ride.actualHours, actualKm: ride.actualKm,
+      packageHours: ride.packageHours, packageKm: ride.packageKm,
+      extraHoursCharge: ride.extraHoursCharge, extraKmCharge: ride.extraKmCharge,
+      nightCharge: ride.nightChargeRental || 0,
+      baseFare: ride.fare || 0,
+      finalFare: ride.finalFare,
+      totalFare: ride.totalFare,
+      awaitingPayment: !!ride.awaitingPayment,
+      status: ride.status,
+      rentalStartedAt: ride.rentalStartedAt,
+      rentalStops: ride.rentalStops || [],
+      pendingExtension: pendingExtension ?? livePendingExtension(ride),
+    },
+  })
 }

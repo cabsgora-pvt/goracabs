@@ -4,10 +4,17 @@ import { connectDB } from '@/lib/mongodb'
 import mongoose from 'mongoose'
 import Driver from '@/models/Driver'
 import Zone from '@/models/Zone'
-import Settings from '@/models/Settings'
-import Transaction from '@/models/Transaction'
 import { requireDriverAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
+import { registrationLocked, LOCKED_CODE } from '@/lib/driver-registration'
+import { uploadRef } from '@/lib/ride-view'
+
+// The driver document as the app reads it, without secrets/internal state.
+function publicDriver(driver: any) {
+  const o: any = driver?.toObject ? driver.toObject() : { ...driver }
+  delete o.faceSignature; delete o.walletRechargeRefs; delete o.acceptLeaseUntil
+  return o
+}
 
 export async function OPTIONS() {
   return corsOptions()
@@ -34,52 +41,55 @@ export async function POST(req: NextRequest) {
       : null
     if (!zone) return withCors({ error: 'Choose a valid service zone' }, 400)
 
+    // Locked once under review / approved (lib/driver-registration.ts): zone,
+    // gender and name are checked at approval. Re-sending the same values (an
+    // app re-opening the form) is harmless; changing them is refused.
+    if (registrationLocked(driver)) {
+      const changes: string[] = []
+      if (String(driver.zoneId || '') !== String(zone._id)) changes.push('zone')
+      if (['female', 'male', 'other'].includes(gender) && gender !== driver.gender) changes.push('gender')
+      if (String(name).trim() !== String(driver.name || '').trim()) changes.push('name')
+      if (changes.length) {
+        return withCors({
+          error: changes.includes('zone')
+            ? 'Your registration is already submitted. To change your zone, send a zone-change request from Settings → Zone.'
+            : `Your registration is already submitted. Contact support to change your ${changes.join(' / ')}.`,
+          code: LOCKED_CODE, locked: changes,
+        }, 409)
+      }
+      if (email) driver.email = email
+      await driver.save()
+      return withCors({ success: true, driver: publicDriver(driver), referralApplied: false })
+    }
+
     driver.name = name
     if (email) driver.email = email
     driver.state = state
     driver.zoneId = String(zone._id)
     driver.zoneName = zone.name || zoneName
     // Never over the face scan, which is the driver's photo once taken.
-    if (profilePicUrl && !driver.faceReferencePhotoUrl) driver.profilePicUrl = profilePicUrl
+    if (profilePicUrl && !driver.faceReferencePhotoUrl) {
+      const pic = uploadRef(profilePicUrl, req)
+      if (pic) driver.profilePicUrl = pic
+    }
     if (['female', 'male', 'other'].includes(gender)) driver.gender = gender
     driver.registrationStep = 'vehicle'
 
-    // ── Apply referral once (Yash referred Manoj → both get admin-set rewards) ──
+    // ── Referral: only RECORDED here. The rewards are paid once, when an admin
+    // approves this driver (drivers/{id}/approve) — paying at step 1 let anyone
+    // farm them with throwaway sign-ups that were never approved.
     let referralApplied = false
     const code = (referralCode || '').toString().trim().toUpperCase()
     if (code && !driver.referredBy && driver.referralCode !== code) {
-      const referrer: any = await Driver.findOne({ referralCode: code })
+      const referrer: any = await Driver.findOne({ referralCode: code }).select('_id').lean()
       if (referrer && String(referrer._id) !== String(driver._id)) {
-        const s: any = await Settings.findOne({ key: 'global' }).lean()
-        const ref = s?.driverApp?.referral || {}
-        const refereeReward = Math.round(Number(ref.refereeReward) || 0)
-        const referrerReward = Math.round(Number(ref.referrerReward) || 0)
-
         driver.referredBy = code
-        if (refereeReward > 0) {
-          driver.walletBalance = (driver.walletBalance || 0) + refereeReward
-          driver.referralEarnings = (driver.referralEarnings || 0) + refereeReward
-          await Transaction.create({
-            driverId: driver._id, type: 'recharge', amount: refereeReward,
-            description: `Referral bonus (joined with ${code})`, balanceAfter: driver.walletBalance,
-          })
-        }
-        referrer.referredCount = (referrer.referredCount || 0) + 1
-        if (referrerReward > 0) {
-          referrer.walletBalance = (referrer.walletBalance || 0) + referrerReward
-          referrer.referralEarnings = (referrer.referralEarnings || 0) + referrerReward
-          await Transaction.create({
-            driverId: referrer._id, type: 'recharge', amount: referrerReward,
-            description: `Referral reward (${driver.name || 'a driver'} joined)`, balanceAfter: referrer.walletBalance,
-          })
-        }
-        await referrer.save()
         referralApplied = true
       }
     }
 
     await driver.save()
-    return withCors({ success: true, driver, referralApplied })
+    return withCors({ success: true, driver: publicDriver(driver), referralApplied, referralRewardOnApproval: referralApplied })
   } catch (error: any) {
     return withCors({ error: error.message || 'Server error' }, 500)
   }

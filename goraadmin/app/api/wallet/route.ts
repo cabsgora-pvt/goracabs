@@ -1,16 +1,16 @@
 import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
-import { requireAuth } from '@/lib/auth'
+import { requireRider } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 import User from '@/models/User'
 import WalletTransaction from '@/models/WalletTransaction'
 
 export async function OPTIONS() { return corsOptions() }
 
-// GET /api/wallet → { balance, transactions } for the authed user
+// GET /api/wallet → { balance, transactions } for the authed rider
 export async function GET(req: NextRequest) {
   try {
-    const payload = requireAuth(req) as any
+    const payload = requireRider(req) as any
     if (!payload) return withCors({ error: 'Unauthorized' }, 401)
     await connectDB()
     const user = await User.findById(payload.id).select('walletBalance').lean() as any
@@ -22,25 +22,13 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/wallet  body: { amount }  → add money (no gateway; simulated recharge)
-export async function POST(req: NextRequest) {
-  try {
-    const payload = requireAuth(req) as any
-    if (!payload) return withCors({ error: 'Unauthorized' }, 401)
-    const { amount } = await req.json()
-    const amt = Math.round(Number(amount) || 0)
-    if (amt <= 0) return withCors({ error: 'Invalid amount' }, 400)
-    await connectDB()
-    const user = await User.findById(payload.id)
-    if (!user) return withCors({ error: 'User not found' }, 404)
-    user.walletBalance = (user.walletBalance || 0) + amt
-    await user.save()
-    await WalletTransaction.create({
-      userId: user._id, type: 'credit', amount: amt, balanceAfter: user.walletBalance,
-      note: 'Money added to wallet', source: 'recharge',
-    })
-    return withCors({ balance: user.walletBalance })
-  } catch {
-    return withCors({ error: 'Failed' }, 500)
-  }
+// POST /api/wallet used to add ANY amount the app sent to the rider's wallet
+// ("simulated recharge", no gateway) — i.e. it minted money. Gone: the only
+// way to add money is a Razorpay payment verified by the server
+// (/api/payment/razorpay/order + /verify, purpose 'wallet').
+export async function POST() {
+  return withCors({
+    error: 'Adding money without a payment is no longer supported. Please add money with online payment (Razorpay).',
+    gone: true,
+  }, 410)
 }

@@ -2,6 +2,14 @@ import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import { withCors, corsOptions } from '@/lib/cors'
 import AppConfig from '@/models/AppConfig'
+import { guardAdmin } from '@/lib/admin-guard'
+import { requireAdminPassword } from '@/lib/admin-password'
+
+// Only these top-level sections of the AppConfig document may be written. The
+// dashboard posts the whole doc back (with _id / timestamps / __v) — anything
+// outside this list is dropped rather than $set.
+const WRITABLE_KEYS = ['banners', 'offers', 'coupons', 'places', 'faqs', 'whyChooseUs', 'support', 'referral', 'version'] as const
+const APPS = ['user', 'driver']
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -10,6 +18,7 @@ export async function GET(req: NextRequest) {
   try {
     await connectDB()
     const app = req.nextUrl.searchParams.get('app') || 'user'
+    if (!APPS.includes(app)) return withCors({ error: 'Unknown app' }, 400)
     let cfg = await AppConfig.findOne({ app }).lean()
     if (!cfg) {
       cfg = (await AppConfig.create({ app })).toObject()
@@ -20,20 +29,27 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST /api/app-config  body: { app, ...sections }  → upsert (admin)
+// POST /api/app-config  body: { app, ...sections }  → upsert (admin + password)
 export async function POST(req: NextRequest) {
   try {
+    const denied = guardAdmin(req); if (denied) return denied
+    const pwdDenied = await requireAdminPassword(req); if (pwdDenied) return pwdDenied
     await connectDB()
-    const body = await req.json()
+    let body: any
+    try { body = await req.json() } catch { return withCors({ error: 'Invalid request' }, 400) }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return withCors({ error: 'Invalid request' }, 400)
     const app = body.app || 'user'
-    delete body.app
+    if (!APPS.includes(app)) return withCors({ error: 'Unknown app' }, 400)
+    const set: Record<string, any> = {}
+    for (const k of WRITABLE_KEYS) if (k in body) set[k] = body[k]
+    if (!Object.keys(set).length) return withCors({ error: 'Nothing to update' }, 400)
     const cfg = await AppConfig.findOneAndUpdate(
       { app },
-      { $set: { ...body, app } },
+      { $set: set },
       { new: true, upsert: true, setDefaultsOnInsert: true },
     ).lean()
     return withCors({ config: cfg })
   } catch (e: any) {
-    return withCors({ error: e.message }, 400)
+    return withCors({ error: e?.name === 'ValidationError' || e?.name === 'CastError' ? 'Invalid config' : 'Could not save config' }, 400)
   }
 }

@@ -16,6 +16,7 @@ export default function WithdrawalsPage() {
   const [approveTarget, setApproveTarget] = useState<any | null>(null)
   const [rejectTarget, setRejectTarget] = useState<any | null>(null)
   const [reason, setReason] = useState('')
+  const [payoutRef, setPayoutRef] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   const fetchWithdrawals = () => {
@@ -37,7 +38,7 @@ export default function WithdrawalsPage() {
       const res = await fetch(`/api/finance/withdrawals/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'approve' }),
+        body: JSON.stringify({ action: 'approve', payoutRef: payoutRef.trim() }),
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
@@ -132,7 +133,7 @@ export default function WithdrawalsPage() {
                       <td className="px-4 py-3">
                         {r.status === 'pending' && (
                           <div className="flex gap-2">
-                            <button type="button" onClick={() => setApproveTarget(r)}
+                            <button type="button" onClick={() => { setPayoutRef(''); setApproveTarget(r) }}
                               className="flex items-center gap-1 px-3 py-1 bg-green-50 text-green-700 rounded-lg text-xs font-medium hover:bg-green-100 border border-green-200">
                               <CheckCircle className="w-3.5 h-3.5" /> Approve
                             </button>
@@ -183,6 +184,12 @@ export default function WithdrawalsPage() {
               <div className="flex justify-between gap-4 pt-2 border-t border-gray-100">
                 <span className="text-gray-500">Amount</span>
                 <span className="font-bold text-gray-900 text-right">₹{(approveTarget.amount || 0).toLocaleString()}</span>
+              </div>
+              <div className="pt-2">
+                <label htmlFor="payout-ref" className="block text-gray-500 mb-1">Payout reference / UTR (optional)</label>
+                <input id="payout-ref" title="Payout reference" value={payoutRef} onChange={e => setPayoutRef(e.target.value)}
+                  placeholder="Bank UTR after you transfer the money"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
               </div>
             </div>
             <div className="p-5 border-t border-gray-100 flex justify-end gap-2">

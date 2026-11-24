@@ -47,5 +47,40 @@ module.exports = {
       error_file: '/var/log/goraadmin-speed-cron-error.log',
       out_file: '/var/log/goraadmin-speed-cron-out.log',
     },
+    // ── Scheduled every minute: due push notifications + dispatch sweep ───────
+    // scripts/cron-ping.js POSTs the endpoint with x-cron-secret and exits; PM2
+    // starts it again on the next tick (same one-shot pattern as above).
+    // REQUIRES: CRON_SECRET=<long random string> in the server's .env.local —
+    // the app and the pinger both read it from there. Without it the pinger
+    // refuses to run and the routes reject the call.
+    // /api/cron/dispatch returning 404 (not deployed yet) is tolerated.
+    {
+      name: 'goraadmin-cron-notifications',
+      cwd: '/var/www/goraadmin/goraadmin',
+      script: 'scripts/cron-ping.js',
+      args: '/api/cron/notifications',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: false,
+      cron_restart: '* * * * *',
+      env: { NODE_ENV: 'production', CRON_TARGET_URL: 'http://127.0.0.1:3000' },
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      error_file: '/var/log/goraadmin-cron-error.log',
+      out_file: '/var/log/goraadmin-cron-out.log',
+    },
+    {
+      name: 'goraadmin-cron-dispatch',
+      cwd: '/var/www/goraadmin/goraadmin',
+      script: 'scripts/cron-ping.js',
+      args: '/api/cron/dispatch',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: false,
+      cron_restart: '* * * * *',
+      env: { NODE_ENV: 'production', CRON_TARGET_URL: 'http://127.0.0.1:3000' },
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      error_file: '/var/log/goraadmin-cron-error.log',
+      out_file: '/var/log/goraadmin-cron-out.log',
+    },
   ],
 }

@@ -5,7 +5,28 @@ const DASHBOARD_PATHS = [
   '/dashboard', '/users', '/drivers', '/vehicles', '/services',
   '/zones', '/rides', '/finance', '/fleet', '/promos',
   '/support', '/notifications', '/banners', '/settings', '/zone-admins', '/zone-plans', '/zone-invoice',
+  '/account-requests', '/document-types', '/ride-preferences',
 ]
+
+// CORS allow-list. The rider/driver apps are native (no Origin header) and the
+// dashboard is same-origin, so only these browser origins may read responses
+// with credentials. Any other Origin gets no Access-Control-Allow-* headers.
+const ALLOWED_ORIGINS = new Set([
+  'https://goracabs.com',
+  'https://www.goracabs.com',
+  'http://localhost:3000',
+])
+
+function corsHeaders(origin: string | null): Record<string, string> {
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) return { Vary: 'Origin' }
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-admin-password, x-admin-override',
+    'Access-Control-Allow-Credentials': 'true',
+    Vary: 'Origin',
+  }
+}
 
 // The zone admin (franchise) panel has its own sign-in and cookie.
 function isZonePanelPath(pathname: string): boolean {
@@ -18,26 +39,16 @@ function isDashboardPath(pathname: string): boolean {
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
-  const origin = req.headers.get('origin') || '*'
+  const origin = req.headers.get('origin')
 
   // ── CORS for API ──
   if (pathname.startsWith('/api/')) {
+    const headers = corsHeaders(origin)
     if (req.method === 'OPTIONS') {
-      return new NextResponse(null, {
-        status: 204,
-        headers: {
-          'Access-Control-Allow-Origin': origin,
-          'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          'Access-Control-Allow-Credentials': 'true',
-        },
-      })
+      return new NextResponse(null, { status: 204, headers })
     }
     const res = NextResponse.next()
-    res.headers.set('Access-Control-Allow-Origin', origin)
-    res.headers.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS')
-    res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization')
-    res.headers.set('Access-Control-Allow-Credentials', 'true')
+    for (const [k, v] of Object.entries(headers)) res.headers.set(k, v)
     return res
   }
 

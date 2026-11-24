@@ -52,6 +52,9 @@ export default function UsersPage() {
     if (res.ok) {
       setUsers(prev => prev.filter(u => u._id !== id))
       setToast({ msg: 'User deleted', type: 'success' })
+    } else {
+      const d = await res.json().catch(() => ({}))
+      setToast({ msg: d.error || 'Delete failed', type: 'error' })
     }
   }
 

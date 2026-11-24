@@ -1,4 +1,4 @@
-import { getSettings } from '@/lib/settings'
+import { getSettingsAsync } from '@/lib/settings'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Coordinates → a readable address, shared by /api/places/reverse and the
@@ -49,13 +49,13 @@ export function pickBestAddress(results: any[]): string {
  */
 export async function reverseGeocode(lat: number, lng: number, timeoutMs = 3000): Promise<string> {
   try {
-    const s: any = getSettings()
+    const s: any = await getSettingsAsync()
     const key = s?.maps?.googleMapsApiKey || s?.maps?.javascriptApiKey || ''
     if (!key || !Number.isFinite(lat) || !Number.isFinite(lng)) return ''
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), timeoutMs)
     try {
-      const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${key}`, { signal: ctrl.signal })
+      const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${encodeURIComponent(key)}`, { signal: ctrl.signal })
       const data = await r.json()
       return data?.status === 'OK' ? pickBestAddress(data.results || []) : ''
     } finally {

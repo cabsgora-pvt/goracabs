@@ -1,7 +1,14 @@
 const mongoose = require('mongoose')
 const bcrypt = require('bcryptjs')
 
+const { assertSafeToWipe } = require('./_db-guard')
+
+// Seeding DELETES admins, users, drivers, rides, settings... first. Guarded by
+// scripts/_db-guard.js (dev/test DB name, or --i-know-this-wipes + typed name).
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/goraadmin'
+// No default admin password: set SEED_ADMIN_PASSWORD (8+ chars) to seed.
+const SEED_ADMIN_EMAIL = (process.env.SEED_ADMIN_EMAIL || 'admin@gora.com').toLowerCase()
+const SEED_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || ''
 
 // Inline schemas to avoid TypeScript compilation issues
 const AdminSchema = new mongoose.Schema({
@@ -86,6 +93,11 @@ const Settings = mongoose.models.Settings || mongoose.model('Settings', Settings
 const SOSContact = mongoose.models.SOSContact || mongoose.model('SOSContact', SOSSchema)
 
 async function seed() {
+  if (SEED_ADMIN_PASSWORD.length < 8) {
+    console.error('Refusing: set SEED_ADMIN_PASSWORD (at least 8 characters) for the seeded admin.')
+    process.exit(1)
+  }
+  await assertSafeToWipe(MONGODB_URI, 'DELETE and re-seed the')
   console.log('Connecting to MongoDB...')
   await mongoose.connect(MONGODB_URI)
   console.log('Connected!')
@@ -107,9 +119,9 @@ async function seed() {
   console.log('Cleared existing data')
 
   // Admin
-  const hashedPassword = await bcrypt.hash('admin123', 10)
-  await Admin.create({ name: 'Gora Admin', email: 'admin@gora.com', password: hashedPassword, role: 'admin' })
-  console.log('Admin created: admin@gora.com / admin123')
+  const hashedPassword = await bcrypt.hash(SEED_ADMIN_PASSWORD, 10)
+  await Admin.create({ name: 'Gora Admin', email: SEED_ADMIN_EMAIL, password: hashedPassword, role: 'admin' })
+  console.log(`Admin created: ${SEED_ADMIN_EMAIL} (password from SEED_ADMIN_PASSWORD)`)
 
   // Users
   const users = await User.insertMany([

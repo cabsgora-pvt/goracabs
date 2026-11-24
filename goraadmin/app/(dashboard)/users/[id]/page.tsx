@@ -72,6 +72,9 @@ export default function UserDetailPage() {
     if (res.ok) {
       setToast({ msg: 'User deleted', type: 'success' })
       setTimeout(() => router.push('/users'), 1000)
+    } else {
+      const d = await res.json().catch(() => ({}))
+      setToast({ msg: d.error || 'Delete failed', type: 'error' })
     }
   }
 

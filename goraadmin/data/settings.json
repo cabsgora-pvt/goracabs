@@ -18,14 +18,14 @@
   },
   "maps": {
     "provider": "google",
-    "googleMapsApiKey": "AIzaSyBUVrSVVulUrs5MZBwW0yLBFByA9Q_HwC4",
-    "javascriptApiKey": "AIzaSyDfWeamxWt0af0BaONmSMHBUAtekh-GoFc",
+    "googleMapsApiKey": "",
+    "javascriptApiKey": "",
     "mapboxToken": ""
   },
   "sms": {
     "provider": "smsindori",
     "smsindori": {
-      "authKey": "373543616273676f72613130301775052482",
+      "authKey": "",
       "senderId": "GORAOT",
       "route": "16",
       "templateId": "1107177495369252598",

@@ -8,6 +8,7 @@ import User from '@/models/User'
 import { rentalExtras, hireExtras } from '@/lib/ride-extras'
 import { requireAuth, requireDriverAuth, isAdminPayload } from '@/lib/auth'
 import { expireIfNoDriver } from '@/lib/dispatch'
+import { driverSafeRide, ACTIVE_STATUSES } from '@/lib/ride-view'
 
 // GET ride by id — also returns hydrated driver + rider sub-objects
 // (driver photo, plate, model, rating; rider photo) so both apps can render rich cards.
@@ -41,10 +42,16 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     }
 
     if (!isAdmin && !isRider) {
-      delete ride.otp
-      delete ride.dropOtp
-      if (!isAssigned) delete ride.riderPhone
+      ride = driverSafeRide(ride)
+      if (!isAssigned) {
+        // An open request: names and area only until a driver accepts it.
+        delete ride.riderPhone; delete ride.senderPhone; delete ride.receiverPhone
+        delete ride.messages; delete ride.deliveryStops
+        delete ride.rejectedBy
+      }
     }
+    // The driver's live position is only shared while the trip is live.
+    const live = ACTIVE_STATUSES.includes(ride.status)
 
     if (ride.driverId) {
       const d: any = await Driver.findById(ride.driverId)
@@ -67,10 +74,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           rating: d.rating,
           totalRides: d.totalRides,
           yearsActive,
-          currentLat: d.currentLat,
-          currentLng: d.currentLng,
-          currentHeading: d.currentHeading,
-          locationUpdatedAt: d.locationUpdatedAt,
+          currentLat: live ? d.currentLat : undefined,
+          currentLng: live ? d.currentLng : undefined,
+          currentHeading: live ? d.currentHeading : undefined,
+          locationUpdatedAt: live ? d.locationUpdatedAt : undefined,
           vehicleTypeName: d.selectedVehicleTypeName,
         }
       }

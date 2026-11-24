@@ -5,6 +5,7 @@ import Driver from '@/models/Driver'
 import { requireDriverAuth } from '@/lib/auth'
 import { holdOf, holdMessage } from '@/lib/account-hold'
 import { maybeAutoSwitchZone } from '@/lib/zone-auto'
+import { isTeleport } from '@/lib/geo-guard'
 import { withCors, corsOptions } from '@/lib/cors'
 
 export async function OPTIONS() { return corsOptions() }
@@ -43,7 +44,14 @@ export async function POST(req: NextRequest) {
     const la = Number(lat), ln = Number(lng)
     const realFix = isOnline && lat != null && lng != null && Number.isFinite(la) && Number.isFinite(ln)
       && !(la === 0 && ln === 0) && Math.abs(la) <= 90 && Math.abs(ln) <= 180
+    // A fix that jumps impossibly far from the last one is not stored (going
+    // online still works) — same guard as auth/driver/location.
+    let jump = false
     if (realFix) {
+      const prev: any = await Driver.findById(payload.id).select('currentLat currentLng locationUpdatedAt').lean()
+      jump = isTeleport(prev, la, ln)
+    }
+    if (realFix && !jump) {
       update.currentLat = la
       update.currentLng = ln
       update.locationUpdatedAt = new Date()
@@ -51,7 +59,7 @@ export async function POST(req: NextRequest) {
 
     const driver: any = await Driver.findByIdAndUpdate(payload.id, update, { new: true }).lean()
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
-    const zoneChangedTo = realFix ? await maybeAutoSwitchZone(String(driver._id), la, ln).catch(() => null) : null
+    const zoneChangedTo = realFix && !jump ? await maybeAutoSwitchZone(String(driver._id), la, ln).catch(() => null) : null
 
     return withCors({ success: true, isOnline: driver.isOnline, ...(zoneChangedTo ? { zoneChangedTo } : {}) })
   } catch (e: any) {

@@ -4,6 +4,7 @@ import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
 import { requireDriverAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
+import { registrationLocked } from '@/lib/driver-registration'
 
 export async function OPTIONS() {
   return corsOptions()
@@ -20,15 +21,18 @@ export async function POST(req: NextRequest) {
     }
 
     await connectDB()
+    const current: any = await Driver.findById(payload.id).select('status registrationStep').lean()
+    if (!current) return withCors({ error: 'Driver not found' }, 404)
+    const bankDetails = { accountHolderName, bankName, branch, accountNumber, ifscCode, accountType: accountType === 'current' ? 'current' : 'savings' }
+    // Under review / approved: save the bank details only — never move the
+    // driver's status (a blocked driver used to come back as 'pending' here).
     const driver = await Driver.findByIdAndUpdate(
       payload.id,
-      {
-        bankDetails: { accountHolderName, bankName, branch, accountNumber, ifscCode, accountType: accountType || 'savings' },
-        registrationStep: 'submitted',
-        status: 'pending',
-      },
+      registrationLocked(current)
+        ? { bankDetails }
+        : { bankDetails, registrationStep: 'submitted', status: 'pending' },
       { new: true }
-    ).lean()
+    ).select('_id').lean()
 
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
     return withCors({ success: true })

@@ -8,10 +8,11 @@ import Withdrawal from '@/models/Withdrawal'
 import SOSAlert from '@/models/SOSAlert'
 import AccountRequest from '@/models/AccountRequest'
 import { guardAdmin } from '@/lib/admin-guard'
+import { istMidnight, istMonthStart, FARE_EXPR } from '@/lib/finance'
 
-// Midnight India time, whatever the server's own timezone (UTC on the VPS).
-const IST = 5.5 * 3600e3
-const istMidnight = (daysAgo = 0) => new Date(Math.floor((Date.now() + IST) / 864e5) * 864e5 - IST - daysAgo * 864e5)
+// Days/months are India time (lib/finance.ts). Revenue and commission count
+// completed rides by completedAt, and only once their payment was collected
+// (paymentStatus 'paid'); completed rides awaiting payment are *Pending.
 
 export async function GET(req: NextRequest) {
   try {
@@ -19,12 +20,19 @@ export async function GET(req: NextRequest) {
     await connectDB()
     const today = istMidnight()
     const weekAgo = istMidnight(6)
-    const monthStart = (() => { const d = new Date(Date.now() + IST); return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) - IST) })()
+    const monthStart = istMonthStart()
 
     const sumRides = (match: any) => Ride.aggregate([
       { $match: match },
-      { $group: { _id: null, n: { $sum: 1 }, fare: { $sum: { $ifNull: ['$totalFare', '$fare'] } }, commission: { $sum: { $ifNull: ['$commissionAmount', 0] } } } },
-    ]).then(r => r[0] || { n: 0, fare: 0, commission: 0 })
+      {
+        $group: {
+          _id: null, n: { $sum: 1 },
+          fare: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, FARE_EXPR, 0] } },
+          commission: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, { $ifNull: ['$commissionAmount', 0] }, 0] } },
+          pending: { $sum: { $cond: [{ $ne: ['$paymentStatus', 'paid'] }, FARE_EXPR, 0] } },
+        },
+      },
+    ]).then(r => r[0] || { n: 0, fare: 0, commission: 0, pending: 0 })
 
     const [
       totalUsers, totalDrivers, onlineDrivers, todayRides, pendingApprovals, openTickets, pendingWithdrawals, recentRides,
@@ -60,21 +68,24 @@ export async function GET(req: NextRequest) {
       AccountRequest.countDocuments({ status: 'pending' }),
     ])
 
-    const chartAgg = await Ride.aggregate([
-      { $match: { createdAt: { $gte: weekAgo } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: '+05:30' } },
-          rides: { $sum: 1 },
-          revenue: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, { $ifNull: ['$totalFare', '$fare'] }, 0] } },
-        },
-      },
-      { $sort: { _id: 1 } },
+    const [ridesByDay, revenueByDay] = await Promise.all([
+      Ride.aggregate([
+        { $match: { createdAt: { $gte: weekAgo } } },
+        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: '+05:30' } }, rides: { $sum: 1 } } },
+      ]),
+      Ride.aggregate([
+        { $match: { status: 'completed', paymentStatus: 'paid', completedAt: { $gte: weekAgo } } },
+        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$completedAt', timezone: '+05:30' } }, revenue: { $sum: FARE_EXPR } } },
+      ]),
     ])
+    const days = new Map<string, { _id: string; rides: number; revenue: number }>()
+    for (const d of ridesByDay) days.set(d._id, { _id: d._id, rides: d.rides, revenue: 0 })
+    for (const d of revenueByDay) days.set(d._id, { _id: d._id, rides: days.get(d._id)?.rides || 0, revenue: d.revenue })
+    const chartAgg = Array.from(days.values()).sort((a, b) => a._id.localeCompare(b._id))
 
     const serviceAgg = await Ride.aggregate([
-      { $match: { status: 'completed', createdAt: { $gte: weekAgo } } },
-      { $group: { _id: '$service', revenue: { $sum: { $ifNull: ['$totalFare', '$fare'] } }, rides: { $sum: 1 } } },
+      { $match: { status: 'completed', paymentStatus: 'paid', completedAt: { $gte: weekAgo } } },
+      { $group: { _id: '$service', revenue: { $sum: FARE_EXPR }, rides: { $sum: 1 } } },
     ])
     const todayByService = await Ride.aggregate([
       { $match: { createdAt: { $gte: today } } },
@@ -95,6 +106,9 @@ export async function GET(req: NextRequest) {
       weekCompleted: weekDone.n,
       monthRevenue: monthDone.fare,
       monthCommission: monthDone.commission,
+      todayPending: todayDone.pending,
+      weekPending: weekDone.pending,
+      monthPending: monthDone.pending,
       liveNow,
       searchingNow,
       scheduledUpcoming,

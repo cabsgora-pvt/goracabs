@@ -3,10 +3,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import mongoose from 'mongoose'
 import { connectDB } from '@/lib/mongodb'
 import AccountRequest from '@/models/AccountRequest'
-import User from '@/models/User'
 import Driver from '@/models/Driver'
 import Zone from '@/models/Zone'
-import Ride from '@/models/Ride'
+import { softDeleteAccount } from '@/lib/account-delete'
 import { guardAdmin } from '@/lib/admin-guard'
 import { requireAdmin } from '@/lib/auth'
 
@@ -31,24 +30,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const note = String(b.note || '').trim().slice(0, 500)
 
     if (action === 'approve' && r.kind === 'delete') {
-      const Model: any = r.userType === 'driver' ? Driver : User
-      const doc: any = await Model.findById(r.userId)
-      if (!doc) return NextResponse.json({ error: 'Account no longer exists' }, { status: 404 })
-      if (r.userType === 'driver') {
-        const busy = await Ride.exists({ driverId: doc._id, status: { $in: ['accepted', 'arrived', 'ongoing'] } })
-        if (busy) return NextResponse.json({ error: 'Driver has a ride in progress — try after it ends' }, { status: 409 })
-      } else {
-        const busy = await Ride.exists({ riderId: doc._id, status: { $in: ['pending', 'accepted', 'arrived', 'ongoing'] } })
-        if (busy) return NextResponse.json({ error: 'Rider has a ride in progress — try after it ends' }, { status: 409 })
-      }
-      const stamp = Date.now()
-      doc.status = 'deleted'
-      doc.deletedAt = new Date()
-      doc.name = r.userType === 'driver' ? 'Deleted driver' : 'Deleted user'
-      doc.phone = `deleted_${stamp}_${doc.phone || ''}`.slice(0, 60)
-      doc.email = ''
-      if (r.userType === 'driver') { doc.isOnline = false; doc.fcmToken = '' }
-      await doc.save()
+      // Shared soft delete (lib/account-delete): refuses during a live ride,
+      // blanks PII, frees the phone, keeps ride and money history.
+      const del = await softDeleteAccount(r.userType === 'driver' ? 'driver' : 'rider', String(r.userId))
+      if (!del.ok) return NextResponse.json({ error: del.error }, { status: del.status })
     }
 
     if (action === 'approve' && r.kind === 'zone_change') {

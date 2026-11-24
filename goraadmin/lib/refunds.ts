@@ -38,6 +38,8 @@ import User from '@/models/User'
 import WalletTransaction from '@/models/WalletTransaction'
 import ServiceConfig from '@/models/ServiceConfig'
 import { chargedAtBooking } from './prepay'
+import { releasePromo } from './promo'
+import { settleOnlinePayment } from './settlement'
 
 /** Lease on a ride's refund work, so two concurrent runners do not both pay. */
 export const REFUND_LEASE_MS = 60_000
@@ -124,6 +126,7 @@ export async function settleCancelRefunds(rideId: any): Promise<number> {
 
 export type CancelOutcome = {
   error?: string
+  code?: string
   status?: number
   alreadyCancelled?: boolean
   ride?: any
@@ -147,6 +150,7 @@ export type CancelOutcome = {
 export async function cancelRide(rideId: any, by: string, reason?: string): Promise<CancelOutcome> {
   let ride: any = null
   let cancellationFee = 0
+  let uncollectedFee = 0
   let review: string | null = null
   for (let attempt = 0; attempt < 3 && !ride; attempt++) {
     const current: any = await Ride.findById(rideId).lean()
@@ -154,12 +158,32 @@ export async function cancelRide(rideId: any, by: string, reason?: string): Prom
     if (current.status === 'completed') return { error: 'Ride already completed', status: 400, cancellationFee: 0, review: null, refundedAmount: 0 }
     if (current.status === 'cancelled') return { alreadyCancelled: true, cancellationFee: 0, review: null, refundedAmount: 0 }
 
+    // A trip in progress is ended, not cancelled: cancelling an ongoing ride
+    // used to be free for the rider. Only an admin (or the driver, with a
+    // reason, e.g. a breakdown) may cancel one; the rider is told to end it.
+    if (current.status === 'ongoing') {
+      if (by === 'rider') {
+        return { error: 'Your trip has already started. Ask your driver to end the trip, or contact support.', code: 'endTrip', status: 400, cancellationFee: 0, review: null, refundedAmount: 0 }
+      }
+      if (by === 'driver' && !String(reason || '').trim()) {
+        return { error: 'A reason is required to cancel a trip in progress', code: 'reasonRequired', status: 400, cancellationFee: 0, review: null, refundedAmount: 0 }
+      }
+    }
+
     // Only charge the rider once a driver has actually committed to the trip.
-    // Cancelling a still-pending request stays free.
+    // Cancelling a still-pending request stays free. The fee is RECORDED only
+    // where it is actually collected — kept out of an outstation prepayment.
+    // For a cash/wallet/online ride there is nothing to take it from, so it is
+    // NOT recorded as charged; the configured amount is kept on the ride as
+    // cancellationFeeUncollected for reporting (no collection mechanism yet).
     cancellationFee = 0
+    uncollectedFee = 0
     if (by === 'rider' && ['accepted', 'arrived'].includes(current.status)) {
       const cfg: any = await ServiceConfig.findOne({ service: current.service }).lean().catch(() => null)
-      cancellationFee = Math.max(0, Number(cfg?.cancellationFee) || 0)
+      const configured = Math.max(0, Number(cfg?.cancellationFee) || 0)
+      const prepaid = Math.max(0, Number(current.prepaidAmount) || 0)
+      cancellationFee = Math.min(configured, prepaid)
+      uncollectedFee = configured - cancellationFee
     }
 
     // A ride whose upfront payment could not be verified, or one cancelled
@@ -174,6 +198,7 @@ export async function cancelRide(rideId: any, by: string, reason?: string): Prom
           cancelledBy: by,
           cancellationReason: reason || '',
           cancellationFee,
+          cancellationFeeUncollected: uncollectedFee,
           awaitingPayment: false,
           cancelledFromStatus: current.status,
           refundPending: true,
@@ -196,6 +221,13 @@ export async function cancelRide(rideId: any, by: string, reason?: string): Prom
   // Refund now; a failure is retried by the sweep (refundPending stays set).
   let refundedAmount = 0
   try { refundedAmount = await settleCancelRefunds(ride._id) } catch (e) { console.error('[cancel] refund failed', e) }
+  // An online payment made before the trip ended (held on the ride) goes back.
+  try {
+    const s = await settleOnlinePayment(String(ride._id))
+    if (s.state === 'refunded') refundedAmount += s.refunded || 0
+  } catch (e) { console.error('[cancel] online payment refund failed', e) }
+  // A coupon on a ride that never started is given back to the rider.
+  if (ride.couponCode && ride.cancelledFromStatus !== 'ongoing') await releasePromo(ride.couponCode, ride.couponSource, ride.riderId)
 
   return { ride, cancellationFee, review, refundedAmount }
 }

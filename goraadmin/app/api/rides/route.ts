@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import { guardAdmin } from '@/lib/admin-guard'
+import { parsePaging, escapeRegex } from '@/lib/list-params'
 
 // Admin ride list — carries rider phones and ride OTPs, so admin only.
 export async function GET(req: NextRequest) {
@@ -10,13 +11,12 @@ export async function GET(req: NextRequest) {
     const denied = guardAdmin(req); if (denied) return denied
     await connectDB()
     const { searchParams } = new URL(req.url)
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '50')
+    const { page, limit, skip } = parsePaging(searchParams)
     const status = searchParams.get('status') || ''
     const service = searchParams.get('service') || ''
     const dateFrom = searchParams.get('dateFrom') || ''
     const dateTo = searchParams.get('dateTo') || ''
-    const search = searchParams.get('search') || ''
+    const search = escapeRegex((searchParams.get('search') || '').trim())
 
     const query: any = {}
     if (status && status !== 'all') query.status = status
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
     const total = await Ride.countDocuments(query)
     const rides = await Ride.find(query)
       .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
+      .skip(skip)
       .limit(limit)
       .lean()
 

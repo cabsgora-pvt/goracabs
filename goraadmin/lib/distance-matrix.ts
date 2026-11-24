@@ -9,7 +9,7 @@
 // This is strictly an enhancement: every failure path returns null and the
 // caller keeps the lib/eta.ts model estimate.
 // ─────────────────────────────────────────────────────────────────────────────
-import { getSettings } from './settings'
+import { getSettingsAsync } from './settings'
 import { geoCell } from './eta'
 import type { LatLng } from './geo'
 
@@ -69,9 +69,9 @@ function writeCache(key: string, value: MatrixLeg, now: number) {
   }
 }
 
-function apiKey(): string {
+async function apiKey(): Promise<string> {
   try {
-    const s: any = getSettings()
+    const s: any = await getSettingsAsync()
     return s?.maps?.googleMapsApiKey || s?.maps?.javascriptApiKey || ''
   } catch {
     return ''
@@ -103,7 +103,7 @@ export async function matrixToDestination(
   })
   if (!pending.length) return result
 
-  const key = apiKey()
+  const key = await apiKey()
   if (!key) return result
 
   for (let i = 0; i < pending.length; i += MAX_ORIGINS_PER_CALL) {

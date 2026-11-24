@@ -48,6 +48,9 @@ export default function DriversPage() {
     if (res.ok) {
       setDrivers(prev => prev.filter(d => d._id !== id))
       setToast({ msg: 'Driver deleted', type: 'success' })
+    } else {
+      const d = await res.json().catch(() => ({}))
+      setToast({ msg: d.error || 'Delete failed', type: 'error' })
     }
   }
 

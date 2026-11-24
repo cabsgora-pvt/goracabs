@@ -10,8 +10,16 @@ let cached = (global as any).mongoose || { conn: null, promise: null }
 export async function connectDB() {
   if (cached.conn) return cached.conn
   if (!cached.promise) {
-    cached.promise = mongoose.connect(MONGODB_URI, { bufferCommands: false })
+    cached.promise = mongoose.connect(MONGODB_URI, { bufferCommands: false, serverSelectionTimeoutMS: 10_000 })
   }
-  cached.conn = await cached.promise
+  try {
+    cached.conn = await cached.promise
+  } catch (e) {
+    // A failed first connect must not stay cached: without this reset every
+    // later request awaited the same rejected promise until a process restart.
+    cached.promise = null
+    cached.conn = null
+    throw e
+  }
   return cached.conn
 }

@@ -6,7 +6,7 @@ import { withCors, corsOptions } from '@/lib/cors'
 import { pushToUserAsync, pushToDriverAsync } from '@/lib/push'
 import { guardRideActor } from '@/lib/admin-guard'
 import { cancelRide } from '@/lib/refunds'
-import { requireAuth, requireDriverAuth, isAdminPayload } from '@/lib/auth'
+import { requireRider, requireDriverAuth, requireAdmin } from '@/lib/auth'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -18,7 +18,7 @@ export async function OPTIONS() { return corsOptions() }
 // driver was compensated nothing.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const { cancelledBy, reason } = await req.json()
+    const { cancelledBy, reason } = await req.json().catch(() => ({} as any))
     await connectDB()
 
     // Only this ride's rider, its assigned driver, or an admin may act on it.
@@ -31,14 +31,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // caller's token, never from the body: a rider sending cancelledBy:'admin'
     // used to skip the fee (and would now get a full prepaid refund too).
     const asDriver = requireDriverAuth(req) as any
-    const asUser = requireAuth(req) as any
+    const asUser = requireRider(req) as any
+    const asAdmin = requireAdmin(req) as any
     let by: string
-    if (asDriver?.type === 'driver' && _r.driverId && String(_r.driverId) === String(asDriver.id)) by = 'driver'
-    else if (asUser?.type === 'user' && _r.riderId && String(_r.riderId) === String(asUser.id)) by = 'rider'
-    else if (isAdminPayload(asUser)) by = cancelledBy || 'admin'
+    if (asDriver?.id && _r.driverId && String(_r.driverId) === String(asDriver.id)) by = 'driver'
+    else if (asUser?.id && _r.riderId && String(_r.riderId) === String(asUser.id)) by = 'rider'
+    else if (asAdmin) by = ['admin', 'system'].includes(String(cancelledBy)) ? String(cancelledBy) : 'admin'
     else return withCors({ error: 'Not a participant in this ride' }, 403)
     const out = await cancelRide(params.id, by, reason)
-    if (out.error) return withCors({ error: out.error }, out.status || 400)
+    if (out.error) return withCors({ error: out.error, ...(out.code ? { code: out.code } : {}) }, out.status || 400)
     if (out.alreadyCancelled) return withCors({ success: true, alreadyCancelled: true })
     const { ride, cancellationFee, review, refundedAmount } = out
 
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       })
     }
 
-    return withCors({ success: true, cancellationFee, refundedAmount, ...(review ? { refundReview: review } : {}) })
+    return withCors({ success: true, cancellationFee, refundedAmount, ...(ride.cancellationFeeUncollected ? { cancellationFeeUncollected: ride.cancellationFeeUncollected } : {}), ...(review ? { refundReview: review } : {}) })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)
   }

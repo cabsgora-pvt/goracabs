@@ -3,8 +3,13 @@ import { NextRequest } from 'next/server'
 
 const JWT_SECRET = process.env.JWT_SECRET!
 
-export function signToken(payload: object) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' })
+/** Rider/driver tokens live 7 days (the apps re-login on 401). Admin tokens are
+ *  shorter-lived — pass ADMIN_TOKEN_TTL from the admin login route. */
+export const ADMIN_TOKEN_TTL = '12h'
+export const ADMIN_TOKEN_TTL_SECONDS = 12 * 60 * 60
+
+export function signToken(payload: object, expiresIn: string | number = '7d') {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn } as jwt.SignOptions)
 }
 
 export function verifyToken(token: string) {
@@ -29,13 +34,26 @@ export function requireAuth(req: NextRequest) {
   try { return verifyToken(token) } catch { return null }
 }
 
+/** Driver-app callers only: the payload must be typed 'driver'. Rider, admin and
+ *  zone-admin tokens share the secret and are rejected here — admin tooling must
+ *  use requireAdmin / guardAdmin instead. */
 export function requireDriverAuth(req: NextRequest) {
   const token = getDriverTokenFromRequest(req)
   if (!token) return null
   try {
     const p = verifyToken(token) as any
-    // A rider token is signed with the same secret; never let it pass as a driver.
-    return p?.type === 'user' ? null : p
+    return p?.type === 'driver' && p?.id ? p : null
+  } catch { return null }
+}
+
+/** Rider-app callers only: the payload must be typed 'user'. */
+export function requireRider(req: NextRequest) {
+  const auth = req.headers.get('authorization')
+  const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null
+  if (!token) return null
+  try {
+    const p = verifyToken(token) as any
+    return p?.type === 'user' && p?.id ? p : null
   } catch { return null }
 }
 

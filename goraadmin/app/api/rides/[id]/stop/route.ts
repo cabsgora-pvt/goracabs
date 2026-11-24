@@ -4,7 +4,7 @@ import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import VehicleType from '@/models/VehicleType'
 import { withCors, corsOptions } from '@/lib/cors'
-import { guardRideActor } from '@/lib/admin-guard'
+import { requireDriverAuth } from '@/lib/auth'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -15,31 +15,36 @@ const FREE_WAIT_MIN = 5 // free waiting minutes per stop
 //  'resume'  { index }  → driver resumes; add wait charge for that stop; advance currentStopIndex
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const d = requireDriverAuth(req) as any
+    if (!d?.id) return withCors({ error: 'Unauthorized' }, 401)
     await connectDB()
-
-    // Only this ride's rider, its assigned driver, or an admin may act on it.
-    {
-      const _r: any = await Ride.findById(params.id).select('riderId driverId').lean()
-      if (!_r) return withCors({ error: 'Ride not found' }, 404)
-      const _denied = guardRideActor(req, _r)
-      if (_denied) return withCors(await _denied.json(), _denied.status)
-    }
-    const b = await req.json()
+    const b = await req.json().catch(() => ({}))
+    if (!['reached', 'resume'].includes(b?.action)) return withCors({ error: 'Unknown action' }, 400)
     const ride: any = await Ride.findById(params.id)
     if (!ride) return withCors({ error: 'Ride not found' }, 404)
+    // The assigned driver only, while the trip is under way.
+    if (!ride.driverId || String(ride.driverId) !== String(d.id)) return withCors({ error: 'Not your ride' }, 403)
+    if (ride.status !== 'ongoing') return withCors({ error: `Not allowed while the ride is ${ride.status}`, code: 'NOT_ONGOING' }, 409)
     if (!ride.stops || !ride.stops.length) return withCors({ error: 'No stops on this ride' }, 400)
 
     const idx = b.index ?? ride.currentStopIndex ?? 0
+    if (!Number.isInteger(idx) || idx < 0 || idx >= ride.stops.length) {
+      return withCors({ error: 'Invalid stop index' }, 400)
+    }
     const stop = ride.stops[idx]
-    if (!stop) return withCors({ error: 'Invalid stop index' }, 400)
+    // Each stop is reached once and resumed once.
+    if (stop.done) return withCors({ error: 'This stop is already done', code: 'STOP_DONE' }, 409)
 
     const now = new Date()
 
     if (b.action === 'reached') {
+      if (stop.reachedAt) return withCors({ error: 'Already at this stop', code: 'STOP_ALREADY_REACHED' }, 409)
       stop.reachedAt = now
       stop.waitStartedAt = now
       ride.isWaitingAtStop = true
-    } else if (b.action === 'resume') {
+      ride.currentStopIndex = idx
+    } else {
+      if (!stop.reachedAt) return withCors({ error: 'Mark the stop reached first', code: 'STOP_NOT_REACHED' }, 409)
       // Compute waited minutes beyond free wait → charge
       if (stop.waitStartedAt) {
         const mins = (now.getTime() - new Date(stop.waitStartedAt).getTime()) / 60000
@@ -49,7 +54,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         let rate = 1
         const vt: any = await VehicleType.findOne({ name: ride.vehicleType }).select('waitingCharge').lean()
         if (vt?.waitingCharge != null) rate = vt.waitingCharge
-        ride.waitingChargeTotal = +(ride.waitingChargeTotal + billable * rate).toFixed(2)
+        ride.waitingChargeTotal = +((ride.waitingChargeTotal || 0) + billable * rate).toFixed(2)
       }
       stop.done = true
       ride.isWaitingAtStop = false
@@ -57,7 +62,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
 
     ride.markModified('stops')
-    await ride.save()
+    // Saved only if this stop is still in the state read above, so a double
+    // tap cannot add the wait charge twice.
+    const guard: any = { _id: ride._id, status: 'ongoing', [`stops.${idx}.done`]: { $ne: true } }
+    if (b.action === 'reached') guard[`stops.${idx}.reachedAt`] = null
+    const res = await Ride.updateOne(guard, { $set: {
+      stops: ride.stops.map((s: any) => (s?.toObject ? s.toObject() : s)), isWaitingAtStop: ride.isWaitingAtStop,
+      currentStopIndex: ride.currentStopIndex, waitingChargeTotal: ride.waitingChargeTotal,
+    } })
+    if (!res.matchedCount) return withCors({ error: 'This stop changed — refresh and try again', code: 'STOP_CHANGED' }, 409)
     return withCors({
       success: true,
       currentStopIndex: ride.currentStopIndex,

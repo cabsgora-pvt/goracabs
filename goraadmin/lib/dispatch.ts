@@ -18,17 +18,74 @@ import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
 import {
   availableDriverFilter, getEtaFactor, rankCandidates,
-  refineCandidatesWithTraffic, MATRIX_REFINE,
+  refineCandidatesWithTraffic, MATRIX_REFINE, crowKm, ETA_CONFIG,
   type DriverCandidate,
 } from './eta'
 import { sendPushAsync, pushToUserAsync } from './push'
 import { settleCancelRefunds } from './refunds'
+import { holdOf, holdMessage } from './account-hold'
+import Settings from '@/models/Settings'
 
 export const DISPATCH = {
   /** How long one captain has to accept before the offer moves on. */
   OFFER_TTL_SEC: 20,
   /** How many captains to try before opening the ride to everyone. */
   MAX_ROUNDS: 4,
+  /**
+   * A ride due later than this (scheduledAt / departureAt / hireStartAt) is not
+   * offered at booking and not listed in any feed; activateScheduledRides
+   * starts its offer ladder this many minutes before it is due.
+   */
+  SCHEDULE_LEAD_MIN: 30,
+}
+
+// ── Due time ─────────────────────────────────────────────────────────────────
+/** When a ride is due: the latest of createdAt and any scheduled start. */
+export function rideDueAt(ride: any): Date {
+  let t = ride?.createdAt ? new Date(ride.createdAt).getTime() : Date.now()
+  for (const f of ['scheduledAt', 'departureAt', 'hireStartAt']) {
+    const v = ride?.[f] ? new Date(ride[f]).getTime() : NaN
+    if (Number.isFinite(v) && v > t) t = v
+  }
+  return new Date(t)
+}
+
+/** True when the ride is due soon enough to be offered / listed to drivers. */
+export function rideIsOpenForDispatch(ride: any, now: Date = new Date()): boolean {
+  return rideDueAt(ride).getTime() <= now.getTime() + DISPATCH.SCHEDULE_LEAD_MIN * 60_000
+}
+
+// ── Settings, cached ─────────────────────────────────────────────────────────
+// The driver feed reads the global settings on every 4 s poll of every online
+// driver. 30 s staleness for wallet-block thresholds is harmless.
+let settingsCache: { at: number; value: any } | null = null
+export const SETTINGS_CACHE_MS = 30_000
+export async function cachedGlobalSettings(): Promise<any> {
+  const now = Date.now()
+  if (settingsCache && now - settingsCache.at < SETTINGS_CACHE_MS) return settingsCache.value
+  const value: any = await Settings.findOne({ key: 'global' }).lean().catch(() => null)
+  settingsCache = { at: now, value }
+  return value
+}
+
+// ── Throttled sweeps for hot paths ───────────────────────────────────────────
+// Every online driver's feed poll used to run the full sweep set. Now at most
+// one sweep per SWEEP_EVERY_MS per process; POST /api/cron/dispatch runs the
+// same set (unthrottled) for an external scheduler.
+const SWEEP_EVERY_MS = 5_000
+let lastSweepAt = 0
+let sweepRunning: Promise<void> | null = null
+export async function runDispatchSweepsThrottled(): Promise<void> {
+  const now = Date.now()
+  if (sweepRunning || now - lastSweepAt < SWEEP_EVERY_MS) return
+  lastSweepAt = now
+  sweepRunning = (async () => {
+    try {
+      await sweepExpiredOffers()
+      await activateScheduledRides()
+    } catch (e) { console.error('[dispatch] sweep failed', e) }
+  })()
+  try { await sweepRunning } finally { sweepRunning = null }
 }
 
 // ── Busy drivers ─────────────────────────────────────────────────────────────
@@ -87,26 +144,159 @@ export async function driverIsBusy(driverId: string, exceptRideId?: string, now:
   return !!(await Ride.exists(q))
 }
 
+// ── Service / zone gate (one rule) ───────────────────────────────────────────
+const OPT_IN: Record<string, { accepts: string; allow: string }> = {
+  rental: { accepts: 'acceptsRental', allow: 'allowRental' },
+  outstation: { accepts: 'acceptsOutstation', allow: 'allowOutstation' },
+  hire_driver: { accepts: 'acceptsHireDriver', allow: 'allowHireDriver' },
+  delivery: { accepts: 'acceptsDelivery', allow: 'allowDelivery' },
+}
+
+/**
+ * Mongo filter (on top of availableDriverFilter) for drivers who may take this
+ * ride: vehicle type, the admin's allow* gate, the driver's own accepts* opt-in
+ * for non-taxi services, the ride's zone, and no cash rides on a negative
+ * wallet. driverEligibleFor applies the same rule to one driver in memory.
+ */
+export function driverFilterFor(ride: any): Record<string, any> {
+  const filter: Record<string, any> = { selectedVehicleTypeName: ride.vehicleType }
+  const o = OPT_IN[ride.service]
+  if (o) { filter[o.accepts] = true; filter[o.allow] = { $ne: false } }
+  else filter.allowTaxi = { $ne: false }
+  if (ride.zoneId) filter.zoneId = String(ride.zoneId)
+  if (ride.paymentMode === 'cash') filter.walletBalance = { $gte: 0 }
+  return filter
+}
+
+/**
+ * Is there a female driver who could take this ride right now (available,
+ * matching, not declined it, not busy, within dispatch range)? Mirrors
+ * candidatesFor's female-first pool: when one exists, only female drivers may
+ * take a ride whose rider asked for one; when none does, everyone may.
+ */
+export async function femalePoolExists(ride: any): Promise<boolean> {
+  if (ride.pickupLat == null || ride.pickupLng == null) return false
+  const drivers: any[] = await Driver.find(availableDriverFilter({ ...driverFilterFor(ride), gender: 'female' }))
+    .select('currentLat currentLng').limit(50).lean()
+  const rejected = new Set((ride.rejectedBy || []).map(String))
+  const pickup = { lat: ride.pickupLat, lng: ride.pickupLng }
+  const near = drivers.filter(d => !rejected.has(String(d._id))
+    && crowKm(pickup, { lat: d.currentLat, lng: d.currentLng }) <= ETA_CONFIG.MAX_PICKUP_RADIUS_KM)
+  if (!near.length) return false
+  const busy = await busyDriverIds(near.map(d => String(d._id)))
+  return near.some(d => !busy.has(String(d._id)))
+}
+
+export type Ineligible = { status: number; code: string; error: string; [k: string]: any }
+
+/**
+ * ONE eligibility rule for a driver and a pending ride — used by both
+ * POST /rides/{id}/accept and the driver pending feed. Returns null when the
+ * driver may take the ride, else the reason (HTTP status + stable `code`).
+ *
+ * `ctx.settings` is the global settings doc (wallet block); `ctx.femalePool`
+ * memoises femalePoolExists per ride within one request.
+ */
+export async function driverEligibleFor(
+  driver: any,
+  ride: any,
+  ctx: { settings?: any; femalePool?: Map<string, boolean>; now?: Date } = {},
+): Promise<Ineligible | null> {
+  const now = ctx.now || new Date()
+  const driverId = String(driver._id)
+  if (driver.status !== 'approved') {
+    return { status: 403, code: 'NOT_APPROVED', error: 'Your account is not approved yet' }
+  }
+  if (driver.faceVerificationRequired) {
+    return { status: 403, code: 'FACE_VERIFICATION_REQUIRED', error: 'Face verification required before taking rides', faceVerificationRequired: true, accountHold: true }
+  }
+  const hold = holdOf(driver)
+  if (hold.held) return { status: 403, code: 'ACCOUNT_HOLD', error: holdMessage(hold), accountHold: true }
+  if (!driver.isOnline) return { status: 403, code: 'OFFLINE', error: 'Go online to accept rides' }
+
+  const da = ctx.settings?.driverApp || {}
+  const maxNeg = Math.abs(Number(da.maxNegativeWallet ?? 500))
+  if (da.walletBlockEnabled !== false && (driver.walletBalance || 0) < -maxNeg) {
+    return { status: 403, code: 'WALLET_BLOCKED', error: `Low wallet balance (₹${Math.round(driver.walletBalance || 0)}). Please recharge to accept rides.`, walletBlocked: true }
+  }
+
+  if (ride.vehicleType !== driver.selectedVehicleTypeName) {
+    return { status: 403, code: 'VEHICLE_MISMATCH', error: 'This ride is for a different vehicle type' }
+  }
+  const o = OPT_IN[ride.service]
+  if (o) {
+    if (driver[o.allow] === false) return { status: 403, code: 'SERVICE_NOT_ALLOWED', error: 'You are not allowed to take this service' }
+    if (driver[o.accepts] !== true) return { status: 403, code: 'SERVICE_NOT_ENABLED', error: 'Turn this service on in Preferences to take it' }
+  } else if (driver.allowTaxi === false) {
+    return { status: 403, code: 'SERVICE_NOT_ALLOWED', error: 'You are not allowed to take this service' }
+  }
+  if (ride.zoneId) {
+    if (!driver.zoneId || String(driver.zoneId) !== String(ride.zoneId)) {
+      return { status: 403, code: 'WRONG_ZONE', error: 'This ride is outside your zone' }
+    }
+  } else if (driver.zoneId) {
+    // A zone-less request (pickup outside every zone) only reaches drivers
+    // within dispatch range of it — never the whole country.
+    const far = driver.currentLat == null || driver.currentLng == null || ride.pickupLat == null || ride.pickupLng == null
+      || crowKm({ lat: driver.currentLat, lng: driver.currentLng }, { lat: ride.pickupLat, lng: ride.pickupLng }) > ETA_CONFIG.MAX_PICKUP_RADIUS_KM
+    if (far) return { status: 403, code: 'OUT_OF_RANGE', error: 'This ride is too far from you' }
+  }
+  if ((driver.walletBalance || 0) < 0 && ride.paymentMode === 'cash') {
+    return { status: 403, code: 'CASH_PAUSED', error: 'Your wallet is negative, so cash rides are paused. Recharge your wallet to take cash rides again.', cashPaused: true }
+  }
+  if ((ride.rejectedBy || []).map(String).includes(driverId)) {
+    return { status: 409, code: 'REJECTED', error: 'You declined this ride' }
+  }
+  if (ride.offeredTo && String(ride.offeredTo) !== driverId
+      && ride.offerExpiresAt && new Date(ride.offerExpiresAt).getTime() > now.getTime()) {
+    return { status: 409, code: 'OFFERED_TO_OTHER', error: 'This ride is being offered to another captain' }
+  }
+  if (!rideIsOpenForDispatch(ride, now)) {
+    return { status: 409, code: 'NOT_OPEN_YET', error: `This scheduled ride opens ${DISPATCH.SCHEDULE_LEAD_MIN} min before pickup` }
+  }
+  if (ride.preferFemaleDriver === true && driver.gender !== 'female') {
+    const key = String(ride._id)
+    let pool = ctx.femalePool?.get(key)
+    if (pool === undefined) {
+      pool = await femalePoolExists(ride).catch(() => false)
+      ctx.femalePool?.set(key, pool)
+    }
+    if (pool) return { status: 403, code: 'FEMALE_DRIVER_REQUESTED', error: 'The rider asked for a female captain' }
+  }
+  return null
+}
+
+// ── Per-driver accept lease ──────────────────────────────────────────────────
+// POST /accept takes this for the few hundred ms between its busy check and its
+// claim, so one driver accepting two rides at once is serialised. A stuck lease
+// expires on its own after ACCEPT_LEASE_MS.
+const ACCEPT_LEASE_MS = 8_000
+export async function acquireAcceptLease(driverId: string, waitMs = 4_000): Promise<Date | null> {
+  const deadline = Date.now() + waitMs
+  for (;;) {
+    const now = new Date()
+    const until = new Date(now.getTime() + ACCEPT_LEASE_MS)
+    const got = await Driver.updateOne(
+      { _id: driverId, $or: [{ acceptLeaseUntil: null }, { acceptLeaseUntil: { $lte: now } }] },
+      { $set: { acceptLeaseUntil: until } },
+    )
+    if (got.modifiedCount) return until
+    if (Date.now() >= deadline) return null
+    await new Promise(r => setTimeout(r, 100))
+  }
+}
+export async function releaseAcceptLease(driverId: string, lease: Date): Promise<void> {
+  await Driver.updateOne({ _id: driverId, acceptLeaseUntil: lease }, { $set: { acceptLeaseUntil: null } }).catch(() => {})
+}
+
 /** Ranked, still-eligible candidates for a ride (nearest-by-ETA first). */
 export async function candidatesFor(ride: any): Promise<DriverCandidate[]> {
   if (ride.pickupLat == null || ride.pickupLng == null) return []
   const pickup = { lat: ride.pickupLat, lng: ride.pickupLng }
 
-  const filter: Record<string, any> = { selectedVehicleTypeName: ride.vehicleType }
-  if (ride.service === 'rental') { filter.acceptsRental = true; filter.allowRental = { $ne: false } }
-  else if (ride.service === 'outstation') { filter.acceptsOutstation = true; filter.allowOutstation = { $ne: false } }
-  else if (ride.service === 'hire_driver') { filter.acceptsHireDriver = true; filter.allowHireDriver = { $ne: false } }
-  else if (ride.service === 'delivery') { filter.acceptsDelivery = true; filter.allowDelivery = { $ne: false } }
-  else { filter.allowTaxi = { $ne: false }; if (ride.zoneId) filter.zoneId = String(ride.zoneId) }
-  // Opt-in services: the same zone rule as the driver's pending feed
-  // (rides/driver/pending), so a ride is never offered to a driver whose feed
-  // would then hide it. Drivers with no zone stay eligible, as there.
-  if (ride.service && ride.service !== 'taxi' && ride.zoneId && !filter.zoneId) {
-    filter.zoneId = { $in: [String(ride.zoneId), null, ''] }
-  }
-  // A driver with a negative wallet gets no cash rides (accept and the feed
-  // apply the same rule).
-  if (ride.paymentMode === 'cash') filter.walletBalance = { $gte: 0 }
+  // Same gate as driverEligibleFor (accept + the pending feed), so a ride is
+  // never offered to a driver who could then not take it.
+  const filter = driverFilterFor(ride)
 
   const rank = async (f: Record<string, any>): Promise<DriverCandidate[]> => {
     const [factor, drivers] = await Promise.all([
@@ -167,6 +357,10 @@ export async function candidatesFor(ride: any): Promise<DriverCandidate[]> {
 export async function offerNext(rideId: string): Promise<string | null> {
   const ride: any = await Ride.findById(rideId)
   if (!ride || ride.status !== 'pending') return null
+  // A ride booked for later is not offered yet: activateScheduledRides starts
+  // the ladder SCHEDULE_LEAD_MIN before it is due. (Offering tomorrow's trip at
+  // booking burned the ladder and the ride then fell out of every feed.)
+  if (!rideIsOpenForDispatch(ride)) return null
 
   if ((ride.offerRound || 0) >= DISPATCH.MAX_ROUNDS) {
     // Ladder exhausted — open the ride to everyone rather than stranding it.
@@ -252,6 +446,39 @@ export async function sweepExpiredOffers(limit = 25): Promise<number> {
     } catch { /* keep sweeping the rest */ }
   }
   return moved
+}
+
+/**
+ * Scheduled rides whose due time is now within SCHEDULE_LEAD_MIN: start their
+ * offer ladder (once — claimed on dispatchActivatedAt). Run by the throttled
+ * hot-path sweep and by POST /api/cron/dispatch.
+ */
+export async function activateScheduledRides(limit = 25): Promise<number> {
+  const now = new Date()
+  const horizon = new Date(now.getTime() + DISPATCH.SCHEDULE_LEAD_MIN * 60_000)
+  const dueBy = (f: string) => ({ $or: [{ [f]: null }, { [f]: { $lte: horizon } }] })
+  const rows: any[] = await Ride.find({
+    status: 'pending',
+    dispatchActivatedAt: null,
+    offeredTo: null,
+    offerRound: { $in: [0, null] },
+    $or: [{ scheduledAt: { $ne: null } }, { departureAt: { $ne: null } }, { hireStartAt: { $ne: null } }],
+    $and: [dueBy('scheduledAt'), dueBy('departureAt'), dueBy('hireStartAt')],
+  }).select('_id').limit(limit).lean()
+  let started = 0
+  for (const r of rows) {
+    try {
+      const claimed = await Ride.findOneAndUpdate(
+        { _id: r._id, status: 'pending', dispatchActivatedAt: null },
+        { $set: { dispatchActivatedAt: now } },
+        { new: true },
+      ).select('_id').lean()
+      if (!claimed) continue
+      await offerNext(String(r._id))
+      started++
+    } catch { /* keep sweeping */ }
+  }
+  return started
 }
 
 /** True when this driver may see this ride right now. */

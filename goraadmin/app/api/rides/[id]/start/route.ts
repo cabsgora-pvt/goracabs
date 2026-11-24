@@ -4,6 +4,7 @@ import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import { requireDriverAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
+import { checkRideOtp } from '@/lib/ride-otp'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -13,7 +14,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const payload = requireDriverAuth(req)
     if (!payload) return withCors({ error: 'Unauthorized' }, 401)
 
-    const { otp } = await req.json()
+    const { otp } = await req.json().catch(() => ({}))
     await connectDB()
     const ride: any = await Ride.findById(params.id)
     if (!ride) return withCors({ error: 'Ride not found' }, 404)
@@ -22,20 +23,29 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return withCors({ error: 'Not your ride' }, 403)
     }
     // A repeat of a start that went through but whose answer was lost.
-    if (ride.status === 'ongoing' && String(otp) === String(ride.otp)) return withCors({ success: true, repeated: true })
+    if (ride.status === 'ongoing') return withCors({ success: true, repeated: true })
     if (!['accepted', 'arrived'].includes(ride.status)) {
       return withCors({ error: `Ride cannot be started (status: ${ride.status})` }, 400)
     }
+    if (!ride.otp) return withCors({ error: 'This ride has no OTP. Please contact support.', code: 'OTP_MISSING' }, 409)
+    if (ride.otpLocked) {
+      return withCors({ error: 'Too many wrong OTPs — this code is locked. Ask the customer to contact support.', code: 'OTP_LOCKED', otpLocked: true }, 423)
+    }
 
-    if (String(otp) !== String(ride.otp)) return withCors({ error: 'Invalid OTP' }, 400)
+    // Attempt-limited, race-safe check (lib/ride-otp.ts).
+    const chk = await checkRideOtp(ride._id, 'otp', otp, String(payload.id))
+    if (!chk.ok) {
+      const { status, ok: _ok, ...body } = chk as any
+      return withCors({ ...body, ...(chk.code === 'OTP_LOCKED' ? { otpLocked: true } : {}) }, status)
+    }
 
-    ride.status = 'ongoing'
-    ride.startedAt = new Date()
-    // outstationPhase only ever moved on a round trip's driver-reported legs,
-    // so every outstation ride read "pickup_pending" until — and after — the end.
-    if (ride.service === 'outstation') ride.outstationPhase = 'enroute'
-    await ride.save()
-
+    // Atomic on status, so two correct starts cannot both run.
+    const started = await Ride.findOneAndUpdate(
+      { _id: ride._id, driverId: ride.driverId, status: { $in: ['accepted', 'arrived'] } },
+      { $set: { status: 'ongoing', startedAt: new Date(), ...(ride.service === 'outstation' ? { outstationPhase: 'enroute' } : {}) } },
+      { new: true },
+    ).select('_id').lean()
+    if (!started) return withCors({ success: true, repeated: true })
     return withCors({ success: true })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)

@@ -27,6 +27,12 @@ const DriverSchema = new Schema({
   // driver from going online again until they pass a fresh check.
   faceVerificationRequired: { type: Boolean, default: false },
   faceVerificationReason: String,      // 'mismatch' | 'no_response'
+  // Set by an admin (POST /api/drivers/{id}/face-reset) to let an already
+  // submitted/approved driver capture a new reference face once. Cleared by
+  // auth/driver/face-signature when it is used.
+  faceResetAllowed: { type: Boolean, default: false },
+  // Short per-driver lease held by POST /rides/{id}/accept (lib/dispatch).
+  acceptLeaseUntil: { type: Date, default: null },
   // Self-declared at registration, optional. Undeclared (undefined) drivers are
   // simply not matched when a rider asks for a female driver — never blocked
   // from other rides.
@@ -47,6 +53,9 @@ const DriverSchema = new Schema({
   // when zoneAuto is on. Every change is kept in zoneHistory.
   zoneAuto: { type: Boolean, default: false },
   zoneHistory: [{ from: String, fromName: String, to: String, toName: String, by: String, at: Date, _id: false }],
+  // Automatic zone follow (lib/zone-auto): the zone the driver's fixes have
+  // been inside since `firstAt`. Switched only after a second fix ≥ 60 s later.
+  zoneAutoCandidate: { zoneId: String, firstAt: Date },
   // Ride preference types (admin-defined, e.g. 'pet_friendly') this driver offers.
   ridePreferences: { type: [String], default: [] },
   isOnline: { type: Boolean, default: false },
@@ -80,6 +89,9 @@ const DriverSchema = new Schema({
   referredBy: { type: String, default: '' },      // code the driver signed up with
   referredCount: { type: Number, default: 0 },     // how many drivers used this driver's code
   referralEarnings: { type: Number, default: 0 },  // total ₹ earned from referrals
+  // Referral rewards are paid once, when an admin approves the referred driver
+  // (drivers/{id}/approve), claimed atomically on this flag.
+  referralRewardPaid: { type: Boolean, default: false },
   // Driver's own payment/UPI QR image (shown to riders for direct payment)
   paymentQrUrl: { type: String, default: '' },
   // Sequential serial for the Gora Captain ID card (assigned lazily)
@@ -126,4 +138,12 @@ const DriverSchema = new Schema({
     default: [],
   },
 }, { timestamps: true })
+// Dev only: rebuild the model on hot reload so newly added fields are not
+// stripped by the stale cached schema (same as models/Ride.ts).
+// Dispatch / admin-list indexes (additive). Nearby-driver lookup filters on
+// status + isOnline + vehicle type and orders by freshest location.
+DriverSchema.index({ status: 1, isOnline: 1, selectedVehicleTypeName: 1, locationUpdatedAt: -1 })
+DriverSchema.index({ zoneId: 1 })
+DriverSchema.index({ status: 1, createdAt: -1 })
+if (process.env.NODE_ENV !== 'production' && mongoose.models.Driver) mongoose.deleteModel('Driver')
 export default mongoose.models.Driver || mongoose.model('Driver', DriverSchema)

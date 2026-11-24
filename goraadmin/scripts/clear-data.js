@@ -6,13 +6,15 @@
  *   node scripts/clear-data.js --all        # WIPE EVERYTHING including admin users
  *   node scripts/clear-data.js --only=users,rides   # clear specific collections only
  *
- * Production server:
- *   MONGODB_URI='mongodb://goraadmin:Gora%409424@127.0.0.1:27017/goraadmin?authSource=admin' \
- *     node scripts/clear-data.js
+ * Safety: refuses unless the DB name contains dev/test, or you pass
+ *   --i-know-this-wipes and type the DB name when prompted (scripts/_db-guard.js).
+ *   MONGODB_URI comes from the environment or .env.local; never put a URI with
+ *   credentials in this file.
  */
 const mongoose = require('mongoose')
 const fs = require('fs')
 const path = require('path')
+const { assertSafeToWipe } = require('./_db-guard')
 
 // Try to load MONGODB_URI from env first, else from .env.production / .env.local
 function loadUri() {
@@ -45,6 +47,8 @@ async function main() {
 
   let toClear = only || ALL_COLLECTIONS
   if (wipeAll) toClear = [...toClear, 'admins', 'settings']
+
+  await assertSafeToWipe(URI, wipeAll ? 'WIPE (including admins) the' : 'clear collections in the')
 
   console.log('Connecting to MongoDB...')
   await mongoose.connect(URI)

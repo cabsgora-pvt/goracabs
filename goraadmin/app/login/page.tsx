@@ -28,9 +28,9 @@ export default function LoginPage() {
         setError(data.error || 'Login failed')
         return
       }
-      if (data.token) {
-        localStorage.setItem('admin_token', data.token)
-      }
+      // The session lives in the httpOnly admin_token cookie the API sets; the
+      // token is no longer kept in localStorage (readable by any injected script).
+      try { localStorage.removeItem('admin_token') } catch {}
       router.push('/dashboard')
     } catch {
       setError('Network error. Please try again.')

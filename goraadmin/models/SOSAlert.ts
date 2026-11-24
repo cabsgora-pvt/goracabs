@@ -12,4 +12,5 @@ const SOSAlertSchema = new Schema({
   status: { type: String, enum: ['active', 'resolved'], default: 'active' },
 }, { timestamps: true })
 
+SOSAlertSchema.index({ status: 1 })
 export default mongoose.models.SOSAlert || mongoose.model('SOSAlert', SOSAlertSchema)

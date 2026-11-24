@@ -6,6 +6,11 @@ import { requireDriverAuth } from '@/lib/auth'
 import { ETA_CONFIG } from '@/lib/eta'
 import { withCors, corsOptions } from '@/lib/cors'
 import { pushToUserAsync } from '@/lib/push'
+import Driver from '@/models/Driver'
+import { distanceKm } from '@/lib/geo'
+
+const ARRIVE_MAX_KM = 1
+const ARRIVE_FIX_FRESH_MS = 2 * 60 * 1000
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -25,7 +30,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     await connectDB()
     const existing: any = await Ride.findById(params.id)
-      .select('status driverId arrivedAt acceptedAt predictedEtaMin pickupCrowKm')
+      .select('status driverId arrivedAt acceptedAt predictedEtaMin pickupCrowKm pickupLat pickupLng')
       .lean()
     if (!existing) return withCors({ error: 'Ride not found' }, 404)
 
@@ -57,6 +62,24 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const arrivedAt = new Date()
     const update: any = { status: 'arrived', arrivedAt }
+
+    // Must actually be at the pickup. With a fresh fix (< 2 min old) the driver
+    // must be within ARRIVE_MAX_KM of it, else 409 TOO_FAR_FROM_PICKUP. With no
+    // fresh fix (GPS off / stale) it is allowed but flagged on the ride:
+    // arrivedUnverified, plus arrivedFarKm when the last known fix was > 1 km off.
+    if (existing.pickupLat != null && existing.pickupLng != null) {
+      const drv: any = await Driver.findById(payload.id).select('currentLat currentLng locationUpdatedAt').lean()
+      const hasFix = drv?.currentLat != null && drv?.currentLng != null && !(drv.currentLat === 0 && drv.currentLng === 0)
+      const km = hasFix ? distanceKm({ lat: drv.currentLat, lng: drv.currentLng }, { lat: existing.pickupLat, lng: existing.pickupLng }) : null
+      const fresh = hasFix && drv.locationUpdatedAt && Date.now() - new Date(drv.locationUpdatedAt).getTime() < ARRIVE_FIX_FRESH_MS
+      if (fresh && km != null && km > ARRIVE_MAX_KM) {
+        return withCors({ error: `You are ${km.toFixed(1)} km from the pickup point`, code: 'TOO_FAR_FROM_PICKUP', distanceKm: +km.toFixed(2) }, 409)
+      }
+      if (!fresh) {
+        update.arrivedUnverified = true
+        if (km != null && km > ARRIVE_MAX_KM) update.arrivedFarKm = +km.toFixed(2)
+      }
+    }
 
     if (existing.acceptedAt) {
       const actualMin = (arrivedAt.getTime() - new Date(existing.acceptedAt).getTime()) / 60000

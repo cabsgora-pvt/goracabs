@@ -3,7 +3,8 @@ import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import EtaProfile from '@/models/EtaProfile'
-import { requireAuth } from '@/lib/auth'
+import crypto from 'crypto'
+import { requireAdmin } from '@/lib/auth'
 import {
   geoCell, coarseCell, hourBand, istParts, profileKey, clearEtaFactorCache,
   ETA_CONFIG, type DayType, type ProfileTier,
@@ -89,10 +90,13 @@ type Bucket = {
 
 async function handle(req: NextRequest) {
   try {
-    const secret = process.env.CRON_SECRET
-    const headerSecret = req.headers.get('x-cron-secret')
-    const authorised = (secret && headerSecret === secret) || !!requireAuth(req)
-    if (!authorised) return withCors({ error: 'Unauthorized' }, 401)
+    // CRON_SECRET header (scheduler) or an admin session. Rider/driver tokens
+    // used to pass here (requireAuth accepted any signed token).
+    const secret = process.env.CRON_SECRET || ''
+    const headerSecret = req.headers.get('x-cron-secret') || ''
+    const viaSecret = !!secret && headerSecret.length === secret.length &&
+      crypto.timingSafeEqual(Buffer.from(headerSecret), Buffer.from(secret))
+    if (!viaSecret && !requireAdmin(req)) return withCors({ error: 'Unauthorized' }, 401)
 
     const days = Math.max(1, Math.min(180, Number(req.nextUrl.searchParams.get('days')) || DEFAULT_LOOKBACK_DAYS))
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
@@ -218,9 +222,10 @@ async function handle(req: NextRequest) {
       },
     })
   } catch (e: any) {
-    return withCors({ error: e.message || 'Server error' }, 500)
+    return withCors({ error: 'Server error' }, 500)
   }
 }
 
+// POST only: a full recompute that deletes and rewrites EtaProfile must not be
+// triggerable by a GET (link prefetch, crawler, <img src>).
 export const POST = handle
-export const GET = handle

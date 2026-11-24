@@ -189,6 +189,9 @@ export default function DriverDetailPage() {
     if (res.ok) {
       setToast({ msg: 'Driver deleted', type: 'error' })
       setTimeout(() => window.location.href = '/drivers', 1200)
+    } else {
+      const d = await res.json().catch(() => ({}))
+      setToast({ msg: d.error || 'Delete failed', type: 'error' })
     }
     setActionLoading(false)
     setDeleteModal(false)

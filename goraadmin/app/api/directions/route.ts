@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
 import { withCors, corsOptions } from '@/lib/cors'
-import { getSettings } from '@/lib/settings'
+import { getSettingsAsync } from '@/lib/settings'
 import { isTollStep } from '@/lib/toll-steps'
 import { rateLimit } from '@/lib/rate-limit'
 
@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
       return withCors({ error: 'Missing or invalid coords' }, 400)
     }
 
-    const s: any = getSettings()
+    const s: any = await getSettingsAsync()
     const key = s?.maps?.googleMapsApiKey || s?.maps?.javascriptApiKey || ''
     if (!key) return withCors({ error: 'Maps API key not configured' }, 500)
 
@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
       (waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : '') +
       `&mode=driving&departure_time=now&traffic_model=best_guess` +
       (language ? `&language=${language}` : '') +
-      `&key=${key}`
+      `&key=${encodeURIComponent(key)}`
 
     const r = await fetch(url)
     const data = await r.json()

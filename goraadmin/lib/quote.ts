@@ -25,7 +25,34 @@ export type QuotePayload = {
   fare: number
   /** Pickup/drop rounded to ~100 m so tiny map jitter doesn't void the quote. */
   cell: string
+  /**
+   * Every other input that changed the price, signed with it: tripType, hire
+   * hours (+ the per-hour rate), outstation stops / days / night-halt /
+   * empty-return, in-city stops, delivery weight. /rides/book rejects a token
+   * whose signed values differ from the booking (see quoteExtras).
+   */
+  x?: Record<string, string | number>
   exp: number
+}
+
+/** Stops rounded like the pickup/drop cell, as one comparable string. */
+export function stopsKey(stops: any): string {
+  if (!Array.isArray(stops)) return ''
+  return stops
+    .filter((s: any) => s && s.lat != null && s.lng != null && Number.isFinite(+s.lat) && Number.isFinite(+s.lng))
+    .map((s: any) => cellOf(+s.lat, +s.lng))
+    .join(';')
+}
+
+/** Delivery weight as signed (0.1 kg). */
+export function weightKey(w: any): number {
+  const n = Number(w)
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 10) / 10 : 0
+}
+
+/** Hire hours exactly as /fare/estimate bills them. */
+export function hireHours(h: any): number {
+  return Math.max(1, Math.ceil(Number(h) || 0))
 }
 
 function cellOf(lat?: number | null, lng?: number | null): string {
@@ -53,7 +80,7 @@ export function signQuote(p: Omit<QuotePayload, 'exp'>): string {
 }
 
 export type QuoteCheck =
-  | { ok: true; fare: number }
+  | { ok: true; fare: number; x: Record<string, string | number> }
   | { ok: false; reason: string }
 
 /**
@@ -62,7 +89,7 @@ export type QuoteCheck =
  */
 export function verifyQuote(
   token: string | undefined | null,
-  expect: { service: string; vehicleType: string; cell: string },
+  expect: { service: string; vehicleType: string; cell: string; x?: Record<string, string | number> },
 ): QuoteCheck {
   if (!SECRET) return { ok: false, reason: 'Server not configured' }
   if (!token || typeof token !== 'string' || !token.includes('.')) {
@@ -88,8 +115,13 @@ export function verifyQuote(
   if (p.vehicleType !== expect.vehicleType) return { ok: false, reason: 'Quote vehicle mismatch' }
   if (p.cell !== expect.cell) return { ok: false, reason: 'Quote route mismatch' }
   if (!Number.isFinite(p.fare) || p.fare < 0) return { ok: false, reason: 'Quote fare invalid' }
+  // Each value the caller expects must equal the signed one (missing = '').
+  const signed = p.x || {}
+  for (const [k, v] of Object.entries(expect.x || {})) {
+    if (String(signed[k] ?? '') !== String(v ?? '')) return { ok: false, reason: `Quote ${k} mismatch` }
+  }
 
-  return { ok: true, fare: p.fare }
+  return { ok: true, fare: p.fare, x: signed }
 }
 
 /**

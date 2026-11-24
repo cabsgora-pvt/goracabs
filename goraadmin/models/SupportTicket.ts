@@ -19,4 +19,5 @@ const TicketSchema = new Schema({
   status: { type: String, enum: ['open', 'in_progress', 'resolved', 'closed'], default: 'open' },
   messages: [MessageSchema],
 }, { timestamps: true })
+TicketSchema.index({ status: 1 })
 export default mongoose.models.SupportTicket || mongoose.model('SupportTicket', TicketSchema)

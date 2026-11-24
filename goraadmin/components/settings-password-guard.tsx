@@ -4,11 +4,11 @@ import { Lock } from 'lucide-react'
 
 // Every settings change needs the admin's password again. Rather than touch
 // each settings page, this wraps window.fetch once: a POST/PUT to
-// /api/settings or /api/settings/franchise first asks for the password, sends
+// /api/settings, /api/settings/franchise, /api/app-config or /api/finance/wallet first asks for the password, sends
 // it in X-Admin-Password, and asks again if it was wrong. Cancelling rejects
 // the fetch, so a page never shows "Saved" for a change that was not made.
 // A correct password is remembered for 2 minutes (one save + its test call).
-const GUARDED = /^\/api\/settings(\/franchise)?\/?(\?.*)?$/
+const GUARDED = /^\/api\/(settings(\/franchise)?|app-config|finance\/wallet)\/?(\?.*)?$/
 const REMEMBER_MS = 2 * 60 * 1000
 
 type Ask = { resolve: (pwd: string | null) => void; wrong: boolean }

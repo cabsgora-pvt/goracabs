@@ -4,7 +4,7 @@ import mongoose from 'mongoose'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import SupportTicket from '@/models/SupportTicket'
-import { requireDriverAuth } from '@/lib/auth'
+import { requireDriverAuth, requireRider } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 import { reverseGeocode } from '@/lib/geocode'
 import { pushToUserAsync } from '@/lib/push'
@@ -58,8 +58,6 @@ function body(ride: any, extra: Record<string, unknown> = {}) {
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const who = requireDriverAuth(req) as any
-    if (!who?.id) return withCors({ error: 'Unauthorized' }, 401)
     if (!mongoose.isValidObjectId(params.id)) return withCors({ error: 'Ride not found' }, 404)
 
     let b: any
@@ -67,11 +65,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const action = String(b?.action || '')
     if (!['add', 'remove', 'report'].includes(action)) return withCors({ error: 'Unknown action' }, 400)
 
-    // Drivers add and remove; only the rider reports. The same bearer token
-    // format serves both apps, so the token's type decides.
-    if (action === 'report' ? who.type !== 'user' : who.type !== 'driver') {
-      return withCors({ error: 'Unauthorized' }, 401)
-    }
+    // Drivers add and remove; only the rider reports. Auth is per action:
+    // requireDriverAuth only ever admits driver tokens, so the rider's report
+    // (which used to go through it) always answered 401.
+    const who = (action === 'report' ? requireRider(req) : requireDriverAuth(req)) as any
+    if (!who?.id) return withCors({ error: 'Unauthorized' }, 401)
 
     await connectDB()
     if (action === 'report') return report(params.id, who.id, b)

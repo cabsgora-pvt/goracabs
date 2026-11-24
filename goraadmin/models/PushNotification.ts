@@ -13,4 +13,5 @@ const PushSchema = new Schema({
   sentAt: { type: Date, default: Date.now },
   deliveredCount: { type: Number, default: 0 },
 }, { timestamps: true })
+PushSchema.index({ status: 1, scheduledAt: 1 })
 export default mongoose.models.PushNotification || mongoose.model('PushNotification', PushSchema)

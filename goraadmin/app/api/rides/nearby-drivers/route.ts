@@ -1,10 +1,19 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
+import { createHmac } from 'crypto'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
 import { withCors, corsOptions } from '@/lib/cors'
 
 export async function OPTIONS() { return corsOptions() }
+
+const GRID_DEG = 0.00135   // ≈ 150 m of latitude
+const snap = (v: number) => Math.round(Math.round(v / GRID_DEG) * GRID_DEG * 1e5) / 1e5
+const BUCKET_MS = 10 * 60 * 1000
+function markerId(driverId: string): string {
+  const bucket = Math.floor(Date.now() / BUCKET_MS)
+  return createHmac('sha256', String(process.env.JWT_SECRET || 'nearby')).update(`nearby:${bucket}:${driverId}`).digest('hex').slice(0, 10)
+}
 
 // Public GET → nearby online drivers for the "live vehicles on map" effect.
 // Query: ?lat=..&lng=..&radius=<km, default 5>&vehicleType=<optional>
@@ -56,11 +65,14 @@ export async function GET(req: NextRequest) {
             Math.sin(dLng / 2) ** 2
         const dist = 2 * R * Math.asin(Math.min(1, Math.sqrt(a)))
         return {
-          // Anonymous, stable marker key (last 8 chars of id) — not identifying,
-          // lets the app track/animate the same marker across polls.
-          id: String(d._id).slice(-8),
-          lat: d.currentLat,
-          lng: d.currentLng,
+          // Marker key: an HMAC of the driver id and a 10-minute time bucket.
+          // Stable enough for the app to animate a marker across polls, but it
+          // changes every bucket and cannot be linked back to a driver.
+          id: markerId(String(d._id)),
+          // Snapped to a ~150 m grid: the map shows "cars around", not where
+          // a particular driver is parked.
+          lat: snap(d.currentLat),
+          lng: snap(d.currentLng),
           heading: d.currentHeading || 0,
           vehicleType: d.selectedVehicleTypeName || d.vehicleType || '',
           _dist: dist,

@@ -4,15 +4,26 @@ import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
 import User from '@/models/User'
-import Settings from '@/models/Settings'
 import { requireDriverAuth } from '@/lib/auth'
-import { getEtaFactor, crowKm, predictEtaMin, displayRoadKm, ETA_CONFIG } from '@/lib/eta'
-import { sweepExpiredOffers, driverMaySee, driverIsBusy } from '@/lib/dispatch'
+import { getEtaFactor, crowKm, predictEtaMin, displayRoadKm } from '@/lib/eta'
+import { driverIsBusy, driverEligibleFor, cachedGlobalSettings, runDispatchSweepsThrottled, rideDueAt, rideIsOpenForDispatch } from '@/lib/dispatch'
 import { holdOf } from '@/lib/account-hold'
 import { withCors, corsOptions } from '@/lib/cors'
 import { sweepDueNotifications } from '@/lib/notifications'
 
 export async function OPTIONS() { return corsOptions() }
+
+// Hot path (every online driver, every 4 s): bounded scan, projected fields.
+const FEED_SCAN_LIMIT = 60
+const FEED_MAX = 20
+const FEED_FIELDS = [
+  'riderId', 'riderName', 'pickupAddress', 'dropAddress', 'pickupLat', 'pickupLng', 'dropLat', 'dropLng',
+  'fare', 'tip', 'totalFare', 'distance', 'duration', 'vehicleType', 'paymentMode', 'routePolyline',
+  'createdAt', 'stops', 'service', 'tripType', 'cityFrom', 'cityTo', 'departureAt', 'returnAt', 'scheduledAt',
+  'numPassengers', 'packageHours', 'packageKm', 'hireTotalHours', 'transmission', 'hireStartAt', 'hireEndAt',
+  'senderName', 'receiverName', 'itemType', 'weightKg', 'packageSize', 'isFragile', 'codAmount', 'parcelPhotos',
+  'offeredTo', 'offerExpiresAt', 'rejectedBy', 'zoneId', 'preferFemaleDriver', 'preferences', 'status',
+].join(' ')
 
 // GET → pending ride requests this driver may accept (same zone + vehicle type, recent, not rejected)
 // Also returns rider's profile photo so the driver app can show their face on incoming request.
@@ -23,12 +34,20 @@ export async function GET(req: NextRequest) {
 
     await connectDB()
     sweepDueNotifications()   // scheduled admin notifications that are due
-    const driver: any = await Driver.findById(payload.id).lean()
+    const driver: any = await Driver.findById(payload.id)
+      .select('status isOnline accountHold faceVerificationRequired faceVerificationReason walletBalance selectedVehicleTypeName zoneId gender currentLat currentLng allowTaxi allowRental allowOutstation allowHireDriver allowDelivery acceptsRental acceptsOutstation acceptsHireDriver acceptsDelivery')
+      .lean()
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
+
+    // Not approved / offline / on hold: no requests at all. (The feed used to
+    // list rides to any driver who asked, approved or not.)
+    if (driver.status !== 'approved') return withCors({ rides: [], notApproved: true })
+    if (holdOf(driver).held) return withCors({ rides: [], hold: true })
+    if (!driver.isOnline) return withCors({ rides: [], offline: true })
 
     // Ola-style block: if the driver's wallet is too far negative (unpaid cash
     // commission), stop sending ride requests until they recharge.
-    const settings: any = await Settings.findOne({ key: 'global' }).lean()
+    const settings: any = await cachedGlobalSettings()
     const da = settings?.driverApp || {}
     const blockEnabled = da.walletBlockEnabled !== false
     const maxNeg = Math.abs(Number(da.maxNegativeWallet ?? 500))
@@ -40,77 +59,62 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    const twoMinAgo = new Date(Date.now() - 2 * 60 * 1000)
     const driverId = String(driver._id)
 
+    // Move on lapsed offers / start scheduled rides due soon — throttled per
+    // process, so 1 000 drivers polling every 4 s do not run it 250×/s.
+    await runDispatchSweepsThrottled().catch(() => {})
+
     // A busy driver (on a trip, or with an accepted ride due within the hour —
-    // see BUSY in lib/dispatch.ts) is shown no new requests, offered or open-
-    // pool. Their poll still drives the sweep, so dispatch keeps self-healing.
-    if (holdOf(driver).held) return withCors({ rides: [], hold: true })
-    if (await driverIsBusy(driverId)) {
-      await sweepExpiredOffers().catch(() => 0)
-      return withCors({ rides: [], busy: true })
-    }
+    // see BUSY in lib/dispatch.ts) is shown no new requests, offered or open-pool.
+    if (await driverIsBusy(driverId)) return withCors({ rides: [], busy: true })
 
-    // Build a $or so drivers see in-city taxi rides PLUS opt-in services (outstation, rental).
-    // Taxi/delivery/hire are always shown; outstation + rental require the driver to opt in.
-    const baseFilter: any = {
-      vehicleType: driver.selectedVehicleTypeName,
-    }
-    // Taxi branch covers everyday in-city rides (NOT opt-in services)
-    const taxiBranch: any = { ...baseFilter, service: { $nin: ['outstation', 'rental', 'hire_driver', 'delivery'] } }
-    if (driver.zoneId) taxiBranch.zoneId = driver.zoneId
-
-    // Opt-in services are city-bound too: once a parcel, rental, outstation or
-    // hire request's offer ladder ran out it used to be listed to every
-    // matching driver in every city. A ride booked outside every zone has no
-    // zoneId; it stays visible, limited by distance below.
-    const optIn = (service: string) => ({
-      ...baseFilter, service,
-      ...(driver.zoneId ? { zoneId: { $in: [driver.zoneId, null] } } : {}),
-    })
-
-    // Gate each service by the admin-set allow flag (default allowed)
+    // Candidate query (cheap, indexed): this vehicle type, the services this
+    // driver may take, this zone (or zone-less). driverEligibleFor below is the
+    // exact rule accept applies.
+    const baseFilter: any = { vehicleType: driver.selectedVehicleTypeName }
+    const zoneOr = driver.zoneId ? { zoneId: { $in: [driver.zoneId, null] } } : {}
     const branches: any[] = []
-    if (driver.allowTaxi !== false) branches.push(taxiBranch)
-    if (driver.acceptsOutstation && driver.allowOutstation !== false) branches.push(optIn('outstation'))
-    if (driver.acceptsRental && driver.allowRental !== false) branches.push(optIn('rental'))
-    if (driver.acceptsHireDriver && driver.allowHireDriver !== false) branches.push(optIn('hire_driver'))
-    if (driver.acceptsDelivery && driver.allowDelivery !== false) branches.push(optIn('delivery'))
+    if (driver.allowTaxi !== false) branches.push({ ...baseFilter, ...zoneOr, service: { $nin: ['outstation', 'rental', 'hire_driver', 'delivery'] } })
+    if (driver.acceptsOutstation && driver.allowOutstation !== false) branches.push({ ...baseFilter, ...zoneOr, service: 'outstation' })
+    if (driver.acceptsRental && driver.allowRental !== false) branches.push({ ...baseFilter, ...zoneOr, service: 'rental' })
+    if (driver.acceptsHireDriver && driver.allowHireDriver !== false) branches.push({ ...baseFilter, ...zoneOr, service: 'hire_driver' })
+    if (driver.acceptsDelivery && driver.allowDelivery !== false) branches.push({ ...baseFilter, ...zoneOr, service: 'delivery' })
     if (branches.length === 0) return withCors({ rides: [] })
 
+    // Fresh instant rides (created in the last 15 min), or scheduled ones whose
+    // due time is recent or ahead (filtered to SCHEDULE_LEAD_MIN below).
+    const now = new Date()
+    const since = new Date(now.getTime() - 15 * 60 * 1000)
     const query: any = {
       status: 'pending',
-      createdAt: { $gte: new Date(Date.now() - 15 * 60 * 1000) },
       rejectedBy: { $ne: driverId },
-      $or: branches,
+      $and: [
+        { $or: branches },
+        { $or: [{ createdAt: { $gte: since } }, { scheduledAt: { $gte: since } }, { departureAt: { $gte: since } }, { hireStartAt: { $gte: since } }] },
+      ],
     }
 
-    // Move on any offers that lapsed, so dispatch self-heals without a scheduler.
-    await sweepExpiredOffers().catch(() => 0)
+    let rides = await Ride.find(query).sort({ createdAt: -1 }).limit(FEED_SCAN_LIMIT).select(FEED_FIELDS).lean() as any[]
 
-    // Outstation + rental stay valid up to 15 min; plain taxi keeps the 2-min freshness window
-    let rides = await Ride.find(query).sort({ createdAt: -1 }).lean() as any[]
+    // Freshness by DUE time: a plain taxi request is listed for 2 min after it
+    // became due, other services for 15; scheduled ones only from
+    // SCHEDULE_LEAD_MIN before they are due.
     rides = rides.filter((r: any) => {
-      if (['outstation', 'rental', 'hire_driver', 'delivery'].includes(r.service)) return true
-      return new Date(r.createdAt) >= twoMinAgo
+      const due = rideDueAt(r).getTime()
+      const fresh = ['outstation', 'rental', 'hire_driver', 'delivery'].includes(r.service) ? 15 : 2
+      return due >= now.getTime() - fresh * 60_000 && rideIsOpenForDispatch(r, now)
     })
 
-    // Offer-based dispatch: a ride currently offered to someone else is not
-    // this driver's to take. Rides never offered, or whose ladder is spent,
-    // stay visible to everyone — the old grab-pool behaviour.
-    rides = rides.filter((r: any) => driverMaySee(r, driverId))
-
-    // Negative wallet: no cash rides (see accept).
-    if ((driver.walletBalance || 0) < 0) rides = rides.filter((r: any) => r.paymentMode !== 'cash')
-
-    // A zone-less request (pickup outside every zone) only reaches drivers
-    // within dispatch range of it — never the whole country.
-    rides = rides.filter((r: any) => {
-      if (r.zoneId || !driver.zoneId) return true
-      if (driver.currentLat == null || driver.currentLng == null || r.pickupLat == null || r.pickupLng == null) return false
-      return crowKm({ lat: driver.currentLat, lng: driver.currentLng }, { lat: r.pickupLat, lng: r.pickupLng }) <= ETA_CONFIG.MAX_PICKUP_RADIUS_KM
-    })
+    // The ONE eligibility rule (same as accept): offered-to-someone-else,
+    // zone, opt-in, cash on a negative wallet, female preference, ...
+    const femalePool = new Map<string, boolean>()
+    const keep: any[] = []
+    for (const r of rides) {
+      if (keep.length >= FEED_MAX) break
+      if (!(await driverEligibleFor(driver, r, { settings, femalePool, now }))) keep.push(r)
+    }
+    rides = keep
 
     // ── Order the feed by ETA, not recency ──
     // Requests this driver can reach soonest come first, so the pings that
@@ -151,8 +155,9 @@ export async function GET(req: NextRequest) {
       const u = r.riderId ? userMap.get(String(r.riderId)) : null
       return {
         id: r._id,
+        // Names only before accept — no phone numbers (riderPhone /
+        // senderPhone / receiverPhone come with /active once accepted).
         riderName: r.riderName,
-        riderPhone: r.riderPhone,
         riderProfilePicUrl: u?.profilePicUrl || '',
         riderRating: u?.rating ?? null,
         pickupAddress: r.pickupAddress,
@@ -183,6 +188,7 @@ export async function GET(req: NextRequest) {
         cityFrom: r.cityFrom,
         cityTo: r.cityTo,
         departureAt: r.departureAt,
+        scheduledAt: r.scheduledAt,
         returnAt: r.returnAt,
         numPassengers: r.numPassengers,
         // Rental extras
@@ -194,8 +200,8 @@ export async function GET(req: NextRequest) {
         hireStartAt: r.hireStartAt,
         hireEndAt: r.hireEndAt,
         // Delivery extras
-        senderName: r.senderName, senderPhone: r.senderPhone,
-        receiverName: r.receiverName, receiverPhone: r.receiverPhone,
+        senderName: r.senderName,
+        receiverName: r.receiverName,
         itemType: r.itemType, weightKg: r.weightKg,
         packageSize: r.packageSize, isFragile: r.isFragile,
         codAmount: r.codAmount, parcelPhotos: r.parcelPhotos,
