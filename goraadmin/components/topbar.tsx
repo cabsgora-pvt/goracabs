@@ -1,8 +1,8 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { Bell, ChevronDown, LogOut, Settings, Home, Users, FileText, Menu, Maximize } from 'lucide-react'
+import { Bell, ChevronDown, LogOut, Settings, Home, Users, FileText, Menu, Maximize, Moon, Sun } from 'lucide-react'
 import { SIDE_MENU } from './sidebar'
 
 // Module tabs across the top, as on the previous panel (Home · Users ·
@@ -15,6 +15,21 @@ const modules = [
 ]
 
 export function Topbar({ onMenu }: { onMenu: () => void }) {
+  // Light / dark theme, remembered in this browser.
+  const [dark, setDark] = useState(false)
+  useEffect(() => {
+    let saved = ''
+    try { saved = localStorage.getItem('gora-admin-theme') || '' } catch {}
+    const on = saved === 'dark'
+    setDark(on)
+    document.documentElement.classList.toggle('dark', on)
+  }, [])
+  const toggleTheme = () => {
+    const on = !dark
+    setDark(on)
+    document.documentElement.classList.toggle('dark', on)
+    try { localStorage.setItem('gora-admin-theme', on ? 'dark' : 'light') } catch {}
+  }
   const router = useRouter()
   const pathname = usePathname()
   const [dropdownOpen, setDropdownOpen] = useState(false)
@@ -26,7 +41,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
   }
 
   return (
-    <header className="h-[70px] flex-shrink-0 bg-white flex items-center pr-4 lg:pr-6 sticky top-0 z-20"
+    <header className="admin-topbar h-[70px] flex-shrink-0 bg-white flex items-center pr-4 lg:pr-6 sticky top-0 z-20"
       style={{ boxShadow: '0 1px 2px rgba(56,65,74,.15)' }}>
       <button type="button" onClick={onMenu} aria-label="Toggle menu"
         className="h-[70px] px-4 lg:px-5 text-[#878a99] hover:text-[#405189]">
@@ -52,6 +67,10 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
       <div className="flex-1" />
 
       {/* Fullscreen */}
+      <button type="button" onClick={toggleTheme} aria-label={dark ? 'Light mode' : 'Dark mode'} title={dark ? 'Light mode' : 'Dark mode'}
+        className="hidden sm:flex h-10 w-10 items-center justify-center rounded-full text-[#878a99] hover:text-[#405189] hover:bg-[#f3f3f9]">
+        {dark ? <Sun className="w-[19px] h-[19px]" /> : <Moon className="w-[19px] h-[19px]" />}
+      </button>
       <button type="button" onClick={fullscreen} aria-label="Fullscreen"
         className="hidden sm:flex w-10 h-10 items-center justify-center rounded-full text-[#878a99] hover:bg-[#f3f3f9]">
         <Maximize className="w-[19px] h-[19px]" />

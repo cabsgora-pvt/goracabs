@@ -1,4 +1,5 @@
 'use client'
+import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { Header } from '@/components/header'
 import { PageHeader } from '@/components/ui/page-header'
@@ -188,18 +189,8 @@ export default function PaymentSettingsPage() {
                     </button>
                   </div>
                 ))}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Platform Commission: <strong>{settings?.payment?.commissionPercent}%</strong>
-                  </label>
-                  <input type="range" min="5" max="40" step="1"
-                    value={settings?.payment?.commissionPercent || 20}
-                    onChange={e => update(['payment', 'commissionPercent'], +e.target.value)}
-                    title="Platform commission percent" aria-label="Platform commission percent"
-                    className="w-full accent-primary" />
-                  <div className="flex justify-between text-xs text-gray-400 mt-1">
-                    <span>5%</span><span>40%</span>
-                  </div>
+                <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+                  Commission is set per zone, vehicle and service in <Link href="/zones" className="underline font-semibold">Zones → Pricing</Link>. A driver on a subscription pays the plan&apos;s rate (Settings → Driver App).
                 </div>
               </>
             )}

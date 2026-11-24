@@ -8,6 +8,7 @@ import Transaction from '@/models/Transaction'
 import { requireDriverAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 import { verifyRazorpaySignature } from '@/lib/razorpay'
+import { franchiseShareFor } from '@/lib/commission'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -64,10 +65,15 @@ export async function POST(req: NextRequest) {
       { driverId: driver._id, status: 'active' },
       { $set: { status: 'expired' } }
     )
+    // Franchise mode: a subscribed driver pays no ride commission, so the zone
+    // admin's share comes from the subscription price instead (lib/commission).
+    let franchiseShare: any
+    try { franchiseShare = await franchiseShareFor(driver.zoneId, price) } catch (e) { console.error('[subscription] franchise share failed', e) }
     const sub = await DriverSubscription.create({
       driverId: driver._id, planId: plan._id, planName: plan.name, price,
       durationDays: plan.durationDays, commissionPercentWhileActive: driver.subscriptionCommissionPercent,
       startedAt: now, expiresAt, status: 'active',
+      zoneId: driver.zoneId || null, paidVia: paidViaGateway ? 'razorpay' : 'wallet', franchiseShare,
     })
 
     // Only record a wallet transaction when paid from wallet (gateway payments don't touch the wallet)

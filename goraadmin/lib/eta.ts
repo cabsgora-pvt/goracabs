@@ -296,6 +296,8 @@ export function availableDriverFilter(
   return {
     status: 'approved',
     isOnline: true,
+    'accountHold.active': { $ne: true },
+    faceVerificationRequired: { $ne: true },
     currentLat: { $ne: null },
     currentLng: { $ne: null },
     locationUpdatedAt: { $gte: new Date(Date.now() - freshMs) },

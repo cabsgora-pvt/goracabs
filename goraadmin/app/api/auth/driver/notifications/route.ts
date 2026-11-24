@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import PushNotification from '@/models/PushNotification'
+import { SENT_ONLY, sweepDueNotifications } from '@/lib/notifications'
 import { requireDriverAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 
@@ -22,9 +23,11 @@ export async function GET(req: NextRequest) {
     if (!payload) return withCors({ error: 'Unauthorized' }, 401)
 
     await connectDB()
+    sweepDueNotifications()
     const driverId = String((payload as any).id)
 
     const rows: any[] = await PushNotification.find({
+      ...SENT_ONLY,
       $or: [
         { target: 'all' },
         { target: 'drivers' },
@@ -40,6 +43,7 @@ export async function GET(req: NextRequest) {
         id: String(n._id),
         title: n.title || '',
         body: n.message || '',
+        imageUrl: n.imageUrl || '',
         sentAt: n.sentAt || n.createdAt || null,
         type: n.target === 'specific' ? 'personal' : 'broadcast',
       })),

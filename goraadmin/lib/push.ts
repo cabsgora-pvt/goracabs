@@ -29,6 +29,8 @@ type PushMessage = {
   data?: Record<string, string>
   /** Android channel; the driver app uses a high-priority ride channel. */
   channelId?: string
+  /** Big picture shown in the notification (absolute https URL). */
+  imageUrl?: string
 }
 
 type Creds = { projectId: string; clientEmail: string; privateKey: string }
@@ -171,7 +173,7 @@ export async function sendPush(
         body: JSON.stringify({
           message: {
             token,
-            notification: { title: msg.title, body: msg.body },
+            notification: { title: msg.title, body: msg.body, ...(msg.imageUrl ? { image: msg.imageUrl } : {}) },
             data: msg.data || {},
             android: {
               priority: 'HIGH',

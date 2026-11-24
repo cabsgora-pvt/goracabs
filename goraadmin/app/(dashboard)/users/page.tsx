@@ -13,6 +13,9 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  // Set by dashboard links (?filter=held / ?filter=negative)
+  const [quickFilter, setQuickFilter] = useState<string>('')
+  useEffect(() => { setQuickFilter(new URLSearchParams(window.location.search).get('filter') || '') }, [])
   const [showAddModal, setShowAddModal] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null)
   const [newUser, setNewUser] = useState({ name: '', phone: '', email: '' })
@@ -21,6 +24,7 @@ export default function UsersPage() {
     setLoading(true)
     const params = new URLSearchParams({ limit: '100' })
     if (statusFilter !== 'all') params.set('status', statusFilter)
+    if (quickFilter) params.set('filter', quickFilter)
     if (search) params.set('search', search)
     fetch(`/api/users?${params}`)
       .then(r => r.json())
@@ -28,7 +32,7 @@ export default function UsersPage() {
       .catch(() => setLoading(false))
   }
 
-  useEffect(() => { fetchUsers() }, [statusFilter])
+  useEffect(() => { fetchUsers() }, [statusFilter, quickFilter])
 
   const filtered = users.filter(u => {
     if (!search) return true
@@ -38,7 +42,7 @@ export default function UsersPage() {
 
   const stats = {
     total: users.length,
-    active: users.filter(u => u.status === 'active').length,
+    active: users.filter(u => u.status !== 'blocked' && u.status !== 'deleted').length,
     blocked: users.filter(u => u.status === 'blocked').length,
   }
 
@@ -52,7 +56,7 @@ export default function UsersPage() {
   }
 
   const toggleBlock = async (id: string, current: string) => {
-    const newStatus = current === 'active' ? 'blocked' : 'active'
+    const newStatus = current === 'blocked' ? 'active' : 'blocked'
     const res = await fetch(`/api/users/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -89,6 +93,14 @@ export default function UsersPage() {
   return (
     <div>
       <Header title="Users" />
+      {quickFilter && (
+        <div className="px-6 pt-4">
+          <span className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-semibold px-3 py-1.5 rounded-full">
+            Showing: {({ held: 'Riders on hold' } as Record<string, string>)[quickFilter] || quickFilter}
+            <button type="button" aria-label="Clear filter" onClick={() => { setQuickFilter(''); window.history.replaceState(null, '', window.location.pathname) }} className="hover:text-red-600">✕</button>
+          </span>
+        </div>
+      )}
       <div className="p-6 space-y-6">
         <PageHeader
           title="Users"
@@ -174,8 +186,8 @@ export default function UsersPage() {
                           <button
                             type="button"
                             onClick={() => toggleBlock(u._id, u.status)}
-                            className={`p-1.5 rounded-lg ${u.status === 'active' ? 'hover:bg-red-50 text-red-500' : 'hover:bg-green-50 text-green-600'}`}
-                            title={u.status === 'active' ? 'Block' : 'Unblock'}
+                            className={`p-1.5 rounded-lg ${u.status !== 'blocked' ? 'hover:bg-red-50 text-red-500' : 'hover:bg-green-50 text-green-600'}`}
+                            title={u.status !== 'blocked' ? 'Block' : 'Unblock'}
                           >
                             <Ban className="w-4 h-4" />
                           </button>

@@ -11,7 +11,6 @@ const FIELDS = [
   { label: 'Minimum Fare (₹)', key: 'minFare' },
   { label: 'Night Surcharge (%)', key: 'nightSurchargePercent' },
   { label: 'Cancellation Fee (₹)', key: 'cancellationFee' },
-  { label: 'Driver Commission (%)', key: 'driverCommissionPercent' },
   { label: 'Base Distance (km)', key: 'baseDistance', hint: 'Free km included in base fare' },
   { label: 'Waiting Charge (₹/min)', key: 'waitingCharge' },
 ]

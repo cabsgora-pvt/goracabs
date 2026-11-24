@@ -8,7 +8,9 @@ import Settings from '@/models/Settings'
 import { requireDriverAuth } from '@/lib/auth'
 import { getEtaFactor, crowKm, predictEtaMin, displayRoadKm, ETA_CONFIG } from '@/lib/eta'
 import { sweepExpiredOffers, driverMaySee, driverIsBusy } from '@/lib/dispatch'
+import { holdOf } from '@/lib/account-hold'
 import { withCors, corsOptions } from '@/lib/cors'
+import { sweepDueNotifications } from '@/lib/notifications'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -20,6 +22,7 @@ export async function GET(req: NextRequest) {
     if (!payload) return withCors({ error: 'Unauthorized' }, 401)
 
     await connectDB()
+    sweepDueNotifications()   // scheduled admin notifications that are due
     const driver: any = await Driver.findById(payload.id).lean()
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
 
@@ -43,6 +46,7 @@ export async function GET(req: NextRequest) {
     // A busy driver (on a trip, or with an accepted ride due within the hour —
     // see BUSY in lib/dispatch.ts) is shown no new requests, offered or open-
     // pool. Their poll still drives the sweep, so dispatch keeps self-healing.
+    if (holdOf(driver).held) return withCors({ rides: [], hold: true })
     if (await driverIsBusy(driverId)) {
       await sweepExpiredOffers().catch(() => 0)
       return withCors({ rides: [], busy: true })
@@ -96,6 +100,9 @@ export async function GET(req: NextRequest) {
     // this driver's to take. Rides never offered, or whose ladder is spent,
     // stay visible to everyone — the old grab-pool behaviour.
     rides = rides.filter((r: any) => driverMaySee(r, driverId))
+
+    // Negative wallet: no cash rides (see accept).
+    if ((driver.walletBalance || 0) < 0) rides = rides.filter((r: any) => r.paymentMode !== 'cash')
 
     // A zone-less request (pickup outside every zone) only reaches drivers
     // within dispatch range of it — never the whole country.

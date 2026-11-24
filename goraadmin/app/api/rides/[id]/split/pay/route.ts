@@ -8,6 +8,7 @@ import WalletTransaction from '@/models/WalletTransaction'
 import Transaction from '@/models/Transaction'
 import { requireAuth } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
+import { commissionPercentFor } from '@/lib/commission'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -25,10 +26,9 @@ function normPhone(p: string): string {
 // bills against by `splitCollected` (fare portion only, never the tip) so the
 // driver is never paid commission-adjusted earnings on the same rupee twice.
 //
-// Uses the ride's own commissionPercent (set at booking) rather than
-// re-deriving a driver-subscription discount the way /complete does — a
-// driver's mid-ride subscription change is a rare enough edge case that this
-// is an acceptable simplification for a first version, not silently ignored.
+// The commission % follows the same rule as /complete (lib/commission.ts): a
+// driver with an active subscription pays the plan's rate (normally 0), so a
+// subscribed driver is never charged commission on split shares.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const payload = requireAuth(req) as any
@@ -65,7 +65,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     ride.splitCollected = (ride.splitCollected || 0) + share
 
     const driver: any = ride.driverId ? await Driver.findById(ride.driverId) : null
-    const commissionPercent = ride.commissionPercent != null ? ride.commissionPercent : 20
+    // Same rule as /complete: a subscribed driver pays the plan's rate (normally
+    // 0) on split shares too, not the full zone commission.
+    const commissionPercent = await commissionPercentFor(driver, ride)
     const commission = Math.round((share * commissionPercent) / 100)
     ride.splitCommission = (ride.splitCommission || 0) + commission
     await ride.save()

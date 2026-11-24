@@ -55,7 +55,6 @@ export default function HireDriverServicePage() {
                 { id: 'hMinFare',    label: 'Min Fare (₹)',            field: 'minFare' },
                 { id: 'hWaiting',    label: 'Waiting Charge (₹/min)', field: 'waitingCharge' },
                 { id: 'hCancel',     label: 'Cancellation Fee (₹)',    field: 'cancellationFee' },
-                { id: 'hCommission', label: 'Driver Commission (%)',   field: 'driverCommissionPercent' },
                 { id: 'hMinHours',   label: 'Minimum Hours',          field: 'minHours' },
                 { id: 'hHourRate',   label: 'Per Hour Rate (₹)',       field: 'perHourRate' },
               ].map(({ id, label, field }) => (

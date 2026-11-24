@@ -11,7 +11,6 @@ const FIELDS = [
   { label: 'Minimum Fare (₹)', key: 'minFare' },
   { label: 'Night Surcharge (%)', key: 'nightSurchargePercent' },
   { label: 'Cancellation Fee (₹)', key: 'cancellationFee' },
-  { label: 'Driver Commission (%)', key: 'driverCommissionPercent' },
 ]
 
 export default function DeliveryServicePage() {

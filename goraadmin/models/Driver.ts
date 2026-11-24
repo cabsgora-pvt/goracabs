@@ -31,7 +31,24 @@ const DriverSchema = new Schema({
   // simply not matched when a rider asks for a female driver — never blocked
   // from other rides.
   gender: { type: String, enum: ['female', 'male', 'other'] },
-  status: { type: String, enum: ['pending', 'approved', 'blocked', 'rejected'], default: 'pending' },
+  status: { type: String, enum: ['pending', 'approved', 'blocked', 'rejected', 'deleted'], default: 'pending' },
+  // Account hold: the person can still sign in and see their account, but a
+  // held driver cannot go online or take rides, and a held rider cannot book.
+  // kind 'face' (wrong face scan), 'wallet' (wallet mis-transaction), 'manual'.
+  accountHold: {
+    active: { type: Boolean, default: false },
+    kind: { type: String, enum: ['face', 'wallet', 'manual', 'other'], default: 'manual' },
+    reason: String,
+    at: Date,
+    by: String,
+  },
+  deletedAt: Date,
+  // Zone: set by the admin (manual), or followed from the driver's location
+  // when zoneAuto is on. Every change is kept in zoneHistory.
+  zoneAuto: { type: Boolean, default: false },
+  zoneHistory: [{ from: String, fromName: String, to: String, toName: String, by: String, at: Date, _id: false }],
+  // Ride preference types (admin-defined, e.g. 'pet_friendly') this driver offers.
+  ridePreferences: { type: [String], default: [] },
   isOnline: { type: Boolean, default: false },
   // Driver opts in to receive intercity outstation requests (off by default — taxi only)
   acceptsOutstation: { type: Boolean, default: false },

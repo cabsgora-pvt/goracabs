@@ -36,7 +36,11 @@ export default function ZonesPage() {
   const [form, setForm] = useState({ name: '', city: '', type: 'city' })
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [infoPos, setInfoPos] = useState<LatLng | null>(null)
-  const editPolygonRef = useRef<google.maps.Polygon | null>(null)
+  // Every drawn zone polygon by id. The edit used to read a ref set in onLoad
+  // only while that zone was being edited — but onLoad runs once, when the
+  // zones first load (nobody is editing then), so the ref stayed empty and
+  // "Save Changes" wrote back the OLD boundary: reshaping never saved.
+  const polysRef = useRef<Record<string, google.maps.Polygon>>({})
   // Who runs each zone (franchise), shown on the list and the map.
   const [zoneAdminOf, setZoneAdminOf] = useState<Map<string, { id: string; name: string }>>(new Map())
   const { enabled: franchiseOn } = useFranchiseMode()
@@ -110,15 +114,20 @@ export default function ZonesPage() {
       setShowForm(false); setDrawnPath(null)
       setToast({ msg: 'Zone created!', type: 'success' })
       fetchZones()
+    } else {
+      const d = await res.json().catch(() => ({}))
+      setToast({ msg: d.error || 'Could not save the zone', type: 'error' })
     }
   }
 
   // Update edited zone boundary
   const saveEdit = async () => {
     if (!editingZone) return
-    const path = editPolygonRef.current
-      ? editPolygonRef.current.getPath().getArray().map(p => ({ lat: p.lat(), lng: p.lng() }))
+    const poly = polysRef.current[editingZone._id]
+    const path = poly
+      ? poly.getPath().getArray().map(p => ({ lat: p.lat(), lng: p.lng() }))
       : editingZone.polygonPath
+    if (!path || path.length < 3) { setToast({ msg: 'A zone needs at least 3 boundary points', type: 'error' }); return }
     const center = getCenter(path)
     setSaving(true)
     const res = await fetch(`/api/zones/${editingZone._id}`, {
@@ -131,7 +140,10 @@ export default function ZonesPage() {
     })
     setSaving(false)
     if (res.ok) {
-      setEditingZone(null); setToast({ msg: 'Zone updated!', type: 'success' }); fetchZones()
+      setEditingZone(null); setToast({ msg: `Zone updated — ${path.length} boundary points saved`, type: 'success' }); fetchZones()
+    } else {
+      const d = await res.json().catch(() => ({}))
+      setToast({ msg: d.error || 'Could not save the zone', type: 'error' })
     }
   }
 
@@ -175,7 +187,7 @@ export default function ZonesPage() {
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
       <Header title="Zone Management" />
 
       <div className="flex flex-1 overflow-hidden">
@@ -245,7 +257,7 @@ export default function ZonesPage() {
         </div>
 
         {/* ── Right: map + detail panel ── */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="relative flex-1 flex flex-col overflow-hidden">
           {/* Map */}
           <div className="flex-1 relative">
             <LoadScript googleMapsApiKey={API_KEY} libraries={LIBRARIES}>
@@ -291,7 +303,8 @@ export default function ZonesPage() {
                       editable: editingZone?._id === z._id,
                       zIndex: selectedZone?._id === z._id ? 10 : 1,
                     }}
-                    onLoad={p => { if (editingZone?._id === z._id) editPolygonRef.current = p }}
+                    onLoad={p => { polysRef.current[z._id] = p }}
+                    onUnmount={() => { delete polysRef.current[z._id] }}
                     onClick={() => { setSelectedZone(z); setInfoPos({ lat: z.centerLat || MAP_CENTER.lat, lng: z.centerLng || MAP_CENTER.lng }); setPeakSettings({ peakZoneRadius: (z as any).peakZoneRadius ?? 0, peakZoneDuration: (z as any).peakZoneDuration ?? 0, peakZoneRideCount: (z as any).peakZoneRideCount ?? 0, distancePricePercentage: (z as any).distancePricePercentage ?? 0, maximumDistance: (z as any).maximumDistance ?? 0, maximumOutstationDistance: (z as any).maximumOutstationDistance ?? 0 }) }}
                   />
                 ) : (
@@ -428,9 +441,10 @@ export default function ZonesPage() {
             </div>
           )}
 
-          {/* Edit panel */}
+          {/* Edit panel — floats over the bottom of the map so Save is always
+              on screen (it used to render below the map, out of view). */}
           {editingZone && (
-            <div className="bg-white border-t border-gray-100 p-4">
+            <div className="absolute left-4 right-4 bottom-4 z-20 bg-white rounded-xl shadow-lg border border-gray-200 p-4">
               <div className="flex items-center gap-4">
                 <div className="flex gap-3 flex-1">
                   <input value={editingZone.name} onChange={e => setEditingZone({ ...editingZone, name: e.target.value })}

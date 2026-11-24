@@ -15,6 +15,8 @@ export async function GET(req: NextRequest) {
 
     const query: any = {}
     if (status && status !== 'all') query.status = status
+    else query.status = { $ne: 'deleted' }
+    if (searchParams.get('filter') === 'held') query['accountHold.active'] = true
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },

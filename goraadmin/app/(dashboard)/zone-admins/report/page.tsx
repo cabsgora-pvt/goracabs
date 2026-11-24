@@ -63,7 +63,7 @@ export default function FranchiseReportPage() {
               <div className="px-5 py-4 border-b border-[#e9ebec]"><h5 className="font-semibold text-[15px]">All zone admins — {d.month}</h5></div>
               <div className="overflow-x-auto">
                 <table className="w-full text-[13px]">
-                  <thead><tr>{['Zone admin', 'Zones', 'Status', 'Subscription paid', 'Rides', 'Commission', 'Share %', 'Share due', ''].map(h => <th key={h} className="text-left px-4 py-3">{h}</th>)}</tr></thead>
+                  <thead><tr>{['Zone admin', 'Zones', 'Status', 'Subscription paid', 'Rides', 'Commission', 'Share %', 'Ride share', 'Driver sub. share', 'Share due', ''].map(h => <th key={h} className="text-left px-4 py-3">{h}</th>)}</tr></thead>
                   <tbody className="divide-y">
                     {d.rows.map((r: any) => {
                       const st = ACCESS_LABEL[r.access] || ACCESS_LABEL.active
@@ -76,6 +76,8 @@ export default function FranchiseReportPage() {
                           <td className="px-4 py-3">{r.settlement.rides}</td>
                           <td className="px-4 py-3">{rupee(r.settlement.commission)}</td>
                           <td className="px-4 py-3">{r.settlement.sharePercent}%</td>
+                          <td className="px-4 py-3">{rupee(r.settlement.rideShare)}</td>
+                          <td className="px-4 py-3">{rupee(r.settlement.subscriptionShare)}</td>
                           <td className={`px-4 py-3 font-semibold ${r.settlement.due > 0 ? 'text-red-600' : ''}`}>{rupee(r.settlement.due)}</td>
                           <td className="px-4 py-3 text-sky-700 text-[12px]">{r.passwordResetRequested ? 'Reset requested' : ''}</td>
                         </tr>

@@ -13,6 +13,9 @@ export default function DriversPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  // Set by dashboard links (?filter=held / ?filter=negative)
+  const [quickFilter, setQuickFilter] = useState<string>('')
+  useEffect(() => { setQuickFilter(new URLSearchParams(window.location.search).get('filter') || '') }, [])
   const [vehicleFilter, setVehicleFilter] = useState('all')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
@@ -20,6 +23,7 @@ export default function DriversPage() {
     setLoading(true)
     const params = new URLSearchParams({ limit: '100' })
     if (statusFilter !== 'all') params.set('status', statusFilter)
+    if (quickFilter) params.set('filter', quickFilter)
     if (search) params.set('search', search)
     fetch(`/api/drivers?${params}`)
       .then(r => r.json())
@@ -27,7 +31,7 @@ export default function DriversPage() {
       .catch(() => setLoading(false))
   }
 
-  useEffect(() => { fetchDrivers() }, [statusFilter])
+  useEffect(() => { fetchDrivers() }, [statusFilter, quickFilter])
 
   const vehicleTypes = Array.from(new Set(drivers.map((d: any) => d.vehicleType).filter(Boolean)))
 
@@ -63,6 +67,14 @@ export default function DriversPage() {
   return (
     <div>
       <Header title="Drivers" />
+      {quickFilter && (
+        <div className="px-6 pt-4">
+          <span className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-semibold px-3 py-1.5 rounded-full">
+            Showing: {({ held: 'Drivers on hold', negative: 'Negative wallet' } as Record<string, string>)[quickFilter] || quickFilter}
+            <button type="button" aria-label="Clear filter" onClick={() => { setQuickFilter(''); window.history.replaceState(null, '', window.location.pathname) }} className="hover:text-red-600">✕</button>
+          </span>
+        </div>
+      )}
       <div className="p-6 space-y-6">
         <PageHeader title="All Drivers" subtitle="Manage approved and registered drivers" />
 

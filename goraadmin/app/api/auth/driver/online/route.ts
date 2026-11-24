@@ -3,6 +3,8 @@ import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
 import { requireDriverAuth } from '@/lib/auth'
+import { holdOf, holdMessage } from '@/lib/account-hold'
+import { maybeAutoSwitchZone } from '@/lib/zone-auto'
 import { withCors, corsOptions } from '@/lib/cors'
 
 export async function OPTIONS() { return corsOptions() }
@@ -17,7 +19,11 @@ export async function POST(req: NextRequest) {
 
     // A client could skip the app's own lock screen — this is the real gate.
     if (isOnline) {
-      const existing: any = await Driver.findById(payload.id).select('faceVerificationRequired faceVerificationReason').lean()
+      const existing: any = await Driver.findById(payload.id).select('faceVerificationRequired faceVerificationReason accountHold status').lean()
+      if (existing?.accountHold?.active) {
+        const hold = holdOf(existing)
+        return withCors({ error: holdMessage(hold), accountHold: true, holdKind: hold.kind, holdReason: hold.reason }, 403)
+      }
       if (existing?.faceVerificationRequired) {
         return withCors({
           error: 'Face verification required before going online',
@@ -45,8 +51,9 @@ export async function POST(req: NextRequest) {
 
     const driver: any = await Driver.findByIdAndUpdate(payload.id, update, { new: true }).lean()
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
+    const zoneChangedTo = realFix ? await maybeAutoSwitchZone(String(driver._id), la, ln).catch(() => null) : null
 
-    return withCors({ success: true, isOnline: driver.isOnline })
+    return withCors({ success: true, isOnline: driver.isOnline, ...(zoneChangedTo ? { zoneChangedTo } : {}) })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)
   }

@@ -9,8 +9,10 @@ import { distanceKm, pointInPolygon } from '@/lib/geo'
 // NB: local `roadDistanceKm` below is the trip distance — do not import the
 // eta.ts helper of the same name into this file.
 import { availableDriverFilter, getEtaFactor, rankCandidates, refineCandidatesWithTraffic, MATRIX_REFINE, ETA_CONFIG } from '@/lib/eta'
+import { holdOf, holdMessage } from '@/lib/account-hold'
+import RidePreference from '@/models/RidePreference'
 import { offerNext, withoutBusyDrivers, busyDriverIds } from '@/lib/dispatch'
-import { chargedAtBooking, linkPrepayment } from '@/lib/prepay'
+import { chargedAtBooking, linkPrepayment, refundRefusedPrepayment } from '@/lib/prepay'
 import { quoteRental, type RentalQuote } from '@/lib/rental-pricing'
 import { evaluatePromo, consumePromo, type PromoResult } from '@/lib/promo'
 import { verifyQuote, quoteCell, ENFORCE_QUOTES } from '@/lib/quote'
@@ -58,10 +60,39 @@ async function fetchDirections(originLat: number, originLng: number, destLat: nu
   }
 }
 
+// Keeps only active admin-defined preference keys that apply to this service.
+async function cleanPreferences(raw: any, service: string): Promise<string[] | undefined> {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined
+  const keys = raw.map((k: any) => String(k)).slice(0, 10)
+  const rows: any[] = await RidePreference.find({ key: { $in: keys }, isActive: true }).select('key services').lean()
+  const ok = rows.filter(r => !r.services?.length || r.services.includes(service)).map(r => r.key)
+  return ok.length ? ok : undefined
+}
+
 // POST booking → creates ride (status pending). Online matching drivers pick it up via polling.
+//
+// Outstation is paid BEFORE this call (wallet or Razorpay). If the booking is
+// then refused — account on hold, quote expired, any error — before a ride
+// exists, that payment backs nothing, so it is given back to the rider's Gora
+// wallet right here and the reply says so (`refunded`). Once a ride exists,
+// its money is handled by linkPrepayment and the cancel refunds instead.
 export async function POST(req: NextRequest) {
+  let b: any
+  try { b = await req.json() } catch { return withCors({ error: 'Invalid request' }, 400) }
+  const ctx = { rideCreated: false }
+  const res = await book(req, b, ctx)
+  if (res.status < 400 || ctx.rideCreated) return res
+
+  const auth = requireAuth(req) as any
+  if (!auth?.id) return res
+  const refund = await refundRefusedPrepayment(String(auth.id), b)
+  if (!refund) return res
+  const body = await res.clone().json().catch(() => ({}))
+  return withCors({ ...body, refunded: refund.amount, refundedTo: 'wallet', walletBalance: refund.balance }, res.status)
+}
+
+async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean }) {
   try {
-    const b = await req.json()
     await connectDB()
 
     // Identify the rider from the auth token (falls back to body fields)
@@ -73,6 +104,9 @@ export async function POST(req: NextRequest) {
       riderId = auth.id
       const user: any = await User.findById(auth.id).lean().catch(() => null)
       if (user) {
+        if (user.status === 'deleted') return withCors({ error: 'This account has been deleted.' }, 403)
+        const hold = holdOf(user)
+        if (hold.held) return withCors({ error: holdMessage(hold), accountHold: true, holdKind: hold.kind }, 403)
         riderName = riderName || user.name
         riderPhone = riderPhone || user.phone
       }
@@ -285,6 +319,7 @@ export async function POST(req: NextRequest) {
       fareBreakdown: breakdown,
       paymentMode,
       zoneId, otp, status: 'pending',
+      preferences: await cleanPreferences(b.preferences, service),
       preferFemaleDriver: !!b.preferFemaleDriver,
       // Outstation-only fields (silently ignored for other services)
       tripType: b.tripType || 'one_way',
@@ -336,6 +371,9 @@ export async function POST(req: NextRequest) {
       // true on any failure, so the ride is never auto-closed without a refund.
       prepaidUnlinked: chargedAtBooking(service, paymentMode),
     })
+    // From here the payment belongs to this ride (linked below, or flagged for
+    // review) — a later error must not also refund it.
+    ctx.rideCreated = true
 
     // Tie an upfront payment to this ride from a server-verified source, so a
     // ride the system closes for "No driver found" can give it back.

@@ -80,7 +80,7 @@ export default function ReportsPage() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <StatsCard icon={TrendingUp} label="Gross Revenue" value={`₹${grossRevenue.toLocaleString()}`} iconColor="text-blue-600" iconBg="bg-blue-50" />
-          <StatsCard icon={DollarSign} label="Commission (20%)" value={`₹${commission.toLocaleString()}`} iconColor="text-green-600" iconBg="bg-green-50" />
+          <StatsCard icon={DollarSign} label="Commission" value={`₹${commission.toLocaleString()}`} iconColor="text-green-600" iconBg="bg-green-50" />
           <StatsCard icon={Wallet} label="Driver Payout" value={`₹${driverPayout.toLocaleString()}`} iconColor="text-purple-600" iconBg="bg-purple-50" />
           <StatsCard icon={BarChart2} label="Net Revenue" value={`₹${netRevenue.toLocaleString()}`} iconColor="text-orange-600" iconBg="bg-orange-50" />
         </div>

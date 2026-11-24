@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge'
 import { Toast } from '@/components/ui/toast'
 import { ArrowLeft, Phone, Mail, Calendar, TrendingUp, Wallet, Car, Ban, Trash2, MapPin, CreditCard, User } from 'lucide-react'
 import Link from 'next/link'
+import { EditAccountButton, HoldCard } from '@/components/account-admin'
+import { RiderPhotoCard } from '@/components/account-admin-extra'
 
 export default function UserDetailPage() {
   const { id } = useParams()
@@ -52,7 +54,7 @@ export default function UserDetailPage() {
   const totalSpent = recentRides.reduce((s: number, r: any) => s + (r.status === 'completed' ? (r.fare || 0) : 0), 0)
 
   const toggleBlock = async () => {
-    const newStatus = user.status === 'active' ? 'blocked' : 'active'
+    const newStatus = user.status === 'blocked' ? 'active' : 'blocked'
     const res = await fetch(`/api/users/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -149,17 +151,32 @@ export default function UserDetailPage() {
 
               {/* Actions */}
               <div className="mt-5 space-y-2">
+                <EditAccountButton
+                  title="Edit rider"
+                  url={`/api/users/${id}`}
+                  value={user}
+                  onSaved={(u: any) => setUser((old: any) => ({ ...old, ...u }))}
+                  onToast={setToast}
+                  fields={[
+                    { key: 'name', label: 'Full name' },
+                    { key: 'phone', label: 'Phone (10 digits)', type: 'tel', half: true },
+                    { key: 'email', label: 'Email', type: 'email', half: true },
+                    { key: 'city', label: 'City', half: true },
+                    { key: 'gender', label: 'Gender', type: 'select', half: true, options: [{ value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }, { value: 'other', label: 'Other' }] },
+                    { key: 'idNumber', label: 'ID number' },
+                  ]}
+                />
                 <button
                   type="button"
                   onClick={toggleBlock}
                   className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium ${
-                    user.status === 'active'
+                    user.status !== 'blocked'
                       ? 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
                       : 'bg-green-50 text-green-700 hover:bg-green-100 border border-green-200'
                   }`}
                 >
                   <Ban className="w-4 h-4" />
-                  {user.status === 'active' ? 'Block User' : 'Unblock User'}
+                  {user.status !== 'blocked' ? 'Block User' : 'Unblock User'}
                 </button>
                 <button
                   type="button"
@@ -169,6 +186,19 @@ export default function UserDetailPage() {
                   <Trash2 className="w-4 h-4" />
                   Delete User
                 </button>
+              </div>
+            </div>
+
+            <HoldCard doc={user} url={`/api/users/${id}/hold`} isDriver={false} onToast={setToast}
+              onChanged={(h: any) => setUser((u: any) => ({ ...u, accountHold: h }))} />
+
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+              <p className="text-sm font-semibold text-gray-800 mb-3">Photos</p>
+              <div className="grid grid-cols-2 gap-3">
+                <RiderPhotoCard userId={String(id)} label="Profile photo" field="profilePicUrl" url={user.profilePicUrl || user.profilePic}
+                  onSaved={(u: any) => setUser((old: any) => ({ ...old, ...u }))} onToast={setToast} />
+                <RiderPhotoCard userId={String(id)} label="ID proof" field="idPhotoUrl" url={user.idPhotoUrl}
+                  onSaved={(u: any) => setUser((old: any) => ({ ...old, ...u }))} onToast={setToast} />
               </div>
             </div>
 

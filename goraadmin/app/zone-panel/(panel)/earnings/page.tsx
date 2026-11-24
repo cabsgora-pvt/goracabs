@@ -19,17 +19,20 @@ export default function ZoneEarnings() {
           <>
             <div className="bg-white rounded shadow-sm p-5 text-[13px] text-gray-600">
               {d.sharePercent > 0
-                ? <>You earn <b className="text-[#495057]">{d.sharePercent}%</b> of Gora&apos;s commission on rides completed in your zones. Gora pays it to you and records it here.</>
+                ? <>You earn <b className="text-[#495057]">{d.sharePercent}%</b> of Gora&apos;s commission on rides completed in your zones, and {d.sharePercent}% of every driver subscription bought in your zones (a driver on a subscription pays no commission on rides). Gora pays it to you and records it here.</>
                 : <>Your plan has no revenue share. Contact Gora to discuss one.</>}
             </div>
             <div className="bg-white rounded shadow-sm overflow-x-auto">
               <table className="w-full text-[13px]">
-                <thead><tr>{['Month', 'Completed rides', 'Ride revenue', 'Commission', 'Your share', 'Paid to you', 'Due'].map(h => <th key={h} className="text-left px-4 py-3">{h}</th>)}</tr></thead>
+                <thead><tr>{['Month', 'Completed rides', 'Ride revenue', 'Commission', 'Ride share', 'Driver subscriptions', 'Subscription share', 'Your total', 'Paid to you', 'Due'].map(h => <th key={h} className="text-left px-4 py-3">{h}</th>)}</tr></thead>
                 <tbody className="divide-y">
                   {d.months.map((m: any) => (
                     <tr key={m.month}>
                       <td className="px-4 py-3">{m.month}</td><td className="px-4 py-3">{m.rides}</td><td className="px-4 py-3">{rupee(m.fare)}</td>
-                      <td className="px-4 py-3">{rupee(m.commission)}</td><td className="px-4 py-3 font-semibold">{rupee(m.share)}</td>
+                      <td className="px-4 py-3">{rupee(m.commission)}</td><td className="px-4 py-3">{rupee(m.rideShare)}</td>
+                      <td className="px-4 py-3">{m.subscriptions ? `${m.subscriptions} · ${rupee(m.subscriptionAmount)}` : '—'}</td>
+                      <td className="px-4 py-3">{rupee(m.subscriptionShare)}</td>
+                      <td className="px-4 py-3 font-semibold">{rupee(m.share)}</td>
                       <td className="px-4 py-3">{rupee(m.paid)}</td><td className={`px-4 py-3 font-semibold ${m.due > 0 ? 'text-yellow-700' : 'text-green-600'}`}>{rupee(m.due)}</td>
                     </tr>
                   ))}

@@ -3,6 +3,7 @@ import { connectDB } from '@/lib/mongodb'
 import Settings from '@/models/Settings'
 import { getSettings } from '@/lib/settings'
 import { guardAdmin } from '@/lib/admin-guard'
+import { requireAdminPassword } from '@/lib/admin-password'
 
 export async function GET(req: NextRequest) {
   try {
@@ -31,6 +32,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const denied = guardAdmin(req); if (denied) return denied
+    // Changing settings needs the admin's password again (panel prompts for it).
+    const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
     await connectDB()
     const body = await req.json()
     // Franchise mode has its own confirmed switch (settings/franchise); a page

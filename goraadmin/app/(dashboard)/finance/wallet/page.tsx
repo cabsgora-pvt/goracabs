@@ -1,4 +1,5 @@
 'use client'
+import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { Header } from '@/components/header'
 import { PageHeader } from '@/components/ui/page-header'
@@ -84,11 +85,8 @@ export default function WalletPage() {
                   onChange={e => setSettings({ ...settings, maxBalance: +e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
-              <div>
-                <label htmlFor="commissionPercent" className="block text-sm font-medium text-gray-700 mb-1">Commission %</label>
-                <input id="commissionPercent" type="number" value={settings.commissionPercent || 20}
-                  onChange={e => setSettings({ ...settings, commissionPercent: +e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+                Commission is set per zone, vehicle and service in <Link href="/zones" className="underline font-semibold">Zones → Pricing</Link>. A driver on a subscription pays the plan&apos;s rate (Settings → Driver App).
               </div>
             </div>
 

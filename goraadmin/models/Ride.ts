@@ -152,8 +152,21 @@ const RideSchema = new Schema({
   // the female-only pool first and falls back to everyone if nobody is nearby,
   // so this never strands a ride waiting for a driver who isn't there.
   preferFemaleDriver: { type: Boolean, default: false },
+  // Admin-defined preference keys the rider asked for (best-effort match).
+  preferences: { type: [String], default: undefined },
   commissionAmount: Number,   // admin profit
   driverEarning: Number,
+  // The zone admin's part of commissionAmount, fixed at completion
+  // (lib/commission.ts). zoneAdminId null / amount 0 = all of it is Gora's.
+  // Absent on rides completed before this existed.
+  franchiseShare: {
+    type: new Schema({
+      zoneAdminId: { type: Schema.Types.ObjectId, ref: 'ZoneAdmin', default: null },
+      zoneId: { type: Schema.Types.ObjectId, ref: 'Zone', default: null },
+      percent: Number, base: Number, amount: Number, at: Date,
+    }, { _id: false }),
+    default: undefined,
+  },
   commissionPercent: Number,
   distance: Number,            // road distance (km)
   duration: Number,            // road duration (min)
@@ -256,6 +269,8 @@ const RideSchema = new Schema({
 // that the ETA engine issues on every fare estimate.
 RideSchema.index({ status: 1, service: 1, vehicleType: 1, createdAt: -1 })
 RideSchema.index({ status: 1, driverId: 1 })
+// Monthly franchise settlement (lib/zone-admin computeSettlement).
+RideSchema.index({ 'franchiseShare.zoneAdminId': 1, completedAt: 1 }, { sparse: true })
 RideSchema.index({ riderId: 1, createdAt: -1 })
 // Speed-profile aggregation scans completed rides with usable ETA telemetry.
 RideSchema.index({ observedMinPerKm: 1, arrivedAt: -1 })

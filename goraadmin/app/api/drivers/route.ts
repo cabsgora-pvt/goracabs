@@ -15,6 +15,11 @@ export async function GET(req: NextRequest) {
 
     const query: any = {}
     if (status && status !== 'all') query.status = status
+    else query.status = { $ne: 'deleted' }
+    // Dashboard links: ?filter=held (on hold / failed face check), ?filter=negative (wallet below 0)
+    const filter = searchParams.get('filter') || ''
+    if (filter === 'held') query.$and = [{ $or: [{ 'accountHold.active': true }, { faceVerificationRequired: true }] }]
+    if (filter === 'negative') query.walletBalance = { $lt: 0 }
     if (search) {
       query.$or = [
         { name: { $regex: search, $options: 'i' } },

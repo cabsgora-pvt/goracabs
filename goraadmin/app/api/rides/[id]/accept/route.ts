@@ -6,6 +6,7 @@ import Driver from '@/models/Driver'
 import { requireDriverAuth } from '@/lib/auth'
 import Settings from '@/models/Settings'
 import { crowKm, getEtaFactor, predictEtaMin, ETA_CONFIG } from '@/lib/eta'
+import { holdOf, holdMessage } from '@/lib/account-hold'
 import { withCors, corsOptions } from '@/lib/cors'
 import { pushToUserAsync } from '@/lib/push'
 import { driverIsBusy } from '@/lib/dispatch'
@@ -29,6 +30,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const maxNeg = Math.abs(Number(da.maxNegativeWallet ?? 500))
     if (da.walletBlockEnabled !== false && (driver.walletBalance || 0) < -maxNeg) {
       return withCors({ error: `Low wallet balance (₹${Math.round(driver.walletBalance || 0)}). Please recharge to accept rides.` }, 403)
+    }
+
+    // On hold (wrong face scan, wallet issue, admin): no rides.
+    const hold = holdOf(driver)
+    if (hold.held) return withCors({ error: holdMessage(hold), accountHold: true }, 403)
+
+    // A negative wallet means the driver owes commission already: cash rides
+    // (where the driver keeps the money) are paused; online and wallet rides,
+    // which settle through Gora, still come.
+    if ((driver.walletBalance || 0) < 0) {
+      const pre: any = await Ride.findById(params.id).select('paymentMode').lean()
+      if (pre?.paymentMode === 'cash') {
+        return withCors({ error: 'Your wallet is negative, so cash rides are paused. Recharge your wallet to take cash rides again.', cashPaused: true }, 403)
+      }
     }
 
     // A busy driver (see BUSY in lib/dispatch.ts) takes no other ride. The feed hides requests from

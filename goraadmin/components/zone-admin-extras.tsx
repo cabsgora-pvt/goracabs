@@ -60,15 +60,18 @@ export function RevenueShareCard({ a, call, busy }: { a: any; call: Call; busy: 
   return (
     <div className={card}>
       <h5 className="font-semibold text-[15px] mb-1 flex items-center gap-2"><HandCoins className="w-4 h-4" /> Revenue share ({a.revenueSharePercent || 0}%)</h5>
-      <p className="text-[12.5px] text-gray-500 mb-3">Their share of the commission on rides completed in their zones.</p>
+      <p className="text-[12.5px] text-gray-500 mb-3">Their share of the commission on rides completed in their zones, and of driver subscriptions bought there (subscribed drivers pay no ride commission). Fixed when earned, in franchise mode only.</p>
       <div className="overflow-x-auto">
         <table className="w-full text-[12.5px]">
-          <thead><tr>{['Month', 'Rides', 'Commission', 'Share', 'Paid', 'Due'].map(h => <th key={h} className="text-left px-2 py-2">{h}</th>)}</tr></thead>
+          <thead><tr>{['Month', 'Rides', 'Commission', 'Ride share', 'Subscriptions', 'Sub. share', 'Total share', 'Paid', 'Due'].map(h => <th key={h} className="text-left px-2 py-2">{h}</th>)}</tr></thead>
           <tbody className="divide-y">
-            {!rows ? <tr><td colSpan={6} className="py-4 text-center text-gray-400">Loading…</td></tr> : rows.map(r => (
+            {!rows ? <tr><td colSpan={9} className="py-4 text-center text-gray-400">Loading…</td></tr> : rows.map(r => (
               <tr key={r.month}>
                 <td className="px-2 py-2">{r.month}</td><td className="px-2 py-2">{r.rides}</td>
-                <td className="px-2 py-2">{rupee(r.commission)}</td><td className="px-2 py-2">{rupee(r.share)}</td>
+                <td className="px-2 py-2">{rupee(r.commission)}</td><td className="px-2 py-2">{rupee(r.rideShare)}</td>
+                <td className="px-2 py-2">{r.subscriptions ? `${r.subscriptions} · ${rupee(r.subscriptionAmount)}` : '—'}</td>
+                <td className="px-2 py-2">{rupee(r.subscriptionShare)}</td>
+                <td className="px-2 py-2 font-semibold">{rupee(r.share)}</td>
                 <td className="px-2 py-2">{rupee(r.paid)}</td>
                 <td className={`px-2 py-2 font-semibold ${r.due > 0 ? 'text-red-600' : 'text-green-600'}`}>{rupee(r.due)}</td>
               </tr>

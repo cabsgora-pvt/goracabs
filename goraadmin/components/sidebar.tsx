@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useFranchiseMode } from './franchise-mode'
@@ -8,7 +8,7 @@ import {
   MessageSquare, Bell, Image, Gift, ChevronRight,
   Truck, FileText, HelpCircle, AlertCircle,
   CheckCircle, XCircle, Clock, DollarSign, Wallet, TrendingUp,
-  Package, Zap, UserCheck, MapPin, Smartphone, Building2, BadgeIndianRupee
+  Package, Zap, UserCheck, MapPin, Smartphone, Building2, BadgeIndianRupee, Inbox, Sparkles, FileCheck
 } from 'lucide-react'
 
 interface NavItem {
@@ -34,6 +34,7 @@ const navSections: { title: string; items: NavItem[] }[] = [
         ]
       },
       { label: 'Fleet Owners', href: '/fleet', icon: Truck },
+      { label: 'Account Requests', href: '/account-requests', icon: Inbox },
     ],
   },
   {
@@ -83,6 +84,8 @@ const navSections: { title: string; items: NavItem[] }[] = [
           { label: 'Surge Pricing', href: '/zones/surge', icon: Zap },
         ]
       },
+      { label: 'Driver Documents', href: '/document-types', icon: FileCheck },
+      { label: 'Ride Preferences', href: '/ride-preferences', icon: Sparkles },
     ],
   },
   {
@@ -168,6 +171,19 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
   const toggle = (label: string) =>
     setOpen(prev => prev.includes(label) ? prev.filter(s => s !== label) : [...prev, label])
 
+  // Folded to icons: hovering the rail opens the full menu over the page.
+  const [hovered, setHovered] = useState(false)
+  const rail = collapsed && !hovered
+
+  // Pending account requests (deletions, zone changes) — badge on the menu.
+  const [pendingRequests, setPendingRequests] = useState(0)
+  useEffect(() => {
+    const load = () => fetch('/api/account-requests?status=pending').then(r => r.json()).then(d => setPendingRequests(d.pending || 0)).catch(() => {})
+    load()
+    const t = setInterval(load, 60000)
+    return () => clearInterval(t)
+  }, [pathname])
+
   const content = (rail: boolean) => (
     <div className="flex flex-col h-full">
       {/* Logo box — 70px, the topbar's height */}
@@ -187,14 +203,17 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
             {section.items.map(item => {
               const active = isSectionActive(item)
               const expanded = open.includes(item.label)
-              const rowBase = `flex items-center ${rail ? 'justify-center px-0' : 'px-6'} py-[10px] text-[15px] w-full`
+              const rowBase = `relative flex items-center ${rail ? 'justify-center px-0' : 'px-6'} py-[10px] text-[15px] w-full hover:bg-[#f3f3f9]`
               if (item.href) {
                 return (
                   <Link key={item.label} href={item.href} onClick={onCloseMobile} title={rail ? item.label : undefined}
                     className={`${rowBase} ${active ? 'text-white font-medium' : 'text-[#6d7080] hover:text-[#405189]'}`}
                     style={active ? { backgroundColor: SIDE_MENU } : undefined}>
                     <item.icon className={`w-[18px] h-[18px] flex-shrink-0 ${rail ? '' : 'mr-[10px]'}`} />
-                    {!rail && <span className="truncate">{item.label}</span>}
+                    {!rail && <span className="truncate flex-1">{item.label}</span>}
+                    {item.href === '/account-requests' && pendingRequests > 0 && (
+                      <span className={`${rail ? 'absolute ml-6 -mt-4' : ''} min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center`}>{pendingRequests}</span>
+                    )}
                   </Link>
                 )
               }
@@ -241,9 +260,11 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
       </aside>
 
       {/* Desktop */}
-      <aside className={`hidden lg:flex flex-col fixed top-0 left-0 h-full z-30 bg-white border-r border-[#e9ebec] ${collapsed ? 'w-[70px]' : 'w-[250px]'}`}
-        style={{ boxShadow: '0 2px 4px rgba(15,34,58,.12)' }}>
-        {content(collapsed)}
+      <aside className={`hidden lg:flex flex-col fixed top-0 left-0 h-full z-30 bg-white border-r border-[#e9ebec] transition-[width] duration-200 ${rail ? 'w-[70px]' : 'w-[250px]'}`}
+        onMouseEnter={() => { if (collapsed) setHovered(true) }}
+        onMouseLeave={() => setHovered(false)}
+        style={{ boxShadow: collapsed && hovered ? '4px 0 18px rgba(15,34,58,.18)' : '0 2px 4px rgba(15,34,58,.12)' }}>
+        {content(rail)}
       </aside>
     </>
   )

@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     const [grossAgg, byService, byPayment, topDrivers] = await Promise.all([
       Ride.aggregate([
         { $match: match },
-        { $group: { _id: null, total: { $sum: '$fare' }, count: { $sum: 1 } } },
+        { $group: { _id: null, total: { $sum: '$fare' }, count: { $sum: 1 }, commission: { $sum: { $ifNull: ['$commissionAmount', 0] } }, franchise: { $sum: { $ifNull: ['$franchiseShare.amount', 0] } } } },
       ]),
       Ride.aggregate([
         { $match: match },
@@ -46,8 +46,10 @@ export async function GET(req: NextRequest) {
 
     const grossRevenue = grossAgg[0]?.total || 0
     const totalRides = grossAgg[0]?.count || 0
-    const commissionPercent = 20
-    const commission = Math.round(grossRevenue * (commissionPercent / 100))
+    // The commission actually charged on each ride (zone pricing %, 0 for
+    // subscribed drivers) — it used to be a flat 20% of the fare here.
+    const commission = Math.round(grossAgg[0]?.commission || 0)
+    const franchiseShare = Math.round(grossAgg[0]?.franchise || 0)
     const driverPayout = grossRevenue - commission
 
     return NextResponse.json({
@@ -55,7 +57,8 @@ export async function GET(req: NextRequest) {
       totalRides,
       commission,
       driverPayout,
-      netRevenue: commission,
+      franchiseShare,
+      netRevenue: commission - franchiseShare,
       byService: byService.map(s => ({ service: s._id, revenue: s.revenue, count: s.count })),
       byPayment: byPayment.map(p => ({ mode: p._id, revenue: p.revenue, count: p.count })),
       topDrivers,

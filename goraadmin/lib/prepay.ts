@@ -23,6 +23,7 @@
 // found" — closing it would strand the rider's money with no way back.
 // ─────────────────────────────────────────────────────────────────────────────
 import Ride from '@/models/Ride'
+import User from '@/models/User'
 import WalletTransaction from '@/models/WalletTransaction'
 import { verifyRazorpaySignature, fetchRazorpayOrder } from './razorpay'
 
@@ -75,7 +76,93 @@ async function linkOnline(ride: any, riderId: string, prepaid: any): Promise<Lin
   // One payment backs one ride.
   const used = await Ride.exists({ prepaidRef: paymentId, _id: { $ne: ride._id } })
   if (used) return null
+  // Claim the payment on the rider, atomically. A refused booking refunds the
+  // same payment by claiming this same token (refundRefusedPrepayment), so a
+  // payment is either tied to a ride or given back, never both.
+  const claimed = await User.updateOne(
+    { _id: riderId, walletRechargeRefs: { $ne: prepayToken(paymentId) } },
+    { $push: { walletRechargeRefs: prepayToken(paymentId) } },
+  )
+  if (!claimed.modifiedCount) return null
   return { amount, via: 'online', ref: paymentId }
+}
+
+/** The claim a Razorpay prepayment leaves on the rider (see linkOnline). */
+export function prepayToken(paymentId: string): string {
+  return `prepay:${paymentId}`
+}
+
+export type RefusedRefund = { amount: number; via: 'wallet' | 'online'; balance: number }
+
+/**
+ * Gives back an outstation prepayment whose booking was refused (account on
+ * hold, quote expired, any error) before a ride was created. Without this the
+ * rider's money backed no ride and nothing could ever return it.
+ *
+ * Same trust rules as linking: only money the server itself can verify —
+ *   wallet → the rider's own unlinked ride debit from the last few minutes
+ *   online → a verified, paid Razorpay order with this rider's notes, purpose
+ *            'ride', not already tied to a ride
+ * It is refunded to the rider's Gora wallet, the convention every refund here
+ * follows (lib/refunds.ts). Each payment can be claimed once, atomically:
+ * a retried or doubled request refunds nothing more. Never throws.
+ */
+export async function refundRefusedPrepayment(riderId: string, body: any): Promise<RefusedRefund | null> {
+  try {
+    const mode = body?.paymentMode === 'cod' ? 'cash' : String(body?.paymentMode || 'cash')
+    if (!chargedAtBooking(String(body?.service || 'taxi'), mode)) return null
+    const fare = Number(body?.fare)
+    const bound = Number.isFinite(fare) && fare > 0 ? fare + 1 : null
+
+    if (mode === 'wallet') {
+      const since = new Date(Date.now() - PREPAY_WALLET_WINDOW_MS)
+      const debit: any = await WalletTransaction.findOneAndUpdate(
+        {
+          userId: riderId, type: 'debit', source: 'ride', ref: '', createdAt: { $gte: since },
+          ...(bound ? { amount: { $lte: bound } } : {}),
+        },
+        { $set: { ref: 'refused-booking' } },
+        { sort: { createdAt: -1 }, new: true },
+      ).lean()
+      if (!debit) return null
+      const amount = Math.round((Number(debit.amount) || 0) * 100) / 100
+      if (amount <= 0) return null
+      return await credit(riderId, amount, `refund:refused:${debit._id}`, `refund:refused:${debit._id}`, 'wallet')
+    }
+
+    const orderId = String(body?.prepaid?.orderId || '')
+    const paymentId = String(body?.prepaid?.paymentId || '')
+    const signature = String(body?.prepaid?.signature || '')
+    if (!orderId || !paymentId || !signature) return null
+    if (!(await verifyRazorpaySignature(orderId, paymentId, signature))) return null
+    const res = await fetchRazorpayOrder(orderId)
+    if (!res.ok || !res.order) return null
+    const o = res.order
+    if (String(o.notes?.userId || '') !== String(riderId)) return null
+    if (String(o.notes?.purpose || '') !== 'ride') return null
+    const amount = Math.round(Number(o.amount_paid) || 0) / 100
+    if (amount <= 0) return null
+    if (await Ride.exists({ prepaidRef: paymentId })) return null
+    return await credit(riderId, amount, prepayToken(paymentId), `refund:refused:${paymentId}`, 'online')
+  } catch (e) {
+    console.error('[prepay] refused-booking refund failed', e)
+    return null
+  }
+}
+
+// Claim `token` and add `amount` in one atomic update on the rider.
+async function credit(riderId: string, amount: number, token: string, txRef: string, via: 'wallet' | 'online'): Promise<RefusedRefund | null> {
+  const user: any = await User.findOneAndUpdate(
+    { _id: riderId, walletRechargeRefs: { $ne: token } },
+    { $inc: { walletBalance: amount }, $push: { walletRechargeRefs: token } },
+    { new: true },
+  ).select('walletBalance').lean()
+  if (!user) return null
+  await WalletTransaction.create({
+    userId: riderId, type: 'credit', amount, balanceAfter: user.walletBalance || 0,
+    note: 'Refund: your outstation trip could not be booked', source: 'refund', ref: txRef,
+  })
+  return { amount, via, balance: user.walletBalance || 0 }
 }
 
 /**

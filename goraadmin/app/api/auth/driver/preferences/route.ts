@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
 import { requireDriverAuth } from '@/lib/auth'
+import RidePreference from '@/models/RidePreference'
 import { withCors, corsOptions } from '@/lib/cors'
 
 export async function OPTIONS() { return corsOptions() }
@@ -23,6 +24,12 @@ async function handle(req: NextRequest) {
     if (typeof body.acceptsRental === 'boolean') driver.acceptsRental = body.acceptsRental && driver.allowRental !== false
     if (typeof body.acceptsHireDriver === 'boolean') driver.acceptsHireDriver = body.acceptsHireDriver && driver.allowHireDriver !== false
     if (typeof body.acceptsDelivery === 'boolean') driver.acceptsDelivery = body.acceptsDelivery && driver.allowDelivery !== false
+    // Admin-defined ride preferences (pet friendly …): only active keys stick.
+    if (Array.isArray(body.ridePreferences)) {
+      const keys = body.ridePreferences.map((k: any) => String(k)).slice(0, 20)
+      const ok: any[] = await RidePreference.find({ key: { $in: keys }, isActive: true }).select('key').lean()
+      driver.ridePreferences = ok.map(r => r.key)
+    }
     await driver.save()
 
     return withCors({ success: true, preferences: {
@@ -30,6 +37,7 @@ async function handle(req: NextRequest) {
       acceptsRental: driver.acceptsRental ?? false,
       acceptsHireDriver: driver.acceptsHireDriver ?? false,
       acceptsDelivery: driver.acceptsDelivery ?? false,
+      ridePreferences: driver.ridePreferences || [],
     } })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)

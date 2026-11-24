@@ -104,6 +104,9 @@ export async function candidatesFor(ride: any): Promise<DriverCandidate[]> {
   if (ride.service && ride.service !== 'taxi' && ride.zoneId && !filter.zoneId) {
     filter.zoneId = { $in: [String(ride.zoneId), null, ''] }
   }
+  // A driver with a negative wallet gets no cash rides (accept and the feed
+  // apply the same rule).
+  if (ride.paymentMode === 'cash') filter.walletBalance = { $gte: 0 }
 
   const rank = async (f: Record<string, any>): Promise<DriverCandidate[]> => {
     const [factor, drivers] = await Promise.all([
@@ -138,9 +141,20 @@ export async function candidatesFor(ride: any): Promise<DriverCandidate[]> {
   // matches means the preference is a best-effort match, never a reason the
   // ride sits unassigned — stranding a rider would be a worse safety outcome
   // than not finding a female driver in time.
+  // Ride preferences (admin-defined: pet friendly, extra luggage …): drivers
+  // who offer all of them first; everyone else when none does, as above.
+  const prefs: string[] = Array.isArray(ride.preferences) ? ride.preferences.filter(Boolean) : []
   if (ride.preferFemaleDriver === true) {
+    if (prefs.length) {
+      const both = await rank({ ...filter, gender: 'female', ridePreferences: { $all: prefs } })
+      if (both.length) return both
+    }
     const withGender = await rank({ ...filter, gender: 'female' })
     if (withGender.length) return withGender
+  }
+  if (prefs.length) {
+    const withPrefs = await rank({ ...filter, ridePreferences: { $all: prefs } })
+    if (withPrefs.length) return withPrefs
   }
   return rank(filter)
 }

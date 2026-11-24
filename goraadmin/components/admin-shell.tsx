@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { Sidebar } from './sidebar'
 import { Topbar } from './topbar'
+import { SettingsPasswordGuard } from './settings-password-guard'
 
 /** Sidebar + topbar frame of every admin page, in the previous panel's layout. */
 export function AdminShell({ children }: { children: React.ReactNode }) {
@@ -15,7 +16,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="h-screen overflow-hidden" style={{ backgroundColor: '#f3f3f9' }}>
+    <div className="admin-shell-bg h-screen overflow-hidden" style={{ backgroundColor: '#f3f3f9' }}>
+      <SettingsPasswordGuard />
       <Sidebar collapsed={collapsed} mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />
       <div className={`h-full flex flex-col ${collapsed ? 'lg:pl-[70px]' : 'lg:pl-[250px]'}`}>
         <Topbar onMenu={onMenu} />

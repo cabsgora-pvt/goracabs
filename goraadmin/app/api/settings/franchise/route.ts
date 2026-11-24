@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Settings from '@/models/Settings'
 import { guardAdmin } from '@/lib/admin-guard'
+import { requireAdminPassword } from '@/lib/admin-password'
 import { requireAdmin } from '@/lib/auth'
 import { isFranchiseMode, setFranchiseMode } from '@/lib/franchise'
 
@@ -16,6 +17,7 @@ export async function GET(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   const denied = guardAdmin(req); if (denied) return denied
+  const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
   const { enabled } = await req.json().catch(() => ({}))
   if (typeof enabled !== 'boolean') return NextResponse.json({ error: 'enabled must be true or false' }, { status: 400 })
   await setFranchiseMode(enabled, requireAdmin(req)?.email)

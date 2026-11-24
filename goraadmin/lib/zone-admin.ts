@@ -206,23 +206,56 @@ export function monthRange(month: string) {
 }
 
 /**
- * A zone admin's revenue share for one month: the platform commission on
- * rides completed in their zones, times their share %. Bookkeeping only —
- * the super admin pays it and records the payout.
+ * A zone admin's earnings for one month (IST). Bookkeeping only — the super
+ * admin pays it and records the payout.
+ *
+ *   ride share         — their part of the commission on each ride, as fixed
+ *                        on the ride when it completed (ride.franchiseShare)
+ *   subscription share — their part of each driver subscription bought in
+ *                        their zones (subscribed drivers pay no ride commission)
+ *
+ * Rides completed before shares were snapshotted carry no franchiseShare; for
+ * those the old rule still applies (commission in their zones × current %).
  */
 export async function computeSettlement(admin: any, month: string) {
   const Ride = (await import('@/models/Ride')).default
+  const DriverSubscription = (await import('@/models/DriverSubscription')).default
   const { from, to, month: m } = monthRange(month)
+  const adminId = new mongoose.Types.ObjectId(String(admin._id))
   const zoneObjIds = (admin.zoneIds || []).map((z: any) => new mongoose.Types.ObjectId(String(z)))
-  const agg = await Ride.aggregate([
-    { $match: { zoneId: { $in: zoneObjIds }, status: 'completed', completedAt: { $gte: from, $lt: to } } },
-    { $group: { _id: null, rides: { $sum: 1 }, fare: { $sum: { $ifNull: ['$totalFare', 0] } }, commission: { $sum: { $ifNull: ['$commissionAmount', 0] } } } },
-  ])
   const pct = Number(admin.revenueSharePercent || 0)
-  const commission = agg[0]?.commission || 0
-  const share = Math.round(commission * pct) / 100
-  const paid = (admin.payouts || []).filter((p: any) => p.month === m).reduce((s: number, p: any) => s + (p.amount || 0), 0)
-  return { month: m, rides: agg[0]?.rides || 0, fare: agg[0]?.fare || 0, commission, sharePercent: pct, share, paid, due: Math.max(0, Math.round((share - paid) * 100) / 100) }
+  const sum = (f: string) => ({ $sum: { $ifNull: [f, 0] } })
+
+  const [snap, legacy, subs] = await Promise.all([
+    Ride.aggregate([
+      { $match: { 'franchiseShare.zoneAdminId': adminId, status: 'completed', completedAt: { $gte: from, $lt: to } } },
+      { $group: { _id: null, rides: { $sum: 1 }, fare: sum('$totalFare'), commission: sum('$commissionAmount'), share: sum('$franchiseShare.amount') } },
+    ]),
+    Ride.aggregate([
+      { $match: { zoneId: { $in: zoneObjIds }, status: 'completed', completedAt: { $gte: from, $lt: to }, franchiseShare: { $exists: false } } },
+      { $group: { _id: null, rides: { $sum: 1 }, fare: sum('$totalFare'), commission: sum('$commissionAmount') } },
+    ]),
+    DriverSubscription.aggregate([
+      { $match: { 'franchiseShare.zoneAdminId': adminId, createdAt: { $gte: from, $lt: to } } },
+      { $group: { _id: null, count: { $sum: 1 }, amount: sum('$price'), share: sum('$franchiseShare.amount') } },
+    ]),
+  ])
+  const s = snap[0] || {}, l = legacy[0] || {}, sb = subs[0] || {}
+  const r2 = (n: number) => Math.round((n || 0) * 100) / 100
+  const commission = (s.commission || 0) + (l.commission || 0)
+  const rideShare = r2((s.share || 0) + (l.commission || 0) * pct / 100)
+  const subscriptionShare = r2(sb.share || 0)
+  const share = r2(rideShare + subscriptionShare)
+  const paid = (admin.payouts || []).filter((p: any) => p.month === m).reduce((t: number, p: any) => t + (p.amount || 0), 0)
+  return {
+    month: m,
+    rides: (s.rides || 0) + (l.rides || 0),
+    fare: (s.fare || 0) + (l.fare || 0),
+    commission, rideShare,
+    subscriptions: sb.count || 0, subscriptionAmount: sb.amount || 0, subscriptionShare,
+    sharePercent: pct, share, paid,
+    due: Math.max(0, r2(share - paid)),
+  }
 }
 
 /** Everything an invoice page shows for one subscription payment. */

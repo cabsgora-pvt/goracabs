@@ -1,7 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { DocumentTypesManager } from '@/components/document-types-manager'
 
-const TABS = ['Subscription Plans', 'Ringtones', 'Referral', 'Wallet Rules'] as const
+const TABS = ['Subscription Plans', 'Registration Documents', 'Ringtones', 'Referral', 'Wallet Rules'] as const
 const SERVICES = ['taxi', 'rental', 'outstation', 'delivery', 'hire_driver']
 const SERVICE_LABEL: Record<string, string> = {
   taxi: 'Taxi', rental: 'Rental', outstation: 'Outstation', delivery: 'Parcel', hire_driver: 'Hire Driver',
@@ -112,7 +113,7 @@ export default function DriverAppSettings() {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-2xl font-bold">Driver App</h1>
-          <p className="text-sm text-gray-500">Manage driver subscription plans and wallet rules.</p>
+          <p className="text-sm text-gray-500">Manage driver subscription plans, registration documents and wallet rules.</p>
         </div>
         {msg && <span className="text-sm font-semibold text-green-600">{msg}</span>}
       </div>
@@ -127,7 +128,7 @@ export default function DriverAppSettings() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 max-w-3xl">
+        <div className={`flex-1 ${tab === 'Registration Documents' ? 'min-w-0' : 'max-w-3xl'}`}>
           {tab === 'Subscription Plans' && (
             <div className="space-y-3">
               {plans.map((p, i) => editIdx === i ? (
@@ -250,6 +251,8 @@ export default function DriverAppSettings() {
               </div>
             </div>
           )}
+
+          {tab === 'Registration Documents' && <DocumentTypesManager compact />}
 
           {tab === 'Wallet Rules' && (
             <div className="bg-white border rounded-xl p-5 space-y-4 max-w-md">

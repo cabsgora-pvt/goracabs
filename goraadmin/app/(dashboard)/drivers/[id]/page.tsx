@@ -9,9 +9,11 @@ import {
   ArrowLeft, Phone, Car, Star, TrendingUp, DollarSign,
   CheckCircle, XCircle, Mail, MapPin, CreditCard, FileText,
   Trash2, Ban, CalendarClock, ArrowDownToLine, SlidersHorizontal,
-  ShieldAlert, ShieldCheck,
+  ShieldAlert, ShieldCheck, Plus, Pencil,
 } from 'lucide-react'
 import Link from 'next/link'
+import { EditAccountButton, HoldCard, ZoneCard } from '@/components/account-admin'
+import { DriverDocModal } from '@/components/account-admin-extra'
 
 export default function DriverDetailPage() {
   const { id } = useParams()
@@ -21,6 +23,20 @@ export default function DriverDetailPage() {
   const [withdrawals, setWithdrawals] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const [vehicleTypeOptions, setVehicleTypeOptions] = useState<{ value: string; label: string }[]>([])
+  const [docTypes, setDocTypes] = useState<any[]>([])
+  // Document being edited (an existing one), or { add: true, type? } to add one.
+  const [docEdit, setDocEdit] = useState<any | null>(null)
+  const [prefNames, setPrefNames] = useState<Record<string, string>>({})
+  useEffect(() => {
+    fetch('/api/vehicles/types').then(r => r.json()).then(d => {
+      setVehicleTypeOptions((d.types || []).map((v: any) => ({ value: v.name, label: v.name })))
+    }).catch(() => {})
+    fetch('/api/document-types?all=1').then(r => r.json()).then(d => setDocTypes(d.documents || [])).catch(() => {})
+    fetch('/api/ride-preferences?all=1').then(r => r.json()).then(d => {
+      const m: Record<string, string> = {}; for (const p of d.preferences || []) m[p.key] = p.name; setPrefNames(m)
+    }).catch(() => {})
+  }, [])
   const [rejectModal, setRejectModal] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
   const [deleteModal, setDeleteModal] = useState(false)
@@ -246,6 +262,20 @@ export default function DriverDetailPage() {
     </div>
   )
 
+  // Admin-defined required documents this driver has not uploaded.
+  const uploadedTypes = new Set((driver.documents || []).map((d: any) => String(d.type || d.name || '').toLowerCase()))
+  const vt = String(driver.selectedVehicleTypeName || driver.vehicleType || '').toLowerCase()
+  const missingDocs = docTypes.filter((t: any) => t.required && t.isActive !== false
+    && (!t.vehicleTypes?.length || !vt || t.vehicleTypes.map((v: string) => v.toLowerCase()).includes(vt))
+    && !uploadedTypes.has(String(t.key).toLowerCase()) && !uploadedTypes.has(String(t.name).toLowerCase()))
+  const deleteDoc = async (doc: any) => {
+    if (!confirm(`Remove ${doc.name} from this driver?`)) return
+    const res = await fetch(`/api/drivers/${id}/documents/${doc._id}`, { method: 'DELETE' })
+    const d = await res.json().catch(() => ({}))
+    if (res.ok) { setDriver(d.driver); setToast({ msg: 'Document removed', type: 'success' }) }
+    else setToast({ msg: d.error || 'Could not remove', type: 'error' })
+  }
+
   return (
     <div>
       <Header title="Driver Profile" />
@@ -328,6 +358,38 @@ export default function DriverDetailPage() {
 
             {/* Action buttons */}
             <div className="mt-5 space-y-2">
+              <EditAccountButton
+                title="Edit driver"
+                url={`/api/drivers/${id}`}
+                value={driver}
+                onSaved={(d: any) => setDriver((old: any) => ({ ...old, ...d }))}
+                onToast={setToast}
+                fields={[
+                  { key: '_personal', label: 'Personal', type: 'section' },
+                  { key: 'name', label: 'Full name' },
+                  { key: 'phone', label: 'Phone (10 digits)', type: 'tel', half: true },
+                  { key: 'email', label: 'Email', type: 'email', half: true },
+                  { key: 'gender', label: 'Gender', type: 'select', half: true, options: [{ value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }, { value: 'other', label: 'Other' }] },
+                  { key: 'state', label: 'State', half: true },
+                  { key: '_account', label: 'Account', type: 'section' },
+                  { key: 'status', label: 'Status', type: 'select', half: true, options: [{ value: 'pending', label: 'Pending' }, { value: 'approved', label: 'Approved' }, { value: 'blocked', label: 'Blocked' }, { value: 'rejected', label: 'Rejected' }] },
+                  { key: 'registrationStep', label: 'Registration step', type: 'select', half: true, options: [
+                    { value: 'personal', label: 'Personal details' }, { value: 'face', label: 'Face scan' }, { value: 'vehicle', label: 'Vehicle' },
+                    { value: 'documents', label: 'Documents' }, { value: 'bank', label: 'Bank details' }, { value: 'submitted', label: 'Submitted' }] },
+                  { key: 'rejectionReason', label: 'Rejection reason (shown to the driver)', type: 'textarea' },
+                  { key: '_vehicle', label: 'Vehicle', type: 'section' },
+                  { key: 'selectedVehicleTypeName', label: 'Vehicle type', type: 'select', half: true, options: vehicleTypeOptions },
+                  { key: 'vehicleModel', label: 'Vehicle model', half: true },
+                  { key: 'vehicleNumber', label: 'Vehicle number' },
+                  { key: '_bank', label: 'Bank details', type: 'section' },
+                  { key: 'bankDetails.accountHolderName', label: 'Account holder name' },
+                  { key: 'bankDetails.bankName', label: 'Bank name', half: true },
+                  { key: 'bankDetails.branch', label: 'Branch', half: true },
+                  { key: 'bankDetails.accountNumber', label: 'Account number', half: true },
+                  { key: 'bankDetails.ifscCode', label: 'IFSC', half: true },
+                  { key: 'bankDetails.accountType', label: 'Account type', type: 'select', half: true, options: [{ value: 'savings', label: 'Savings' }, { value: 'current', label: 'Current' }] },
+                ]}
+              />
               {driver.status === 'pending' && (
                 <div className="flex gap-2">
                   <button type="button" onClick={approveDriver} disabled={actionLoading}
@@ -355,6 +417,23 @@ export default function DriverDetailPage() {
 
           {/* Right column */}
           <div className="lg:col-span-2 space-y-4">
+            {/* Hold + zone */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <HoldCard doc={driver} url={`/api/drivers/${id}/hold`} isDriver onToast={setToast}
+                walletNote={(driver.walletBalance || 0) < 0 ? `Wallet ₹${Math.round(driver.walletBalance)} — cash rides are paused for this driver until it is back to ₹0 or more.` : undefined}
+                onChanged={(h: any) => setDriver((d: any) => ({ ...d, accountHold: h, ...(h && !h.active ? { faceVerificationRequired: false } : {}) }))} />
+              <ZoneCard driver={driver} onToast={setToast} onSaved={(d: any) => setDriver((old: any) => ({ ...old, ...d }))} />
+            </div>
+            {(driver.ridePreferences || []).length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+                <p className="text-sm font-semibold text-gray-800 mb-2">Ride preferences offered</p>
+                <div className="flex flex-wrap gap-2">
+                  {driver.ridePreferences.map((k: string) => (
+                    <span key={k} className="text-xs bg-primary/10 text-primary px-2.5 py-1 rounded-full font-medium">{prefNames[k] || k}</span>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* Stats */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 text-center">
@@ -625,9 +704,15 @@ export default function DriverDetailPage() {
 
             {/* Documents */}
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-              <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <FileText className="w-4 h-4" /> Documents
-              </h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                  <FileText className="w-4 h-4" /> Documents
+                </h3>
+                <button type="button" onClick={() => setDocEdit({ add: true })}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-primary text-white">
+                  <Plus className="w-3.5 h-3.5" /> Add document
+                </button>
+              </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                 {(driver.documents || []).map((doc: any) => (
                   <div key={doc._id} className="border border-gray-200 rounded-lg overflow-hidden">
@@ -664,6 +749,14 @@ export default function DriverDetailPage() {
                       <div className="flex items-center justify-between">
                         <Badge status={doc.status} />
                         <div className="flex gap-1">
+                          <button type="button" onClick={() => setDocEdit(doc)} title="Edit" aria-label={`Edit ${doc.name}`}
+                            className="p-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100 border border-gray-200">
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <button type="button" onClick={() => deleteDoc(doc)} title="Remove" aria-label={`Remove ${doc.name}`}
+                            className="p-1 bg-gray-50 text-gray-500 rounded hover:bg-red-50 hover:text-red-600 border border-gray-200">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
                           {doc.status !== 'verified' && (
                             <button type="button" onClick={() => verifyDoc(doc._id)}
                               title="Verify"
@@ -687,6 +780,17 @@ export default function DriverDetailPage() {
                   <p className="text-sm text-gray-400 col-span-3">No documents uploaded</p>
                 )}
               </div>
+              {missingDocs.length > 0 && (
+                <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-100 text-sm">
+                  <p className="font-medium text-amber-800">Required documents not uploaded yet</p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {missingDocs.map((d: any) => (
+                      <button type="button" key={d.key} onClick={() => setDocEdit({ add: true, type: d.key })} title={`Add ${d.name}`}
+                        className="text-xs bg-white border border-amber-200 text-amber-700 px-2 py-0.5 rounded hover:bg-amber-100">+ {d.name}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Face Verification */}
@@ -826,6 +930,10 @@ export default function DriverDetailPage() {
         </Modal>
       )}
 
+      {docEdit && (
+        <DriverDocModal driverId={String(id)} doc={docEdit.add ? undefined : docEdit} presetType={docEdit.type}
+          docTypes={docTypes} onClose={() => setDocEdit(null)} onSaved={(d: any) => setDriver(d)} onToast={setToast} />
+      )}
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   )

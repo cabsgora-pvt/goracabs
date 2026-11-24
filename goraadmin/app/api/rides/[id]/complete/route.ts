@@ -3,8 +3,8 @@ import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
-import Zone from '@/models/Zone'
 import Transaction from '@/models/Transaction'
+import { commissionPercentFor, franchiseShareFor } from '@/lib/commission'
 import User from '@/models/User'
 import { requireAuth, requireDriverAuth, isAdminPayload } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
@@ -33,24 +33,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const driver: any = await Driver.findById(ride.driverId)
 
-    // Subscribed drivers pay a reduced/zero commission (Rapido-style pass)
-    const subscribed = !!(driver && driver.subscriptionActive && driver.subscriptionExpiresAt
-      && new Date(driver.subscriptionExpiresAt).getTime() > Date.now())
-
-    // Commission % — subscription overrides the zone/booking commission
-    let commissionPercent: number
-    if (subscribed) {
-      commissionPercent = driver.subscriptionCommissionPercent || 0
-    } else {
-      commissionPercent = ride.commissionPercent != null ? ride.commissionPercent : 20
-      if (ride.commissionPercent == null) {
-        const zone: any = await Zone.findById(ride.zoneId).lean()
-        if (zone?.pricing) {
-          const p = zone.pricing.find((x: any) => x.vehicleTypeName === ride.vehicleType && x.service === ride.service)
-          if (p?.commissionPercent != null) commissionPercent = p.commissionPercent
-        }
-      }
-    }
+    // Commission % — a subscribed driver pays the plan's rate (normally 0),
+    // everyone else the zone pricing rate fixed at booking (lib/commission.ts).
+    const commissionPercent = await commissionPercentFor(driver, ride)
 
     // Services that bill extras at the end carry their own final amount.
     // Without this, a rental that ran 3 hours over settled on the booked base
@@ -108,6 +93,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // under-report its commission and driver earning in finance dashboards.
     ride.commissionAmount = splitCommission + commission
     ride.driverEarning = (splitCollected - splitCommission) + driverEarning
+    // Franchise mode: the zone admin's part of this commission, fixed now.
+    // Bookkeeping only — it never changes what the driver pays or earns.
+    try {
+      ride.franchiseShare = await franchiseShareFor(ride.zoneId, ride.commissionAmount)
+    } catch (e) {
+      console.error('[complete] franchise share failed', e)
+    }
     await ride.save()
 
     // Wallet changes are atomic increments: a read-modify-save here could
