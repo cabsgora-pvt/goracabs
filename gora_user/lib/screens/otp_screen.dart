@@ -54,7 +54,7 @@ class _OtpScreenState extends State<OtpScreen> {
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(res['error'] ?? 'Invalid OTP')),
+          SnackBar(content: Text((res['error'] ?? res['message'] ?? 'Invalid OTP').toString())),
         );
       }
     } catch (e) {
@@ -68,10 +68,18 @@ class _OtpScreenState extends State<OtpScreen> {
   }
 
   Future<void> _resendOtp() async {
-    await ApiService.sendOtp(widget.phone);
+    Map<String, dynamic> res;
+    try {
+      res = await ApiService.sendOtp(widget.phone);
+    } catch (_) {
+      res = const {'error': 'Could not reach Gora. Check your connection.'};
+    }
     if (!mounted) return;
+    // A refusal — the daily limit (429) among them — is shown in the
+    // server's words; it used to say "OTP resent" regardless.
+    final ok = res['success'] == true;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('OTP resent')),
+      SnackBar(content: Text(ok ? 'OTP resent' : (res['error'] ?? res['message'] ?? 'Could not resend the OTP').toString())),
     );
   }
 

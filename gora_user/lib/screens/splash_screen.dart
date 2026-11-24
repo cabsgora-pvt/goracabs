@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../services/api_service.dart';
 import 'home_screen.dart';
 import 'welcome_screen.dart';
 
@@ -32,8 +32,8 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   }
 
   Future<void> _boot() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('user_token');
+    // Secure storage, moving an older build's token out of SharedPreferences.
+    final token = await ApiService.getToken();
     final loggedIn = token != null && token.isNotEmpty;
     // Keep the splash visible for a beat so it doesn't flash
     await Future.delayed(const Duration(milliseconds: 1800));

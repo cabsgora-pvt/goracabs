@@ -47,16 +47,7 @@ class WalletBloc extends Bloc<WalletEvent, WalletState> {
     }
   }
 
-  String _prettyType(String t) {
-    switch (t) {
-      case 'ride_earning': return 'Ride Earning';
-      case 'commission': return 'Commission';
-      case 'recharge': return 'Money Added';
-      case 'withdrawal': return 'Withdrawal';
-      case 'subscription': return 'Subscription';
-      default: return t.isEmpty ? 'Transaction' : t;
-    }
-  }
+  String _prettyType(String t) => walletTypeLabel(t);
 
   String _fmtDate(String? iso) {
     if (iso == null) return '';
@@ -65,5 +56,23 @@ class WalletBloc extends Bloc<WalletEvent, WalletState> {
     const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     final h = d.hour == 0 ? 12 : (d.hour > 12 ? d.hour - 12 : d.hour);
     return '${d.day} ${m[d.month - 1]}, $h:${d.minute.toString().padLeft(2, '0')} ${d.hour >= 12 ? 'PM' : 'AM'}';
+  }
+}
+
+/// The wallet-history label for a transaction type.
+String walletTypeLabel(String t) {
+  switch (t) {
+    case 'ride_earning': return 'Ride Earning';
+    case 'commission': return 'Commission';
+    case 'recharge': return 'Money Added';
+    case 'withdrawal': return 'Withdrawal';
+    // A withdrawal request takes the money out at once and holds it until the
+    // admin pays it out — or returns it.
+    case 'withdrawal_hold': return 'Withdrawal (on hold)';
+    case 'withdrawal_released': return 'Withdrawal returned';
+    case 'admin_credit': return 'Added by Gora';
+    case 'admin_debit': return 'Deducted by Gora';
+    case 'subscription': return 'Subscription';
+    default: return t.isEmpty ? 'Transaction' : t;
   }
 }

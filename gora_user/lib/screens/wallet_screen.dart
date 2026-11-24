@@ -159,16 +159,12 @@ class _AddMoneySheetState extends State<AddMoneySheet> {
         return;
       }
 
-      // Fallback: no gateway configured → direct credit (as before).
-      final r = await ApiService.addMoney(amt);
+      // No gateway: there is no other way to add money. The old fallback
+      // credited the wallet with no payment at all (POST /wallet, now 410).
       if (!mounted) return;
-      if (r['balance'] != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('₹$amt added to wallet')));
-        Navigator.pop(context, true);
-      } else {
-        setState(() => _busy = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r['error']?.toString() ?? 'Failed')));
-      }
+      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Online payment is not available right now, so money cannot be added. Please try again later.')));
     } catch (_) {
       if (mounted) { setState(() => _busy = false); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to add money'))); }
     }

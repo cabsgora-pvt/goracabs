@@ -37,20 +37,35 @@ class _QrCodePageState extends State<QrCodePage> {
   }
 
   Future<void> _upload() async {
-    final x = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 90);
+    final x = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 90,
+        maxWidth: DriverApiService.maxImageSide, maxHeight: DriverApiService.maxImageSide);
     if (x == null) return;
+    await uploadQr(x);
+  }
+
+  /// Uploads [x] as the payment QR. The spinner always stops: the upload has a
+  /// timeout and every failure is reported.
+  @visibleForTesting
+  Future<void> uploadQr(XFile x) async {
     setState(() => _busy = true);
     final url = await DriverApiService.uploadFile(x);
     if (!mounted) return;
+    Map<String, dynamic> saved = const {};
     if (url != null) {
-      await DriverApiService.savePaymentQr(url);
-      if (!mounted) return;
-      setState(() { _qrUrl = url; _busy = false; });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Payment QR updated'), backgroundColor: AppColors.green));
-    } else {
-      setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed'), backgroundColor: AppColors.red));
+      try {
+        saved = await DriverApiService.savePaymentQr(url);
+      } catch (_) {
+        saved = const {'error': 'Could not save the QR — check your connection'};
+      }
     }
+    if (!mounted) return;
+    final error = url == null
+        ? (DriverApiService.lastUploadError ?? 'Upload failed')
+        : saved['error']?.toString();
+    setState(() { if (error == null) _qrUrl = url!; _busy = false; });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(error ?? 'Payment QR updated'),
+      backgroundColor: error == null ? AppColors.green : AppColors.red));
   }
 
   @override
@@ -620,7 +635,9 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
 
     if (!mounted) return;
     setState(() => _busy = false);
-    if (r['success'] == true) {
+    // alreadyApplied: this payment had already activated the plan (a retried
+    // or duplicate confirm) — a success, not an error.
+    if (r['success'] == true || r['alreadyApplied'] == true) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Subscription activated!'), backgroundColor: AppColors.green));
       _load();
     } else {

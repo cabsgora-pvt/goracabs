@@ -19,10 +19,19 @@ bool isNoDriverFound(Map<String, dynamic> ride) =>
     (ride['cancelledBy'] ?? '').toString() == 'system' &&
     (ride['cancellationReason'] ?? '').toString() == 'No driver found';
 
-/// Tells the rider no driver was found, with a single "Try again" action.
-/// Completes when the rider dismisses it (Try again, or system Back).
-Future<void> showNoDriverFoundDialog(BuildContext context) {
-  return showDialog<void>(
+/// What the rider chose on the "No driver found" dialog.
+enum NoDriverChoice { tryAgain, changeRide }
+
+/// Tells the rider no driver was found.
+///
+/// With [canTryAgain] the rider gets "Try again", which books the same trip
+/// again (with a fresh quote), and a separate "Change ride" to go back and pick
+/// something else. "Try again" used to just close the screen, so the booking
+/// the rider had made was lost and had to be entered from scratch. A ride
+/// reopened from home has no booking to repeat, so it offers "OK" alone.
+/// Completes with the choice; system Back counts as [NoDriverChoice.changeRide].
+Future<NoDriverChoice> showNoDriverFoundDialog(BuildContext context, {bool canTryAgain = false}) async {
+  final choice = await showDialog<NoDriverChoice>(
     context: context,
     barrierDismissible: false,
     builder: (ctx) => AlertDialog(
@@ -37,12 +46,28 @@ Future<void> showNoDriverFoundDialog(BuildContext context) {
         Text(kNoDriverMessage, textAlign: TextAlign.center, style: RideUi.body(ctx, size: 14)),
       ]),
       actions: [
-        PrimaryRideButton(
-          label: 'Try again',
-          height: 48,
-          onPressed: () => Navigator.of(ctx).pop(),
-        ),
+        if (canTryAgain) ...[
+          PrimaryRideButton(
+            label: 'Try again',
+            height: 48,
+            onPressed: () => Navigator.of(ctx).pop(NoDriverChoice.tryAgain),
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton(
+              onPressed: () => Navigator.of(ctx).pop(NoDriverChoice.changeRide),
+              child: const Text('Change ride'),
+            ),
+          ),
+        ] else
+          PrimaryRideButton(
+            label: 'OK',
+            height: 48,
+            onPressed: () => Navigator.of(ctx).pop(NoDriverChoice.changeRide),
+          ),
       ],
     ),
   );
+  return choice ?? NoDriverChoice.changeRide;
 }

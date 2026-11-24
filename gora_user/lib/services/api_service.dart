@@ -1,26 +1,70 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
+import 'session_guard.dart';
 
 class ApiService {
   static String get baseUrl => AppConfig.apiBaseUrl;
 
+  // ── Auth token ────────────────────────────────────────────
+  // Kept in the platform keystore (flutter_secure_storage), not in
+  // SharedPreferences, where it sat in a plain XML file that also went into
+  // device backups. A token saved by an older build is moved over once, the
+  // first time it is read. Where the keystore cannot be used at all, the token
+  // stays in SharedPreferences, as before, rather than signing the rider out.
+  static const _tokenKey = 'user_token';
+  static const FlutterSecureStorage _secure = FlutterSecureStorage(
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
+
+  static Future<String?> _secureRead() async {
+    try {
+      return await _secure.read(key: _tokenKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<bool> _secureWrite(String token) async {
+    try {
+      await _secure.write(key: _tokenKey, value: token);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<String?> getToken() async {
+    final s = await _secureRead();
+    if (s != null && s.isNotEmpty) return s;
+    // One-time migration from SharedPreferences.
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('user_token');
+    final legacy = prefs.getString(_tokenKey);
+    if (legacy == null || legacy.isEmpty) return null;
+    if (await _secureWrite(legacy)) await prefs.remove(_tokenKey);
+    return legacy;
   }
 
   static Future<void> saveToken(String token) async {
+    SessionGuard.reset();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('user_token', token);
+    if (await _secureWrite(token)) {
+      await prefs.remove(_tokenKey);
+    } else {
+      await prefs.setString(_tokenKey, token);
+    }
   }
 
   static Future<void> clearToken() async {
+    try {
+      await _secure.delete(key: _tokenKey);
+    } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('user_token');
+    await prefs.remove(_tokenKey);
   }
 
   // Google Places autocomplete (via backend proxy)
@@ -51,19 +95,35 @@ class ApiService {
     } catch (_) { return ''; }
   }
 
+  /// A place's coordinates and address, or null.
+  ///
+  /// Always returns `lat` and `lng` as doubles and `address` as a String when
+  /// it returns at all. The booking screens read them with `as num`, and an
+  /// error answer ({error: ...}) or a coordinate sent as a string crashed them.
   static Future<Map<String, dynamic>?> placeDetails(String placeId) async {
     try {
-      final res = await http.get(Uri.parse('$baseUrl/places/details?placeId=$placeId')).timeout(requestTimeout);
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      if (data['lat'] == null) return null;
+      final res = await http.get(Uri.parse('$baseUrl/places/details?placeId=${Uri.encodeQueryComponent(placeId)}')).timeout(requestTimeout);
+      final raw = jsonDecode(res.body);
+      if (raw is! Map) return null;
+      final data = Map<String, dynamic>.from(raw);
+      final lat = toDoubleOrNull(data['lat']), lng = toDoubleOrNull(data['lng']);
+      if (lat == null || lng == null) return null;
+      data['lat'] = lat;
+      data['lng'] = lng;
       // Strip Plus Code prefix from address if Google returned one
-      var addr = ((data['address'] as String?) ?? '').trim();
+      var addr = (data['address'] is String ? data['address'] as String : '').trim();
       if (addr.isNotEmpty && _plusCodeRe.hasMatch(addr)) {
         addr = addr.replaceFirst(_plusCodeRe, '').replaceFirst(RegExp(r'^[\s,]+'), '').trim();
-        data['address'] = addr;
       }
+      data['address'] = addr;
       return data;
     } catch (_) { return null; }
+  }
+
+  /// A finite double from a JSON value (number or numeric string), else null.
+  static double? toDoubleOrNull(dynamic v) {
+    final d = v is num ? v.toDouble() : double.tryParse('${v ?? ''}');
+    return d != null && d.isFinite ? d : null;
   }
 
   /// How long one API call may take. Without it a request lost on a lossy
@@ -73,10 +133,15 @@ class ApiService {
   /// TimeoutException, handled like any dropped connection.
   static const requestTimeout = Duration(seconds: 20);
 
+  /// An upload sends a photo over what may be a slow mobile link, so it gets
+  /// longer than a plain call — but it no longer waits forever on a dead one.
+  static const uploadTimeout = Duration(seconds: 60);
+
   static Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body, {bool auth = false}) async {
     final headers = {'Content-Type': 'application/json'};
+    String? token;
     if (auth) {
-      final token = await getToken();
+      token = await getToken();
       if (token != null) headers['Authorization'] = 'Bearer $token';
     }
     final res = await http.post(
@@ -84,7 +149,7 @@ class ApiService {
       headers: headers,
       body: jsonEncode(body),
     ).timeout(requestTimeout);
-    return _decode(res);
+    return _decode(res, sentToken: token != null);
   }
 
   /// Decodes an API response without ever throwing.
@@ -96,7 +161,22 @@ class ApiService {
   /// propagated out of whichever screen made the call.
   ///
   /// Callers already check `res['error']`, so failures are surfaced that way.
-  static Map<String, dynamic> _decode(http.Response res) {
+  /// An error answer (HTTP 400+) also carries its status as `httpStatus`, for
+  /// callers that branch on a 402 or a 409 rather than on wording.
+  ///
+  /// A 401 to a request that carried the rider's token means the server no
+  /// longer accepts it: [SessionGuard] signs the rider out, once. The account
+  /// deletion answer (401 {accountDeleted: true}) keeps its own flow.
+  static Map<String, dynamic> _decode(http.Response res, {bool sentToken = false}) {
+    final out = _decodeBody(res);
+    if (res.statusCode >= 400) out['httpStatus'] = res.statusCode;
+    if (res.statusCode == 401 && sentToken && out['accountDeleted'] != true) {
+      SessionGuard.onUnauthorized();
+    }
+    return out;
+  }
+
+  static Map<String, dynamic> _decodeBody(http.Response res) {
     final body = res.body;
     if (body.trim().isEmpty) {
       return {'error': 'No response from server (HTTP ${res.statusCode})'};
@@ -121,7 +201,7 @@ class ApiService {
       if (token != null) 'Authorization': 'Bearer $token',
     };
     final res = await http.get(Uri.parse('$baseUrl$path'), headers: headers).timeout(requestTimeout);
-    return _decode(res);
+    return _decode(res, sentToken: token != null);
   }
 
   static Future<Map<String, dynamic>> delete(String path) async {
@@ -131,7 +211,7 @@ class ApiService {
       if (token != null) 'Authorization': 'Bearer $token',
     };
     final res = await http.delete(Uri.parse('$baseUrl$path'), headers: headers).timeout(requestTimeout);
-    return _decode(res);
+    return _decode(res, sentToken: token != null);
   }
 
   // ── Account requests (delete my account) ─────────────────
@@ -179,10 +259,14 @@ class ApiService {
 
   // ── Wallet ───────────────────────────────────────────────
   static Future<Map<String, dynamic>> getWallet() => get('/wallet');
-  static Future<Map<String, dynamic>> addMoney(num amount) => post('/wallet', {'amount': amount}, auth: true);
-  // Pay a ride fare from wallet balance (deduct)
-  static Future<Map<String, dynamic>> walletPay({required num amount, String? note, String? rideId}) =>
-      post('/wallet/pay', {'amount': amount, if (note != null) 'note': note, if (rideId != null) 'rideId': rideId}, auth: true);
+  // Money is added only through a verified Razorpay payment
+  // (PaymentService.topUpWallet); POST /wallet is gone (410).
+  //
+  // Pays an outstation trip from the wallet BEFORE it is booked: no ride exists
+  // yet, and /rides/book links the debit to the ride it creates. A ride paid by
+  // wallet is debited by the SERVER when it completes — the app never charges it.
+  static Future<Map<String, dynamic>> walletPrepay({required num amount, String? note}) =>
+      post('/wallet/pay', {'amount': amount, 'note': ?note}, auth: true);
 
   // ── Payment (Razorpay) ────────────────────────────────────
   static Map<String, dynamic>? _paymentConfigCache;
@@ -197,16 +281,20 @@ class ApiService {
     return _paymentConfigCache!;
   }
 
+  // purpose: 'wallet' (top-up), 'outstation_prepay' (before booking, no ride),
+  // or 'ride' + rideId (pay that ride; the server charges its own amountDue).
   static Future<Map<String, dynamic>> createRazorpayOrder({required num amount, String purpose = 'wallet', String? rideId}) =>
-      post('/payment/razorpay/order', {'amount': amount, 'purpose': purpose, if (rideId != null) 'rideId': rideId}, auth: true);
+      post('/payment/razorpay/order', {'amount': amount, 'purpose': purpose, 'rideId': ?rideId}, auth: true);
 
+  // The server credits or settles what Razorpay captured, never an amount the
+  // app names, so none is sent.
   static Future<Map<String, dynamic>> verifyRazorpayPayment({
     required String orderId, required String paymentId, required String signature,
-    String purpose = 'wallet', num? amount, String? rideId,
+    String purpose = 'wallet', String? rideId,
   }) =>
       post('/payment/razorpay/verify', {
         'orderId': orderId, 'paymentId': paymentId, 'signature': signature, 'purpose': purpose,
-        if (amount != null) 'amount': amount, if (rideId != null) 'rideId': rideId,
+        'rideId': ?rideId,
       }, auth: true);
 
   // ── Auth ──────────────────────────────────────────────────
@@ -254,16 +342,26 @@ class ApiService {
     required double pickupLat, required double pickupLng,
   }) => get('/rental/packages?pickupLat=$pickupLat&pickupLng=$pickupLng');
 
-  // Rental ride actions: start | ping | wait | addStop | extend | end.
-  // addStop body: { action: 'addStop', address, lat, lng } → appends a destination.
+  // Rental actions the rider may take: addStop, and answering a driver's
+  // extension request. addStop body: { action: 'addStop', address, lat, lng }.
   static Future<Map<String, dynamic>> rentalAction(String rideId, Map<String, dynamic> body) =>
       post('/rides/$rideId/rental', body, auth: true);
 
+  // The driver asked to extend a rental or a hire (ride.pendingExtension) and
+  // the rider answers; only the driver starts, ends or extends a trip. 409
+  // NO_PENDING_EXTENSION when the request expired or was already answered.
+  static Future<Map<String, dynamic>> answerExtension(String rideId, String service, {required bool confirm}) =>
+      post('/rides/$rideId/${service == 'hire_driver' ? 'hire' : 'rental'}',
+          {'action': confirm ? 'confirm_extend' : 'decline_extend'}, auth: true);
+
   // ── Ride engine ───────────────────────────────────────────
+  // The quote is signed over its inputs, so each service must send here the
+  // same inputs it books with: hire → totalHours + tripType; outstation →
+  // tripType + stops (= multiStops); delivery → weightKg + stops; taxi → stops.
   static Future<Map<String, dynamic>> estimateFare({
     required double pickupLat, required double pickupLng,
     double? dropLat, double? dropLng, String service = 'taxi', double weightKg = 0,
-    double totalHours = 0, String tripType = 'one_way', List<Map<String, dynamic>>? stops,
+    num totalHours = 0, String tripType = 'one_way', List<Map<String, dynamic>>? stops,
   }) => post('/fare/estimate', {
         'pickupLat': pickupLat, 'pickupLng': pickupLng,
         'dropLat': dropLat, 'dropLng': dropLng, 'service': service, 'weightKg': weightKg,
@@ -271,6 +369,9 @@ class ApiService {
         if (stops != null && stops.isNotEmpty) 'stops': stops,
       });
 
+  /// Books a ride. [data] carries a `clientRequestId` — one per booking
+  /// attempt, reused when a timed-out request is retried — so a retry gets the
+  /// ride the first request made (`duplicate: true`) instead of a second one.
   static Future<Map<String, dynamic>> bookRide(Map<String, dynamic> data) =>
       post('/rides/book', data, auth: true);
 
@@ -282,13 +383,10 @@ class ApiService {
     required double destLat, required double destLng,
   }) => get('/directions?originLat=$originLat&originLng=$originLng&destLat=$destLat&destLng=$destLng');
 
-  // Polled by rider during accepted/arrived/ongoing ride to track driver position
+  // Polled by rider during accepted/arrived/ongoing ride to track driver
+  // position. `driver` is null outside those statuses.
   static Future<Map<String, dynamic>> getDriverLocation(String rideId) =>
       get('/rides/$rideId/driver-location');
-
-  // Complete the ride (rider calls this after paying online — driver "requested payment").
-  static Future<Map<String, dynamic>> completeRide(String rideId) =>
-      post('/rides/$rideId/complete', {}, auth: true);
 
   // ── SOS alert (raised when the rider taps SOS) ────────────
   static Future<Map<String, dynamic>> sendSosAlert(Map<String, dynamic> body) =>
@@ -297,8 +395,9 @@ class ApiService {
   // ── In-ride chat (rider ↔ driver) ─────────────────────────
   static Future<Map<String, dynamic>> getRideMessages(String rideId) =>
       get('/rides/$rideId/messages');
+  // The sender is whoever the token says. 409 CHAT_CLOSED outside a live ride.
   static Future<Map<String, dynamic>> sendRideMessage(String rideId, String text) =>
-      post('/rides/$rideId/messages', {'sender': 'user', 'text': text}, auth: true);
+      post('/rides/$rideId/messages', {'text': text}, auth: true);
 
   // Report a toll the driver entered on an outstation trip; opens a support ticket.
   // reason: 'no_toll' | 'wrong_amount' | 'other'
@@ -308,11 +407,14 @@ class ApiService {
   static Future<Map<String, dynamic>> cancelRide(String id, String reason) =>
       post('/rides/$id/cancel', {'cancelledBy': 'rider', 'reason': reason}, auth: true);
 
+  // Who rates is taken from the token. Completed rides only, and once:
+  // 409 ALREADY_RATED / NOT_COMPLETED.
   static Future<Map<String, dynamic>> rateRide(String id, int rating, String review) =>
-      post('/rides/$id/rate', {'by': 'rider', 'rating': rating, 'review': review}, auth: true);
+      post('/rides/$id/rate', {'rating': rating, 'review': review}, auth: true);
 
   static Future<Map<String, dynamic>> getMyRides() => get('/rides/user');
-  // Parcels addressed TO me (I'm the receiver) — matched by phone
+  // Parcels addressed TO me (I'm the receiver) — matched by phone. Needs the
+  // rider's token (sent by get) and returns only the fields a receiver needs.
   static Future<Map<String, dynamic>> getIncomingParcels() => get('/rides/delivery/incoming');
 
   // ── Upload profile picture ────────────────────────────────
@@ -328,11 +430,8 @@ class ApiService {
         'file', bytes,
         filename: xfile.name.isNotEmpty ? xfile.name : 'profile.jpg',
       ));
-      final streamed = await request.send();
-      final res = await http.Response.fromStream(streamed);
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      if (data['url'] != null) return AppConfig.imageUrl(data['url'] as String);
-      return null;
+      final url = await _sendUpload(request);
+      return url == null ? null : AppConfig.imageUrl(url);
     } catch (_) {
       return null;
     }
@@ -346,9 +445,22 @@ class ApiService {
       final token = await getToken();
       if (token != null) request.headers['Authorization'] = 'Bearer $token';
       request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: xfile.name.isNotEmpty ? xfile.name : 'parcel.jpg'));
-      final res = await http.Response.fromStream(await request.send());
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      return data['url'] as String?;
+      return await _sendUpload(request);
     } catch (_) { return null; }
+  }
+
+  /// Sends an upload with a timeout and returns the stored file's url, or null.
+  /// Goes through the zone's http client (http.runWithClient), like every call.
+  static Future<String?> _sendUpload(http.MultipartRequest request) async {
+    final client = http.Client();
+    try {
+      final streamed = await client.send(request).timeout(uploadTimeout);
+      final res = await http.Response.fromStream(streamed).timeout(uploadTimeout);
+      final data = jsonDecode(res.body);
+      final url = data is Map ? data['url'] : null;
+      return url is String && url.isNotEmpty ? url : null;
+    } finally {
+      client.close();
+    }
   }
 }

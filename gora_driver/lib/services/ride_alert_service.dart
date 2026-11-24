@@ -1,7 +1,10 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'driver_api_service.dart';
+import 'location_ping.dart';
 
 // ── Layer 1: Foreground service ──────────────────────────────────────────────
 // Keeps the driver receiving ride requests while the app is minimized. While
@@ -15,6 +18,14 @@ import 'driver_api_service.dart';
 
 const _incomingChannelId = 'incoming_ride';
 const _fgBeat = 'app-foreground';
+
+/// Sent from the background task to the app when the server answered 401:
+/// the app then signs out (see Session).
+const unauthorizedMessage = 'session-unauthorized';
+
+/// How often the background task sends the driver's position, in 4 s ticks
+/// (every 16 s) — the same rate as the on-screen app's own ping.
+const locationEveryTicks = 4;
 
 class RideAlertService {
   /// The id of the full-screen "New Ride Request" heads-up. One fixed id, so
@@ -70,24 +81,42 @@ class RideAlertService {
     );
   }
 
-  // Start the service when the driver goes online.
-  static Future<void> start() async {
+  /// What [start] / [stop] run. Tests replace them — the real ones talk to
+  /// the Android service.
+  @visibleForTesting
+  static Future<bool> Function() startImpl = _startService;
+  @visibleForTesting
+  static Future<void> Function() stopImpl = _stopService;
+
+  /// Starts the online service (idempotent: a running service is left as it
+  /// is). False when it could not be started.
+  static Future<bool> start() => startImpl();
+
+  /// Stops the online service, if it is running.
+  static Future<void> stop() => stopImpl();
+
+  static Future<bool> _startService() async {
     // Ask for notification permission (Android 13+) so alerts can show.
     final perm = await FlutterForegroundTask.checkNotificationPermission();
     if (perm != NotificationPermission.granted) {
       await FlutterForegroundTask.requestNotificationPermission();
     }
-    if (await FlutterForegroundTask.isRunningService) return;
-    await FlutterForegroundTask.startService(
+    if (await FlutterForegroundTask.isRunningService) return true;
+    // The service is a "location" foreground service (it sends the driver's
+    // position while the app is in the background). Android 14+ refuses to
+    // start one without a location grant, so do not try.
+    final loc = await Geolocator.checkPermission();
+    if (loc != LocationPermission.always && loc != LocationPermission.whileInUse) return false;
+    final r = await FlutterForegroundTask.startService(
       serviceId: 256,
       notificationTitle: "You're online",
       notificationText: 'Waiting for ride requests…',
       callback: startCallback,
     );
+    return r is ServiceRequestSuccess;
   }
 
-  // Stop the service when the driver goes offline.
-  static Future<void> stop() async {
+  static Future<void> _stopService() async {
     if (await FlutterForegroundTask.isRunningService) {
       await FlutterForegroundTask.stopService();
     }
@@ -97,7 +126,7 @@ class RideAlertService {
 // Entry point for the background isolate that runs the polling task.
 @pragma('vm:entry-point')
 void startCallback() {
-  FlutterForegroundTask.setTaskHandler(_RideAlertTaskHandler());
+  FlutterForegroundTask.setTaskHandler(RideAlertTaskHandler());
 }
 
 /// How long one heartbeat from the on-screen app holds off the background
@@ -110,10 +139,19 @@ const foregroundWindow = Duration(seconds: 6);
 bool appOnScreen(DateTime? lastBeat, DateTime now) =>
     lastBeat != null && now.difference(lastBeat) < foregroundWindow;
 
-class _RideAlertTaskHandler extends TaskHandler {
+/// The background isolate's task: polls for requests and sends the driver's
+/// position while the app is not on screen.
+class RideAlertTaskHandler extends TaskHandler {
+  RideAlertTaskHandler() {
+    // A 401 here used to read as "no rides" for ever. Now the session ends.
+    DriverApiService.onUnauthorized = _unauthorized;
+  }
+
   final _fln = FlutterLocalNotificationsPlugin();
   String _lastNotifiedId = '';
   DateTime? _appSeenAt;
+  int _ticks = 0;
+  bool _signedOut = false;
 
   @override
   void onReceiveData(Object data) {
@@ -140,13 +178,48 @@ class _RideAlertTaskHandler extends TaskHandler {
 
   @override
   void onRepeatEvent(DateTime timestamp) {
+    if (_signedOut) return;
+    // While the app is on screen it polls and pings itself.
     if (appOnScreen(_appSeenAt, DateTime.now())) return;
     _poll();
+    // The driver's position, from here — the app's own timer stops once it is
+    // in the background. Only a fresh fix is sent (see pushFreshLocation).
+    if (_ticks++ % locationEveryTicks == 0) _pushLocation();
   }
+
+  Future<void> _pushLocation() async {
+    try {
+      await pushFreshLocation(await quietFix());
+    } catch (_) {}
+  }
+
+  /// The server no longer accepts this session: clear it here, tell the app
+  /// (if it is running) and stop the service.
+  Future<void> _unauthorized() async {
+    if (_signedOut) return;
+    _signedOut = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('driver_token');
+      await prefs.remove('driver_online');
+    } catch (_) {}
+    try { FlutterForegroundTask.sendDataToMain(unauthorizedMessage); } catch (_) {}
+    try { await FlutterForegroundTask.stopService(); } catch (_) {}
+  }
+
+  /// True once the server refused the session; the task does nothing more.
+  @visibleForTesting
+  bool get signedOut => _signedOut;
+
+  /// One background poll of the request feed.
+  @visibleForTesting
+  Future<void> pollOnce() => _poll();
 
   Future<void> _poll() async {
     try {
       final res = await DriverApiService.getPendingRequests();
+      // A refusal is not an empty feed (401 is handled by _unauthorized).
+      if (res['error'] != null) return;
       final rides = (res['rides'] as List?) ?? [];
       // The request this alert was for is no longer pending (taken, accepted,
       // cancelled): take its heads-up down.
@@ -171,7 +244,7 @@ class _RideAlertTaskHandler extends TaskHandler {
       final pickup = (first['pickupAddress'] ?? '').toString();
       final drop = (first['dropAddress'] ?? '').toString();
 
-      await _showIncoming(fare, pickup, drop);
+      try { await _showIncoming(fare, pickup, drop); } catch (_) {}
       FlutterForegroundTask.updateService(
         notificationTitle: 'New ride request!',
         notificationText: '$fare — tap to open',

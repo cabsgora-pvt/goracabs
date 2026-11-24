@@ -9,6 +9,7 @@ import '../../../services/location_service.dart';
 import 'invoice_page.dart';
 import 'collect_fare_page.dart';
 import '../logic/job_settlement.dart';
+import '../logic/ride_actions.dart';
 import '../widgets/nav_map.dart';
 import '../widgets/ride_shell.dart';
 import '../widgets/ride_status_strip.dart';
@@ -61,6 +62,8 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
   late int _pkgHours;
   late int _pkgKm;
   List<Map<String, dynamic>> _stops = []; // destinations the rider added live
+  // An extension the driver asked for, waiting on the rider's confirmation.
+  PendingExtension? _pendingExt;
 
   bool get _priced => _bill != null || _pricedEarlier;
 
@@ -104,8 +107,12 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
       distanceFilter: 25,
       notificationText: 'Rental in progress — tracking distance',
     ).listen((pos) {
+      // `at` is when the fix was taken: the server orders points by it and
+      // ignores one older than the last (ignoredPing) instead of adding a
+      // backwards hop to the odometer.
       DriverApiService.rentalAction(widget.ride.id, {
         'action': 'ping', 'lat': pos.latitude, 'lng': pos.longitude,
+        'at': pos.timestamp.millisecondsSinceEpoch,
       }).catchError((_) => <String, dynamic>{});
     }, onError: (_) {});
   }
@@ -131,7 +138,9 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
     try {
       final res = await DriverApiService.rentalAction(widget.ride.id, {
         'action': 'ping', 'lat': pos.latitude, 'lng': pos.longitude,
+        'at': pos.timestamp.millisecondsSinceEpoch,
       });
+      // ignoredPing: this point was not counted; the figures are still current.
       if (mounted) _apply(res['rental'] as Map<String, dynamic>?);
     } catch (_) {/* a dropped ping must never interrupt the job */}
   }
@@ -155,6 +164,7 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
       _liveExtraCharge = (r['liveExtraCharge'] as num?)?.toDouble() ?? _liveExtraCharge;
       _liveExtraHours = (r['liveExtraHours'] as num?)?.toInt() ?? _liveExtraHours;
       _liveExtraKm = (r['liveExtraKm'] as num?)?.toInt() ?? _liveExtraKm;
+      if (r.containsKey('pendingExtension')) _pendingExt = PendingExtension.tryParse(r['pendingExtension']);
     });
   }
 
@@ -180,20 +190,30 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
   Future<void> _extend() async {
     final hrs = await showDialog<int>(context: context, builder: (dctx) => SimpleDialog(
       title: const Text('Extend rental by'),
-      children: [2, 4, 6].map((h) => SimpleDialogOption(
+      children: extendOptions.map((h) => SimpleDialogOption(
         onPressed: () => Navigator.pop(dctx, h), child: Text('+$h hours'),
       )).toList(),
     ));
-    if (hrs == null) return;
-    final res = await DriverApiService.rentalAction(widget.ride.id, {'action': 'extend', 'extraHours': hrs});
+    if (hrs == null || !validExtraHours(hrs)) return;
+    Map<String, dynamic> res;
+    try {
+      res = await DriverApiService.rentalAction(widget.ride.id, {'action': 'extend', 'extraHours': hrs});
+    } catch (_) {
+      res = const {'error': 'No connection'};
+    }
     if (!mounted) return;
     if (res['error'] != null) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Could not extend: ${res['error']}'), backgroundColor: AppColors.red));
+        content: Text('Could not extend: ${rideActionError(res)}'), backgroundColor: AppColors.red));
       return;
     }
-    _apply(res['rental'] as Map<String, dynamic>?);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Extended +$hrs hr'), backgroundColor: AppColors.green));
+    // Nothing changes until the rider confirms the extra charge in their app
+    // (15 min); the package grows on a later ping once they have.
+    final pending = extensionFrom(res);
+    setState(() => _pendingExt = pending);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(pending != null ? waitingForRiderText(pending) : 'Extension requested'),
+      backgroundColor: AppColors.primary));
   }
 
   // End → bill → collect → settle.
@@ -241,7 +261,12 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
         if (collected != true || !mounted) { if (mounted) setState(() {}); return; }
         _cashInHand = true;
       }
-      // Settlement (commission, driver wallet, Transaction) happens here.
+    }
+    // Settlement happens here for every payment mode: cash (commission from
+    // the driver's wallet), wallet (debited from the rider's — or switched to
+    // cash if short) and online (ended now, paid by the rider in their app;
+    // the earning is credited once they pay).
+    if (_invoice == null) {
       setState(() => _ending = true);
       final invoice = await settleForInvoice(context, widget.ride);
       if (!mounted) return;
@@ -249,8 +274,6 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
       if (invoice == null) return;
       _invoice = invoice;
     }
-    // Online/wallet: the rider is prompted to pay the final amount in their app,
-    // and their payment call completes + settles the ride.
     if (!mounted) return;
     _showBill(bill);
   }
@@ -273,9 +296,9 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
           if (n(r['nightCharge']) > 0) _billRow('Night charge', '₹${r['nightCharge']}'),
           const Divider(),
           _billRow('Total', '₹${r['finalFare'] ?? 0}', bold: true),
-          if (r['awaitingPayment'] == true)
+          if (r['awaitingPayment'] == true && widget.ride.paymentMode == 'online')
             Padding(padding: const EdgeInsets.only(top: 8), child: Text(
-              'Waiting for the rider to pay online — the ride closes once they do.',
+              'Paid online by the rider — your earning is added once they pay.',
               style: TextStyle(fontSize: 12, color: AppColors.textGrey))),
           const SizedBox(height: 20),
           SizedBox(width: double.infinity, child: PrimaryButton(label: 'Done', onTap: () {
@@ -356,6 +379,10 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
             Text(r.pickupAddress, style: TextStyle(fontSize: 12, color: AppColors.textGrey), maxLines: 2, overflow: TextOverflow.ellipsis),
           ]),
         ),
+        if (_pendingExt != null && !_priced) ...[
+          const SizedBox(height: 10),
+          PendingExtensionNote(ext: _pendingExt!),
+        ],
         // Destinations added by the rider (live)
         if (_stops.isNotEmpty) ...[
           const SizedBox(height: 10),

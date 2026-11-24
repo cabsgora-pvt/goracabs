@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
+import '../logic/ride_actions.dart';
 
 // RideBloc is created per-ride with `currentRide` already set (see
 // on_ride_page.dart) — there is no "load the incoming request" event here;
@@ -74,10 +75,12 @@ class RideTakenState extends RideState {}
 class OtpErrorState extends RideState {
   final RideRequestModel ride;
   final String message;
+  /// The code is locked (too many wrong tries): support has to unlock it.
+  final bool locked;
   // Without this a second wrong OTP equalled the first and was never shown.
   final int _nonce = DateTime.now().microsecondsSinceEpoch;
-  OtpErrorState(this.ride, [this.message = 'Invalid OTP']);
-  @override List<Object?> get props => [ride, message, _nonce];
+  OtpErrorState(this.ride, [this.message = 'Invalid OTP', this.locked = false]);
+  @override List<Object?> get props => [ride, message, locked, _nonce];
 }
 
 class RideBloc extends Bloc<RideEvent, RideState> {
@@ -95,9 +98,8 @@ class RideBloc extends Bloc<RideEvent, RideState> {
     emit(RideLoading());
     try {
       final res = await DriverApiService.acceptRide(e.id);
-      final status = res['_status'] as int? ?? 200;
-      if (status == 409) { emit(RideTakenState()); return; }
-      if (res['success'] == true) { emit(RideAcceptedState(currentRide!)); return; }
+      // A repeat accept of a ride already ours is a success too.
+      if (res['success'] == true || res['repeated'] == true) { emit(RideAcceptedState(currentRide!)); return; }
       emit(RideTakenState());
     } catch (_) {
       emit(RideTakenState());
@@ -121,7 +123,8 @@ class RideBloc extends Bloc<RideEvent, RideState> {
     // dead network the driver's screen said they had arrived while the server —
     // and the rider — still had them on the way.
     if (res['error'] != null) {
-      emit(ArriveFailedState(ride, res['error'].toString()));
+      // TOO_FAR_FROM_PICKUP → "You are X km from pickup".
+      emit(ArriveFailedState(ride, rideActionError(res)));
       return;
     }
     emit(ArrivedAtPickupState(ride, waitingSec: (res['waitingSec'] as num?)?.toInt() ?? 0));
@@ -133,7 +136,8 @@ class RideBloc extends Bloc<RideEvent, RideState> {
       if (res['success'] == true) {
         emit(RideStartedState(currentRide!));
       } else {
-        emit(OtpErrorState(currentRide!, res['error']?.toString() ?? 'Invalid OTP'));
+        // Attempts left / locked / rate-limited, as the server counts them.
+        emit(OtpErrorState(currentRide!, otpErrorMessage(res), res['code'] == 'OTP_LOCKED'));
       }
     } catch (_) {
       // A dropped connection is not a wrong OTP; telling the driver it was

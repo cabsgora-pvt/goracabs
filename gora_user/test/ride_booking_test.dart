@@ -12,7 +12,6 @@ import 'package:customer_app/providers/theme_provider.dart';
 import 'package:customer_app/providers/user_provider.dart';
 import 'package:customer_app/screens/active_ride_screen.dart';
 import 'package:customer_app/utils/ride_booking.dart';
-import 'package:customer_app/utils/ride_payable.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // bookAndTrack: how rental, hire, parcel and outstation now book.
@@ -26,14 +25,13 @@ import 'package:customer_app/utils/ride_payable.dart';
 /// A stand-in booking screen: one button that books through bookAndTrack.
 class _BookingForm extends StatelessWidget {
   final Future<Map<String, dynamic>> Function() book;
-  final num coupon;
   final String Function(String)? failureMessage;
-  const _BookingForm({required this.book, this.coupon = 0, this.failureMessage});
+  const _BookingForm({required this.book, this.failureMessage});
 
   @override
   Widget build(BuildContext context) => Scaffold(
     body: Center(child: ElevatedButton(
-      onPressed: () => bookAndTrack(context, book: book, couponDiscount: coupon,
+      onPressed: () => bookAndTrack(context, book: (_, _) => book(),
           failureMessage: failureMessage),
       child: const Text('Confirm Booking'),
     )),
@@ -161,6 +159,11 @@ void main() {
     await tester.tap(find.text('Confirm Booking'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
+    // First a safe retry is offered; declining it reports the failure.
+    expect(find.text('Could not confirm your booking'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.textContaining('Could not reach Gora'), findsOneWidget);
     expect(find.text('Confirm Booking'), findsOneWidget);
@@ -202,20 +205,5 @@ void main() {
   test('refund message formats rupees', () {
     expect(refundedMessage('x', 120), contains('₹120 has been returned'));
     expect(refundedMessage('x', 99.5), contains('₹99.50 has been returned'));
-  });
-
-  testWidgets('the coupon is stored with the ride before it opens', (tester) async {
-    await http.runWithClient(() async {
-      await tester.pumpWidget(_app(_BookingForm(
-        coupon: 75,
-        book: () async => {'success': true, 'ride': {'id': 'new-ride'}},
-      )));
-      await tester.tap(find.text('Confirm Booking'));
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
-    }, _rideApi);
-
-    expect(await RideCouponStore.load('new-ride'), 75);
-    await _drain(tester);
   });
 }

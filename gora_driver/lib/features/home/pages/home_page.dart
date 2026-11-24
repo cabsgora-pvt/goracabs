@@ -21,7 +21,10 @@ import '../../../models/models.dart';
 import '../../wallet/pages/wallet_page.dart';
 import '../../account/service_prefs.dart';
 import '../../account/pages/face_reverify_page.dart';
+import '../../../services/location_ping.dart';
 import '../bloc/home_bloc.dart';
+import '../logic/feed_status.dart';
+import 'background_location_disclosure.dart';
 import 'map_placeholder.dart';
 
 class HomePage extends StatefulWidget {
@@ -108,7 +111,14 @@ class _HomeTab extends StatefulWidget {
 class _HomeTabState extends State<_HomeTab> {
   bool _statsOpen = false;
 
-  void _toggleOnline(bool online) => context.read<HomeBloc>().add(ToggleOnlineEvent(online));
+  Future<void> _toggleOnline(bool online) async {
+    final bloc = context.read<HomeBloc>();
+    // Before going online: explain why location is used in the background and
+    // only then show Android's "Allow all the time" prompt (Play policy).
+    if (online) await maybeAskBackgroundLocation(context);
+    if (!online) feedBlock.value = null;
+    bloc.add(ToggleOnlineEvent(online));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -169,6 +179,16 @@ class _HomeTabState extends State<_HomeTab> {
                         : Navigator.pushNamed(context, '/admin-chat'),
                   ),
                 ],
+                if (isOnline)
+                  ValueListenableBuilder<FeedBlock?>(
+                    valueListenable: feedBlock,
+                    builder: (context, block, _) => block == null
+                        ? const SizedBox.shrink()
+                        : Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: FeedBlockBanner(block: block),
+                          ),
+                  ),
                 if (dp.isLowBalance) ...[
                   const SizedBox(height: 10),
                   _LowBalanceBanner(
@@ -637,15 +657,36 @@ class _RidePollerState extends State<_RidePoller> {
   void dispose() {
     _pollTimer?.cancel();
     _locTimer?.cancel();
+    feedBlock.value = null;
     super.dispose();
   }
 
+  /// In the background the online service sends the position instead.
+  static bool get _inBackground {
+    final st = WidgetsBinding.instance.lifecycleState;
+    return st == AppLifecycleState.paused || st == AppLifecycleState.hidden || st == AppLifecycleState.detached;
+  }
+
   Future<void> _pushLocation() async {
+    if (_inBackground) return;
+    try {
+      // Never a stale last-known fix passed off as where the driver is now.
+      await pushFreshLocation(await LocationService.getCurrentLocation());
+    } catch (_) {}
+  }
+
+  DateTime? _lastReonline;
+
+  /// The server has this driver offline while the app says online (it timed
+  /// them out). Put them back, at most once a minute.
+  Future<void> _reonline() async {
+    final now = DateTime.now();
+    if (_lastReonline != null && now.difference(_lastReonline!) < const Duration(minutes: 1)) return;
+    _lastReonline = now;
     try {
       final pos = await LocationService.getCurrentLocation();
-      if (pos != null) {
-        await DriverApiService.updateLocation(pos.latitude, pos.longitude);
-      }
+      final fresh = isFreshFix(pos);
+      await DriverApiService.setOnline(true, fresh ? pos!.latitude : null, fresh ? pos!.longitude : null);
     } catch (_) {}
   }
 
@@ -660,6 +701,14 @@ class _RidePollerState extends State<_RidePoller> {
     if (RideShell.tripOpen) return;
     try {
       final res = await DriverApiService.getPendingRequests();
+      if (!mounted) return;
+      if (res['error'] == null) {
+        // An empty feed with a reason (not approved, wallet blocked …) shows
+        // that reason instead of nothing.
+        final block = feedBlockFrom(res);
+        if (feedBlock.value != block) feedBlock.value = block;
+        if (block?.kind == 'offline') unawaited(_reonline());
+      }
       // Requests whose countdown just ran out on this phone are skipped, or a
       // lapsed offer still in the feed would reopen the screen in a loop.
       final rides = ((res['rides'] as List?) ?? [])
@@ -708,4 +757,31 @@ class _BottomNav extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Why no requests are coming, shown on the home map while online.
+class FeedBlockBanner extends StatelessWidget {
+  final FeedBlock block;
+  const FeedBlockBanner({super.key, required this.block});
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Cap.surface,
+    elevation: 4,
+    shadowColor: Colors.black26,
+    borderRadius: BorderRadius.circular(Cap.radius),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      child: Row(children: [
+        Icon(block.kind == 'busy' ? Icons.directions_car_rounded : Icons.info_outline_rounded,
+            color: Cap.orange, size: 22),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(block.title, style: Cap.body(size: 14, weight: FontWeight.w800)),
+            Text(block.message, maxLines: 3, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12)),
+          ]),
+        ),
+      ]),
+    ),
+  );
 }

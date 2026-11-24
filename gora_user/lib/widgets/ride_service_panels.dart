@@ -425,10 +425,12 @@ bool hasItemisedBill(String service) =>
 /// The final bill for a rental or driver hire, shown before rating.
 ///
 /// Reproduces what the rental and hire booking screens showed, from the
-/// server's settled figures. The total is [riderPayable] — the exact amount the
-/// ride screen charges — so the bill can never show one figure and charge
-/// another. Resolves when the rider continues.
-Future<void> showRideBill(BuildContext context, Map<String, dynamic> ride, {num couponDiscount = 0}) {
+/// server's settled figures. The total is the server's `amountDue` (see
+/// rideAmountDue) — what the server actually settled — so the bill can never
+/// show one figure while the rider is charged another. The coupon line is the
+/// server's `couponDiscount`. Resolves when the rider continues.
+Future<void> showRideBill(BuildContext context, Map<String, dynamic> ride) {
+  final couponDiscount = rideCouponDiscount(ride);
   final isRental = ride['service'] == 'rental';
   final isOutstation = ride['service'] == 'outstation';
   final base = _n(ride['fare']);
@@ -481,10 +483,18 @@ Future<void> showRideBill(BuildContext context, Map<String, dynamic> ride, {num 
         _billRow('Overtime (${_n(ride['hireExtraHours'])} hr)', _money(exCharge), color: Colors.orange[800]),
     ];
   }
-  // A rental's coupon is already inside its server fare (riderPayable ignores the
-  // discount for rentals), so a coupon line only appears where one was applied
-  // on top of the bill.
-  final total = riderPayable(ride, couponDiscount: couponDiscount) + tolls;
+  final waiting = _n(ride['waitingChargeTotal']);
+  if (waiting > 0) rows.add(_billRow('Waiting charges', _money(waiting)));
+  // A rental's coupon is already inside its server fare, so a coupon line only
+  // appears where one was applied on top of the bill.
+  final mode = '${ride['paymentMode'] ?? 'cash'}';
+  final paidAtBooking = isOutstation && mode != 'cash' && mode != 'cod';
+  // A trip paid at booking owes nothing more (amountDue 0): its bill totals
+  // what was paid, plus the tolls handed to the driver.
+  final num prepaid = _n(ride['prepaidAmount']) > 0
+      ? _n(ride['prepaidAmount'])
+      : (base - couponDiscount).clamp(0, base);
+  final total = (paidAtBooking ? prepaid : rideAmountDue(ride)) + tolls;
   final showCoupon = !isRental && couponDiscount > 0;
 
   return showModalBottomSheet<void>(

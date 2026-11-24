@@ -27,7 +27,7 @@ class HistoryPage extends StatelessWidget {
               }
               return state.trips.isEmpty
                   ? const EmptyState(message: 'No trips yet', icon: Icons.history)
-                  : _TripList(trips: state.trips);
+                  : _TripList(state: state);
             }
             return const EmptyState(message: 'No trips yet', icon: Icons.history);
           },
@@ -38,16 +38,34 @@ class HistoryPage extends StatelessWidget {
 }
 
 class _TripList extends StatelessWidget {
-  final List<TripModel> trips;
-  const _TripList({required this.trips});
+  final HistoryLoaded state;
+  const _TripList({required this.state});
 
   @override
   Widget build(BuildContext context) {
+    final trips = state.trips;
+    // One more row at the end while older trips remain: "Load more".
+    final more = state.hasMore;
     return ListView.separated(
       padding: const EdgeInsets.all(16),
-      itemCount: trips.length,
+      itemCount: trips.length + (more ? 1 : 0),
       separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (_, i) => _TripCard(trip: trips[i]),
+      itemBuilder: (_, i) {
+        if (i < trips.length) return _TripCard(trip: trips[i]);
+        if (state.loadingMore) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.4))),
+          );
+        }
+        return Center(
+          child: TextButton.icon(
+            onPressed: () => context.read<HistoryBloc>().add(LoadMoreHistoryEvent()),
+            icon: Icon(state.moreFailed ? Icons.refresh : Icons.expand_more),
+            label: Text(state.moreFailed ? "Couldn't load — tap to retry" : 'Load more trips'),
+          ),
+        );
+      },
     );
   }
 }

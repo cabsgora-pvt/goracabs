@@ -69,3 +69,5 @@ flutter:
     - assets/images/services/
     - assets/images/topview/
     - assets/images/vehicles/
+    # Default ride-request ringtone (played when the admin has set none)
+    - assets/sounds/

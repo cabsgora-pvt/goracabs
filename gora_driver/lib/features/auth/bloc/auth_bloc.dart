@@ -3,6 +3,7 @@ import 'package:equatable/equatable.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
+import '../../../services/session.dart';
 
 // Events
 //
@@ -145,6 +146,10 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   }
 
   Future<void> _onLogout(LogoutEvent e, Emitter emit) async {
+    // Same clean-up as the account screen's Logout: offline on the server
+    // (while the token still works), service stopped, session data cleared.
+    try { await DriverApiService.setOnline(false).timeout(const Duration(seconds: 6)); } catch (_) {}
+    await Session.clearSession();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('logged_in', false);
     await DriverApiService.clearToken();

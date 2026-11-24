@@ -101,11 +101,20 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
     setState(() => _saving = true);
     try {
       final url = await DriverApiService.uploadFile(photo);
+      if (!mounted) return;
       if (url == null) {
-        setState(() { _saving = false; _error = 'Upload failed — check your connection and try again.'; });
+        setState(() { _saving = false; _error = DriverApiService.lastUploadError ?? 'Upload failed — check your connection and try again.'; });
         return;
       }
       final res = await DriverApiService.saveFaceSignature(vector, url);
+      if (!mounted) return;
+      if (res['code'] == 'FACE_LOCKED') {
+        // Already registered (this step was done before): nothing to redo.
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['error'].toString())));
+        final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+        Navigator.pushReplacementNamed(context, VehicleSelectionPage.route, arguments: args);
+        return;
+      }
       if (res['error'] != null) {
         setState(() { _saving = false; _error = res['error'].toString(); });
         return;

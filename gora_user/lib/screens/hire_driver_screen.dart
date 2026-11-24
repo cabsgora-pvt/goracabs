@@ -10,7 +10,10 @@ import '../widgets/ride_ui/ride_ui.dart';
 
 // Hire a Driver — customer's own car, priced by hours (pickup time → drop time).
 class HireDriverScreen extends StatefulWidget {
-  const HireDriverScreen({super.key});
+  /// Start and end of the hire, when already known (a repeat booking, a test).
+  final DateTime? initialStartAt;
+  final DateTime? initialEndAt;
+  const HireDriverScreen({super.key, this.initialStartAt, this.initialEndAt});
   @override
   State<HireDriverScreen> createState() => _HireDriverScreenState();
 }
@@ -24,7 +27,6 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   String _tripType = 'one_way';   // one_way | round_trip
   String _paymentMode = 'cash';
   String _couponCode = '';
-  int _couponDiscount = 0;
   String? _selectedVehicle;
   List<Map<String, dynamic>> _vehicles = [];
   bool _loading = false;
@@ -48,7 +50,12 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   }
 
   @override
-  void initState() { super.initState(); _initLocation(); }
+  void initState() {
+    super.initState();
+    _startAt = widget.initialStartAt;
+    _endAt = widget.initialEndAt;
+    _initLocation();
+  }
 
   @override
   void dispose() { _debounce?.cancel(); _pickupCtrl.dispose(); _dropCtrl.dispose(); super.dispose(); }
@@ -59,6 +66,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     _pickupLat = pos.latitude; _pickupLng = pos.longitude;
     final addr = await ApiService.reverseGeocode(pos.latitude, pos.longitude);
     if (mounted && addr.isNotEmpty) setState(() => _pickupCtrl.text = addr);
+    if (mounted && _totalHours > 0) _loadFares();
   }
 
   void _search(String q, {required bool pickup}) {
@@ -74,8 +82,11 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     final d = await ApiService.placeDetails(s['placeId'] as String? ?? '');
     if (d == null || !mounted) return;
     setState(() {
-      if (pickup) { _pickupLat = (d['lat'] as num).toDouble(); _pickupLng = (d['lng'] as num).toDouble(); _pickupCtrl.text = d['address'] ?? ''; _pickSug = []; }
-      else { _dropLat = (d['lat'] as num).toDouble(); _dropLng = (d['lng'] as num).toDouble(); _dropCtrl.text = d['address'] ?? ''; _dropSug = []; }
+      // placeDetails returns numeric lat/lng or null, never an error map.
+      final lat = ApiService.toDoubleOrNull(d['lat']), lng = ApiService.toDoubleOrNull(d['lng']);
+      if (lat == null || lng == null) return;
+      if (pickup) { _pickupLat = lat; _pickupLng = lng; _pickupCtrl.text = '${d['address'] ?? ''}'; _pickSug = []; }
+      else { _dropLat = lat; _dropLng = lng; _dropCtrl.text = '${d['address'] ?? ''}'; _dropSug = []; }
     });
   }
 
@@ -83,9 +94,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     if (_pickupLat == null || _totalHours <= 0) { setState(() => _vehicles = []); return; }
     setState(() { _loading = true; _error = null; });
     try {
-      final res = await ApiService.post('/fare/estimate', {
-        'pickupLat': _pickupLat, 'pickupLng': _pickupLng, 'service': 'hire_driver', 'totalHours': _totalHours, 'tripType': _tripType,
-      });
+      final res = await ApiService.post('/fare/estimate', _estimateBody());
       if (res['available'] != true) { setState(() { _loading = false; _error = (res['message'] ?? 'Not available').toString(); }); return; }
       setState(() {
         _vehicles = ((res['vehicles'] as List?) ?? []).map((v) => Map<String, dynamic>.from(v as Map)).toList();
@@ -95,35 +104,46 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     } catch (_) { setState(() { _loading = false; _error = 'Failed to load'; }); }
   }
 
+  /// What /fare/estimate is asked. The quote is signed over its hours and
+  /// trip type, so they are exactly what the hire is booked with
+  /// (hireTotalHours, tripType).
+  Map<String, dynamic> _estimateBody() => {
+        'pickupLat': _pickupLat, 'pickupLng': _pickupLng, 'service': 'hire_driver',
+        'totalHours': _totalHours, 'tripType': _tripType,
+      };
+
   /// Books the hire and returns the server's answer; [bookAndTrack] reports a
-  /// failure and opens the live ride screen on success.
-  Future<Map<String, dynamic>> _book() async {
+  /// failure and opens the live ride screen on success. The quoted fare is sent
+  /// in full and only the coupon code: the server applies the discount.
+  Future<Map<String, dynamic>> _book(String clientRequestId, bool freshQuote) async {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
+    if (freshQuote) {
+      final q = await freshQuoteFor(_estimateBody(), _selectedVehicle);
+      if (q != null) v.addAll(q);
+    }
     final num fare = (v['fare'] as num?) ?? 0;
     return ApiService.bookRide({
+        'clientRequestId': clientRequestId,
         'pickupAddress': _pickupCtrl.text, 'dropAddress': _dropCtrl.text,
         'pickupLat': _pickupLat, 'pickupLng': _pickupLng,
         'dropLat': _dropLat ?? _pickupLat, 'dropLng': _dropLng ?? _pickupLng,
         'service': 'hire_driver', 'vehicleType': _selectedVehicle,
-        'fare': (fare - _couponDiscount).clamp(0, fare), 'hirePerHour': v['perHour'] ?? 0,
+        'fare': fare, 'hirePerHour': v['perHour'] ?? 0,
         'quoteToken': v['quoteToken'],
         'hireTotalHours': _totalHours, 'transmission': _transmission,
         'tripType': _tripType,
         'hireStartAt': _startAt?.toUtc().toIso8601String(), 'hireEndAt': _endAt?.toUtc().toIso8601String(),
         'paymentMode': _paymentMode,
-        'couponCode': _couponCode,
-        'couponDiscount': _couponDiscount,
+        if (_couponCode.isNotEmpty) 'couponCode': _couponCode,
       });
   }
 
   /// Book once, from the button — never from a route builder — then track the
-  /// hire on the live ride screen. The coupon is stored with the ride: the
-  /// server keeps a hire's full quoted fare, so the discount is applied when the
-  /// ride is charged.
+  /// hire on the live ride screen. The server validates the coupon and keeps
+  /// its discount on the ride.
   Future<void> _confirmHire() => bookAndTrack(
     context,
     book: _book,
-    couponDiscount: _couponDiscount,
   );
 
   Future<void> _pickDateTime({required bool isStart}) async {
@@ -225,7 +245,8 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     return PrimaryCtaBar(
       top: PaymentCouponBar(
         baseFare: (v['fare'] as num?) ?? 0,
-        onChanged: (pm, cc, cd) => setState(() { _paymentMode = pm; _couponCode = cc; _couponDiscount = cd; }),
+        // The discount shown here is a preview: the server decides it at booking.
+        onChanged: (pm, cc, _) => setState(() { _paymentMode = pm; _couponCode = cc; }),
       ),
       label: ready ? 'Book Driver · ₹${v['fare'] ?? ''}' : 'Select time & vehicle',
       onPressed: ready ? _showConfirm : null,

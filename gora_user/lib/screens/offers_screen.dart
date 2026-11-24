@@ -157,7 +157,7 @@ class _OffersScreenState extends State<OffersScreen> {
       separatorBuilder: (_, __) => const SizedBox(height: 16),
       itemBuilder: (_, i) {
         final offer = offers[i];
-        final color = Color(int.parse(offer['color'] as String));
+        final color = offerColor(offer['color']);
         final code = (offer['code'] as String?) ?? '';
         final validity = (offer['validity'] as String?) ?? '';
         final imageUrl = (offer['imageUrl'] as String?) ?? '';
@@ -613,4 +613,19 @@ class _OffersScreenState extends State<OffersScreen> {
       ],
     );
   }
+}
+
+/// An offer's colour from admin data: "0xFF0A3CC8", "#0A3CC8", "0A3CC8" or an
+/// int. Anything else — a typo, null, a name — falls back to the brand blue
+/// instead of crashing the offers list (it used a bare int.parse).
+Color offerColor(dynamic raw, {Color fallback = const Color(0xFF0A3CC8)}) {
+  if (raw is int) return Color(raw);
+  var s = (raw ?? '').toString().trim();
+  if (s.isEmpty) return fallback;
+  if (s.startsWith('#')) s = s.substring(1);
+  if (s.toLowerCase().startsWith('0x')) s = s.substring(2);
+  if (!RegExp(r'^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$').hasMatch(s)) return fallback;
+  final v = int.tryParse(s, radix: 16);
+  if (v == null) return fallback;
+  return Color(s.length == 6 ? 0xFF000000 | v : v);
 }

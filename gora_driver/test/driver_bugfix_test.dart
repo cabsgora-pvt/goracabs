@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -834,26 +835,37 @@ void main() {
     testWidgets('#3 a priced parcel moves on to collecting the fare', (tester) async {
       _setSize(tester);
       final actions = <String>[];
+      final bodies = <Map>[];
       await http.runWithClient(() async {
         await tester.pumpWidget(_app(DeliveryProgressPage(ride: _ride(service: 'delivery',
-            progress: const RideProgress(deliveryPhase: 'in_transit')))));
+            progress: const RideProgress(deliveryPhase: 'in_transit')),
+            // A failed delivery now needs a proof photo (server PHOTO_REQUIRED).
+            pickPhoto: () async => XFile.fromData(Uint8List.fromList([1, 2, 3]), name: 'door.jpg'))));
         await _pumpFor(tester, const Duration(milliseconds: 300));
         await tester.ensureVisible(find.text('Receiver unavailable — return to sender'));
         await tester.tap(find.text('Receiver unavailable — return to sender'));
         await _pumpFor(tester, const Duration(milliseconds: 400));
         await tester.tap(find.text('Receiver unavailable'));
+        await _pumpFor(tester, const Duration(milliseconds: 400));
+        expect(find.text('Photo needed'), findsOneWidget);
+        await tester.tap(find.text('Take photo'));
         await _pumpFor(tester, const Duration(milliseconds: 800));
         expect(find.byType(CollectFarePage), findsOneWidget, reason: 'the cash step follows pricing');
         expect(find.text('₹150'), findsOneWidget);
         await _teardown(tester);
       }, () => MockClient((req) async {
+        if (req.url.path.endsWith('/upload')) return _json({'url': '/uploads/door.jpg'});
         if (req.url.path.endsWith('/delivery')) {
-          actions.add((jsonDecode(req.body) as Map)['action'].toString());
+          final b = jsonDecode(req.body) as Map;
+          actions.add(b['action'].toString());
+          bodies.add(b);
           return _json({'success': true, 'fareDue': 150, 'codDue': 0, 'amountDue': 150});
         }
         return _json({});
       }));
       expect(actions, ['failed']);
+      expect(bodies.single['reason'], 'Receiver unavailable');
+      expect(bodies.single['photoUrl'], endsWith('/uploads/door.jpg'));
     });
   });
 

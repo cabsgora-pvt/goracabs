@@ -10,6 +10,9 @@ class RatingScreen extends StatefulWidget {
   final String? rideId;
   /// Driver's photo for the header avatar; the initial is shown without one.
   final String driverPhotoUrl;
+  /// How the ride was paid, from the server's settlement ("Paid ₹240 from your
+  /// Gora wallet", "Please pay ₹240 in cash to your driver"), or null.
+  final String? paymentNote;
 
   const RatingScreen({
     super.key,
@@ -18,6 +21,7 @@ class RatingScreen extends StatefulWidget {
     this.selectedTip,
     this.rideId,
     this.driverPhotoUrl = '',
+    this.paymentNote,
   });
 
   @override
@@ -37,16 +41,23 @@ class _RatingScreenState extends State<RatingScreen> {
   static const _labels = ['', 'Terrible', 'Bad', 'Okay', 'Good', 'Excellent'];
 
   Future<void> _submit() async {
+    String? notice;
     if (widget.rideId != null) {
       try {
-        await ApiService.rateRide(
+        final res = await ApiService.rateRide(
           widget.rideId!,
           selectedRating,
           _feedbackController.text,
         );
+        // A ride can be rated once, and only once it is complete. Neither is
+        // worth stopping the rider for; say so and carry on home.
+        final code = (res['code'] ?? '').toString();
+        if (code == 'ALREADY_RATED') notice = 'You have already rated this trip.';
+        if (code == 'NOT_COMPLETED') notice = 'This trip can be rated once it is complete.';
       } catch (_) {}
     }
     if (!mounted) return;
+    if (notice != null) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(notice)));
     Navigator.pushAndRemoveUntil(
       context,
       MaterialPageRoute(builder: (context) => const HomeScreen()),
@@ -75,6 +86,21 @@ class _RatingScreenState extends State<RatingScreen> {
                         Text('Trip completed', style: TextStyle(color: Colors.green, fontWeight: FontWeight.w800, fontSize: 12.5)),
                       ]),
                     ),
+                    if ((widget.paymentNote ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Container(
+                        key: const ValueKey('payment-note'),
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: RideUi.tile(context), borderRadius: BorderRadius.circular(12)),
+                        child: Row(children: [
+                          Icon(Icons.payments_outlined, size: 20, color: RideUi.ink(context)),
+                          const SizedBox(width: 10),
+                          Expanded(child: Text(widget.paymentNote!,
+                              style: RideUi.body(context, size: 13.5, weight: FontWeight.w700))),
+                        ]),
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     DriverAvatar(name: widget.driverName, photoUrl: widget.driverPhotoUrl, radius: 46),
                     const SizedBox(height: 18),

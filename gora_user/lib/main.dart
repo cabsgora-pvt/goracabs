@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'providers/user_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/splash_screen.dart';
+import 'services/session_guard.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
@@ -26,6 +27,8 @@ class GoraCabsApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final themeMode = context.watch<ThemeProvider>().mode;
     return MaterialApp(
+      // Lets a rejected token (401) sign the rider out from wherever they are.
+      navigatorKey: SessionGuard.navigatorKey,
       title: 'Gora Cabs',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,

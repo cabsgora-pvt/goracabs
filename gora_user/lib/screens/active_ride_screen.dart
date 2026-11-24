@@ -11,13 +11,15 @@ import '../utils/polyline_utils.dart';
 import '../utils/map_styles.dart';
 import '../utils/map_markers.dart';
 import '../services/payment_service.dart';
+import '../providers/user_provider.dart';
+import 'package:provider/provider.dart';
+import '../utils/ride_booking.dart';
 import '../theme/app_theme.dart';
 import 'rating_screen.dart';
 import 'ride_chat_screen.dart';
 import '../utils/call_util.dart';
 import '../widgets/driver_waiting_timer.dart';
 import '../widgets/ride_service_panels.dart';
-import '../widgets/online_payment.dart';
 import '../utils/ride_payable.dart';
 import '../widgets/rental_stops_panel.dart';
 import '../widgets/cancel_reasons_sheet.dart';
@@ -30,7 +32,10 @@ import 'parcel_bill_screen.dart';
 // Shows status, OTP, driver card, live driver map + ETA, and cancel.
 class ActiveRideScreen extends StatefulWidget {
   final String rideId;
-  const ActiveRideScreen({super.key, required this.rideId});
+  /// Books the same trip again, for "Try again" when no driver is found.
+  /// Null for a ride reopened from home, or one paid for before booking.
+  final RideBooker? rebook;
+  const ActiveRideScreen({super.key, required this.rideId, this.rebook});
 
   /// Rides with a tracking screen on the stack right now. Home's auto-resume
   /// checks it: it used to push a second screen over the one the booking flow
@@ -122,15 +127,28 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
   double _sheetExtent = _half;
 
   // ── Settlement ──
-  // The coupon discount this ride was booked with. The server does not keep it
-  // for most services (see riderPayable), so the booking screen stores it on the
-  // device and every poll reads it before showing or charging an amount.
-  late final Future<num> _coupon;
-  num _couponDiscount = 0;
-  // Completion moves money exactly once. Polls overlap whenever a request takes
-  // longer than the 3s interval, and the wallet endpoint is not idempotent, so a
-  // second in-flight poll that also saw 'completed' would debit the rider twice.
+  // The app moves no money at completion: the server debits a wallet ride
+  // itself, and an online ride is paid by the rider from the payment panel
+  // (_payOnline) against the server's own amountDue. Closing the ride (bill,
+  // rating) still runs exactly once.
   bool _finishing = false;
+  // A Razorpay checkout is open for this ride.
+  bool _paying = false;
+  // The last online payment attempt did not go through: the panel says so and
+  // keeps its "Pay" button for a retry.
+  String? _payError;
+  // What the last payment attempt told the rider (a refund, say), repeated
+  // after the ride closes so it is not lost with the screen's snack bars.
+  String? _payNotice;
+
+  // Polls skip while the previous one is still out, so a slow network cannot
+  // pile requests up behind each other.
+  bool _pollInFlight = false;
+  bool _locInFlight = false;
+
+  // The driver's extension request already put in front of the rider, so the
+  // 3s poll does not open the sheet again.
+  String? _extensionAsked;
 
   // Tolls already on screen, so each one the driver adds is announced once.
   // Null until the first answer, so tolls entered before this screen opened are
@@ -178,7 +196,6 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
         });
       },
     );
-    _coupon = RideCouponStore.load(widget.rideId);
     WidgetsBinding.instance.addObserver(this);
     _poll();
     _loadTypeImages();
@@ -218,17 +235,36 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
     _statusPoll?.cancel(); _locPoll?.cancel(); _etaPoll?.cancel(); _vehicle.dispose(); _sheet.dispose(); super.dispose();
   }
 
+  /// An online ride the driver has ended, not yet paid: it stays on this
+  /// screen, on the payment panel, until it is paid online or the driver marks
+  /// the cash collected.
+  /// (An outstation trip booked online was paid in full at booking.)
+  static bool _awaitingOnlinePayment(Map<String, dynamic> r) =>
+      (r['status'] ?? '') == 'completed' &&
+      (r['service'] ?? '') != 'outstation' &&
+      (r['paymentMode'] ?? '') == 'online' &&
+      (r['paymentStatus'] ?? '') != 'paid';
+
   Future<void> _poll() async {
+    if (_pollInFlight) return;
+    _pollInFlight = true;
+    try {
+      await _pollOnce();
+    } finally {
+      _pollInFlight = false;
+    }
+  }
+
+  Future<void> _pollOnce() async {
     _loadTypeImages(); // no-op once loaded; retried at most once a minute
     try {
       final r = await ApiService.getRide(widget.rideId);
-      // Read before any amount is shown or charged. Already resolved after the
-      // first poll, so this costs nothing from then on.
-      final discount = await _coupon;
       if (!mounted || _finishing || _closing || _noDriver) return;
+      // Not this rider's ride any more, or signed out: nothing to show.
+      if (r['error'] != null && r['status'] == null) return;
       final status = (r['status'] ?? '').toString();
-      if (status == 'completed') {
-        await _finish(Map<String, dynamic>.from(r), discount);
+      if (status == 'completed' && !_awaitingOnlinePayment(r)) {
+        await _finish(Map<String, dynamic>.from(r));
         return;
       }
       if (status == 'cancelled') {
@@ -242,45 +278,20 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
 
       // Prefer the server's computed phase. The local fallback keeps this screen
       // working against a backend that predates uiPhase.
-      final phase = (r['uiPhase'] ?? _localPhase(r)).toString();
+      final phase = _awaitingOnlinePayment(r) ? 'payment' : (r['uiPhase'] ?? _localPhase(r)).toString();
       final phaseChanged = phase != _phase;
       final target = _targetFor(r, phase);
       final targetChanged = target != _target;
 
-      // Driver requested payment. This screen showed "Payment due" with no way to
-      // pay, so an online ride tracked here could never finish. Uses the same
-      // shared prompt as every booking screen, which guards against stacking a
-      // dialog on each 3s poll, and shows the amount this screen will charge.
-      if (r['awaitingPayment'] == true && status != 'completed') {
-        final toll = tollTotalOf(r);
-        if (r['service'] == 'outstation') {
-          final rupee = String.fromCharCode(0x20B9);
-          final mode = '${r['paymentMode'] ?? 'cash'}';
-          final byCash = mode == 'cash' || mode == 'cod';
-          // Online and wallet fares are paid in full at booking: nothing is
-          // charged here, and saying "please pay ₹5400" would be untrue. What
-          // is owed is any toll, to the driver in hand. A cash fare is owed with
-          // the tolls, in cash — the same as the sheet says.
-          final due = riderPayable(r, couponDiscount: discount) + toll;
-          promptOnlinePayment(context, widget.rideId, Map<String, dynamic>.from(r),
-              title: 'Trip complete',
-              message: byCash
-                  ? 'Please pay your driver $rupee${due.round()} in cash${toll > 0 ? ' — fare plus $rupee${toll.round()} tolls' : ''}.'
-                  : toll > 0
-                      ? 'Your fare was paid when you booked. Please pay your driver $rupee${toll.round()} for tolls.'
-                      : 'Your fare was paid when you booked. Nothing more to pay.',
-              action: 'Done');
-        } else {
-          promptOnlinePayment(context, widget.rideId, Map<String, dynamic>.from(r),
-              amount: riderPayable(r, couponDiscount: discount));
-        }
-      }
+      // Payment due (the driver asked for it, or ended an online ride): the
+      // payment panel below shows the server's amountDue, and for an online
+      // ride a "Pay" button. No dialog and no charge from here: the old prompt
+      // completed the ride itself before any money had moved.
 
       _announceNewTolls(r);
 
       setState(() {
         _ride = Map<String, dynamic>.from(r);
-        _couponDiscount = discount;
         _phase = phase;
         _phaseLabel = (r['uiPhaseLabel'] ?? '').toString();
         _phaseOverrun = r['uiPhaseOverrun'] == true;
@@ -313,7 +324,147 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       // again to trigger a retry. _collapsedFor keeps it idempotent, so a sheet
       // the rider has dragged open stays open.
       _applySheetForPhase(phase);
+      _maybeAskExtension(Map<String, dynamic>.from(r));
     } catch (_) {}
+  }
+
+  static String _extensionKey(Map<String, dynamic> p) =>
+      '${p['requestedAt'] ?? ''}|${p['hours']}|${p['amount']}';
+
+  /// Puts a new extension request in front of the rider once. The same request
+  /// stays answerable from the card in the sheet if this is dismissed.
+  void _maybeAskExtension(Map<String, dynamic> r) {
+    final p = pendingExtensionOf(r);
+    if (p == null || !mounted) return;
+    final key = _extensionKey(p);
+    if (_extensionAsked == key) return;
+    _extensionAsked = key;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _sheetHandle(),
+          _extensionCard(r, p, inSheet: true),
+        ]),
+      ),
+    );
+  }
+
+  bool _answeringExtension = false;
+
+  /// Confirms or declines the driver's request. Closes the sheet it came from.
+  Future<void> _answerExtension(Map<String, dynamic> r, {required bool confirm, BuildContext? sheet}) async {
+    if (_answeringExtension) return;
+    _answeringExtension = true;
+    final messenger = ScaffoldMessenger.of(context);
+    Map<String, dynamic> res;
+    try {
+      res = await ApiService.answerExtension(widget.rideId, (r['service'] ?? '').toString(), confirm: confirm);
+    } catch (_) {
+      res = const {'error': 'Could not reach Gora. Check your connection.'};
+    } finally {
+      _answeringExtension = false;
+    }
+    if (sheet != null && sheet.mounted) Navigator.of(sheet).pop();
+    if (!mounted) return;
+    final String text;
+    if (res['code'] == 'NO_PENDING_EXTENSION') {
+      text = 'That request is no longer open — it expired or was already answered.';
+    } else if (res['error'] != null) {
+      text = 'Could not ${confirm ? 'confirm' : 'decline'}: ${res['error']}';
+    } else {
+      text = confirm ? 'Extension confirmed.' : 'Extension declined.';
+    }
+    messenger.showSnackBar(SnackBar(content: Text(text)));
+    _poll();
+  }
+
+  /// "Driver asked to extend by N h for ₹X" with Confirm / Decline. The rider
+  /// cannot start, end or extend a trip themselves; they answer the driver.
+  Widget _extensionCard(Map<String, dynamic> r, Map<String, dynamic> p, {bool inSheet = false}) {
+    final hours = p['hours'] as num;
+    final amount = p['amount'] is num ? p['amount'] as num : 0;
+    final addKm = p['addKm'] is num ? p['addKm'] as num : 0;
+    final h = hours == hours.roundToDouble() ? hours.toInt().toString() : hours.toString();
+    return Builder(builder: (ctx) => Container(
+      key: const ValueKey('extension-card'),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.primaryBlue.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.primaryBlue.withValues(alpha: 0.25)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text('Driver asked to extend by $h h for ${String.fromCharCode(0x20B9)}${amount.round()}',
+            style: RideUi.body(ctx, size: 14.5, weight: FontWeight.w800)),
+        if (addKm > 0) ...[
+          const SizedBox(height: 3),
+          Text('Includes ${addKm.round()} km more', style: RideUi.caption(ctx, size: 12.5)),
+        ],
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(child: OutlinedButton(
+            onPressed: () => _answerExtension(r, confirm: false, sheet: inSheet ? ctx : null),
+            child: const Text('Decline'),
+          )),
+          const SizedBox(width: 10),
+          Expanded(child: ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue, foregroundColor: Colors.white),
+            onPressed: () => _answerExtension(r, confirm: true, sheet: inSheet ? ctx : null),
+            child: const Text('Confirm'),
+          )),
+        ]),
+      ]),
+    ));
+  }
+
+  /// Pays an online ride: a Razorpay order for THIS ride (the server charges
+  /// its own amountDue), checkout, then verify with the ride id. Never ends
+  /// the ride — the driver does. A failed or cancelled payment leaves the
+  /// "Pay" button in place to try again.
+  Future<void> _payOnline(Map<String, dynamic> r) async {
+    if (_paying) return;
+    final due = rideAmountDue(r);
+    if (due <= 0) { _poll(); return; }
+    setState(() { _paying = true; _payError = null; });
+    Map<String, dynamic>? user;
+    try { user = context.read<UserProvider>().user; } catch (_) {}
+    final res = await PaymentService.payRide(
+      rideId: widget.rideId,
+      amountDue: due,
+      contact: user?['phone']?.toString(),
+      email: user?['email']?.toString(),
+    );
+    if (!mounted) return;
+    final rupee = String.fromCharCode(0x20B9);
+    String? err;
+    String? ok;
+    if (res.paid || res.code == 'alreadyProcessed' && res.success) {
+      ok = 'Payment received. Thank you!';
+    } else if (res.success && res.paymentStatus == 'pending') {
+      ok = 'Payment received. Your ride will close when the driver ends the trip.';
+    } else if (res.code == 'amountShort') {
+      err = res.error ?? 'The payment did not cover $rupee${(res.amountDue ?? due).round()}. '
+          '$rupee${res.refundedToWallet.round()} was added to your Gora wallet; please pay again.';
+    } else if (res.code == 'notAwaitingPayment') {
+      ok = res.error ?? 'This ride is no longer waiting for an online payment.'
+          '${res.refundedToWallet > 0 ? ' $rupee${res.refundedToWallet.round()} was added to your Gora wallet.' : ''}';
+    } else {
+      err = res.cancelled
+          ? 'Payment not completed. Tap "Pay" to try again.'
+          : (res.error ?? 'Payment failed. Tap "Pay" to try again.');
+    }
+    setState(() { _paying = false; _payError = err; });
+    if (res.refundedToWallet > 0) _payNotice = err ?? ok;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(err ?? ok ?? ''),
+      backgroundColor: err != null ? Colors.red : null,
+      duration: const Duration(seconds: 6),
+    ));
+    _poll();
   }
 
   /// Tells the rider about each toll the driver adds, with a way to report it —
@@ -344,8 +495,13 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
     ));
   }
 
-  /// Settle a completed ride: charge, show the bill, then rating. Runs once.
-  Future<void> _finish(Map<String, dynamic> r, num discount) async {
+  /// Close a completed, settled ride: show the bill, then rating. Runs once.
+  ///
+  /// Charges nothing: the server settled the ride when the driver ended it — a
+  /// wallet ride is debited there (or switched to cash when the wallet was
+  /// short), and an online ride only reaches here once it is paid. What the
+  /// server did is shown on the rating screen.
+  Future<void> _finish(Map<String, dynamic> r) async {
     // Set before the first await, so no other poll can get past the check in
     // _poll — Dart runs this synchronously up to that point.
     if (_finishing) return;
@@ -353,17 +509,13 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
     _statusPoll?.cancel(); _locPoll?.cancel(); _etaPoll?.cancel();
     // A "driver added a toll" alert still up, or queued, is news about a trip
     // that is over; the bill lists every toll.
-    ScaffoldMessenger.of(context).clearSnackBars();
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    final notice = _payNotice;
+    if (notice != null) messenger.showSnackBar(SnackBar(content: Text(notice), duration: const Duration(seconds: 6)));
 
     final svc = (r['service'] ?? '').toString();
-    final amount = riderPayable(r, couponDiscount: discount);
-    // Outstation is charged at booking, so there is nothing to take here.
-    if (svc != 'outstation') {
-      var method = (r['paymentMode'] ?? 'cash').toString();
-      if (method == 'cod') method = 'cash';
-      await PaymentService.charge(context, method: method, amount: amount, rideId: widget.rideId);
-      if (!mounted) return;
-    }
+    final amount = rideAmountDue(r);
 
     // Each service closes the way its booking screen always did.
     if (svc == 'delivery') {
@@ -374,10 +526,9 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       )));
       if (!mounted) return;
     } else if (hasItemisedBill(svc)) {
-      await showRideBill(context, r, couponDiscount: discount);
+      await showRideBill(context, r);
       if (!mounted) return;
     }
-    RideCouponStore.clear(widget.rideId);
 
     final dr = r['driver'] as Map<String, dynamic>?;
     Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => RatingScreen(
@@ -388,6 +539,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       driverPhotoUrl: (dr?['profilePicUrl'] ?? '').toString().isNotEmpty
           ? AppConfig.imageUrl((dr?['profilePicUrl'] ?? '').toString())
           : '',
+      paymentNote: paymentOutcome(r),
     )));
   }
 
@@ -469,12 +621,18 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
 
   // Position only — no billed calls, safe to run often.
   Future<void> _loc() async {
+    if (_locInFlight) return;
+    // No driver to place before one accepts; the server answers null then too.
+    final st = (_ride?['status'] ?? '').toString();
+    if (_ride == null || !(st == 'accepted' || st == 'arrived' || st == 'ongoing')) return;
+    _locInFlight = true;
     try {
       final res = await ApiService.getDriverLocation(widget.rideId);
-      final d = res['driver'] as Map<String, dynamic>?;
-      if (d == null || d['lat'] == null || _ride == null) return;
-      final la = (d['lat'] as num).toDouble(), ln = (d['lng'] as num).toDouble();
-      if (!mounted) return;
+      // Null outside accepted / arrived / ongoing, and on any error answer.
+      final d = res['driver'];
+      if (d is! Map || _ride == null) return;
+      final la = ApiService.toDoubleOrNull(d['lat']), ln = ApiService.toDoubleOrNull(d['lng']);
+      if (la == null || ln == null || !mounted) return;
       final firstFix = _driverLatLng == null;
       _vehicle.moveTo(LatLng(la, ln), heading: (d['heading'] as num?)?.toDouble());
       // Resolve the sprite for the vehicle actually assigned to this ride.
@@ -491,7 +649,10 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       // Once per 5s fix, not per animation frame: re-fitting while the vehicle
       // glides between fixes would make the whole map swim.
       if (_following) _followCamera();
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _locInFlight = false;
+    }
   }
 
   /// Keeps the driver and where they are heading in frame together.
@@ -616,16 +777,24 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
   /// it and leaving the rider on a black screen.
   bool _closing = false;
 
-  /// The server closed this ride: no driver took it in time. Stop every poll,
-  /// say so plainly, and on "Try again" leave for where the rider booked from —
-  /// the same exit as a cancel. Only reacts to server state; no client timer.
+  /// The server closed this ride: no driver took it in time. Stop every poll
+  /// and say so plainly. "Try again" books the same trip again, with a fresh
+  /// quote, and tracks the new ride here; "Change ride" leaves for where the
+  /// rider came from — the same exit as a cancel. Only reacts to server state;
+  /// no client timer.
   bool _noDriver = false;
   Future<void> _onNoDriverFound() async {
     if (_noDriver || _closing || !mounted) return;
     _noDriver = true;
     _statusPoll?.cancel(); _locPoll?.cancel(); _etaPoll?.cancel();
-    await showNoDriverFoundDialog(context);
+    final rebook = widget.rebook;
+    final choice = await showNoDriverFoundDialog(context, canTryAgain: rebook != null);
     if (!mounted) return;
+    if (choice == NoDriverChoice.tryAgain && rebook != null) {
+      final id = await bookAndTrack(context, book: rebook, freshQuote: true);
+      // Booked: this screen has been replaced by the new ride's.
+      if (id != null || !mounted) return;
+    }
     _close();
   }
 
@@ -713,7 +882,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
 
   /// Lets the rider add up to 3 co-riders to split this ride's fare with.
   /// Each one pays their own share from their own Gora wallet — see
-  /// /rides/{id}/split and riderPayable() for how the primary rider's own
+  /// /rides/{id}/split and the server's settlement for how the primary rider's own
   /// charge shrinks as shares get paid. Once set up it can't be edited from
   /// here (the server refuses once anyone has paid), so this just shows
   /// status when a split already exists.
@@ -1292,6 +1461,24 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
   );
 
+  /// The PIN card once the server has locked the PIN after too many wrong
+  /// entries (otpLocked / dropOtpLocked): reading it out again cannot help.
+  Widget _otpLocked() => Container(
+    key: const ValueKey('otp-locked'),
+    width: double.infinity,
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: Colors.red.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(RideUi.radius),
+      border: Border.all(color: Colors.red.withValues(alpha: 0.3))),
+    child: Row(children: [
+      Icon(Icons.lock_outline, color: Colors.red[700]),
+      const SizedBox(width: 10),
+      Expanded(child: Text('Too many wrong codes — contact support',
+        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800, color: Colors.red[800]))),
+    ]),
+  );
+
   /// Compact PIN row, used while the driver is still travelling.
   ///
   /// [label] lets a parcel say which PIN this is: the pickup PIN before the
@@ -1591,7 +1778,10 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
 
       // Nothing to show but reassurance and a way out.
       case 'finding':
-        final fare = riderPayable(r, couponDiscount: _couponDiscount);
+        // What the server says this ride will cost, after the coupon IT
+        // applied at booking.
+        final fare = rideAmountDue(r);
+        final coupon = svc == 'rental' ? 0 : rideCouponDiscount(r);
         final vt = (r['vehicleType'] ?? '').toString();
         return [
           _handle(),
@@ -1626,6 +1816,15 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
                       style: RideUi.body(context, size: 16, weight: FontWeight.w900)),
               ]),
             ),
+            if (coupon > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 6, left: 4),
+                child: Text(
+                  'Coupon ${(r['couponCode'] ?? '').toString().isNotEmpty ? '${r['couponCode']} ' : ''}applied: '
+                  '${String.fromCharCode(0x20B9)}${coupon.round()} off',
+                  key: const ValueKey('ride-coupon'),
+                  style: TextStyle(fontSize: 12.5, color: Colors.green[700], fontWeight: FontWeight.w700)),
+              ),
           ],
           _cancelButton(),
         ];
@@ -1636,7 +1835,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
           _handle(),
           _title(heading),
           const SizedBox(height: 14),
-          if (otp.isNotEmpty) parcel
+          if (r['otpLocked'] == true) _otpLocked()
+          else if (otp.isNotEmpty) parcel
               ? _otpHero(otp, label: 'GIVE THIS PICKUP PIN TO THE DRIVER')
               : _otpHero(otp),
           const SizedBox(height: 10),
@@ -1687,6 +1887,12 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
           else if (svc == 'hire_driver') HireUsagePanel(ride: r)
           else _progressBar(),
           const SizedBox(height: 14),
+          // The driver asked for more time: answerable here as well as from the
+          // sheet that opened for it.
+          if (pendingExtensionOf(r) case final ext?) ...[
+            _extensionCard(r, ext),
+            const SizedBox(height: 12),
+          ],
           // With no fixed drop, "where next" is the one thing a rental rider
           // actually does during the trip.
           if (svc == 'rental') ...[
@@ -1712,10 +1918,16 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
         final prepaid = svc == 'outstation' && !byCash;
         // Outstation tolls are paid to the driver in hand, in every mode.
         final toll = svc == 'outstation' ? tollTotalOf(r) : 0;
-        final fare = riderPayable(r, couponDiscount: _couponDiscount);
+        // The server's amountDue: what the driver ended the trip at, after the
+        // server's coupon, split shares, waiting charges and any prepayment.
+        final owed = rideAmountDue(r);
+        final num paidUpfront = r['prepaidAmount'] is num && (r['prepaidAmount'] as num) > 0
+            ? r['prepaidAmount'] as num
+            : (r['fare'] is num ? r['fare'] as num : 0);
         // Cash covers the fare and the tolls together; prepaid shows the fare
         // that was already paid.
-        final due = prepaid ? fare : fare + toll;
+        final due = prepaid ? paidUpfront : owed + toll;
+        final rupee = String.fromCharCode(0x20B9);
         return [
           _handle(),
           _title(heading),
@@ -1735,9 +1947,10 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
                   fontWeight: FontWeight.w900, color: RideUi.ink(context))),
             ])),
           const SizedBox(height: 12),
-          // The sheet said "Payment due" and offered no way to pay. The prompt
-          // also opens by itself on the next poll; this is for a rider who
-          // dismissed it with the back button, or is looking at the sheet.
+          // An online ride is paid from here, against the server's amountDue,
+          // and only here: a failed or cancelled payment keeps this button for
+          // a retry. The driver can also take cash instead, which the next poll
+          // picks up. Cash and prepaid rides have nothing to pay in the app.
           if (prepaid)
             _hint(toll > 0
                 ? 'Fare paid when you booked. Please pay ${String.fromCharCode(0x20B9)}${toll.round()} for tolls to your driver.'
@@ -1746,13 +1959,23 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
             _hint(toll > 0
                 ? 'Please pay ${String.fromCharCode(0x20B9)}${due.round()} to your driver in cash — fare plus ${String.fromCharCode(0x20B9)}${toll.round()} tolls.'
                 : 'Please pay ${String.fromCharCode(0x20B9)}${due.round()} to your driver in cash.')
-          else
+          else if (mode == 'wallet')
+            _hint('Gora takes this from your wallet when the trip ends.')
+          else if (owed > 0) ...[
+            if (_payError != null) ...[
+              Text(_payError!, key: const ValueKey('pay-error'), textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12.5, color: Colors.red[700], fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+            ],
             PrimaryRideButton(
-              onPressed: () => promptOnlinePayment(
-                  context, widget.rideId, Map<String, dynamic>.from(r), amount: due),
+              onPressed: _paying ? null : () => _payOnline(r),
               icon: Icons.lock_outline,
-              label: 'Pay ${String.fromCharCode(0x20B9)}${due.round()}',
+              label: _paying ? 'Processing payment…' : 'Pay $rupee${owed.round()}',
             ),
+            const SizedBox(height: 6),
+            _hint('You can also pay your driver in cash; they will mark it collected.'),
+          ] else
+            _hint('Nothing more to pay.'),
           const SizedBox(height: 14),
           if (svc == 'outstation') ...[
             OutstationTollPanel(ride: r, rideId: widget.rideId, onReported: _poll),
@@ -1773,7 +1996,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
           else
             _title(heading, trailing: _etaTrailing(), subtitle: 'Meet at the pickup point'),
           const SizedBox(height: 14),
-          if (otp.isNotEmpty) parcel
+          if (r['otpLocked'] == true) _otpLocked()
+          else if (otp.isNotEmpty) parcel
               ? _otpRow(otp, label: 'Pickup PIN — give it to the driver when they collect')
               : _otpRow(otp),
           const SizedBox(height: 12),
@@ -1859,6 +2083,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
         const SizedBox(height: 12),
       ];
     }
+    if (r['dropOtpLocked'] == true) return [_otpLocked(), const SizedBox(height: 12)];
     final dropOtp = (r['dropOtp'] ?? '').toString();
     if (dropOtp.isEmpty) return const [];
     return [
@@ -1902,4 +2127,20 @@ CameraUpdate? frameRoute(List<LatLng> pts, {double padding = 56}) {
     return CameraUpdate.newLatLngZoom(pts.last, kFrameCloseZoom);
   }
   return CameraUpdate.newLatLngBounds(b, padding);
+}
+
+/// The driver's live extension request on a rental or a hire, or null.
+/// GET /rides/{id} returns the stored request as it is, so one past its
+/// `expiresAt` is ignored here as the server ignores it.
+Map<String, dynamic>? pendingExtensionOf(Map<String, dynamic> r, {DateTime? now}) {
+  final p = r['pendingExtension'];
+  if (p is! Map) return null;
+  if ((r['status'] ?? '') != 'ongoing') return null;
+  final svc = (r['service'] ?? '').toString();
+  if (svc != 'rental' && svc != 'hire_driver') return null;
+  final exp = DateTime.tryParse('${p['expiresAt'] ?? ''}');
+  if (exp != null && exp.isBefore(now ?? DateTime.now())) return null;
+  final hours = p['hours'];
+  if (hours is! num || hours <= 0) return null;
+  return Map<String, dynamic>.from(p);
 }

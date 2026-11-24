@@ -75,6 +75,15 @@ class _RideChatScreenState extends State<RideChatScreen> {
       final res = await ApiService.sendRideMessage(widget.rideId, t);
       final list = ((res['messages'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
       if (mounted && list.isNotEmpty) setState(() => _messages = list);
+      if (mounted && res['error'] != null) {
+        // Not sent: take the optimistic bubble back and say why. Chat is open
+        // only while the ride is live (409 CHAT_CLOSED otherwise).
+        setState(() => _messages = _messages.where((m) => !(m['createdAt'] == '' && m['text'] == t)).toList());
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
+          res['code'] == 'CHAT_CLOSED'
+              ? 'Chat is closed — it is open only while your ride is live.'
+              : 'Message not sent: ${res['error']}')));
+      }
     } catch (_) {}
     if (mounted) setState(() => _sending = false);
   }

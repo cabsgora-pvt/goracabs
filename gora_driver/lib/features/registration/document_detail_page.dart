@@ -126,12 +126,20 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
   void dispose() { _number.dispose(); super.dispose(); }
 
   Future<void> _pick(bool front) async {
-    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 70);
+    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 70,
+        maxWidth: DriverApiService.maxImageSide, maxHeight: DriverApiService.maxImageSide);
     if (file == null) return;
     setState(() => front ? _frontBusy = true : _backBusy = true);
     try {
       final url = await DriverApiService.uploadFile(file);
-      if (mounted) setState(() => front ? _frontUrl = url : _backUrl = url);
+      if (!mounted) return;
+      if (url == null) {
+        // Keep the photo that was there; say why this one did not go up.
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(DriverApiService.lastUploadError ?? 'Upload failed'), backgroundColor: AppColors.red));
+      } else {
+        setState(() => front ? _frontUrl = url : _backUrl = url);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e'), backgroundColor: AppColors.red));

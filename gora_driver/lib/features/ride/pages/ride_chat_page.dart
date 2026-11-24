@@ -72,6 +72,14 @@ class _RideChatPageState extends State<RideChatPage> {
     _scrollToEnd();
     try {
       final res = await DriverApiService.sendRideMessage(widget.rideId, t);
+      if (res['error'] != null && mounted) {
+        // Not sent: take the optimistic bubble back off and say why.
+        setState(() => _messages = _messages.where((m) => !(m['createdAt'] == '' && m['text'] == t)).toList());
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(res['code'] == 'CHAT_CLOSED' ? 'Chat is closed for this trip.' : res['error'].toString()),
+          backgroundColor: AppColors.red,
+        ));
+      }
       final list = ((res['messages'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
       if (mounted && list.isNotEmpty) setState(() => _messages = list);
     } catch (_) {}

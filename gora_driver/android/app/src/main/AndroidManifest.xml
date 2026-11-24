@@ -14,8 +14,11 @@
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
     <!-- Keep receiving ride requests while the app is minimized (foreground service) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- The online service is a "location" foreground service: it sends the
+         driver's position while the app is in the background. (It used to be
+         dataSync, which Android 15 caps at 6 h a day and which gave no real
+         background location.) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -23,7 +26,7 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application
-        android:label="gora_driver"
+        android:label="Gora Captain"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -56,10 +59,12 @@
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="AIzaSyC6B8ARqVLWPF04slIHciG3o9eA_gPexIE"/>
-        <!-- Foreground service that keeps polling for ride requests while minimized -->
+        <!-- Foreground service that keeps polling for ride requests and sends the
+             driver's location while minimized. Started only with a location
+             grant (RideAlertService.start). -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
-            android:foregroundServiceType="dataSync"
+            android:foregroundServiceType="location"
             android:exported="false" />
     </application>
     <!-- Required to query activities that can process text, see:

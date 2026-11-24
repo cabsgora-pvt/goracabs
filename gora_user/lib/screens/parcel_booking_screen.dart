@@ -38,7 +38,6 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   bool _cod = false;
   String _paymentMode = 'cash';
   String _couponCode = '';
-  int _couponDiscount = 0;
   DateTime? _scheduledAt;   // null = deliver now
   final _itemValue = TextEditingController();
   // What exactly is inside ("laptop charger", "house keys"). Sent with the
@@ -121,8 +120,11 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     final d = await ApiService.placeDetails(s['placeId'] as String? ?? '');
     if (d == null || !mounted) return;
     setState(() {
-      if (pickup) { _pLat = (d['lat'] as num).toDouble(); _pLng = (d['lng'] as num).toDouble(); _pickupCtrl.text = d['address'] ?? ''; _pickSug = []; }
-      else { _dLat = (d['lat'] as num).toDouble(); _dLng = (d['lng'] as num).toDouble(); _dropCtrl.text = d['address'] ?? ''; _dropSug = []; }
+      // placeDetails returns numeric lat/lng or null, never an error map.
+      final lat = ApiService.toDoubleOrNull(d['lat']), lng = ApiService.toDoubleOrNull(d['lng']);
+      if (lat == null || lng == null) return;
+      if (pickup) { _pLat = lat; _pLng = lng; _pickupCtrl.text = '${d['address'] ?? ''}'; _pickSug = []; }
+      else { _dLat = lat; _dLng = lng; _dropCtrl.text = '${d['address'] ?? ''}'; _dropSug = []; }
     });
     _loadFares();
   }
@@ -133,11 +135,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     if (_pLat == null || !mounted) return;
     setState(() { _loading = true; _error = null; });
     try {
-      final res = await ApiService.estimateFare(
-        pickupLat: _pLat!, pickupLng: _pLng!, dropLat: _dLat, dropLng: _dLng, service: 'delivery',
-        // Ola / Rapido style: no weight selection and no per-kg charge — the
-        // parcel limits line covers weight, so the server's perKg term adds 0.
-        weightKg: 0);
+      final res = await ApiService.post('/fare/estimate', _estimateBody());
       if (!mounted) return;
       if (res['available'] != true || res['vehicles'] is! List) { setState(() { _loading = false; _error = (res['message'] ?? 'Delivery not available here').toString(); }); return; }
       setState(() {
@@ -148,19 +146,39 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     } catch (_) { if (mounted) setState(() { _loading = false; _error = 'Failed to load'; }); }
   }
 
+  /// Ola / Rapido style: no weight selection and no per-kg charge — the parcel
+  /// limits line covers weight, so the server's perKg term adds 0. Estimate
+  /// and booking send the same weight (the quote is signed over it).
+  static const double _weightKg = 0;
+
+  /// What /fare/estimate is asked: the same drop, weight and (no) stops the
+  /// parcel is booked with, so the signed quote matches the booking.
+  Map<String, dynamic> _estimateBody() => {
+        'pickupLat': _pLat, 'pickupLng': _pLng,
+        'dropLat': _dLat ?? _pLat, 'dropLng': _dLng ?? _pLng,
+        'service': 'delivery', 'weightKg': _weightKg,
+        'totalHours': 0, 'tripType': 'one_way',
+      };
+
   /// Books the parcel and returns the server's answer; [bookAndTrack] reports a
   /// failure and opens the live ride screen on success.
-  Future<Map<String, dynamic>> _book() async {
+  Future<Map<String, dynamic>> _book(String clientRequestId, bool freshQuote) async {
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
+    if (freshQuote) {
+      final q = await freshQuoteFor(_estimateBody(), _selectedVehicle);
+      if (q != null) v.addAll(q);
+    }
     final num fare = (v['fare'] as num?) ?? 0;
     return ApiService.bookRide({
+        'clientRequestId': clientRequestId,
         'pickupAddress': _pickupCtrl.text, 'dropAddress': _dropCtrl.text,
         'pickupLat': _pLat, 'pickupLng': _pLng, 'dropLat': _dLat ?? _pLat, 'dropLng': _dLng ?? _pLng,
-        'service': 'delivery', 'vehicleType': _selectedVehicle, 'fare': (fare - _couponDiscount).clamp(0, fare),
+        // The quoted fare in full; the server applies the coupon.
+        'service': 'delivery', 'vehicleType': _selectedVehicle, 'fare': fare,
         'quoteToken': v['quoteToken'],
         'senderName': _senderName.text, 'senderPhone': _senderPhone.text,
         'receiverName': _receiverName.text, 'receiverPhone': _receiverPhone.text,
-        'itemType': _itemLabel, 'weightKg': 0,
+        'itemType': _itemLabel, 'weightKg': _weightKg,
         'packageSize': _packageSize, 'isFragile': _isFragile,
         'itemValue': double.tryParse(_itemValue.text) ?? 0,
         'codAmount': _cod ? (double.tryParse(_codAmount.text) ?? 0) : 0,
@@ -172,19 +190,16 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         // that was never booked. With COD on, the fare has always been charged
         // as cash; the booking now says the same thing.
         'paymentMode': _cod ? 'cash' : _paymentMode,
-        'couponCode': _couponCode,
-        'couponDiscount': _couponDiscount,
+        if (_couponCode.isNotEmpty) 'couponCode': _couponCode,
       });
   }
 
   /// Book once, from the button — never from a sheet builder — then track the
-  /// parcel on the live ride screen. The coupon is stored with the ride: the
-  /// server keeps a parcel's full quoted fare, so the discount is applied when
-  /// the ride is charged.
+  /// parcel on the live ride screen. The server validates the coupon and keeps
+  /// its discount on the ride.
   Future<void> _confirmParcel() => bookAndTrack(
     context,
     book: _book,
-    couponDiscount: _couponDiscount,
   );
 
   /// A parcel the rider sent opens on the live ride screen, like any ride.
@@ -313,14 +328,22 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
                 style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800,
                   color: returned ? Colors.orange[800] : (delivered ? Colors.green : AppTheme.primaryBlue)))),
             const Spacer(),
-            Text('₹${p['totalFare'] ?? p['fare'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
+            // A receiver is not sent the fare (the sender's business), only any
+            // cash to hand over on delivery.
+            if (!incoming)
+              Text('₹${p['totalFare'] ?? p['fare'] ?? 0}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue))
+            else if (p['codAmount'] is num && (p['codAmount'] as num) > 0)
+              Text('Pay ₹${p['codAmount']} on delivery', style: const TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryBlue)),
           ]),
           const SizedBox(height: 8),
           Text(incoming ? 'From ${p['senderName'] ?? 'Sender'} · ${p['itemType'] ?? 'Parcel'}' : '${p['itemType'] ?? 'Parcel'} → ${p['receiverName'] ?? ''}', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
           Text('${p['pickupAddress'] ?? ''} → ${p['dropAddress'] ?? ''}', style: TextStyle(fontSize: 11, color: Colors.grey[600]), maxLines: 2, overflow: TextOverflow.ellipsis),
           if (p['driverName'] != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text('Driver: ${p['driverName']}', style: const TextStyle(fontSize: 11, color: Colors.grey))),
+          if (incoming && !done && p['dropOtpLocked'] == true)
+            Padding(padding: const EdgeInsets.only(top: 8),
+              child: Text('Too many wrong codes — contact support', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.red[700]))),
           // Receiver's delivery OTP — show it so they can hand it to the driver
-          if (incoming && !done && (p['dropOtp'] ?? '').toString().isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8),
+          if (incoming && !done && p['dropOtpLocked'] != true && (p['dropOtp'] ?? '').toString().isNotEmpty) Padding(padding: const EdgeInsets.only(top: 8),
             child: Container(padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(color: const Color(0xFF0A3CC8).withOpacity(0.06), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFF0A3CC8).withOpacity(0.3))),
               child: Row(children: [const Icon(Icons.lock_outline, size: 18, color: Color(0xFF0A3CC8)), const SizedBox(width: 8),
@@ -560,7 +583,8 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         PrimaryCtaBar(
           top: PaymentCouponBar(
             baseFare: (selFare as num?) ?? 0,
-            onChanged: (pm, cc, cd) => setState(() { _paymentMode = pm; _couponCode = cc; _couponDiscount = cd; }),
+            // The discount shown is a preview: the server decides it at booking.
+            onChanged: (pm, cc, _) => setState(() { _paymentMode = pm; _couponCode = cc; }),
           ),
           label: cta,
           onPressed: _formValid ? _showConfirm : null,

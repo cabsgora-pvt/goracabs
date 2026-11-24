@@ -78,12 +78,22 @@ class DriverPaymentService {
     final rzp = Razorpay();
 
     rzp.on(Razorpay.EVENT_PAYMENT_SUCCESS, (PaymentSuccessResponse r) async {
-      final res = await DriverApiService.buySubscription(
-        planId,
-        orderId: r.orderId ?? order['orderId'].toString(),
-        paymentId: r.paymentId ?? '',
-        signature: r.signature ?? '',
-      );
+      Map<String, dynamic> res;
+      try {
+        // The order came from /subscription/order, which stamps it for this
+        // driver and plan — the only kind of order /subscription/buy accepts
+        // (a generic /payment/razorpay/order is refused).
+        res = await DriverApiService.buySubscription(
+          planId,
+          orderId: r.orderId ?? order['orderId'].toString(),
+          paymentId: r.paymentId ?? '',
+          signature: r.signature ?? '',
+        );
+      } catch (_) {
+        res = {'error': 'Payment received but not confirmed yet. Pull down to refresh in a moment.'};
+      }
+      // Already activated by this same payment: a success.
+      if (res['alreadyApplied'] == true) res = {...res, 'success': true};
       rzp.clear();
       if (!completer.isCompleted) completer.complete(res);
     });

@@ -18,6 +18,8 @@ import 'package:customer_app/theme/app_theme.dart';
 import 'package:customer_app/utils/ride_booking.dart';
 import 'package:customer_app/utils/vehicle_marker.dart';
 import 'package:customer_app/widgets/finding_driver_view.dart';
+import 'package:customer_app/services/api_service.dart';
+import 'package:customer_app/services/session_guard.dart';
 
 // Account hold (profile.user.hold, 403 {accountHold} on /rides/book) and the
 // sign-out after an approved deletion (401 {accountDeleted} on the profile).
@@ -68,7 +70,7 @@ Widget _app(Widget home, {UserProvider? user}) => MultiProvider(
     ChangeNotifierProvider(create: (_) => user ?? UserProvider()),
     ChangeNotifierProvider(create: (_) => ThemeProvider()),
   ],
-  child: MaterialApp(theme: AppTheme.lightTheme, home: home),
+  child: MaterialApp(theme: AppTheme.lightTheme, home: home, navigatorKey: SessionGuard.navigatorKey),
 );
 
 Future<void> wait(WidgetTester tester, int ms) async {
@@ -116,7 +118,7 @@ class _BookButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
     body: Center(child: ElevatedButton(
-      onPressed: () => bookAndTrack(context, book: book, failureMessage: failureMessage),
+      onPressed: () => bookAndTrack(context, book: (_, _) => book(), failureMessage: failureMessage),
       child: const Text('Book'),
     )),
   );
@@ -290,15 +292,39 @@ void main() {
       await _teardown(tester);
     });
 
-    testWidgets('a plain 401 (no accountDeleted) does not sign out', (tester) async {
+    // A token the server no longer accepts: every authenticated call answers a
+    // plain 401. The rider used to stay on home with every poll failing; now
+    // they are signed out once, to the welcome screen, and the token is gone.
+    testWidgets('a plain 401 (expired token) signs out once to the welcome screen', (tester) async {
       profile = {'error': 'Unauthorized'};
       profileStatus = 401;
       await openHome(tester);
-      expect(find.byType(HomeScreen), findsOneWidget);
-      expect(find.byType(WelcomeScreen), findsNothing);
+      expect(find.byType(WelcomeScreen), findsOneWidget);
+      expect(find.byType(HomeScreen), findsNothing);
+      expect(find.text('Your session has expired. Please sign in again.'), findsOneWidget);
+      expect(await ApiService.getToken(), isNull);
       final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('user_token'), 't');
+      expect(prefs.getString('user_token'), isNull);
+      // Later 401s (polls still in flight) do not navigate again.
+      final pushes = SessionGuard.signOuts.value;
+      await act(() async {
+        await ApiService.get('/auth/user/profile');
+        await wait(tester, 300);
+      });
+      expect(SessionGuard.signOuts.value, pushes);
+      expect(find.byType(WelcomeScreen), findsOneWidget);
       await _teardown(tester);
+    });
+
+    testWidgets('a 401 to a request sent without a token does not sign anyone out', (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final before = SessionGuard.signOuts.value;
+      await act(() async {
+        profile = {'error': 'Unauthorized'};
+        profileStatus = 401;
+        await ApiService.get('/auth/user/profile');
+      });
+      expect(SessionGuard.signOuts.value, before);
     });
   });
 

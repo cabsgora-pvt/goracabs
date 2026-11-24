@@ -1,121 +1,76 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:customer_app/utils/ride_payable.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// What a rider is charged at completion.
-//
-// Each case pins the amount a booking screen charged before the live ride screen
-// took over, so moving a service onto that screen cannot quietly change a bill.
-// ─────────────────────────────────────────────────────────────────────────────
-
+// What the rider owes is the SERVER's figure. These pin rideAmountDue: the
+// stored amountDue always wins, and before the server has one the estimate
+// adds up the server's own fields exactly as lib/settlement.ts does —
+// including the multi-stop waiting charges the old phone-side riderPayable
+// left out, and the server's coupon (not one kept on the phone).
 void main() {
-  group('riderPayable', () {
-    test('taxi charges the fare', () {
-      expect(riderPayable({'service': 'taxi', 'fare': 250}), 250);
+  group('rideAmountDue', () {
+    test("the server's amountDue wins over anything the phone could add up", () {
+      expect(rideAmountDue({'service': 'taxi', 'fare': 250, 'tip': 20, 'amountDue': 180}), 180);
+      // 0 is a real answer (prepaid, fully split): not "missing".
+      expect(rideAmountDue({'service': 'outstation', 'fare': 5000, 'amountDue': 0}), 0);
     });
 
-    test('taxi takes the phone-side coupon off', () {
-      expect(riderPayable({'service': 'taxi', 'fare': 250}, couponDiscount: 50), 200);
+    test('waiting charges are included (riderPayable left them out)', () {
+      expect(rideAmountDue({'service': 'taxi', 'fare': 250, 'waitingChargeTotal': 30}), 280);
     });
 
-    test('a coupon bigger than the fare charges nothing, never a negative', () {
-      expect(riderPayable({'service': 'taxi', 'fare': 250}, couponDiscount: 400), 0);
+    test('tip is added, split shares come off the fare only', () {
+      expect(rideAmountDue({'service': 'taxi', 'fare': 300, 'splitCollected': 200, 'tip': 20}), 120);
+      expect(rideAmountDue({'service': 'taxi', 'fare': 300, 'splitCollected': 500}), 0);
     });
 
-    // tip is billed like the server's totalFare (fare + tip); multi-stop
-    // waiting is a separate, still-unbilled gap (see the doc comment).
-    test('tip is added; multi-stop waiting is not', () {
-      final ride = {
-        'service': 'taxi', 'fare': 250, 'tip': 20,
-        'waitingChargeTotal': 30, 'totalFare': 300,
-      };
-      expect(riderPayable(ride), 270);
+    test("the server's couponDiscount comes off, never below zero", () {
+      expect(rideAmountDue({'service': 'taxi', 'fare': 250, 'couponDiscount': 50}), 200);
+      expect(rideAmountDue({'service': 'taxi', 'fare': 250, 'couponDiscount': 400}), 0);
     });
 
-    test('no tip means no change', () {
-      expect(riderPayable({'service': 'taxi', 'fare': 250, 'tip': 0}), 250);
+    test("a rental's coupon is already inside its fare", () {
+      expect(rideAmountDue({'service': 'rental', 'fare': 949, 'finalFare': 949, 'couponDiscount': 50}), 949);
     });
 
-    test('split fare already collected is subtracted, tip is not', () {
-      final ride = {'service': 'taxi', 'fare': 300, 'tip': 20, 'splitCollected': 200};
-      expect(riderPayable(ride), 120); // (300-200) + 20
+    test("each service's own final amount when it has one", () {
+      expect(rideAmountDue({'service': 'rental', 'fare': 999, 'finalFare': 1479}), 1479);
+      expect(rideAmountDue({'service': 'hire_driver', 'fare': 600, 'hireFinalFare': 900}), 900);
+      expect(rideAmountDue({'service': 'delivery', 'fare': 120, 'deliveryFinalFare': 150}), 150);
+      expect(rideAmountDue({'service': 'rental', 'fare': 999, 'finalFare': 0}), 999);
     });
 
-    test('split fare cannot push the charge negative even if it overpays', () {
-      expect(riderPayable({'service': 'taxi', 'fare': 300, 'splitCollected': 500}), 0);
+    test('an outstation trip paid at booking owes only the difference', () {
+      expect(rideAmountDue({'service': 'outstation', 'fare': 5000, 'paymentMode': 'online', 'prepaidAmount': 5000}), 0);
+      expect(rideAmountDue({'service': 'outstation', 'fare': 5000, 'paymentMode': 'cash', 'prepaidAmount': 0}), 5000);
     });
 
-    test('rental charges finalFare, extras included', () {
-      expect(riderPayable({'service': 'rental', 'fare': 999, 'finalFare': 1479}), 1479);
-    });
-
-    // The server already took a rental coupon off `fare` at booking.
-    test('rental ignores the coupon, so it is not taken off twice', () {
-      expect(
-        riderPayable({'service': 'rental', 'fare': 949, 'finalFare': 949}, couponDiscount: 50),
-        949,
-      );
-    });
-
-    // Mongoose defaults finalFare to 0; a rental force-completed before 'end'
-    // must not be charged nothing.
-    test('rental with no final amount falls back to the fare, like the server', () {
-      expect(riderPayable({'service': 'rental', 'fare': 999, 'finalFare': 0}), 999);
-    });
-
-    test('hire charges overtime and takes the coupon off', () {
-      final ride = {'service': 'hire_driver', 'fare': 600, 'hireFinalFare': 900};
-      expect(riderPayable(ride, couponDiscount: 100), 800);
-    });
-
-    test('hire before a final amount exists charges the booked fare', () {
-      expect(riderPayable({'service': 'hire_driver', 'fare': 600}), 600);
-    });
-
-    test('delivery charges deliveryFinalFare less the coupon', () {
-      final ride = {'service': 'delivery', 'fare': 120, 'deliveryFinalFare': 120};
-      expect(riderPayable(ride, couponDiscount: 20), 100);
-    });
-
-    test('outstation matches what its booking screen charged', () {
-      expect(riderPayable({'service': 'outstation', 'fare': 5000}, couponDiscount: 500), 4500);
-    });
-
-    test('numbers that arrive as strings still count', () {
-      expect(riderPayable({'service': 'hire_driver', 'fare': '600', 'hireFinalFare': '900'}), 900);
-    });
-
-    test('a ride with no amounts at all charges nothing', () {
-      expect(riderPayable({}), 0);
+    test('tolerates strings and missing fields', () {
+      expect(rideAmountDue({'service': 'hire_driver', 'fare': '600', 'hireFinalFare': '900'}), 900);
+      expect(rideAmountDue({}), 0);
     });
   });
 
-  group('RideCouponStore', () {
-    setUp(() => SharedPreferences.setMockInitialValues({}));
-
-    test('round-trips a discount per ride', () async {
-      await RideCouponStore.save('r1', 75);
-      await RideCouponStore.save('r2', 20);
-      expect(await RideCouponStore.load('r1'), 75);
-      expect(await RideCouponStore.load('r2'), 20);
+  group('paymentOutcome', () {
+    test('a wallet ride the server debited', () {
+      expect(paymentOutcome({'paymentMode': 'wallet', 'riderWalletDebit': 240, 'paymentStatus': 'paid', 'amountDue': 240}),
+          'Paid ₹240 from your Gora wallet.');
     });
 
-    test('an unknown ride has no discount', () async {
-      expect(await RideCouponStore.load('nope'), 0);
+    test('a wallet ride switched to cash because the wallet was short', () {
+      final r = {'paymentMode': 'cash', 'paymentSwitchedToCash': true, 'amountDue': 240, 'paymentStatus': 'paid'};
+      expect(paymentOutcome(r), contains('Please pay ₹240 to your driver'));
+      expect(paymentOutcome(r), contains('wallet balance was too low'));
     });
 
-    test('a zero discount is not stored', () async {
-      await RideCouponStore.save('r1', 0);
-      final p = await SharedPreferences.getInstance();
-      expect(p.getKeys(), isEmpty);
+    test('an online ride paid, and a cash ride', () {
+      expect(paymentOutcome({'paymentMode': 'online', 'paymentStatus': 'paid', 'amountDue': 300}), 'Paid ₹300 online.');
+      expect(paymentOutcome({'paymentMode': 'cash', 'amountDue': 180}), 'Please pay ₹180 in cash to your driver.');
     });
 
-    test('clear removes it', () async {
-      await RideCouponStore.save('r1', 75);
-      await RideCouponStore.clear('r1');
-      expect(await RideCouponStore.load('r1'), 0);
+    test('an unpaid online ride the driver took cash for', () {
+      expect(paymentOutcome({'paymentMode': 'cash', 'paymentSwitchedToCash': true, 'cashCollectedAt': '2026-11-24T10:00:00Z', 'amountDue': 300}),
+          'Paid ₹300 in cash to your driver.');
     });
   });
 }

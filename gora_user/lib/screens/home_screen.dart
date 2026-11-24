@@ -170,9 +170,15 @@ class _HomeScreenState extends State<HomeScreen>
   // ── Live nearby vehicles on the home map ───────────────────
   // Sprite lookup + caching now live in utils/vehicle_marker.dart so the
   // idle layer and the assigned-driver marker share one implementation.
+  // One request per poll at a time: on a slow network the 4s / 8s timers
+  // otherwise stack requests behind each other.
+  bool _nearbyInFlight = false;
+  bool _activeInFlight = false;
+
   Future<void> _loadNearbyVehicles() async {
     final at = _currentLatLng;
-    if (at == null || !mounted) return;
+    if (at == null || !mounted || _nearbyInFlight) return;
+    _nearbyInFlight = true;
     try {
       final drivers = await ApiService.getNearbyDrivers(at.latitude, at.longitude, radiusKm: 6);
       if (!mounted) return;
@@ -183,17 +189,36 @@ class _HomeScreenState extends State<HomeScreen>
       await _fleet.update(drivers);
     } catch (_) {
       // Never let the eye-candy layer break the home screen.
+    } finally {
+      _nearbyInFlight = false;
     }
   }
 
   // Finds any in-progress ride (pending/accepted/arrived/ongoing) for the user
   Future<void> _checkActiveRide() async {
+    if (_activeInFlight) return;
+    _activeInFlight = true;
+    try {
+      await _checkActiveRideOnce();
+    } finally {
+      _activeInFlight = false;
+    }
+  }
+
+  Future<void> _checkActiveRideOnce() async {
     try {
       final res = await ApiService.getMyRides();
       final list = (res['rides'] as List?) ?? [];
       const activeStatuses = ['pending', 'accepted', 'arrived', 'ongoing'];
+      // An online ride the driver has ended but the rider has not paid is
+      // still open: the ride screen is where it is paid.
+      bool unpaidOnline(dynamic r) =>
+          (r['status'] ?? '').toString() == 'completed' &&
+          r['awaitingPayment'] == true &&
+          (r['paymentMode'] ?? '').toString() == 'online' &&
+          (r['paymentStatus'] ?? '').toString() != 'paid';
       final active = list.firstWhere(
-        (r) => activeStatuses.contains((r['status'] ?? '').toString()),
+        (r) => activeStatuses.contains((r['status'] ?? '').toString()) || unpaidOnline(r),
         orElse: () => null,
       );
       // Same list, already sorted newest-first by the server — the first

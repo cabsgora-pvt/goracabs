@@ -13,6 +13,9 @@ import 'package:customer_app/widgets/ride_ui/ride_ui.dart';
 import 'package:customer_app/providers/theme_provider.dart';
 import 'package:customer_app/providers/user_provider.dart';
 import 'package:customer_app/screens/active_ride_screen.dart';
+import 'package:customer_app/screens/rating_screen.dart';
+import 'package:customer_app/services/payment_service.dart';
+import 'package:customer_app/utils/ride_booking.dart';
 import 'package:customer_app/theme/app_theme.dart';
 import 'package:customer_app/utils/map_markers.dart';
 import 'package:customer_app/widgets/driver_waiting_timer.dart';
@@ -193,6 +196,9 @@ MockClient mockApi(
 
 /// [pushed] opens the ride screen on top of a stand-in home screen, as the app
 /// does, so a test can tell "closed the ride screen" from "closed everything".
+/// What the ride screen's "Try again" re-books with, for tests that need it.
+RideBooker? testRebook;
+
 Widget _app(String rideId, {bool pushed = false}) => MultiProvider(
   providers: [
     ChangeNotifierProvider(create: (_) => UserProvider()),
@@ -200,7 +206,7 @@ Widget _app(String rideId, {bool pushed = false}) => MultiProvider(
   ],
   child: MaterialApp(
     theme: AppTheme.lightTheme,
-    home: pushed ? _Launcher(rideId) : ActiveRideScreen(rideId: rideId),
+    home: pushed ? _Launcher(rideId) : ActiveRideScreen(rideId: rideId, rebook: testRebook),
   ),
 );
 
@@ -216,7 +222,7 @@ class _LauncherState extends State<_Launcher> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => Navigator.push(context,
-        MaterialPageRoute(builder: (_) => ActiveRideScreen(rideId: widget.rideId))));
+        MaterialPageRoute(builder: (_) => ActiveRideScreen(rideId: widget.rideId, rebook: testRebook))));
   }
 
   @override
@@ -319,6 +325,7 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({'token': 'test'});
+    testRebook = null;
     // url_launcher is not exercised here, but share_plus and friends register
     // channels at startup; answering generically keeps them quiet.
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -583,17 +590,17 @@ void main() {
     });
 
     // ── Payment ──
-    testWidgets('online payment due offers a Pay button for the right amount', (tester) async {
-      SharedPreferences.setMockInitialValues({'token': 'test', 'ride_coupon_pay-hire': 50.0});
+    // The server owns every figure: amountDue (what the driver ended the trip
+    // at, after the server's coupon) is what is shown and what is charged.
+    testWidgets("online payment due offers a Pay button for the server's amountDue", (tester) async {
       final ride = hireOngoing()
         ..addAll({'uiPhase': 'payment', 'uiPhaseLabel': 'Payment due', 'awaitingPayment': true,
-          'paymentMode': 'online', 'hireFinalFare': 900});
+          'paymentMode': 'online', 'hireFinalFare': 900, 'couponDiscount': 50, 'amountDue': 850});
       await pumpRide(tester, ride, kCommon, rideId: 'pay-hire');
-      // 900 with overtime, less the ₹50 coupon the ride was booked with.
       expect(find.text('Pay ₹850'), findsOneWidget);
       expect(find.text('₹850'), findsOneWidget);
-      // The automatic prompt shows the same figure, not the pre-coupon total.
-      expect(find.text('Please pay ₹850 to finish this ride.'), findsOneWidget);
+      // No dialog of its own any more: it completed the ride before paying.
+      expect(find.byType(AlertDialog), findsNothing);
       await teardown(tester);
     });
 
@@ -614,37 +621,331 @@ void main() {
       await teardown(tester);
     });
 
+    group('paying an online ride the driver ended', () {
+      // The driver's End: status completed, unpaid, awaitingPayment, amountDue.
+      Map<String, dynamic> ended() => rideJson(status: 'completed', uiPhase: 'completed')
+        ..addAll({'paymentMode': 'online', 'paymentStatus': 'pending', 'awaitingPayment': true,
+          'fare': 900, 'totalFare': 900, 'couponDiscount': 50, 'amountDue': 850});
+
+      CheckoutOutcome? checkout;
+      final opened = <Map<String, dynamic>>[];
+      setUp(() {
+        opened.clear();
+        checkout = const CheckoutOutcome.paid(paymentId: 'pay_1', orderId: 'order_1', signature: 'sig_1');
+        PaymentService.openCheckout = (o) async { opened.add(o); return checkout!; };
+      });
+
+      /// The payment routes, answering [verify]; a verified payment marks the
+      /// ride paid, as the server does.
+      Future<http.Response?> Function(http.Request) payApi(Map<String, dynamic> ride,
+          {required http.Response Function() verify}) => (req) async {
+        final p = req.url.path;
+        if (p.endsWith('/payment/razorpay/order')) {
+          return http.Response(jsonEncode({'orderId': 'order_1', 'keyId': 'rzp_test', 'amount': 85000, 'currency': 'INR'}), 200);
+        }
+        if (p.endsWith('/payment/razorpay/verify')) {
+          final res = verify();
+          if (res.statusCode == 200) ride.addAll({'paymentStatus': 'paid', 'awaitingPayment': false});
+          return res;
+        }
+        return null;
+      };
+
+      Future<void> tapPay(WidgetTester tester) => act(() async {
+        await tester.tap(find.text('Pay ₹850'));
+        for (var i = 0; i < 6; i++) {
+          await tester.pump(const Duration(milliseconds: 200));
+        }
+      });
+
+      testWidgets('stays on the ride to be paid, and never completes it from the phone', (tester) async {
+        final log = <ApiCall>[];
+        final ride = ended();
+        await pumpRide(tester, ride, kCommon, rideId: 'on-1', log: log,
+            override: payApi(ride, verify: () => http.Response('{}', 500)));
+        expect(find.text('Pay ₹850'), findsOneWidget);
+        expect(find.byType(RatingScreen), findsNothing, reason: 'unpaid: not closed yet');
+        await act(() => tester.pump(const Duration(seconds: 7)));
+        expect(log.where((c) => c.url.path.endsWith('/complete')), isEmpty);
+        expect(log.where((c) => c.url.path.contains('/payment/')), isEmpty, reason: 'nothing is paid without a tap');
+        await teardown(tester);
+      });
+
+      testWidgets('Pay: an order for THIS ride at the server amount, verify with the ride id, no /complete', (tester) async {
+        final log = <ApiCall>[];
+        final ride = ended();
+        await pumpRide(tester, ride, kCommon, rideId: 'on-2', log: log,
+            override: payApi(ride, verify: () => http.Response(jsonEncode(
+                {'success': true, 'paymentStatus': 'paid', 'amountPaid': 850, 'amountDue': 850}), 200)));
+        await tapPay(tester);
+        await act(() async {
+          await tester.pump(const Duration(seconds: 3));
+          await tester.pump(const Duration(milliseconds: 500));
+        });
+
+        final order = log.where((c) => c.url.path.endsWith('/payment/razorpay/order')).toList();
+        expect(order, hasLength(1));
+        expect(jsonDecode(order.single.body), {'amount': 850, 'purpose': 'ride', 'rideId': 'on-2'});
+        expect(opened.single['order_id'], 'order_1');
+        final verify = log.where((c) => c.url.path.endsWith('/payment/razorpay/verify')).toList();
+        expect(verify, hasLength(1));
+        expect(jsonDecode(verify.single.body),
+            {'orderId': 'order_1', 'paymentId': 'pay_1', 'signature': 'sig_1', 'purpose': 'ride', 'rideId': 'on-2'});
+        expect(log.where((c) => c.url.path.endsWith('/complete')), isEmpty, reason: 'the driver ends the ride');
+        expect(log.where((c) => c.url.path.endsWith('/wallet/pay')), isEmpty);
+        // Paid on the server: the next poll closes the ride.
+        expect(find.byType(RatingScreen), findsOneWidget);
+        expect(find.text('Paid ₹850 online.'), findsOneWidget);
+        await teardown(tester);
+      });
+
+      testWidgets('a cancelled checkout keeps a "Pay" retry and verifies nothing', (tester) async {
+        checkout = const CheckoutOutcome.failed('Payment cancelled by user');
+        final log = <ApiCall>[];
+        final ride = ended();
+        await pumpRide(tester, ride, kCommon, rideId: 'on-3', log: log,
+            override: payApi(ride, verify: () => http.Response('{}', 200)));
+        await tapPay(tester);
+        expect(find.byKey(const ValueKey('pay-error')), findsOneWidget);
+        expect(find.text('Pay ₹850'), findsOneWidget, reason: 'the retry');
+        expect(log.where((c) => c.url.path.endsWith('/verify')), isEmpty);
+        expect(find.byType(RatingScreen), findsNothing);
+        // And it can be retried.
+        checkout = const CheckoutOutcome.paid(paymentId: 'pay_2', orderId: 'order_1', signature: 'sig_2');
+        tester.state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger)).removeCurrentSnackBar();
+        await tester.pump(const Duration(milliseconds: 500));
+        await tapPay(tester);
+        expect(log.where((c) => c.url.path.endsWith('/payment/razorpay/order')), hasLength(2));
+        await teardown(tester);
+      });
+
+      testWidgets('402 amountShort: says the refund went to the wallet, and Pay stays', (tester) async {
+        final ride = ended();
+        await pumpRide(tester, ride, kCommon, rideId: 'on-4',
+            override: payApi(ride, verify: () => http.Response(jsonEncode({
+              'success': false, 'code': 'amountShort', 'paymentStatus': 'pending', 'amountPaid': 800, 'amountDue': 850,
+              'refundedToWallet': 800,
+              'error': '₹800 paid but ₹850 is due. The ₹800 was added to your Gora wallet; please pay again.',
+            }), 402, headers: {'content-type': 'application/json; charset=utf-8'})));
+        await tapPay(tester);
+        expect(find.textContaining('₹800 was added to your Gora wallet'), findsWidgets);
+        expect(find.text('Pay ₹850'), findsOneWidget);
+        expect(find.byType(RatingScreen), findsNothing);
+        await teardown(tester);
+      });
+
+      testWidgets('409 notAwaitingPayment: says the payment went back to the wallet', (tester) async {
+        final ride = ended();
+        await pumpRide(tester, ride, kCommon, rideId: 'on-5',
+            override: payApi(ride, verify: () {
+              // The driver took cash meanwhile.
+              ride.addAll({'paymentMode': 'cash', 'paymentStatus': 'paid', 'awaitingPayment': false,
+                'paymentSwitchedToCash': true, 'cashCollectedAt': '2026-11-24T10:00:00Z'});
+              return http.Response(jsonEncode({
+                'success': false, 'code': 'notAwaitingPayment', 'refundedToWallet': 850,
+                'error': 'This ride is no longer awaiting payment. ₹850 was added to your Gora wallet.',
+              }), 409, headers: {'content-type': 'application/json; charset=utf-8'});
+            }));
+        await tapPay(tester);
+        expect(find.textContaining('₹850 was added to your Gora wallet'), findsWidgets);
+        await act(() async {
+          await tester.pump(const Duration(seconds: 3));
+          await tester.pump(const Duration(milliseconds: 500));
+        });
+        expect(find.byType(RatingScreen), findsOneWidget);
+        expect(find.text('Paid ₹850 in cash to your driver.'), findsOneWidget);
+        await teardown(tester);
+      });
+
+      testWidgets('the driver marking cash collected closes the ride without a payment', (tester) async {
+        final log = <ApiCall>[];
+        final ride = ended();
+        await pumpRide(tester, ride, kCommon, rideId: 'on-6', log: log);
+        ride.addAll({'paymentMode': 'cash', 'paymentStatus': 'paid', 'awaitingPayment': false,
+          'paymentSwitchedToCash': true, 'cashCollectedAt': '2026-11-24T10:00:00Z'});
+        await act(() async {
+          await tester.pump(const Duration(seconds: 3));
+          await tester.pump(const Duration(milliseconds: 500));
+        });
+        expect(find.byType(RatingScreen), findsOneWidget);
+        expect(log.where((c) => c.url.path.contains('/payment/') || c.url.path.endsWith('/complete')), isEmpty);
+        await teardown(tester);
+      });
+    });
+
     // ── Completion ──
-    // Polls overlap whenever /rides/{id} takes longer than the 3s interval, and
-    // the wallet endpoint debits on every call. Both polls here see 'completed'.
-    testWidgets('completion charges exactly once, even when polls overlap', (tester) async {
-      SharedPreferences.setMockInitialValues({'token': 'test', 'ride_coupon_done-hire': 50.0});
+    // The server debits a wallet ride when the driver ends it. The app used to
+    // charge it again through /wallet/pay — now it charges nothing at all, and
+    // says what the server did.
+    testWidgets('a wallet ride is not charged by the app; it shows the server debit', (tester) async {
       final log = <ApiCall>[];
-      final ride = hireOngoing()
-        ..addAll({'status': 'completed', 'uiPhase': 'completed', 'paymentMode': 'wallet',
-          'hireFinalFare': 900, 'hireExtraCharge': 300, 'hireExtraHours': 2});
-      await pumpRide(tester, ride, kCommon, rideId: 'done-hire', log: log,
+      final ride = rideJson(status: 'completed', uiPhase: 'completed')
+        ..addAll({'paymentMode': 'wallet', 'paymentStatus': 'paid', 'riderWalletDebit': 850, 'amountDue': 850});
+      await pumpRide(tester, ride, kCommon, rideId: 'done-wallet', log: log,
           rideDelay: const Duration(milliseconds: 3500),
           settle: const Duration(seconds: 9));
-      final rideGets = log.where((c) => c.url.path.endsWith('/rides/done-hire'));
-      expect(rideGets.length, greaterThanOrEqualTo(2),
-          reason: 'control: at least two polls must have been in flight');
-      final pays = log.where((c) => c.url.path.endsWith('/wallet/pay')).toList();
-      expect(pays, hasLength(1), reason: 'The rider must be debited once');
-      expect(jsonDecode(pays.single.body)['amount'], 850);
+      expect(log.where((c) => c.url.path.endsWith('/wallet/pay')), isEmpty, reason: 'the server already debited it');
+      expect(log.where((c) => c.url.path.endsWith('/complete')), isEmpty);
+      expect(log.where((c) => c.url.path.contains('/payment/')), isEmpty);
+      expect(find.byType(RatingScreen), findsOneWidget);
+      expect(find.text('Paid ₹850 from your Gora wallet.'), findsOneWidget);
       await teardown(tester);
     });
 
-    testWidgets('a hire closes with its itemised bill, total matching the charge', (tester) async {
-      SharedPreferences.setMockInitialValues({'token': 'test', 'ride_coupon_bill-hire': 50.0});
+    testWidgets('a wallet too short to pay: the server switched it to cash, and the rider is told', (tester) async {
+      final log = <ApiCall>[];
+      final ride = rideJson(status: 'completed', uiPhase: 'completed')
+        ..addAll({'paymentMode': 'cash', 'paymentSwitchedToCash': true, 'paymentStatus': 'paid', 'amountDue': 300});
+      await pumpRide(tester, ride, kCommon, rideId: 'done-short', log: log);
+      expect(find.byType(RatingScreen), findsOneWidget);
+      expect(find.textContaining('Please pay ₹300 to your driver'), findsOneWidget);
+      expect(log.where((c) => c.url.path.endsWith('/wallet/pay')), isEmpty);
+      await teardown(tester);
+    });
+
+    // Polls skip while one is out, so a slow network cannot stack them.
+    testWidgets('status polls do not pile up behind a slow request', (tester) async {
+      final log = <ApiCall>[];
+      await pumpRide(tester, rideJson(status: 'accepted', uiPhase: 'assigned'), kCommon, rideId: 'slow-1', log: log,
+          rideDelay: const Duration(seconds: 7), settle: const Duration(seconds: 10));
+      // Unguarded, a 3s timer starts 4 requests in 10s; guarded, the first
+      // answer (7s) has to come back before the next one goes out.
+      final gets = log.where((c) => c.method == 'GET' && c.url.path.endsWith('/rides/slow-1')).length;
+      expect(gets, lessThanOrEqualTo(2), reason: '$gets requests');
+      await teardown(tester);
+      // Let the last held-back answer land.
+      await act(() => tester.pump(const Duration(seconds: 8)));
+    });
+
+    testWidgets("a hire closes with its itemised bill, total = the server's amountDue", (tester) async {
       final ride = hireOngoing()
-        ..addAll({'status': 'completed', 'uiPhase': 'completed', 'paymentMode': 'cash',
-          'hireFinalFare': 900, 'hireExtraCharge': 300, 'hireExtraHours': 2});
+        ..addAll({'status': 'completed', 'uiPhase': 'completed', 'paymentMode': 'cash', 'paymentStatus': 'paid',
+          'hireFinalFare': 900, 'hireExtraCharge': 300, 'hireExtraHours': 2, 'couponDiscount': 50, 'amountDue': 850});
       await pumpRide(tester, ride, kCommon, rideId: 'bill-hire');
       expect(find.text('Hire Bill'), findsOneWidget);
       expect(find.text('Overtime (2 hr)'), findsOneWidget);
       expect(find.text('−₹50'), findsOneWidget);
       expect(find.text('₹850'), findsOneWidget);
+      await teardown(tester);
+    });
+
+    // ── Extensions: the driver asks, the rider answers ──
+    group('extension request', () {
+      Map<String, dynamic> withRequest(Map<String, dynamic> r, {Duration left = const Duration(minutes: 10)}) => r
+        ..['pendingExtension'] = {
+          'kind': r['service'] == 'hire_driver' ? 'hire' : 'rental', 'hours': 2, 'amount': 400, 'addKm': 20,
+          'requestedAt': '2026-11-24T09:00:00.000Z',
+          'expiresAt': DateTime.now().add(left).toUtc().toIso8601String(),
+        };
+
+      testWidgets('rental: the sheet asks, and Confirm answers confirm_extend', (tester) async {
+        final log = <ApiCall>[];
+        final ride = withRequest(rentalOngoing());
+        await pumpRide(tester, ride, kCommon, rideId: 'ext-1', log: log,
+            override: (req) async => req.method == 'POST' && req.url.path.endsWith('/rental')
+                ? (() { ride.remove('pendingExtension'); return http.Response(jsonEncode({'success': true}), 200); })()
+                : null);
+        expect(find.text('Driver asked to extend by 2 h for ₹400'), findsWidgets);
+        expect(find.text('Includes 20 km more'), findsWidgets);
+        await act(() async {
+          await tester.tap(find.descendant(of: find.byType(BottomSheet), matching: find.text('Confirm')));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+        });
+        final sent = log.where((c) => c.method == 'POST' && c.url.path.endsWith('/rides/ext-1/rental')).toList();
+        expect(sent, hasLength(1));
+        expect(jsonDecode(sent.single.body), {'action': 'confirm_extend'});
+        expect(find.text('Extension confirmed.'), findsOneWidget);
+        await teardown(tester);
+      });
+
+      testWidgets('hire: Decline answers decline_extend on the hire route', (tester) async {
+        final log = <ApiCall>[];
+        final ride = withRequest(hireOngoing());
+        await pumpRide(tester, ride, kCommon, rideId: 'ext-2', log: log,
+            override: (req) async => req.method == 'POST' && req.url.path.endsWith('/hire')
+                ? http.Response(jsonEncode({'success': true, 'declined': true}), 200) : null);
+        await act(() async {
+          await tester.tap(find.descendant(of: find.byType(BottomSheet), matching: find.text('Decline')));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+        });
+        final sent = log.where((c) => c.method == 'POST' && c.url.path.endsWith('/rides/ext-2/hire')).toList();
+        expect(sent, hasLength(1));
+        expect(jsonDecode(sent.single.body), {'action': 'decline_extend'});
+        expect(find.text('Extension declined.'), findsOneWidget);
+        await teardown(tester);
+      });
+
+      testWidgets('a request that is gone (409 NO_PENDING_EXTENSION) is explained', (tester) async {
+        final ride = withRequest(rentalOngoing());
+        await pumpRide(tester, ride, kCommon, rideId: 'ext-3',
+            override: (req) async => req.method == 'POST' && req.url.path.endsWith('/rental')
+                ? http.Response(jsonEncode({'error': 'No extension is waiting for your confirmation', 'code': 'NO_PENDING_EXTENSION'}), 409)
+                : null);
+        await act(() async {
+          await tester.tap(find.descendant(of: find.byType(BottomSheet), matching: find.text('Confirm')));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+        });
+        expect(find.textContaining('no longer open'), findsOneWidget);
+        await teardown(tester);
+      });
+
+      testWidgets('an expired request is not shown; the sheet opens once per request', (tester) async {
+        final ride = withRequest(rentalOngoing(), left: const Duration(minutes: -1));
+        await pumpRide(tester, ride, kCommon, rideId: 'ext-4');
+        expect(find.textContaining('Driver asked to extend'), findsNothing);
+        withRequest(ride);
+        await act(() async {
+          await tester.pump(const Duration(seconds: 3));
+          await tester.pump(const Duration(milliseconds: 500));
+        });
+        expect(find.byType(BottomSheet), findsOneWidget);
+        // Dismissed, it does not come back on the next poll — the card in the
+        // sheet still offers the answer.
+        await tester.tapAt(const Offset(20, 20));
+        await act(() async {
+          await tester.pump(const Duration(milliseconds: 500));
+          await tester.pump(const Duration(seconds: 3));
+          await tester.pump(const Duration(milliseconds: 500));
+        });
+        expect(find.byType(BottomSheet), findsNothing);
+        expect(find.byKey(const ValueKey('extension-card'), skipOffstage: false), findsOneWidget);
+        await teardown(tester);
+      });
+
+      test('the rider has no start / end / extend controls of their own', () {
+        expect(pendingExtensionOf({'status': 'ongoing', 'service': 'taxi', 'pendingExtension': {'hours': 1}}), isNull);
+        expect(pendingExtensionOf({'status': 'completed', 'service': 'rental', 'pendingExtension': {'hours': 1}}), isNull);
+        expect(pendingExtensionOf({'status': 'ongoing', 'service': 'rental', 'pendingExtension': {'hours': 1}}), isNotNull);
+      });
+    });
+
+    // ── OTP locked after too many wrong entries ──
+    testWidgets('a locked PIN says to contact support instead of showing the PIN', (tester) async {
+      await pumpRide(tester, rideJson(status: 'arrived', uiPhase: 'arrived')..['otpLocked'] = true, kCommon, rideId: 'otp-l');
+      expect(find.text('Too many wrong codes — contact support'), findsOneWidget);
+      expect(find.text('4821'), findsNothing);
+      await teardown(tester);
+    });
+
+    testWidgets("a parcel's locked delivery PIN says the same", (tester) async {
+      await pumpRide(tester, parcel(status: 'ongoing', uiPhase: 'ongoing', deliveryPhase: 'in_transit')
+        ..['dropOtpLocked'] = true, kCommon, rideId: 'otp-d');
+      expect(find.text('Too many wrong codes — contact support'), findsOneWidget);
+      expect(find.text('7390'), findsNothing);
+      await teardown(tester);
+    });
+
+    testWidgets('no driver position (null outside a live ride) draws no driver', (tester) async {
+      await pumpRide(tester, rideJson(status: 'accepted', uiPhase: 'assigned'), kCommon, rideId: 'noloc',
+          settle: const Duration(seconds: 7),
+          override: (req) async => req.url.path.endsWith('/driver-location')
+              ? http.Response(jsonEncode({'status': 'accepted', 'driver': null}), 200) : null);
+      final map = tester.widget<GoogleMap>(find.byType(GoogleMap));
+      expect(map.markers.where((m) => m.markerId.value == 'drv'), isEmpty);
+      expect(tester.takeException(), isNull);
       await teardown(tester);
     });
 
@@ -911,7 +1212,15 @@ void main() {
     // ── No driver found (server-side close) ──
     // The server cancels a ride nobody took (cancelledBy 'system', reason
     // 'No driver found'). The screen only reacts to that state on a poll.
-    testWidgets('no driver found: message, polling stops, Try again closes back to the booking origin', (tester) async {
+    Future<void> serverClosesSearch(WidgetTester tester, Map<String, dynamic> ride) => act(() async {
+      ride['status'] = 'cancelled';
+      ride['cancelledBy'] = 'system';
+      ride['cancellationReason'] = 'No driver found';
+      await tester.pump(const Duration(milliseconds: 3100));
+      await tester.pump(const Duration(milliseconds: 300));
+    });
+
+    testWidgets('no driver found (reopened ride): message, polling stops, OK closes back', (tester) async {
       final log = <ApiCall>[];
       final ride = rideJson(status: 'pending', uiPhase: 'finding', uiPhaseLabel: 'Finding a driver')
         ..['service'] = 'rental';
@@ -921,15 +1230,12 @@ void main() {
         await tester.pump(const Duration(seconds: 7));
         expect(find.text('No driver found'), findsNothing);
         expect(find.byType(ActiveRideScreen), findsOneWidget);
-
-        ride['status'] = 'cancelled';
-        ride['cancelledBy'] = 'system';
-        ride['cancellationReason'] = 'No driver found';
-        await tester.pump(const Duration(milliseconds: 3100));
-        await tester.pump(const Duration(milliseconds: 300));
       });
+      await serverClosesSearch(tester, ride);
       expect(find.text('No driver found'), findsOneWidget);
       expect(find.text('No drivers available right now. Please try again.'), findsOneWidget);
+      // Nothing to re-book for a ride opened from home.
+      expect(find.text('Try again'), findsNothing);
 
       final polls = log.where((c) => c.method == 'GET' && c.url.path.endsWith('/rides/ride123')).length;
       await act(() => tester.pump(const Duration(seconds: 10)));
@@ -939,12 +1245,61 @@ void main() {
       expect(find.byType(ActiveRideScreen), findsOneWidget, reason: 'stays until the rider acts');
 
       await act(() async {
-        await tester.tap(find.text('Try again'));
+        await tester.tap(find.text('OK'));
         await tester.pump();
         await tester.pump(const Duration(seconds: 1));
       });
       expect(find.byType(ActiveRideScreen), findsNothing);
       expect(find.text('HOME'), findsOneWidget, reason: 'only the ride screen closes');
+      await teardown(tester);
+    });
+
+    testWidgets('no driver found → Try again books the same trip again, with a fresh quote', (tester) async {
+      final calls = <(String, bool)>[];
+      testRebook = (id, fresh) async {
+        calls.add((id, fresh));
+        return {'success': true, 'ride': {'id': 'ride456'}};
+      };
+      addTearDown(() => testRebook = null);
+      final ride = rideJson(status: 'pending', uiPhase: 'finding', uiPhaseLabel: 'Finding a driver');
+      await pumpRide(tester, ride, kCommon, pushed: true);
+      await serverClosesSearch(tester, ride);
+      expect(find.text('Try again'), findsOneWidget);
+      expect(find.text('Change ride'), findsOneWidget);
+      // The mock answers every ride id with this map: the new ride is searching.
+      ride.addAll({'status': 'pending', 'cancelledBy': null, 'cancellationReason': null});
+      await act(() async {
+        await tester.tap(find.text('Try again'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pump(const Duration(milliseconds: 500));
+      });
+      expect(calls, hasLength(1));
+      expect(calls.single.$2, isTrue, reason: 'a fresh quote: the old one may have expired');
+      expect(calls.single.$1, isNotEmpty);
+      // The new ride is tracked in place of the closed one.
+      final screen = tester.widget<ActiveRideScreen>(find.byType(ActiveRideScreen));
+      expect(screen.rideId, 'ride456');
+      expect(screen.rebook, isNotNull, reason: 'and can be tried again in turn');
+      expect(find.text('No driver found'), findsNothing);
+      await teardown(tester);
+    });
+
+    testWidgets('no driver found → Change ride goes back without booking', (tester) async {
+      var booked = 0;
+      testRebook = (id, fresh) async { booked++; return {'success': true, 'ride': {'id': 'x'}}; };
+      addTearDown(() => testRebook = null);
+      final ride = rideJson(status: 'pending', uiPhase: 'finding', uiPhaseLabel: 'Finding a driver');
+      await pumpRide(tester, ride, kCommon, pushed: true);
+      await serverClosesSearch(tester, ride);
+      await act(() async {
+        await tester.tap(find.text('Change ride'));
+        await tester.pump();
+        await tester.pump(const Duration(seconds: 1));
+      });
+      expect(booked, 0);
+      expect(find.byType(ActiveRideScreen), findsNothing);
+      expect(find.text('HOME'), findsOneWidget);
       await teardown(tester);
     });
 

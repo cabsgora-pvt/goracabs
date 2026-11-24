@@ -98,7 +98,13 @@ class _Body extends StatelessWidget {
                   icon: Icons.north_east_rounded,
                   height: 50,
                   tone: CapButtonTone.outline,
-                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => WithdrawPage(balance: balance))),
+                  // A request takes the money out of the wallet at once (held
+                  // until paid out), so the balance and history are reloaded.
+                  onPressed: () async {
+                    final bloc = context.read<WalletBloc>();
+                    await Navigator.push(context, MaterialPageRoute(builder: (_) => WithdrawPage(balance: balance)));
+                    bloc.add(LoadWalletEvent());
+                  },
                 ),
               ),
             ]),

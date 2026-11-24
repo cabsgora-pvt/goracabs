@@ -352,7 +352,10 @@ class _OutstationScreenState extends State<OutstationScreen> {
             onTap: () async {
               final d = await ApiService.placeDetails(s['placeId'] as String? ?? '');
               if (d == null) return;
-              _stops.add({'address': d['address'] ?? s['description'], 'lat': (d['lat'] as num).toDouble(), 'lng': (d['lng'] as num).toDouble()});
+              // placeDetails returns numeric lat/lng or null, never an error map.
+              final lat = ApiService.toDoubleOrNull(d['lat']), lng = ApiService.toDoubleOrNull(d['lng']);
+              if (lat == null || lng == null) return;
+              _stops.add({'address': '${d['address'] ?? ''}'.isNotEmpty ? d['address'] : s['description'], 'lat': lat, 'lng': lng});
               if (ctx.mounted) Navigator.pop(ctx);
             },
           )),
@@ -366,8 +369,8 @@ class _OutstationScreenState extends State<OutstationScreen> {
     final desc = s['description'] as String? ?? '';
     final details = await ApiService.placeDetails(s['placeId'] as String? ?? '');
     if (details == null || !mounted) return;
-    final lat = (details['lat'] as num).toDouble();
-    final lng = (details['lng'] as num).toDouble();
+    final lat = ApiService.toDoubleOrNull(details['lat']), lng = ApiService.toDoubleOrNull(details['lng']);
+    if (lat == null || lng == null) return;
     setState(() {
       if (isFrom) {
         _fromLat = lat; _fromLng = lng;
@@ -386,20 +389,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
     if (_fromLat == null || _fromLng == null || _toLat == null || _toLng == null) return;
     setState(() => _loadingFares = true);
 
-    // Stops payload for multi-city (fare sums the legs pickup → stops → drop)
-    final stopsPayload = _stops.map((s) => {'lat': s['lat'], 'lng': s['lng']}).toList();
     // Fetch both one-way and round-trip in parallel so user can switch trip type freely
-    final oneWayF = ApiService.estimateFare(
-      pickupLat: _fromLat!, pickupLng: _fromLng!,
-      dropLat: _toLat!, dropLng: _toLng!,
-      service: 'outstation', stops: stopsPayload,
-    );
-    final roundF = ApiService.post('/fare/estimate', {
-      'pickupLat': _fromLat, 'pickupLng': _fromLng,
-      'dropLat': _toLat, 'dropLng': _toLng,
-      'service': 'outstation', 'tripType': 'round_trip',
-      if (stopsPayload.isNotEmpty) 'stops': stopsPayload,
-    });
+    final oneWayF = ApiService.post('/fare/estimate', _estimateBody(roundTrip: false));
+    final roundF = ApiService.post('/fare/estimate', _estimateBody(roundTrip: true));
 
     try {
       // Together, so a failed one-way never leaves the round-trip error unhandled.
@@ -486,18 +478,39 @@ class _OutstationScreenState extends State<OutstationScreen> {
   /// Razorpay order/payment/signature of the payment made for this booking.
   Map<String, String>? _prepaidProof;
 
+  /// What /fare/estimate is asked for one trip type. The quote is signed over
+  /// the trip type and the stops, so they are exactly what is booked:
+  /// `tripType`, and `stops` = the booking's `multiStops` (same points).
+  Map<String, dynamic> _estimateBody({required bool roundTrip}) => {
+        'pickupLat': _fromLat, 'pickupLng': _fromLng,
+        'dropLat': _toLat, 'dropLng': _toLng,
+        'service': 'outstation', 'tripType': roundTrip ? 'round_trip' : 'one_way',
+        'weightKg': 0, 'totalHours': 0,
+        if (_stops.isNotEmpty) 'stops': [for (final s in _stops) {'lat': s['lat'], 'lng': s['lng']}],
+      };
+
   /// Books the outstation trip and returns the server's answer; [bookAndTrack]
   /// reports a failure and opens the live ride screen on success.
-  Future<Map<String, dynamic>> _bookOutstationRide() async {
+  Future<Map<String, dynamic>> _bookOutstationRide(String clientRequestId, bool freshQuote) async {
     if (_fromLat == null || _toLat == null || _selectedVehicle == null) {
       return {'error': 'Choose where from, where to and a vehicle first'};
     }
     final isRoundTrip = _tripType == 'Round Trip';
     final selVehicle = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
-    final rawFare = (isRoundTrip ? selVehicle['roundTripFare'] : selVehicle['oneWayFare']) as num? ?? 0;
-    final fare = (rawFare - _couponDiscount).clamp(0, rawFare);
+    if (freshQuote) {
+      final q = await freshQuoteFor(_estimateBody(roundTrip: isRoundTrip), _selectedVehicle);
+      if (q != null) {
+        selVehicle[isRoundTrip ? 'rtQuoteToken' : 'owQuoteToken'] = q['quoteToken'];
+        if (q['fare'] != null) selVehicle[isRoundTrip ? 'roundTripFare' : 'oneWayFare'] = q['fare'];
+        if (q['breakdown'] is Map) selVehicle['breakdown'] = q['breakdown'];
+      }
+    }
+    // The quoted fare in full: the server validates the coupon (only its code
+    // is sent) and takes the discount off.
+    final fare = (isRoundTrip ? selVehicle['roundTripFare'] : selVehicle['oneWayFare']) as num? ?? 0;
 
     return ApiService.bookRide({
+        'clientRequestId': clientRequestId,
         'pickupAddress': _fromController.text,
         'dropAddress': _toController.text,
         'pickupLat': _fromLat, 'pickupLng': _fromLng,
@@ -520,8 +533,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
         'nightHaltCharge': (selVehicle['breakdown'] as Map?)?['nightHalt'] ?? 0,
         'emptyReturnCharge': (selVehicle['breakdown'] as Map?)?['emptyReturn'] ?? 0,
         'paymentMode': _paymentMode,
-        'couponCode': _couponCode,
-        'couponDiscount': _couponDiscount,
+        if (_couponCode.isNotEmpty) 'couponCode': _couponCode,
         'bookingFor': _bookingFor,
         if (_selectedPrefs.isNotEmpty)
           'preferences': _ridePrefs.map((p) => p.key).where(_selectedPrefs.contains).toList(),
@@ -1326,7 +1338,11 @@ class _OutstationScreenState extends State<OutstationScreen> {
       final selV = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => <String, dynamic>{});
       final rawFare = ((_tripType == 'Round Trip' ? selV['roundTripFare'] : selV['oneWayFare']) as num?) ?? 0;
       final payable = (rawFare - _couponDiscount).clamp(0, rawFare);
-      final paid = await PaymentService.chargeDetailed(context, method: _paymentMode, amount: payable);
+      // Wallet: debited now, no ride id (the booking links it). Online: a
+      // Razorpay order with purpose 'outstation_prepay', whose proof goes with
+      // the booking. The server checks it covers the fare after ITS coupon, and
+      // answers 402 prepaymentRequired (refunding a short payment) if not.
+      final paid = await PaymentService.prepayOutstation(context, method: _paymentMode, amount: payable);
       if (!mounted || !paid.success) return;
       paidUpfront = _paymentMode != 'cash' && payable > 0;
       // Sent with the booking so the server can tie this payment to the ride
@@ -1337,8 +1353,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
     await bookAndTrack(
       context,
       book: _bookOutstationRide,
-      // Shown on the ride screen as the amount already paid.
-      couponDiscount: _couponDiscount,
+      // A trip paid before booking is not re-booked by "Try again" (that would
+      // need a new payment); the money comes back when no driver is found.
+      canRebook: !paidUpfront,
       failureMessage: paidUpfront
           ? (error) => 'Your payment went through, but the trip could not be booked ($error). '
               'Please contact support with this message. Do not pay again.'

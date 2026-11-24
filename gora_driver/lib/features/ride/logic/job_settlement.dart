@@ -19,6 +19,16 @@ import '../pages/invoice_page.dart';
 //  * A job priced but not yet settled could not be reopened. The screen started
 //    over, pressed End again, and the server (rightly) refused to re-price it —
 //    leaving the driver with no way to finish.
+//
+// Settlement (server, /complete): the DRIVER ends every job, whatever the
+// payment mode.
+//  * cash   — the driver has the money; commission comes off their wallet.
+//  * wallet — the server debits the rider's wallet. If it is short the ride
+//             switches to cash (paymentSwitchedToCash) and the driver collects
+//             cashToCollect in hand.
+//  * online — the ride is completed with paymentStatus 'pending'; the driver's
+//             earning is credited only once the rider pays. The driver waits,
+//             or records that the rider paid cash instead (/collect-cash).
 // ─────────────────────────────────────────────────────────────────────────────
 
 num _n(dynamic v) => v is num ? v : (num.tryParse('${v ?? ''}') ?? 0);
@@ -75,16 +85,19 @@ Future<bool> collectAndSettle(
 /// settled ride: the driver's earning after commission, as the server worked it
 /// out. Rental, hire and parcel invoices were handed the bare ride and fell back
 /// to showing the whole fare as the earning.
-RideCompletionArgs invoiceFor(RideRequestModel ride, Map<String, dynamic> settled) => RideCompletionArgs(
-  ride,
-  driverEarning: _n(settled['driverEarning']),
-  adminProfit: _n(settled['adminProfit'] ?? settled['commissionAmount']),
-);
+RideCompletionArgs invoiceFor(RideRequestModel ride, Map<String, dynamic> settled, {num tollCollected = 0}) =>
+    RideCompletionArgs(
+      ride,
+      driverEarning: _n(settled['driverEarning'] ?? settled['pendingDriverEarning']),
+      adminProfit: _n(settled['adminProfit'] ?? settled['commissionAmount'] ?? settled['pendingCommission']),
+      tollCollected: tollCollected,
+    );
 
-/// Calls /complete and reports a failure instead of swallowing it. A ride the
-/// server already settled (the rider's payment got there first) counts as done.
-/// Returns the invoice to show, or null when settlement failed.
-Future<RideCompletionArgs?> settleForInvoice(BuildContext context, RideRequestModel ride) async {
+/// Calls /complete and reports a failure instead of swallowing it, then walks
+/// the driver through what the answer says: cash to collect from a short
+/// wallet, or an online payment to wait for. A ride the server already settled
+/// counts as done. Returns the invoice to show, or null when settlement failed.
+Future<RideCompletionArgs?> settleForInvoice(BuildContext context, RideRequestModel ride, {num tollCollected = 0}) async {
   Map<String, dynamic> res;
   try {
     res = await DriverApiService.completeRide(ride.id);
@@ -92,12 +105,20 @@ Future<RideCompletionArgs?> settleForInvoice(BuildContext context, RideRequestMo
     res = const {'error': 'No connection'};
   }
   final error = res['error']?.toString();
-  if (error == null) return invoiceFor(ride, res);
+  if (error == null) {
+    if (!context.mounted) return null;
+    return afterComplete(context, ride, res, tollCollected: tollCollected);
+  }
   if (error == 'Already completed') {
-    // Settled elsewhere: the ride itself holds what it paid.
+    // Settled elsewhere (or an earlier reply was lost): the ride itself holds
+    // what it paid — and whether the rider has paid yet.
     Map<String, dynamic> doc;
-    try { doc = await DriverApiService.getRide(ride.id); } catch (_) { doc = const {}; }
-    return invoiceFor(ride, doc);
+    try { doc = _rideOf(await DriverApiService.getRide(ride.id)); } catch (_) { doc = const {}; }
+    if (!context.mounted) return null;
+    if (_onlineUnpaid(doc, ride)) {
+      await waitForOnlinePayment(context, ride, amountDue: _n(doc['amountDue'] ?? res['amountDue']));
+    }
+    return invoiceFor(ride, doc, tollCollected: tollCollected);
   }
   if (context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -109,15 +130,69 @@ Future<RideCompletionArgs?> settleForInvoice(BuildContext context, RideRequestMo
   return null;
 }
 
+Map<String, dynamic> _rideOf(Map<String, dynamic> r) =>
+    r['ride'] is Map ? Map<String, dynamic>.from(r['ride'] as Map) : r;
+
+bool _onlineUnpaid(Map<String, dynamic> doc, RideRequestModel ride) =>
+    (doc['paymentMode'] ?? ride.paymentMode) == 'online' &&
+    doc['paymentStatus'] != null && doc['paymentStatus'] != 'paid';
+
+/// What to do once /complete has answered [res].
+Future<RideCompletionArgs> afterComplete(BuildContext context, RideRequestModel ride, Map<String, dynamic> res,
+    {num tollCollected = 0}) async {
+  if (res['paymentSwitchedToCash'] == true) {
+    // The rider's wallet could not cover it: the ride is now a cash ride.
+    final cash = _n(res['cashToCollect'] ?? res['amountDue']);
+    if (cash > 0) {
+      await Navigator.push<bool>(context, MaterialPageRoute(builder: (_) => CollectFarePage(
+        amount: cash.toDouble(),
+        title: walletShortTitle(cash),
+      )));
+    }
+  } else if (res['awaitingPayment'] == true && (res['paymentMode'] ?? ride.paymentMode) == 'online') {
+    await waitForOnlinePayment(context, ride, amountDue: _n(res['amountDue']));
+  }
+  return invoiceFor(ride, res, tollCollected: tollCollected);
+}
+
+/// "Rider's wallet was short — collect ₹X in cash".
+String walletShortTitle(num cash) => "Rider's wallet was short — collect ₹${cash.round()} in cash";
+
 /// [settleForInvoice], for a caller that only needs to know it worked.
 Future<bool> settleRide(BuildContext context, RideRequestModel ride) async =>
     await settleForInvoice(context, ride) != null;
 
-/// Waits, with the driver, for the rider to pay online, then opens the invoice.
-///
-/// [request] asks the server to prompt the rider first (a trip ending now); a
-/// reopened job whose payment is already requested passes false. The driver can
-/// step away with Cancel — the ride stays open and can be reopened later.
+/// How waiting for the rider's online payment ended.
+enum OnlinePayment {
+  /// The rider paid in the app.
+  paidOnline,
+  /// The rider paid the driver in cash; recorded with /collect-cash.
+  paidCash,
+  /// The driver moved on; the earning is credited once the rider pays.
+  later,
+}
+
+/// Waits, with the driver, for the rider to pay [amountDue] online on a ride
+/// that is already ended. The driver can record that the rider paid cash
+/// instead, or move on (Later).
+Future<OnlinePayment> waitForOnlinePayment(BuildContext context, RideRequestModel ride, {required num amountDue}) async {
+  final r = await showDialog<OnlinePayment>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => PaymentWaitDialog(rideId: ride.id, amountDue: amountDue),
+  );
+  final out = r ?? OnlinePayment.later;
+  if (out == OnlinePayment.later && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      content: Text('Payment pending — your earning is added once the rider pays.'),
+      duration: Duration(seconds: 6),
+    ));
+  }
+  return out;
+}
+
+/// Ends an online ride: prompts the rider to pay, ends the trip (/complete),
+/// waits for the payment, then opens the invoice.
 Future<void> waitForRiderPayment(
   BuildContext context,
   RideRequestModel ride, {
@@ -129,42 +204,68 @@ Future<void> waitForRiderPayment(
     try { await DriverApiService.requestPayment(ride.id); } catch (_) {}
   }
   if (!context.mounted) return;
-  // True when the rider paid; null when the driver stepped away with Cancel.
-  final paid = await showDialog<bool>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => _PaymentWaitDialog(rideId: ride.id),
-  );
-  if (paid == true && context.mounted) {
-    Navigator.pushReplacementNamed(context, InvoicePage.route, arguments: invoiceArgs ?? ride);
+  final toll = invoiceArgs is RideCompletionArgs ? invoiceArgs.tollCollected : 0;
+  final invoice = await settleForInvoice(context, ride, tollCollected: toll);
+  if (invoice != null && context.mounted) {
+    Navigator.pushReplacementNamed(context, InvoicePage.route, arguments: invoice);
   }
 }
 
-/// Polls until the rider has paid. Owns its timer, so the polling stops with the
-/// dialog — including when the screen beneath it is closed. A timer created in a
-/// dialog builder kept asking the server every 3s for as long as the app ran.
-class _PaymentWaitDialog extends StatefulWidget {
+/// "Waiting for online payment ₹X", with "Rider paid cash" and "Later".
+/// Polls the ride until it is paid. Owns its timer, so the polling stops with
+/// the dialog — including when the screen beneath it is closed.
+class PaymentWaitDialog extends StatefulWidget {
   final String rideId;
-  const _PaymentWaitDialog({required this.rideId});
+  final num amountDue;
+  const PaymentWaitDialog({super.key, required this.rideId, required this.amountDue});
   @override
-  State<_PaymentWaitDialog> createState() => _PaymentWaitDialogState();
+  State<PaymentWaitDialog> createState() => _PaymentWaitDialogState();
 }
 
-class _PaymentWaitDialogState extends State<_PaymentWaitDialog> {
+class _PaymentWaitDialogState extends State<PaymentWaitDialog> {
   Timer? _poll;
+  bool _busy = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
     _poll = Timer.periodic(const Duration(seconds: 3), (_) async {
       try {
-        final r = await DriverApiService.getRide(widget.rideId);
-        if ((r['status'] ?? '').toString() == 'completed' && mounted) {
-          _poll?.cancel();
-          Navigator.pop(context, true);
-        }
+        final r = _rideOf(await DriverApiService.getRide(widget.rideId));
+        if (r['paymentStatus'] == 'paid' && mounted) _done(OnlinePayment.paidOnline);
       } catch (_) {}
     });
+  }
+
+  void _done(OnlinePayment p) {
+    _poll?.cancel();
+    if (mounted) Navigator.pop(context, p);
+  }
+
+  Future<void> _paidCash() async {
+    final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: const Text('Rider paid cash?'),
+      content: Text('Confirm you have collected ₹${widget.amountDue.round()} in cash. '
+          'The commission is taken from your wallet, as for a cash ride.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+        ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text('Cash collected')),
+      ],
+    ));
+    if (ok != true || !mounted) return;
+    setState(() { _busy = true; _error = null; });
+    Map<String, dynamic> r;
+    try {
+      r = await DriverApiService.collectCash(widget.rideId);
+    } catch (_) {
+      r = const {'error': 'No connection — try again'};
+    }
+    if (!mounted) return;
+    if (r['success'] == true) return _done(OnlinePayment.paidCash);
+    // The rider's online payment got there first: nothing to record.
+    if (r['code'] == 'paidOnline' || r['code'] == 'alreadyPaid') return _done(OnlinePayment.paidOnline);
+    setState(() { _busy = false; _error = (r['error'] ?? 'Could not record the cash').toString(); });
   }
 
   @override
@@ -175,16 +276,28 @@ class _PaymentWaitDialogState extends State<_PaymentWaitDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-    content: Column(mainAxisSize: MainAxisSize.min, children: const [
-      CircularProgressIndicator(color: AppColors.primary),
-      SizedBox(height: 16),
-      Text('Waiting for the rider to pay online…', textAlign: TextAlign.center),
+    content: Column(mainAxisSize: MainAxisSize.min, children: [
+      const CircularProgressIndicator(color: AppColors.primary),
+      const SizedBox(height: 16),
+      Text(onlineWaitText(widget.amountDue), textAlign: TextAlign.center,
+          style: const TextStyle(fontWeight: FontWeight.w700)),
+      const SizedBox(height: 6),
+      const Text('Your earning is added once the rider pays.', textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 12)),
+      if (_error != null) ...[
+        const SizedBox(height: 10),
+        Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: AppColors.red, fontSize: 12.5)),
+      ],
     ]),
     actions: [
-      TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      TextButton(onPressed: _busy ? null : () => _done(OnlinePayment.later), child: const Text('Later')),
+      ElevatedButton(onPressed: _busy ? null : _paidCash, child: const Text('Rider paid cash')),
     ],
   );
 }
+
+/// "Waiting for online payment ₹X".
+String onlineWaitText(num amountDue) => 'Waiting for online payment ₹${amountDue.round()}';
 
 /// Finishes a job that was priced before this screen opened.
 ///
@@ -193,7 +306,7 @@ class _PaymentWaitDialogState extends State<_PaymentWaitDialog> {
 Future<void> finishPricedJob(BuildContext context, RideRequestModel ride) async {
   Map<String, dynamic> r;
   try {
-    r = await DriverApiService.getRide(ride.id);
+    r = _rideOf(await DriverApiService.getRide(ride.id));
   } catch (_) {
     r = const {'error': 'No connection'};
   }
@@ -204,29 +317,17 @@ Future<void> finishPricedJob(BuildContext context, RideRequestModel ride) async 
     return;
   }
   if ((r['status'] ?? '').toString() == 'completed') {
-    Navigator.pushReplacementNamed(context, InvoicePage.route, arguments: invoiceFor(ride, r));
+    // Ended already; an online ride may still be waiting for the rider.
+    if (_onlineUnpaid(r, ride)) await waitForOnlinePayment(context, ride, amountDue: _n(r['amountDue']));
+    if (context.mounted) Navigator.pushReplacementNamed(context, InvoicePage.route, arguments: invoiceFor(ride, r));
     return;
   }
-  final due = cashDueFor(r);
-  if (due > 0 || driverSettles(ride.service)) {
-    await collectAndSettle(context, ride: ride, cashDue: due);
-  } else if (r['awaitingPayment'] == true) {
-    await waitForRiderPayment(context, ride, request: false);
-  } else {
-    final invoice = await settleForInvoice(context, ride);
-    if (invoice != null && context.mounted) {
-      Navigator.pushReplacementNamed(context, InvoicePage.route, arguments: invoice);
-    }
-  }
+  // Priced, not yet ended: collect any cash, then end it here — the driver
+  // ends every job now, an online one included.
+  await collectAndSettle(context, ride: ride, cashDue: cashDueFor(r));
 }
 
-/// Whether the DRIVER settles this service once any cash is in hand, rather
-/// than waiting for the rider's online payment to settle it.
-///
-/// This mirrors the flows exactly as they already were, so a reopened job
-/// finishes the same way an uninterrupted one does: hire and parcel settle from
-/// the driver's side whatever the payment mode; rental and rides wait for the
-/// rider's app. That difference is part of the known payment-flow gap (an
-/// online fare can be settled before the rider has paid) and is deliberately
-/// not changed here.
-bool driverSettles(String service) => service == 'hire_driver' || service == 'delivery';
+/// Whether the DRIVER ends (settles) this service. Always, now: the server
+/// completes an online job with its payment pending and credits the earning
+/// once the rider pays, so no service waits on the rider's app to end.
+bool driverSettles(String service) => true;

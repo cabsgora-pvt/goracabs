@@ -450,6 +450,16 @@ void main() {
       expect(booked!['codAmount'], 0);
       expect(booked!['packageSize'], 'S');
       expect(booked!['isFragile'], false);
+      // Signed over weight and stops: the quote that was replayed was asked
+      // for with the same drop, weight and (no) stops that were booked.
+      final q = estimates.last;
+      expect(q['service'], 'delivery');
+      expect(q['weightKg'], booked!['weightKg']);
+      expect(q['dropLat'], booked!['dropLat']);
+      expect(q['dropLng'], booked!['dropLng']);
+      expect(q['stops'], booked!['stops']);
+      expect(booked!['clientRequestId'], isA<String>());
+      expect(booked!.containsKey('couponDiscount'), isFalse);
       await _teardown(tester);
     });
 
@@ -523,6 +533,47 @@ void main() {
   });
 
   group('hire a driver', () {
+    // The quote is signed over the hours and the trip type, so the estimate
+    // must be asked with exactly what is booked (hireTotalHours, tripType).
+    testWidgets('the quote is asked with the same hours and trip type the hire is booked with', (tester) async {
+      _size(tester, const Size(392, 850));
+      final estimates = <Map<String, dynamic>>[];
+      Map<String, dynamic>? booked;
+      final client = MockClient((req) async {
+        if (req.url.path.endsWith('/fare/estimate')) estimates.add(jsonDecode(req.body) as Map<String, dynamic>);
+        if (req.url.path.endsWith('/rides/book')) {
+          booked = jsonDecode(req.body) as Map<String, dynamic>;
+          return _json({'error': 'stop here'});
+        }
+        return _handle(req);
+      });
+      final start = DateTime.now().add(const Duration(days: 1));
+      await http.runWithClient(() async {
+        await tester.pumpWidget(_app(HireDriverScreen(
+            initialStartAt: start, initialEndAt: start.add(const Duration(hours: 4, minutes: 30)))));
+        await wait(tester, 1000);
+        await tester.tap(find.text('Round Trip'));
+        await wait(tester, 600);
+        await _tapVisible(tester, find.text('Cab'));
+        await wait(tester, 300);
+        await tester.tap(find.textContaining('Book Driver'));
+        await wait(tester, 600);
+        await tester.tap(find.text('Confirm & Find Driver'));
+        await wait(tester, 800);
+      }, () => client);
+      expect(booked, isNotNull);
+      final q = estimates.last;
+      expect(q['service'], 'hire_driver');
+      expect(q['totalHours'], 5, reason: '4.5 h is billed as 5');
+      expect(booked!['hireTotalHours'], q['totalHours']);
+      expect(q['tripType'], 'round_trip');
+      expect(booked!['tripType'], q['tripType']);
+      expect(booked!['quoteToken'], 'q-Cab');
+      expect(booked!['clientRequestId'], isA<String>());
+      expect(booked!.containsKey('couponDiscount'), isFalse);
+      await _teardown(tester);
+    });
+
     testWidgets('trip type and transmission are one-of choices with the right note', (tester) async {
       _size(tester, const Size(392, 850));
       await http.runWithClient(() async {

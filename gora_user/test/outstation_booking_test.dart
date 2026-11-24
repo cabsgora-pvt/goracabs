@@ -30,6 +30,9 @@ Map<String, dynamic> _vehicle(String name, int cap, int fare) => {
   'breakdown': {'base': fare, 'nightHalt': 0, 'emptyReturn': 0},
 };
 
+/// Every /fare/estimate body, to compare with what is booked.
+final estimates = <Map<String, dynamic>>[];
+
 MockClient _server(List<http.Request> booked) => MockClient((req) async {
   final p = req.url.path;
   if (p.endsWith('/places/reverse')) return _json({'address': _pickup});
@@ -41,8 +44,11 @@ MockClient _server(List<http.Request> booked) => MockClient((req) async {
   if (p.endsWith('/places/details')) return _json({'lat': 26.9239, 'lng': 75.8267, 'address': _drop});
   if (p.endsWith('/payment/config')) return _json({'razorpay': {'enabled': false}, 'walletEnabled': true});
   if (p.endsWith('/fare/estimate')) {
+    final e = jsonDecode(req.body) as Map<String, dynamic>;
+    estimates.add(e);
+    final rt = e['tripType'] == 'round_trip';
     return _json({'available': true, 'oneWayKm': 268, 'oneWayMin': 310,
-      'vehicles': [_vehicle('Sedan', 4, 4600), _vehicle('SUV', 6, 5400)]});
+      'vehicles': [_vehicle('Sedan', 4, 4600), {..._vehicle('SUV', 6, 5400), 'quoteToken': rt ? 'q-SUV-rt' : 'q-SUV'}]});
   }
   if (p.endsWith('/rides/book')) {
     booked.add(req);
@@ -59,6 +65,7 @@ MockClient _server(List<http.Request> booked) => MockClient((req) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() {
+    estimates.clear();
     SharedPreferences.setMockInitialValues({'token': 'test'});
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
         const MethodChannel('flutter.baseflow.com/geolocator'), (call) async {
@@ -139,6 +146,18 @@ void main() {
       expect(body['cityFrom'], 'Gurugram');
       expect(body['cityTo'], 'Jaipur');
       expect(find.byType(ActiveRideScreen), findsOneWidget, reason: 'the trip is tracked on the live ride screen');
+      expect(body['clientRequestId'], isA<String>());
+      expect(body.containsKey('couponDiscount'), isFalse);
+
+      // The quote is signed over its inputs: the one replayed (q-SUV) was asked
+      // for with exactly the trip type and stops that were booked.
+      final quoted = estimates.lastWhere((e) => e['tripType'] == body['tripType']);
+      expect(body['tripType'], 'one_way');
+      expect(quoted['service'], 'outstation');
+      expect(quoted['pickupLat'], body['pickupLat']);
+      expect(quoted['dropLat'], body['dropLat']);
+      expect(quoted['stops'] ?? [], [for (final s in body['multiStops'] as List) {'lat': s['lat'], 'lng': s['lng']}]);
+      expect(estimates.any((e) => e['tripType'] == 'round_trip'), isTrue, reason: 'both trip types are quoted');
 
       await tester.pumpWidget(const SizedBox.shrink());
       await wait(tester, 1000);

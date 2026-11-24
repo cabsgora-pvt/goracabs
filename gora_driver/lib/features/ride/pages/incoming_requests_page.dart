@@ -8,6 +8,7 @@ import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
 import '../../../services/ride_alert_service.dart';
+import '../logic/accept_outcome.dart';
 import '../logic/dismissed_requests.dart';
 import '../widgets/swipe_to_confirm.dart';
 import '../../../widgets/captain_ui/captain_ui.dart';
@@ -27,6 +28,9 @@ class IncomingRequestsPage extends StatefulWidget {
 class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   static const int _maxRequests = 5;
   List<RideRequestModel> _requests = [];
+  // The feed rows as received, so an accepted ride can be reopened from them
+  // merged with the contact details the accept / active-ride reply carries.
+  final Map<String, Map<String, dynamic>> _raw = {};
   final Set<String> _rejectedIds = {};
   Timer? _timer;
   bool _accepting = false;
@@ -77,6 +81,9 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     try {
       final res = await DriverApiService.getPendingRequests();
       final rides = (res['rides'] as List?) ?? [];
+      for (final e in rides) {
+        if (e is Map && e['id'] != null) _raw[e['id'].toString()] = Map<String, dynamic>.from(e);
+      }
       final models = rides
           .map((e) => RideRequestModel.fromJson(Map<String, dynamic>.from(e as Map)))
           .where((m) => !_rejectedIds.contains(m.id))
@@ -110,9 +117,10 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     _playingService = svc;
     try {
       await _player.stop();
-      if (rel.isEmpty) return; // no custom ringtone set for this service
       await _player.setReleaseMode(ReleaseMode.loop);
-      await _player.play(UrlSource(AppConfig.imageUrl(rel)));
+      // No admin ringtone for this service: the bundled one. Nothing used to
+      // play at all, so a request on screen could go unnoticed.
+      await _player.play(ringtoneSource(rel));
     } catch (_) {}
   }
 
@@ -152,33 +160,93 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     // must never hold up the accept itself.
     unawaited(_stopRing());
     unawaited(RideAlertService.clearIncomingAlert());
-    Map<String, dynamic> r;
+    Map<String, dynamic>? r;
     try {
       r = await DriverApiService.acceptRide(m.id);
     } catch (_) {
-      // A dropped connection or a non-JSON reply used to throw here and leave
-      // the page frozen with every control disabled.
-      r = const {'error': 'Could not reach the server — try again'};
+      // Timed out or the connection dropped: the server may well have assigned
+      // the ride to us anyway. Telling the driver it failed would leave the
+      // rider waiting for a captain who is not coming.
+      r = null;
     }
     if (!mounted) return;
-    if (r['success'] == true || r['ride'] != null) {
-      // Nothing may close or refresh this page any more: it is being replaced.
-      _closed = true;
-      // A clean stack under the new trip: only home below it. This page could
-      // open over the last trip's Order Complete (or any other screen), and a
-      // plain replace left that screen underneath — Back from the new trip
-      // then showed the previous trip's invoice.
-      Navigator.pushNamedAndRemoveUntil(context, OnRidePage.route, (r) => r.isFirst, arguments: m);
-    } else {
-      // Taken by someone else or error → drop it and resume
-      _rejectedIds.add(m.id);
-      setState(() { _requests.removeWhere((x) => x.id == m.id); _accepting = false; });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(r['error']?.toString() ?? 'Ride already taken')),
-      );
-      _timer = Timer.periodic(const Duration(seconds: 3), (_) => _refresh());
-      if (_requests.isEmpty) { _close(); } else { _updateRing(); }
+    if (r == null) {
+      final active = await _activeRide();
+      if (!mounted) return;
+      if (active != null && active['id']?.toString() == m.id) {
+        _open(m, active);
+        return;
+      }
+      _resume(m, const AcceptOutcome(AcceptAction.keepCard,
+          'Could not reach the server — the trip was not accepted. Try again.'));
+      return;
     }
+    final outcome = acceptOutcome(r);
+    if (outcome.action == AcceptAction.open) {
+      // Phone numbers are not in the feed: the active-ride reply has them.
+      final active = await _activeRide();
+      if (!mounted) return;
+      final ride = r['ride'];
+      _open(m, active != null && active['id']?.toString() == m.id
+          ? active
+          : (ride is Map ? _contactsOf(Map<String, dynamic>.from(ride)) : const {}));
+      return;
+    }
+    _resume(m, outcome);
+  }
+
+  Future<Map<String, dynamic>?> _activeRide() async {
+    try {
+      final a = await DriverApiService.getActiveRide();
+      final ride = a['ride'];
+      return ride is Map ? Map<String, dynamic>.from(ride) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Map<String, dynamic> _contactsOf(Map<String, dynamic> ride) => {
+    for (final k in const ['riderPhone', 'senderPhone', 'receiverPhone', 'senderName', 'receiverName', 'status'])
+      if (ride[k] != null) k: ride[k],
+  };
+
+  void _open(RideRequestModel m, Map<String, dynamic> extra) {
+    // Nothing may close or refresh this page any more: it is being replaced.
+    _closed = true;
+    final raw = _raw[m.id];
+    final model = raw == null && extra.isEmpty
+        ? m
+        : RideRequestModel.fromJson({...?raw, ...extra, 'id': m.id});
+    // A clean stack under the new trip: only home below it. This page could
+    // open over the last trip's Order Complete (or any other screen), and a
+    // plain replace left that screen underneath — Back from the new trip
+    // then showed the previous trip's invoice.
+    Navigator.pushNamedAndRemoveUntil(context, OnRidePage.route, (r) => r.isFirst, arguments: model);
+  }
+
+  /// The accept was refused (or did not get through): say why, then carry on
+  /// with whatever requests are still up — or close if none can be taken.
+  void _resume(RideRequestModel m, AcceptOutcome outcome) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(outcome.message), duration: const Duration(seconds: 5)),
+    );
+    if (outcome.action == AcceptAction.closeAll) {
+      setState(() { _requests = []; _accepting = false; });
+      _close();
+      return;
+    }
+    setState(() {
+      if (outcome.action == AcceptAction.dropCard) {
+        _rejectedIds.add(m.id);
+        _requests.removeWhere((x) => x.id == m.id);
+      } else if (outcome.action == AcceptAction.dismissCard) {
+        DismissedRequests.dismiss(m.id, offerExpiresAt: m.offerExpiresAt);
+        _requests.removeWhere((x) => x.id == m.id);
+      }
+      _accepting = false;
+    });
+    _timer = Timer.periodic(const Duration(seconds: 3), (_) => _refresh());
+    if (_requests.isEmpty) { _close(); } else { _updateRing(); }
   }
 
   // Explicit reject (tap on ✕ or swipe left): the server records rejectedBy so
@@ -500,6 +568,19 @@ class _RequestCardState extends State<_RequestCard> with SingleTickerProviderSta
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: _paymentLine(r),
           ),
+          if (r.scheduledAt != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Row(children: [
+                const Icon(Icons.event_outlined, size: 16, color: AppColors.orange),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(scheduledLabel(r.scheduledAt!),
+                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: Cap.body(size: 13, weight: FontWeight.w800, color: AppColors.orange)),
+                ),
+              ]),
+            ),
           if (r.service == 'delivery')
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -692,4 +773,26 @@ class _RequestCardState extends State<_RequestCard> with SingleTickerProviderSta
     if (s.contains('suv') || s.contains('xl')) return Icons.airport_shuttle;
     return Icons.local_taxi;
   }
+}
+
+/// The request ringtone: the admin's file for the service, else the bundled
+/// default.
+Source ringtoneSource(String adminPath) => adminPath.trim().isEmpty
+    ? AssetSource(defaultRingtoneAsset)
+    : UrlSource(AppConfig.imageUrl(adminPath));
+
+/// Bundled request ringtone, played when no admin ringtone is set.
+const defaultRingtoneAsset = 'sounds/ride_request.mp3';
+
+/// "Scheduled for Today, 6:30 PM" / "Scheduled for 28 Nov, 9:05 AM".
+String scheduledLabel(DateTime at, {DateTime? now}) {
+  final n = now ?? DateTime.now();
+  const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  final h = at.hour == 0 ? 12 : (at.hour > 12 ? at.hour - 12 : at.hour);
+  final time = '$h:${at.minute.toString().padLeft(2, '0')} ${at.hour >= 12 ? 'PM' : 'AM'}';
+  final today = DateTime(n.year, n.month, n.day);
+  final day = DateTime(at.year, at.month, at.day);
+  final diff = day.difference(today).inDays;
+  final date = diff == 0 ? 'Today' : diff == 1 ? 'Tomorrow' : '${at.day} ${m[at.month - 1]}';
+  return 'Scheduled for $date, $time';
 }

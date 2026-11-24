@@ -46,8 +46,6 @@ class _RentalScreenState extends State<RentalScreen> {
   // ── Payment + coupon (UI-only) ──
   String _paymentMode = 'cash';
   String _couponCode = '';
-  int _couponDiscount = 0;
-
   // Admin-defined ride preferences for rentals, and the keys the rider picked.
   List<RidePreference> _ridePrefs = const [];
   Set<String> _selectedPrefs = {};
@@ -132,9 +130,11 @@ class _RentalScreenState extends State<RentalScreen> {
   Future<void> _selectSuggestion(Map<String, dynamic> s, {required bool isPickup}) async {
     final details = await ApiService.placeDetails(s['placeId'] as String? ?? '');
     if (details == null || !mounted) return;
-    final lat = (details['lat'] as num).toDouble();
-    final lng = (details['lng'] as num).toDouble();
-    final addr = details['address'] as String? ?? (s['description'] ?? '').toString();
+    // placeDetails returns numeric lat/lng or null, never an error map.
+    final lat = ApiService.toDoubleOrNull(details['lat']), lng = ApiService.toDoubleOrNull(details['lng']);
+    if (lat == null || lng == null) return;
+    final a = '${details['address'] ?? ''}';
+    final addr = a.isNotEmpty ? a : (s['description'] ?? '').toString();
     setState(() {
       if (isPickup) {
         _pickupLat = lat; _pickupLng = lng; _pickupController.text = addr; _pickupSuggestions = [];
@@ -154,7 +154,7 @@ class _RentalScreenState extends State<RentalScreen> {
 
   /// Books the rental and returns the server's answer; [bookAndTrack] reports a
   /// failure and opens the live ride screen on success.
-  Future<Map<String, dynamic>> _bookRental() async {
+  Future<Map<String, dynamic>> _bookRental(String clientRequestId, bool freshQuote) async {
     if (_pickupLat == null || _selectedPackage == null || _selectedVehicle == null) {
       return {'error': 'Choose a pickup point and a package first'};
     }
@@ -165,7 +165,10 @@ class _RentalScreenState extends State<RentalScreen> {
       startAt = DateTime(_selectedDate!.year, _selectedDate!.month, _selectedDate!.day, t.hour, t.minute);
     }
     final fare = _scaledPrice(p);         // hours × per-hour rate
+    // A rental is priced by the server from the zone's packages (no quote), so
+    // a fresh attempt needs nothing re-quoted.
     return ApiService.bookRide({
+        'clientRequestId': clientRequestId,
         'pickupAddress': _pickupController.text,
         'dropAddress': _dropController.text,
         'pickupLat': _pickupLat, 'pickupLng': _pickupLng,
@@ -173,15 +176,14 @@ class _RentalScreenState extends State<RentalScreen> {
         'dropLat': _dropLat ?? _pickupLat, 'dropLng': _dropLng ?? _pickupLng,
         'service': 'rental',
         'vehicleType': _selectedVehicle,
-        'fare': (fare - _couponDiscount).clamp(0, fare), // apply coupon, never negative
+        'fare': fare, // display only: the server prices the package and applies the coupon
         'packageHours': _selectedHours,     // the hours the user actually picked
         'packageKm': _scaledKm(p),          // scaled included km
         'extraHourRate': p['extraHourRate'] ?? _hourlyRate(p),
         'extraKmRate': p['extraKmRate'] ?? 0,
         'departureAt': startAt?.toUtc().toIso8601String(),
         'paymentMode': _paymentMode,
-        'couponCode': _couponCode,
-        'couponDiscount': _couponDiscount,
+        if (_couponCode.isNotEmpty) 'couponCode': _couponCode,
         if (_selectedPrefs.isNotEmpty)
           'preferences': _ridePrefs.map((p) => p.key).where(_selectedPrefs.contains).toList(),
       });
@@ -190,23 +192,13 @@ class _RentalScreenState extends State<RentalScreen> {
   /// Book once, from the button — never from a sheet builder — then track the
   /// rental on the live ride screen.
   ///
-  /// No coupon is stored for the ride: a rental's coupon is applied by the
-  /// server at booking, so its fare already includes the discount.
+  /// A rental's coupon is applied by the server at booking, so its fare
+  /// already includes the discount.
+  /// bookAndTrack says whether the server applied the coupon, and if not, why —
+  /// instead of quietly charging full price.
   Future<void> _confirmRental() => bookAndTrack(
     context,
     book: _bookRental,
-    onBooked: (res) {
-      // Tell the rider if their coupon was rejected instead of quietly
-      // charging them full price. The messenger outlives this screen, so the
-      // notice shows over the ride screen that replaces it.
-      final promo = res['promo'];
-      if (promo is Map && promo['applied'] != true && (promo['reason'] ?? '').toString().isNotEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Coupon not applied: ${promo['reason']}'),
-          backgroundColor: Colors.orange,
-        ));
-      }
-    },
   );
 
   // Picks the package for the selected vehicle whose hours best matches _selectedHours
@@ -405,10 +397,10 @@ class _RentalScreenState extends State<RentalScreen> {
           PrimaryCtaBar(
             top: PaymentCouponBar(
               baseFare: selPrice ?? 0,
-              onChanged: (pm, cc, cd) => setState(() {
+              // The discount shown is a preview: the server decides it.
+              onChanged: (pm, cc, _) => setState(() {
                 _paymentMode = pm;
                 _couponCode = cc;
-                _couponDiscount = cd;
               }),
             ),
             label: _selectedVehicle == null

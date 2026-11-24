@@ -9,6 +9,7 @@ import '../../../models/models.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
 import '../logic/job_settlement.dart';
+import '../logic/ride_actions.dart';
 import 'collect_fare_page.dart';
 import '../widgets/arrival_hint.dart';
 import '../widgets/nav_map.dart';
@@ -36,7 +37,11 @@ class DeliveryProgressPage extends StatefulWidget {
   @visibleForTesting
   final String? initialProofPhoto;
 
-  const DeliveryProgressPage({super.key, required this.ride, this.collectOnOpen = false, this.initialProofPhoto});
+  /// Replaces the camera. Only tests set it.
+  @visibleForTesting
+  final Future<XFile?> Function()? pickPhoto;
+
+  const DeliveryProgressPage({super.key, required this.ride, this.collectOnOpen = false, this.initialProofPhoto, this.pickPhoto});
   @override
   State<DeliveryProgressPage> createState() => _DeliveryProgressPageState();
 }
@@ -46,6 +51,8 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
   /// Delivered or returned before this screen opened; only settlement is left.
   late bool _pricedEarlier;
   bool _busy = false;
+  // Too many wrong drop OTPs: support has to unlock the code.
+  late bool _dropOtpLocked = widget.ride.dropOtpLocked;
   String? _proofPhoto; // full url of captured proof
   String? _signatureUrl;
   final _picker = ImagePicker();
@@ -115,7 +122,9 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
           if (bd == null) return;
           setState(() => _busy = true);
           final url = await DriverApiService.uploadBytes(bd.buffer.asUint8List(), 'signature.png');
-          if (mounted) setState(() { _signatureUrl = url; _busy = false; });
+          if (!mounted) return;
+          setState(() { _signatureUrl = url ?? _signatureUrl; _busy = false; });
+          if (url == null) _uploadFailed();
         }, child: const Text('Save')),
       ])));
   }
@@ -138,7 +147,8 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
       // server — and the sender's app — still said the parcel was uncollected.
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Could not mark collected: ${res['error']}'), backgroundColor: AppColors.red));
+        content: Text('Could not mark collected: ${res['code'] == null ? res['error'] : rideActionError(res)}'),
+        backgroundColor: AppColors.red));
       return;
     }
     _arrivalHint.dismiss();
@@ -153,12 +163,30 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
       title: const Text('Return to Sender — reason'),
       children: reasons.map((x) => SimpleDialogOption(onPressed: () => Navigator.pop(dctx, x), child: Text(x))).toList()));
     if (reason == null || !mounted) return;
+    // A failed delivery needs a photo (the door, the address board …): the
+    // server refuses one without it (PHOTO_REQUIRED).
+    final go = await showDialog<bool>(context: context, builder: (dctx) => AlertDialog(
+      title: const Text('Photo needed'),
+      content: const Text('Take a photo at the drop point (door, building or address board) as proof.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('Cancel')),
+        ElevatedButton(onPressed: () => Navigator.pop(dctx, true), child: const Text('Take photo')),
+      ],
+    ));
+    if (go != true || !mounted) return;
+    final photo = await _takePhoto();
+    if (photo == null || !mounted) return;
     setState(() => _busy = true);
-    final res = await DriverApiService.deliveryAction(widget.ride.id, {'action': 'failed', 'reason': reason});
+    Map<String, dynamic> res;
+    try {
+      res = await DriverApiService.deliveryAction(widget.ride.id, {'action': 'failed', 'reason': reason, 'photoUrl': photo});
+    } catch (_) {
+      res = const {'error': 'No connection'};
+    }
     if (!mounted) return;
     setState(() => _busy = false);
     if (res['error'] != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['error'].toString()), backgroundColor: AppColors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(rideActionError(res)), backgroundColor: AppColors.red));
       return;
     }
     _ping?.cancel();
@@ -166,6 +194,38 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
     // COD, because the receiver never took the parcel.
     setState(() => _priced = res);
     await _collectAndSettle();
+  }
+
+  /// Takes a photo and uploads it; the url, or null after telling the driver
+  /// why. The upload used to have no timeout and no error path, so on a weak
+  /// network its spinner turned for ever.
+  Future<String?> _takePhoto() async {
+    XFile? x;
+    try {
+      x = widget.pickPhoto != null
+          ? await widget.pickPhoto!()
+          : await _picker.pickImage(source: ImageSource.camera, imageQuality: 70,
+              maxWidth: DriverApiService.maxImageSide, maxHeight: DriverApiService.maxImageSide);
+    } catch (_) {
+      x = null;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Could not open the camera'), backgroundColor: AppColors.red));
+      }
+    }
+    if (x == null || !mounted) return null;
+    setState(() => _busy = true);
+    final url = await DriverApiService.uploadFile(x);
+    if (!mounted) return null;
+    setState(() => _busy = false);
+    if (url == null) _uploadFailed();
+    return url;
+  }
+
+  void _uploadFailed() {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(DriverApiService.lastUploadError ?? 'Upload failed — try again'),
+      backgroundColor: AppColors.red));
   }
 
   /// Takes the money at the door, then settles the ride — the server priced the
@@ -196,11 +256,8 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
   }
 
   Future<void> _captureProof() async {
-    final x = await _picker.pickImage(source: ImageSource.camera, imageQuality: 60);
-    if (x == null || !mounted) return;
-    setState(() => _busy = true);
-    final url = await DriverApiService.uploadFile(x);
-    if (mounted) setState(() { _proofPhoto = url; _busy = false; });
+    final url = await _takePhoto();
+    if (url != null && mounted) setState(() => _proofPhoto = url);
   }
 
   Future<void> _deliver() async {
@@ -209,6 +266,11 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
       return;
     }
     _arrivalHint.dismiss();
+    if (_dropOtpLocked) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(otpLockedMessage), backgroundColor: AppColors.red, duration: Duration(seconds: 6)));
+      return;
+    }
     final otp = await OtpDialog.show(context,
         title: 'Enter Delivery OTP', label: 'OTP from Receiver', hint: 'e.g. 4821', action: 'Deliver');
     if (otp == null || otp.isEmpty || !mounted) return;
@@ -232,8 +294,9 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
         return;
       }
       if (!mounted) return;
-      setState(() => _busy = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['error'].toString()), backgroundColor: AppColors.red));
+      setState(() { _busy = false; if (res['code'] == 'OTP_LOCKED') _dropOtpLocked = true; });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(rideActionError(res)),
+          backgroundColor: AppColors.red, duration: const Duration(seconds: 6)));
       return;
     }
     setState(() => _busy = false);

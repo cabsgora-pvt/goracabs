@@ -45,6 +45,9 @@ class EarningsLoaded extends EarningsState {
 typedef _Ride = ({DateTime date, double amount, double distanceKm, int durationMin});
 
 class EarningsBloc extends Bloc<EarningsEvent, EarningsState> {
+  /// At most this many history pages (50 trips each) are read for the charts.
+  static const maxHistoryPages = 20;
+
   static const _dow = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   static const _mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -55,10 +58,28 @@ class EarningsBloc extends Bloc<EarningsEvent, EarningsState> {
   Future<void> _onLoad(LoadEarningsEvent e, Emitter emit) async {
     emit(EarningsLoading());
     final rides = <_Ride>[];
+    final now0 = DateTime.now();
+    // The charts cover this year (months) and the last 7 days (which can reach
+    // back into last year). History comes 50 trips a page, newest first: read
+    // pages until they reach back past that, or run out. One page used to be
+    // all there was, so a busy driver's earlier months showed ₹0.
+    final since = DateTime(now0.year, 1, 1).isBefore(now0.subtract(const Duration(days: 7)))
+        ? DateTime(now0.year, 1, 1)
+        : now0.subtract(const Duration(days: 7));
+    final raws = <Map<String, dynamic>>[];
     try {
-      final res = await DriverApiService.getTripHistory();
-      for (final raw in (res['rides'] as List?) ?? []) {
-        final r = Map<String, dynamic>.from(raw as Map);
+      for (var page = 1; page <= maxHistoryPages; page++) {
+        final res = await DriverApiService.getTripHistory(page: page);
+        if (res['error'] != null) break;
+        final list = ((res['rides'] as List?) ?? []).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+        raws.addAll(list);
+        if (res['hasMore'] != true || list.isEmpty) break;
+        final oldest = DateTime.tryParse(list.last['createdAt']?.toString() ?? '')?.toLocal();
+        if (oldest != null && oldest.isBefore(since)) break;
+      }
+    } catch (_) {}
+    try {
+      for (final r in raws) {
         final status = (r['status'] ?? '').toString();
         if (status.isNotEmpty && status != 'completed') continue; // earnings = completed rides only
         final d = DateTime.tryParse(r['createdAt']?.toString() ?? '')?.toLocal();

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
@@ -16,6 +17,34 @@ class DriverApiService {
   static Future<void> saveToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('driver_token', token);
+    // A new session: the next expired-session reply may sign out again.
+    _unauthorizedFired = false;
+  }
+
+  /// Called once when a request made WITH the current session token is
+  /// answered 401 — the session expired or was signed out elsewhere. The app
+  /// wires this to sign out (stop the online service, clear the session, go to
+  /// login); the background ride-alert isolate wires its own.
+  ///
+  /// Before this every screen treated a 401 as just another error: the home
+  /// poller saw "no rides" for ever and the driver sat online receiving nothing.
+  static FutureOr<void> Function()? onUnauthorized;
+  static bool _unauthorizedFired = false;
+
+  /// Re-arms the one-shot 401 handler (a new login, or a test).
+  static void resetUnauthorized() => _unauthorizedFired = false;
+
+  static Future<void> _checkUnauthorized(int status, String? sentToken) async {
+    if (status != 401 || sentToken == null || _unauthorizedFired) return;
+    // Only the token that is still the session counts: a late reply to a
+    // request made before a re-login must not sign the new session out.
+    if (await getToken() != sentToken) return;
+    if (_unauthorizedFired) return;
+    _unauthorizedFired = true;
+    final cb = onUnauthorized;
+    if (cb != null) {
+      try { await cb(); } catch (_) {}
+    }
   }
 
   static Future<void> clearToken() async {
@@ -33,22 +62,43 @@ class DriverApiService {
   ///
   /// Callers already check `res['error']`, so failures are reported that way
   /// instead of thrown.
-  static Map<String, dynamic> _decode(http.Response res) {
+  ///
+  /// A non-2xx reply also carries its HTTP code as `_status`, so callers can
+  /// tell a refusal (409 RIDE_TAKEN, 423 OTP_LOCKED …) from a network failure.
+  static Map<String, dynamic> _decode(http.Response res, {String? sentToken}) {
+    unawaited(_checkUnauthorized(res.statusCode, sentToken));
+    final ok = res.statusCode >= 200 && res.statusCode < 300;
+    Map<String, dynamic> out;
     final body = res.body;
     if (body.trim().isEmpty) {
-      return {'error': 'No response from server (HTTP ${res.statusCode})'};
+      out = {'error': 'No response from server (HTTP ${res.statusCode})'};
+    } else {
+      try {
+        final v = jsonDecode(body);
+        out = v is Map<String, dynamic> ? v : {'error': 'Unexpected response from server'};
+      } catch (_) {
+        out = {
+          'error': res.statusCode >= 500
+              ? 'Server error (${res.statusCode}). Please try again.'
+              : 'Could not read the server response. Check your connection.',
+        };
+      }
     }
-    try {
-      final v = jsonDecode(body);
-      if (v is Map<String, dynamic>) return v;
-      return {'error': 'Unexpected response from server'};
-    } catch (_) {
-      return {
-        'error': res.statusCode >= 500
-            ? 'Server error (${res.statusCode}). Please try again.'
-            : 'Could not read the server response. Check your connection.',
-      };
+    if (!ok) out['_status'] = res.statusCode;
+    return out;
+  }
+
+  static Future<Map<String, String>> _headers({bool auth = true}) async {
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (auth) {
+      final token = await getToken();
+      if (token != null) headers['Authorization'] = 'Bearer $token';
     }
+    return headers;
+  }
+
+  static String? _tokenOf(Map<String, String> h) {
+    return h['Authorization']?.substring('Bearer '.length);
   }
 
   /// How long one API call may take. Without it a request on a lossy network
@@ -58,81 +108,82 @@ class DriverApiService {
   static const requestTimeout = Duration(seconds: 20);
 
   static Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body, {bool auth = false}) async {
-    final headers = <String, String>{'Content-Type': 'application/json'};
-    if (auth) {
-      final token = await getToken();
-      if (token != null) headers['Authorization'] = 'Bearer $token';
-    }
+    final headers = await _headers(auth: auth);
     final res = await http.post(
       Uri.parse('$baseUrl$path'),
       headers: headers,
       body: jsonEncode(body),
     ).timeout(requestTimeout);
-    return _decode(res);
+    return _decode(res, sentToken: _tokenOf(headers));
   }
 
   static Future<Map<String, dynamic>> delete(String path) async {
-    final token = await getToken();
-    final headers = <String, String>{
-      'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
-    };
+    final headers = await _headers();
     final res = await http.delete(Uri.parse('$baseUrl$path'), headers: headers).timeout(requestTimeout);
-    return _decode(res);
+    return _decode(res, sentToken: _tokenOf(headers));
   }
 
   static Future<Map<String, dynamic>> put(String path, Map<String, dynamic> body) async {
-    final token = await getToken();
-    final headers = <String, String>{
-      'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
-    };
+    final headers = await _headers();
     final res = await http.put(Uri.parse('$baseUrl$path'), headers: headers, body: jsonEncode(body)).timeout(requestTimeout);
-    return _decode(res);
+    return _decode(res, sentToken: _tokenOf(headers));
   }
 
   static Future<Map<String, dynamic>> get(String path) async {
-    final token = await getToken();
-    final headers = <String, String>{
-      'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
-    };
+    final headers = await _headers();
     final res = await http.get(Uri.parse('$baseUrl$path'), headers: headers).timeout(requestTimeout);
-    return _decode(res);
+    return _decode(res, sentToken: _tokenOf(headers));
   }
 
+  /// How long one upload may take. Uploads had no limit at all, so on a weak
+  /// network the proof-of-delivery and payment-QR spinners turned for ever.
+  static const uploadTimeout = Duration(seconds: 45);
+
+  /// The longest side a picked photo is uploaded at — pass to
+  /// `pickImage(maxWidth:, maxHeight:)`. A 12 MP camera shot is several MB.
+  static const maxImageSide = 1600.0;
+
+  /// Why the last [uploadFile] / [uploadBytes] returned null, for the screen
+  /// to show. Null after a successful upload.
+  static String? lastUploadError;
+
+  /// Uploads a picked photo; the full url, or null with [lastUploadError] set.
+  /// Never throws and never hangs.
   static Future<String?> uploadFile(XFile file) async {
-    final bytes = await file.readAsBytes();
-    final uri = Uri.parse('$baseUrl/upload');
-    final request = http.MultipartRequest('POST', uri);
-    // /api/upload now requires a signed-in caller — without this header every
-    // document, proof-of-delivery photo and signature upload 401s.
-    final token = await getToken();
-    if (token != null) request.headers['Authorization'] = 'Bearer $token';
-    request.files.add(http.MultipartFile.fromBytes(
-      'file',
-      bytes,
-      filename: file.name.isNotEmpty ? file.name : 'doc.jpg',
-    ));
-    final streamed = await request.send();
-    final res = await http.Response.fromStream(streamed);
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    if (data['url'] != null) return AppConfig.imageUrl(data['url'] as String);
-    return null;
+    Uint8List bytes;
+    try {
+      bytes = await file.readAsBytes();
+    } catch (_) {
+      lastUploadError = 'Could not read the photo. Please try again.';
+      return null;
+    }
+    return uploadBytes(bytes, file.name.isNotEmpty ? file.name : 'doc.jpg');
   }
 
-  // Upload raw bytes (used for signature PNG) → returns full url
+  /// Uploads raw bytes (signature PNG, photos) → the full url, or null with
+  /// [lastUploadError] set. Limited by [uploadTimeout]; never throws.
   static Future<String?> uploadBytes(Uint8List bytes, String filename) async {
+    lastUploadError = null;
     try {
       final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload'));
+      // /api/upload requires a signed-in caller.
       final token = await getToken();
       if (token != null) request.headers['Authorization'] = 'Bearer $token';
       request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
-      final res = await http.Response.fromStream(await request.send());
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      if (data['url'] != null) return AppConfig.imageUrl(data['url'] as String);
+      final res = await http.Response.fromStream(await request.send().timeout(uploadTimeout))
+          .timeout(uploadTimeout);
+      final data = _decode(res, sentToken: token);
+      final url = data['url'];
+      if (url is String && url.isNotEmpty) return AppConfig.imageUrl(url);
+      lastUploadError = (data['error'] ?? 'Upload failed').toString();
       return null;
-    } catch (_) { return null; }
+    } on TimeoutException {
+      lastUploadError = 'Upload timed out — check your connection and try again.';
+      return null;
+    } catch (_) {
+      lastUploadError = 'Upload failed — check your connection and try again.';
+      return null;
+    }
   }
 
   // Auth
@@ -179,7 +230,7 @@ class DriverApiService {
       },
       body: jsonEncode(<String, dynamic>{}),
     ).timeout(requestTimeout);
-    return {..._decode(res), 'statusCode': res.statusCode};
+    return {..._decode(res, sentToken: token), 'statusCode': res.statusCode};
   }
 
   // Register the device's FCM push token so the backend can wake the app with a
@@ -242,6 +293,8 @@ class DriverApiService {
         if (lat != null && lng != null) ...{'lat': lat, 'lng': lng},
       }, auth: true);
 
+  /// A 400 INVALID_LOCATION / 422 LOCATION_JUMP reply only means this one
+  /// point was not stored; callers keep pinging.
   static Future<Map<String, dynamic>> updateLocation(double lat, double lng) =>
       post('/auth/driver/location', {'lat': lat, 'lng': lng}, auth: true);
 
@@ -270,22 +323,12 @@ class DriverApiService {
   static Future<Map<String, dynamic>> getPendingRequests() =>
       get('/rides/driver/pending');
 
-  // Returns the parsed body plus an injected '_status' http code so callers can detect 409 (taken)
-  static Future<Map<String, dynamic>> acceptRide(String id) async {
-    final token = await getToken();
-    final headers = <String, String>{
-      'Content-Type': 'application/json',
-      if (token != null) 'Authorization': 'Bearer $token',
-    };
-    final res = await http.post(
-      Uri.parse('$baseUrl/rides/$id/accept'),
-      headers: headers,
-      body: jsonEncode({}),
-    ).timeout(requestTimeout);
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    data['_status'] = res.statusCode;
-    return data;
-  }
+  /// The parsed body; a refusal also carries '_status' (403 / 409) and the
+  /// server's `code` (RIDE_TAKEN, DRIVER_BUSY, WALLET_BLOCKED …). A repeat
+  /// accept of a ride already ours answers {success, ride, repeated: true}.
+  /// Throws on timeout / no connection — the caller then asks
+  /// [getActiveRide] whether the accept went through anyway.
+  static Future<Map<String, dynamic>> acceptRide(String id) => post('/rides/$id/accept', {}, auth: true);
 
   static Future<Map<String, dynamic>> rejectRide(String id) =>
       post('/rides/$id/reject', {}, auth: true);
@@ -296,12 +339,22 @@ class DriverApiService {
   static Future<Map<String, dynamic>> startRide(String id, String otp) =>
       post('/rides/$id/start', {'otp': otp}, auth: true);
 
+  /// Ends the trip and settles it: {success, paymentStatus, paymentMode,
+  /// amountDue, awaitingPayment, paymentSwitchedToCash?, cashToCollect?, fare,
+  /// commissionPercent, adminProfit, driverEarning, driverWalletBalance}. An
+  /// online ride stays paymentStatus 'pending' until the rider pays.
   static Future<Map<String, dynamic>> completeRide(String id) =>
       post('/rides/$id/complete', {}, auth: true);
 
-  // Online ride: driver asks the rider to pay before the ride completes.
+  /// Online ride: prompts the rider to pay → {success, awaitingPayment, amountDue}.
   static Future<Map<String, dynamic>> requestPayment(String id) =>
       post('/rides/$id/request-payment', {}, auth: true);
+
+  /// The rider of a completed, unpaid online ride paid in cash instead:
+  /// {success, paymentMode:'cash', paymentStatus:'paid', cashToCollect,
+  /// commission, driverWalletBalance}; 409 paidOnline / 400 alreadyPaid.
+  static Future<Map<String, dynamic>> collectCash(String id) =>
+      post('/rides/$id/collect-cash', {}, auth: true);
 
   // The driver's current in-progress ride (to resume the ride screen on reopen).
   static Future<Map<String, dynamic>> getActiveRide() => get('/rides/driver/active');
@@ -328,15 +381,23 @@ class DriverApiService {
   static Future<Map<String, dynamic>> getRideMessages(String rideId) =>
       get('/rides/$rideId/messages');
   static Future<Map<String, dynamic>> sendRideMessage(String rideId, String text) =>
-      post('/rides/$rideId/messages', {'sender': 'driver', 'text': text}, auth: true);
+      // The server takes the sender from the token; 409 CHAT_CLOSED once the trip is over.
+      post('/rides/$rideId/messages', {'text': text}, auth: true);
 
   static Future<Map<String, dynamic>> getRide(String id) => get('/rides/$id');
 
   static Future<Map<String, dynamic>> rateRide(String id, int rating, String review) =>
-      post('/rides/$id/rate', {'by': 'driver', 'rating': rating, 'review': review}, auth: true);
+      // Who rates is taken from the token. Completed rides only, once
+      // (409 ALREADY_RATED / NOT_COMPLETED).
+      post('/rides/$id/rate', {'rating': rating, 'review': review}, auth: true);
 
-  static Future<Map<String, dynamic>> getTripHistory() =>
-      get('/rides/driver/history');
+  /// Largest page the history endpoint serves.
+  static const historyPageSize = 50;
+
+  /// One page of completed/cancelled trips, newest first:
+  /// {rides, page, limit, hasMore}.
+  static Future<Map<String, dynamic>> getTripHistory({int page = 1, int limit = historyPageSize}) =>
+      get('/rides/driver/history?page=$page&limit=${limit.clamp(1, historyPageSize)}');
 
   // Today/week earnings summary for the home dashboard
   static Future<Map<String, dynamic>> getEarningsSummary() =>

@@ -1,29 +1,18 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:share_plus/share_plus.dart';
 import '../config/app_config.dart';
 import '../utils/duration_format.dart';
 import '../services/api_service.dart';
 import '../utils/vehicle_marker.dart';
 import '../utils/map_markers.dart';
 import '../services/location_service.dart';
-import '../services/payment_service.dart';
 import '../utils/polyline_utils.dart';
-import '../utils/call_util.dart';
-import 'ride_chat_screen.dart';
 import '../widgets/payment_coupon_bar.dart';
-import '../widgets/payment_method_picker.dart';
 import '../widgets/ride_ui/ride_ui.dart';
-import '../widgets/online_payment.dart';
-import '../widgets/finding_driver_view.dart';
-import '../widgets/cancel_reasons_sheet.dart';
-import '../widgets/no_driver_found.dart';
-import '../widgets/account_hold.dart';
 import '../widgets/ride_preferences.dart';
-import 'emergency_actions_screen.dart';
+import '../utils/ride_booking.dart';
 import 'outstation_screen.dart';
-import 'rating_screen.dart';
 
 class TaxiBookingScreen extends StatefulWidget {
   final String? fromLocation;
@@ -51,19 +40,9 @@ class TaxiBookingScreen extends StatefulWidget {
 }
 
 class _TaxiBookingScreenState extends State<TaxiBookingScreen>
-    // Two animations now: the assigned vehicle's glide and the nearby fleet.
-    with TickerProviderStateMixin, WidgetsBindingObserver {
-  // Top-down sprite for the assigned vehicle, so the rider watches the
-  // car/auto/bike they booked approach rather than a generic pin.
-  BitmapDescriptor? _vehIcon;
-  // Glides the vehicle between server fixes instead of teleporting it.
-  late final SmoothVehicleMarker _vehicle;
-  void _loadVehIcon(String type) {
-    if (_vehIcon != null) return;
-    VehicleMarkers.descriptorFor(type).then((ic) {
-      if (mounted) setState(() => _vehIcon = ic);
-    });
-  }
+    // The nearby fleet's animation. The booked ride is tracked, and paid, on
+    // ActiveRideScreen — this screen only books it.
+    with TickerProviderStateMixin {
   String? _selectedVehicle;
 
   // Real available vehicles around the pickup, of the selected type. These were
@@ -84,37 +63,14 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   // Admin-defined ride preferences for taxi, and the keys the rider picked.
   List<RidePreference> _ridePrefs = const [];
   Set<String> _selectedPrefs = {};
-  num _payableFare = 0;
   String _couponCode = '';
   int _couponDiscount = 0;
   final _pickupController = TextEditingController();
   final _dropController = TextEditingController();
-  bool _showLocationInputs = false;
   bool _showPickupConfirmation = false;
-  bool _showWaitingPopup = false;
+  // At most kMaxTip (the server refuses more).
   int? _selectedTip;
-  bool _isTaxiComing = false;
-  // Which sheet the live ride is on. Each phase's status handler is registered
-  // once, when the phase starts — never from a sheet builder, which re-runs on
-  // every route change — and ignores polls once its phase is over, so a late
-  // or repeated 'accepted' cannot pop or re-show anything.
-  _RidePhase _phase = _RidePhase.idle;
-  // The finding and driver sheets, kept so a phase change removes exactly that
-  // sheet. Navigator.pop() removes whatever is on top: with any other sheet
-  // open over the finding view (cancel reasons, say) the accept used to pop
-  // that one and leave "Finding your ride" under the driver sheet all trip.
-  Route<void>? _findingRoute;
-  // Set while completion is being handled, so overlapping polls charge once.
-  bool _completing = false;
-  // The trip is over: the screen shows only the map under the summary.
-  bool _tripDone = false;
-  // Latest driver position from the server (the marker animates towards it).
-  LatLng? _driverFix;
-  // Straight-line km left to the drop, shown when Directions cannot answer.
-  double? _tripKmLeft;
   bool _locationConfirmed = false;
-  bool _showFullTripMap = false;
-  bool _showArrivingButtons = false;
   bool _showMapPicker = false;
   LatLng _selectedMapLocation = const LatLng(28.6139, 77.2090);
   LatLng _myLocation = const LatLng(28.6139, 77.2090);
@@ -122,45 +78,10 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   List<TextEditingController> _stopControllers = [];
   final List<LatLng?> _stopLatLng = [];   // resolved coords per stop (parallel to controllers)
 
-  // ── Live ride state (wired to backend) ──────────────────────
-  String? _rideId;
-  String? _rideOtp;
-  String _driverName = 'Driver';
-  String _driverPhone = '';
-  String _driverPicUrl = '';
-  String _driverVehicleModel = '';
-  String _driverVehicleNumber = '';
-  double _driverRating = 0;
-  int? _driverTrips;
-  String _driverVehicleType = '';
-  Timer? _pollTimer;
-  // What the current status poll reports to (finding sheet, then arriving
-  // sheet). Kept so the poll can be restarted when the app comes back from the
-  // background. Null once the ride is over or cancelled.
-  FutureOr<void> Function(String status, Map<String, dynamic> ride)? _statusHandler;
-  // One status request (and its handler) at a time - the resume refresh and
-  // the timer can otherwise overlap and both act on the same 'completed'.
-  bool _statusInFlight = false;
-  // Latest server status, for the arriving sheet's title / ETA line.
-  String _rideStatus = 'pending';
-  // Bumped whenever ride/ETA state changes. A modal sheet is its own route and
-  // does not rebuild on this State's setState, so the arriving sheet listens to
-  // this instead - it used to keep saying "Your taxi on the way" (with a frozen
-  // ETA) for the whole trip.
-  final ValueNotifier<int> _sheetTick = ValueNotifier(0);
-  Timer? _driverLocTimer;
-  Timer? _etaTimer;
   Timer? _fareRefreshTimer;
 
-  // ── Route + live tracking state ─────────────────────────────
+  // ── Route ───────────────────────────────────────────────────
   List<LatLng> _routePoints = [];           // decoded pickup → drop polyline
-  String _routePolylineEncoded = '';
-  LatLng? _driverLatLng;                     // live driver position
-  double _driverHeading = 0;                 // 0-360, for marker rotation
-  int? _driverEtaMin;                        // driver → pickup minutes
-  double? _driverDistanceKm;                 // driver → pickup km
-  int? _tripEtaMin;                          // remaining time to destination during ride
-  Map<String, dynamic>? _fareBreakdown;
 
   // ── Places autocomplete state ──
   List<Map<String, dynamic>> _dropSuggestions = [];
@@ -390,18 +311,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
 
   @override
   void initState() {
-    _vehicle = SmoothVehicleMarker(
-      vsync: this,
-      onUpdate: () {
-        if (!mounted) return;
-        setState(() {
-          _driverLatLng = _vehicle.position;
-          _driverHeading = _vehicle.bearing;
-        });
-      },
-    );
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _fleet = AmbientVehicleFleet(
       vsync: this,
       duration: const Duration(seconds: 4),
@@ -473,14 +383,10 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     PlaceMarkers.drop(dpr).then((d) { if (mounted) setState(() => _dropGlyph = d); });
   }
 
-  /// Available vehicles of the selected type near the pickup. Only while the
-  /// rider is choosing — once a driver is on the way, that driver is the map.
+  /// Available vehicles of the selected type near the pickup, while the rider
+  /// is choosing.
   Future<void> _loadNearby() async {
     if (!mounted) return;
-    if (_driverLatLng != null || _isTaxiComing) {
-      _fleet.clear();
-      return;
-    }
     try {
       final drivers = await ApiService.getNearbyDrivers(
         _myLocation.latitude, _myLocation.longitude,
@@ -497,14 +403,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
 
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _sheetTick.dispose();
     _nearbyTimer?.cancel();
     _fleet.dispose();
-    _vehicle.dispose();
-    _pollTimer?.cancel();
-    _driverLocTimer?.cancel();
-    _etaTimer?.cancel();
     _fareRefreshTimer?.cancel();
     _searchDebounce?.cancel();
     _pickupController.dispose();
@@ -602,7 +502,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   void _startFareRefresh() {
     if (_fareRefreshTimer != null && _fareRefreshTimer!.isActive) return;
     _fareRefreshTimer = Timer.periodic(const Duration(seconds: 20), (t) {
-      if (!mounted || _rideId != null) { t.cancel(); _fareRefreshTimer = null; return; }
+      if (!mounted) { t.cancel(); _fareRefreshTimer = null; return; }
       _loadRealFares();
     });
   }
@@ -659,7 +559,6 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
         final pts = decodePolyline(d['polyline'] as String);
         if (!mounted) return;
         setState(() {
-          _routePolylineEncoded = d['polyline'] as String;
           _routePoints = pts;
           // Prefer road distance + duration from Directions over Haversine
           if (d['distanceKm'] != null) _rideDistance = (d['distanceKm'] as num).toDouble();
@@ -675,7 +574,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   }
 
   /// The "Confirm pickup" step, before anything is booked.
-  bool get _confirmingPickup => _showPickupConfirmation && _phase == _RidePhase.idle;
+  bool get _confirmingPickup => _showPickupConfirmation;
 
   /// Close in on the pickup, for the rider to check (and drag) the pin.
   void _focusPickup() =>
@@ -693,159 +592,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     pts.add(_myLocation);
     if (_routePoints.isNotEmpty) pts.addAll(_routePoints);
     if (_dropController.text.trim().isNotEmpty) pts.add(_selectedMapLocation);
-    if (_driverLatLng != null) pts.add(_driverLatLng!);
     final b = boundsFromPoints(pts);
     if (b == null || _mapController == null) return;
     _mapController!.animateCamera(CameraUpdate.newLatLngBounds(b, 60));
-  }
-
-  // Poll the assigned driver's live location every 5s during the ride — and
-  // once straight away, so the driver (and the ETA) shows without a 5s wait.
-  void _startDriverLocationPolling() {
-    _driverLocTimer?.cancel();
-    if (_rideId == null) return;
-    _driverLocTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      if (!mounted) { timer.cancel(); return; }
-      _pollDriverLocationOnce();
-    });
-    _pollDriverLocationOnce();
-  }
-
-  Future<void> _pollDriverLocationOnce() async {
-    if (_rideId == null) return;
-    try {
-      final res = await ApiService.getDriverLocation(_rideId!);
-      final dr = res['driver'] as Map<String, dynamic>?;
-      if (dr == null || dr['lat'] == null || dr['lng'] == null) return;
-      if (!mounted) return;
-      final firstFix = _driverFix == null;
-      _driverFix = LatLng((dr['lat'] as num).toDouble(), (dr['lng'] as num).toDouble());
-      // Resolve the sprite for the vehicle actually assigned to this ride.
-      _loadVehIcon((dr['vehicleTypeName'] ?? _selectedVehicle ?? '').toString());
-      // moveTo animates and calls setState itself via onUpdate.
-      _vehicle.moveTo(_driverFix!, heading: (dr['heading'] as num?)?.toDouble());
-      // The ETA used to wait for the next 30s tick after the first fix, so the
-      // sheet read "Calculating ETA…" for half a minute.
-      if (firstFix) _fetchEtaOnce();
-    } catch (_) {/* keep last known */}
-  }
-
-  // A driver this close to the pickup is there. Directions cannot route a
-  // zero-length trip, which left the sheet on "Calculating ETA…" for good.
-  static const double _arrivedKm = 0.15;
-
-  // Periodically recompute ETA: driver → pickup (before start), or driver → drop (during ride)
-  Future<void> _fetchEtaOnce() async {
-    final from = _driverFix ?? _driverLatLng;
-    if (from == null || !mounted) return;
-    final goingToDrop = _showFullTripMap;
-    final dest = goingToDrop ? _selectedMapLocation : _myLocation;
-    final straightKm = polylineLengthMeters([from, dest]) / 1000;
-    if (!goingToDrop && straightKm < _arrivedKm) {
-      setState(() {
-        _driverEtaMin = 0;
-        _driverDistanceKm = straightKm;
-      });
-      _sheetTick.value++;
-      return;
-    }
-    try {
-      final d = await ApiService.getDirections(
-        originLat: from.latitude,
-        originLng: from.longitude,
-        destLat: dest.latitude,
-        destLng: dest.longitude,
-      );
-      if (!mounted) return;
-      final mins = (d['durationMin'] as num?)?.toInt();
-      final km = (d['distanceKm'] as num?)?.toDouble();
-      setState(() {
-        if (goingToDrop) {
-          _tripEtaMin = mins;
-          _tripKmLeft = km ?? straightKm;
-        } else {
-          _driverEtaMin = mins;
-          _driverDistanceKm = km ?? straightKm;
-        }
-      });
-    } catch (_) {
-      // No route answer: say how far the driver is rather than calculating forever.
-      if (!mounted) return;
-      setState(() {
-        if (goingToDrop) {
-          _tripKmLeft = straightKm;
-        } else {
-          _driverDistanceKm = straightKm;
-        }
-      });
-    }
-    _sheetTick.value++;
-  }
-
-  /// The driver sheet's status line before pickup: a real ETA when there is
-  /// one, else the distance, and "Arriving now" once the driver is there.
-  String _arrivingSubtitle() {
-    final km = _driverDistanceKm;
-    if (_driverEtaMin == 0 || (km != null && km < _arrivedKm)) return 'Arriving now';
-    if (_driverEtaMin != null) {
-      return 'Arriving in ${formatMinutes(_driverEtaMin!)}${km != null ? ' · ${km.toStringAsFixed(1)} km away' : ''}';
-    }
-    if (km != null) return 'Driver is ${km.toStringAsFixed(1)} km away';
-    if (_driverFix == null && _driverLatLng == null) return 'Locating your driver…';
-    return 'Calculating ETA…';
-  }
-
-  String _ongoingSubtitle() {
-    if (_tripEtaMin != null) {
-      return 'Arrive by ${RideUi.clock(DateTime.now().add(Duration(minutes: _tripEtaMin!)))}';
-    }
-    if (_tripKmLeft != null) return '${_tripKmLeft!.toStringAsFixed(1)} km to go';
-    return 'Calculating ETA…';
-  }
-
-  /// Draws the route to the drop once the trip is under way, when the booking
-  /// did not already return one. Display only: the fare inputs
-  /// (_rideDistance / _rideDuration) are deliberately left alone.
-  Future<void> _ensureTripRoute() async {
-    if (_dropController.text.trim().isEmpty) return;
-    if (_routePoints.isEmpty) {
-      final from = _driverFix ?? _driverLatLng ?? _myLocation;
-      try {
-        final d = await ApiService.getDirections(
-          originLat: from.latitude,
-          originLng: from.longitude,
-          destLat: _selectedMapLocation.latitude,
-          destLng: _selectedMapLocation.longitude,
-        );
-        final enc = d['polyline'];
-        if (enc is String && enc.isNotEmpty && mounted) {
-          setState(() => _routePoints = decodePolyline(enc));
-        }
-      } catch (_) {/* the drop pin still shows */}
-    }
-    if (mounted) _fitMapToRoute();
-  }
-
-  void _startEtaPolling() {
-    _etaTimer?.cancel();
-    _etaTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
-      if (!mounted) { timer.cancel(); return; }
-      _fetchEtaOnce();
-    });
-    // Fire once immediately so UI doesn't have to wait 30s
-    Future.delayed(const Duration(seconds: 2), _fetchEtaOnce);
-  }
-
-  // Share live trip link via OS share sheet
-  void _openChat() {
-    if (_rideId == null) return;
-    Navigator.push(context, MaterialPageRoute(builder: (_) => RideChatScreen(rideId: _rideId!, otherName: _driverName)));
-  }
-
-  void _shareTrip() {
-    if (_rideId == null) return;
-    final url = '${AppConfig.serverBaseUrl}/track/$_rideId';
-    Share.share('I\'m on a Gora ride — follow me live: $url', subject: 'My Gora Cabs trip');
   }
 
   // Book the ride against the backend (keeps UI; only sends real data)
@@ -868,93 +617,87 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     return out;
   }
 
-  // A booking request is out. With _phase, it locks every booking control.
+  // A booking request is out: every booking control is locked.
   bool _booking = false;
 
-  /// True while anything other than choosing a ride is going on: a booking
-  /// request out, a ride searching / assigned / under way, or a trip just
-  /// finished. Booking controls are hidden and inert whenever this is true.
-  bool get _bookingLocked => _phase != _RidePhase.idle || _booking || _tripDone;
+  /// True while a booking request is out. Booking controls are hidden and
+  /// inert while it is. Once booked, the ride replaces this screen.
+  bool get _bookingLocked => _booking;
 
-  /// Books once and opens the search. Refuses while a ride is already live, so
-  /// no route back to the booking controls can create a second ride.
+  /// Books once, then tracks — and pays for — the ride on ActiveRideScreen,
+  /// like every other service. This screen used to track the ride in its own
+  /// sheets and charge it on completion itself, a second payment path beside
+  /// the live ride screen's.
   Future<void> _startBooking() async {
     if (_bookingLocked) return;
     setState(() => _booking = true);
-    Map<String, dynamic> res;
     try {
-      res = await _bookRide();
+      await bookAndTrack(context, book: _bookRide);
     } finally {
-      _booking = false;
+      if (mounted) setState(() => _booking = false);
     }
-    if (!mounted) return;
-    if (res['ride'] == null && res['error'] != null) {
-      // No ride was created, so there is nothing to search for: a finding
-      // view here would spin for a ride that does not exist.
-      final error = res['error'].toString();
-      if (isAccountHoldResponse(res)) {
-        await showAccountHoldDialog(context, error);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Booking failed: $error'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 6),
-        ));
-      }
-      return;
-    }
-    _showFinalWaitingDialog();
   }
 
-  /// Books the ride and returns the server's answer (an `error` map when the
-  /// request could not be sent at all).
-  Future<Map<String, dynamic>> _bookRide() async {
+  /// What /fare/estimate is asked for this trip. The quote is signed over it,
+  /// so a ride with stops is quoted with the same stops it is booked with.
+  Map<String, dynamic> _estimateBody({List<Map<String, dynamic>> stops = const []}) {
+    final hasDrop = _dropController.text.trim().isNotEmpty &&
+        (_selectedMapLocation.latitude != _myLocation.latitude ||
+            _selectedMapLocation.longitude != _myLocation.longitude);
+    return {
+      'pickupLat': _myLocation.latitude,
+      'pickupLng': _myLocation.longitude,
+      'dropLat': hasDrop ? _selectedMapLocation.latitude : null,
+      'dropLng': hasDrop ? _selectedMapLocation.longitude : null,
+      'service': 'taxi',
+      'weightKg': 0,
+      'totalHours': 0,
+      'tripType': 'one_way',
+      if (stops.isNotEmpty) 'stops': [for (final s in stops) {'lat': s['lat'], 'lng': s['lng']}],
+    };
+  }
+
+  /// Books the ride and returns the server's answer.
+  ///
+  /// A ride with stops, or a "Try again" ([freshQuote]), is quoted again first
+  /// with exactly the inputs it is booked with. The fare sent is the quoted one
+  /// in full: the server validates the coupon (only the code is sent) and
+  /// takes its discount off what the rider pays.
+  Future<Map<String, dynamic>> _bookRide(String clientRequestId, bool freshQuote) async {
     final selectedVehicleData = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
-    final basePrice = int.tryParse((selectedVehicleData['price'] as String).replaceAll('₹', '')) ?? 0;
-    final tip = _selectedTip ?? 0;
     final stops = await _resolveStops();
-    _payableFare = (basePrice - _couponDiscount).clamp(0, basePrice);
-    try {
-      final res = await ApiService.bookRide({
-        'pickupAddress': _pickupController.text,
-        'dropAddress': _dropController.text,
-        'pickupLat': _myLocation.latitude,
-        'pickupLng': _myLocation.longitude,
-        'dropLat': _selectedMapLocation.latitude,
-        'dropLng': _selectedMapLocation.longitude,
-        'service': 'taxi',
-        'vehicleType': _selectedVehicle,
-        'fare': (basePrice - _couponDiscount).clamp(0, basePrice),
-        'tip': tip,
-        'distance': _rideDistance,
-        'duration': _rideDuration,
-        'stops': stops,
-        'paymentMode': _paymentMode,
-        'couponCode': _couponCode,
-        'couponDiscount': _couponDiscount,
-        'quoteToken': selectedVehicleData['quoteToken'],
-        'preferFemaleDriver': _preferFemaleDriver,
-        // Only keys still on offer: the list may have changed since the pick.
-        if (_selectedPrefs.isNotEmpty)
-          'preferences': _ridePrefs.map((p) => p.key).where(_selectedPrefs.contains).toList(),
-      });
-      if (res['ride'] != null) {
-        final r = res['ride'] as Map<String, dynamic>;
-        _rideId = r['id']?.toString();
-        _rideOtp = r['otp']?.toString();
-        if (r['fareBreakdown'] is Map) {
-          _fareBreakdown = Map<String, dynamic>.from(r['fareBreakdown'] as Map);
-        }
-        if (r['routePolyline'] is String && (r['routePolyline'] as String).isNotEmpty) {
-          _routePolylineEncoded = r['routePolyline'] as String;
-          _routePoints = decodePolyline(_routePolylineEncoded);
-        }
+    if (freshQuote || stops.isNotEmpty) {
+      final q = await freshQuoteFor(_estimateBody(stops: stops), _selectedVehicle);
+      if (q != null) {
+        selectedVehicleData['quoteToken'] = q['quoteToken'];
+        if (q['fare'] != null) selectedVehicleData['price'] = '₹${q['fare']}';
       }
-      return res;
-    } catch (_) {
-      // post() throws, rather than returning an error map, with no connection.
-      return const {'error': 'Could not reach Gora. Check your connection and try again.'};
     }
+    final basePrice = int.tryParse((selectedVehicleData['price'] as String).replaceAll('₹', '')) ?? 0;
+    final tip = (_selectedTip ?? 0).clamp(0, kMaxTip);
+    return ApiService.bookRide({
+      'clientRequestId': clientRequestId,
+      'pickupAddress': _pickupController.text,
+      'dropAddress': _dropController.text,
+      'pickupLat': _myLocation.latitude,
+      'pickupLng': _myLocation.longitude,
+      'dropLat': _selectedMapLocation.latitude,
+      'dropLng': _selectedMapLocation.longitude,
+      'service': 'taxi',
+      'vehicleType': _selectedVehicle,
+      'fare': basePrice,
+      'tip': tip,
+      'distance': _rideDistance,
+      'duration': _rideDuration,
+      'stops': stops,
+      'paymentMode': _paymentMode,
+      if (_couponCode.isNotEmpty) 'couponCode': _couponCode,
+      'quoteToken': selectedVehicleData['quoteToken'],
+      'preferFemaleDriver': _preferFemaleDriver,
+      // Only keys still on offer: the list may have changed since the pick.
+      if (_selectedPrefs.isNotEmpty)
+        'preferences': _ridePrefs.map((p) => p.key).where(_selectedPrefs.contains).toList(),
+    });
   }
 
   // Bottom sheet: show line-by-line fare breakdown
@@ -965,7 +708,6 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) {
-        final b = _fareBreakdown;
         Widget row(String label, String value, {bool bold = false, Color? color}) => Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -979,32 +721,16 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
             Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16), decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)))),
             const Text('Fare Breakdown', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
-            if (b == null) ...[
-              // Pre-booking: show what we know
-              row('Distance', '${_rideDistance.toStringAsFixed(1)} km'),
-              row('Duration', formatMinutes(_displayTripMin)),
-              const Divider(height: 24),
-              row('Estimated fare', _selectedVehicle != null
-                ? (_vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => {'price': '—'})['price'] as String)
-                : '—', bold: true, color: const Color(0xFF0A3CC8)),
-              const SizedBox(height: 8),
-              const Text('Full breakdown will be available after booking.', style: TextStyle(fontSize: 11, color: Colors.grey)),
-            ]
-            else ...[
-              row('Base fare', '₹${(b['base'] ?? 0).toStringAsFixed(0)}'),
-              row('Distance (${(b['distanceKm'] ?? 0).toStringAsFixed(1)} km × ₹${(b['perKm'] ?? 0)})', '₹${(b['distanceCharge'] ?? 0).toStringAsFixed(0)}'),
-              row('Time (${(b['durationMin'] ?? 0)} min × ₹${(b['perMin'] ?? 0)})', '₹${(b['timeCharge'] ?? 0).toStringAsFixed(0)}'),
-              if ((b['surge'] ?? 0) > 0) row('Surge', '+₹${(b['surge']).toStringAsFixed(0)}', color: Colors.orange),
-              if ((b['tax'] ?? 0) > 0) row('Tax', '+₹${(b['tax']).toStringAsFixed(0)}'),
-              const Divider(height: 24),
-              row('Subtotal', '₹${(b['subtotal'] ?? 0).toStringAsFixed(0)}', bold: true),
-              if (_selectedTip != null && _selectedTip! > 0) row('Tip', '+₹${_selectedTip!}', color: Colors.green),
-              const Divider(height: 24),
-              row('Total', '₹${((b['subtotal'] ?? 0) + (_selectedTip ?? 0)).toStringAsFixed(0)}', bold: true, color: const Color(0xFF0A3CC8)),
-              const SizedBox(height: 8),
-              Text('Admin commission: ₹${(b['commission'] ?? 0).toStringAsFixed(0)} (${b['perKm'] != null ? '' : ''}deducted from driver earnings)',
-                style: const TextStyle(fontSize: 11, color: Colors.grey)),
-            ],
+            // Before booking: what the quote is made of. The ride screen
+            // shows the server's own figures once it is booked.
+            row('Distance', '${_rideDistance.toStringAsFixed(1)} km'),
+            row('Duration', formatMinutes(_displayTripMin)),
+            const Divider(height: 24),
+            row('Estimated fare', _selectedVehicle != null
+              ? (_vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => {'price': '—'})['price'] as String)
+              : '—', bold: true, color: const Color(0xFF0A3CC8)),
+            const SizedBox(height: 8),
+            const Text('The final fare, with any coupon, is confirmed by Gora when you book.', style: TextStyle(fontSize: 11, color: Colors.grey)),
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
@@ -1018,287 +744,6 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
         );
       },
     );
-  }
-
-  // Poll ride status; invokes [onStatus] with the latest status string
-  void _startStatusPolling(FutureOr<void> Function(String status, Map<String, dynamic> ride) onStatus) {
-    _pollTimer?.cancel();
-    _statusHandler = onStatus;
-    if (_rideId == null) return;
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
-      if (!mounted) { timer.cancel(); return; }
-      _pollStatusOnce();
-    });
-  }
-
-  // The ride is over (completed / cancelled): stop polling and forget the
-  // handler, so coming back from the background does not restart it.
-  void _stopStatusPolling() {
-    _pollTimer?.cancel();
-    _pollTimer = null;
-    _statusHandler = null;
-  }
-
-  bool _cancelling = false;
-
-  /// Cancels the live ride with [reason], then returns this screen to a clean
-  /// pre-booking state — the same outcome as cancelling on the live ride
-  /// screen, which closes back to where the rider booked from.
-  ///
-  /// This used to depend on the reasons sheet's own context surviving the
-  /// request (it returned silently when it did not), and it set the phase to
-  /// "done" first — so a failed close left the rider on "Looking for nearby
-  /// drivers" with the ride already cancelled, and a second booking from the
-  /// same screen was ignored by the phase guard.
-  Future<void> _confirmCancel(String reason) async {
-    if (_cancelling) return;
-    _cancelling = true;
-    // Hold the polls so a late answer cannot move the ride on while we cancel.
-    final handler = _statusHandler;
-    _stopStatusPolling();
-    try {
-      if (_rideId != null) {
-        Map<String, dynamic> res;
-        try {
-          res = await ApiService.cancelRide(_rideId!, reason);
-        } catch (e) {
-          res = {'error': 'No connection'};
-        }
-        if (!mounted) return;
-        final error = res['error'];
-        if (error != null) {
-          // The ride is still live: keep tracking it and say why.
-          if (handler != null) {
-            _startStatusPolling(handler);
-            _pollStatusOnce();
-          }
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Could not cancel: $error'),
-            backgroundColor: Colors.red,
-          ));
-          return;
-        }
-      }
-      if (!mounted) return;
-      _resetToPreBooking(message: 'Ride cancelled');
-    } finally {
-      _cancelling = false;
-    }
-  }
-
-  /// Closes every booking-phase sheet and puts the screen back to choosing a
-  /// vehicle, with all live-ride state, polls and phase guards reset — so the
-  /// rider can book again from here and it works end to end.
-  void _resetToPreBooking({String? message}) {
-    _stopStatusPolling();
-    _driverLocTimer?.cancel();
-    _driverLocTimer = null;
-    _etaTimer?.cancel();
-    _etaTimer = null;
-    _closeSheetsAboveScreen();
-    _vehicle.clear();
-    _phase = _RidePhase.idle;
-    _completing = false;
-    _findingRoute = null;
-    setState(() {
-      _rideId = null;
-      _rideOtp = null;
-      _rideStatus = 'pending';
-      _fareBreakdown = null;
-      _driverName = 'Driver';
-      _driverPhone = '';
-      _driverPicUrl = '';
-      _driverVehicleModel = '';
-      _driverVehicleNumber = '';
-      _driverRating = 0;
-      _driverTrips = null;
-      _driverVehicleType = '';
-      _driverFix = null;
-      _driverLatLng = null;
-      _driverEtaMin = null;
-      _driverDistanceKm = null;
-      _tripEtaMin = null;
-      _tripKmLeft = null;
-      _isTaxiComing = false;
-      _showArrivingButtons = false;
-      _showFullTripMap = false;
-      _showPickupConfirmation = false;
-      _tripDone = false;
-    });
-    _sheetTick.value++;
-    // Fresh quotes: the old ones were spent on the cancelled booking.
-    _loadRealFares();
-    if (message != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-    }
-  }
-
-  /// Pops every route above this screen (finding view, driver sheet, reasons…).
-  void _closeSheetsAboveScreen() {
-    final own = ModalRoute.of(context);
-    if (own == null || !own.isActive) return;
-    Navigator.of(context).popUntil((r) => r == own);
-  }
-
-  /// Takes [route] off the navigator, whether or not it is on top.
-  ///
-  /// With [withAbove], sheets opened from it (e.g. cancel reasons over the
-  /// finding view) go too, since they belong to the phase that just ended.
-  void _closeRoute(Route<void>? route, {bool withAbove = false}) {
-    if (route == null || !route.isActive) return;
-    final nav = route.navigator;
-    if (nav == null) return;
-    if (withAbove) nav.popUntil((r) => r == route);
-    if (route.isCurrent) {
-      nav.pop();
-    } else {
-      nav.removeRoute(route);
-    }
-  }
-
-  // ── Phase handlers (registered once per phase, never from a builder) ──
-
-  void _onFindingStatus(String status, Map<String, dynamic> ride) {
-    if (_phase != _RidePhase.finding) return;
-    if (status == 'accepted' || status == 'arrived' || status == 'ongoing') {
-      _phase = _RidePhase.arriving;
-      _closeRoute(_findingRoute, withAbove: true);
-      _findingRoute = null;
-      _showDriverArrivingDialog();
-    } else if (status == 'cancelled') {
-      if (_cancelling) return;
-      if (isNoDriverFound(ride)) {
-        _onNoDriverFound();
-        return;
-      }
-      // Cancelled on the server (by support, etc.): the finding view must not
-      // keep "looking" for a ride that no longer exists.
-      _resetToPreBooking(message: 'Your ride was cancelled');
-    }
-  }
-
-  /// The server closed the search: nobody took the ride in time. Stop polling,
-  /// take the finding view down, say so plainly, and on "Try again" put the
-  /// rider back on the vehicle list with fresh quotes (_resetToPreBooking).
-  ///
-  /// Purely a reaction to server state — the app has no timer of its own.
-  Future<void> _onNoDriverFound() async {
-    if (_phase != _RidePhase.finding) return;
-    _phase = _RidePhase.done; // later polls / handlers ignore this ride
-    _stopStatusPolling();
-    // The poll that saw 'cancelled' (not 'pending') may have just started the
-    // driver-location and ETA timers; there is no driver to track.
-    _driverLocTimer?.cancel();
-    _driverLocTimer = null;
-    _etaTimer?.cancel();
-    _etaTimer = null;
-    _closeRoute(_findingRoute, withAbove: true);
-    _findingRoute = null;
-    await showNoDriverFoundDialog(context);
-    if (!mounted) return;
-    _resetToPreBooking();
-  }
-
-  Future<void> _onArrivingStatus(String status, Map<String, dynamic> ride) async {
-    if (_phase != _RidePhase.arriving) return;
-    if (status == 'ongoing') {
-      if (!_showFullTripMap && mounted) {
-        setState(() {
-          _showFullTripMap = true;
-          _showArrivingButtons = false;
-        });
-        _sheetTick.value++;
-        _fetchEtaOnce();
-        _ensureTripRoute();
-      }
-    } else if (status == 'completed') {
-      if (_completing) return;
-      _completing = true;
-      try {
-        await PaymentService.charge(context, method: _paymentMode, amount: _payableFare, rideId: _rideId);
-      } catch (_) {
-        _completing = false; // as before: a failed charge is retried on the next poll
-        rethrow;
-      }
-      if (!mounted) return;
-      _phase = _RidePhase.done;
-      _stopStatusPolling();
-      _driverLocTimer?.cancel();
-      _etaTimer?.cancel();
-      _closeSheetsAboveScreen();
-      // A clean base for "Ride Completed!": flipping _showFullTripMap back used
-      // to bring the booking UI (the "Confirm pickup" sheet still selected) and
-      // the planned route back from under the trip.
-      setState(() {
-        _tripDone = true;
-        _showFullTripMap = false;
-        _showArrivingButtons = false;
-        _showPickupConfirmation = false;
-        _routePoints = [];
-      });
-      _showRideCompletedDialog();
-    } else if (status == 'cancelled') {
-      if (!_cancelling) _resetToPreBooking(message: 'Your ride was cancelled');
-    }
-  }
-
-  Future<void> _pollStatusOnce() async {
-    final onStatus = _statusHandler;
-    if (_rideId == null || onStatus == null || _statusInFlight) return;
-    _statusInFlight = true;
-    try {
-      final ride = await ApiService.getRide(_rideId!);
-      if (!mounted) return;
-      final status = (ride['status'] ?? 'pending').toString();
-      if (ride['driverName'] != null) _driverName = ride['driverName'].toString();
-      if (ride['driverPhone'] != null) _driverPhone = ride['driverPhone'].toString();
-      // Pick up extra driver details (vehicle, pic, rating) as soon as driver is assigned
-      final dr = ride['driver'] as Map<String, dynamic>?;
-      if (dr != null) {
-        _driverVehicleModel = (dr['vehicleModel'] ?? _driverVehicleModel).toString();
-        _driverVehicleNumber = (dr['vehicleNumber'] ?? dr['vehicleRegistrationNumber'] ?? _driverVehicleNumber).toString();
-        final trips = dr['totalRides'];
-        if (trips is num) _driverTrips = trips.toInt();
-        _driverVehicleType = (dr['vehicleTypeName'] ?? ride['vehicleType'] ?? _driverVehicleType).toString();
-        final pic = (dr['profilePicUrl'] ?? '').toString();
-        if (pic.isNotEmpty) _driverPicUrl = AppConfig.imageUrl(pic);
-        final r = dr['rating'];
-        if (r is num) _driverRating = r.toDouble();
-      }
-      _rideStatus = status;
-      _sheetTick.value++;
-      // Once a driver is assigned (status >= accepted), start live driver-location + ETA polling
-      if (status != 'pending' && _driverLocTimer == null) {
-        _startDriverLocationPolling();
-        _startEtaPolling();
-      }
-      // Online gating: driver requested payment → prompt rider to pay, then complete.
-      if (ride['awaitingPayment'] == true && status != 'completed') {
-        promptOnlinePayment(context, _rideId, ride);
-      }
-      await onStatus(status, ride);
-    } catch (_) {
-      // keep polling on transient errors
-    } finally {
-      _statusInFlight = false;
-    }
-  }
-
-  // Back from the background: the timers may have been paused or the process
-  // frozen, so the screen could still show "Your taxi on the way" long after
-  // the trip started. Re-read the ride immediately and restart the timers.
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed || !mounted) return;
-    final handler = _statusHandler;
-    if (_rideId == null || handler == null) return; // no live ride being tracked
-    _startStatusPolling(handler);
-    _pollStatusOnce();
-    if (_driverLocTimer != null) {
-      _startDriverLocationPolling();
-      _startEtaPolling();
-      _fetchEtaOnce();
-    }
   }
 
   // Build Google Maps marker set
@@ -1345,27 +790,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       ));
     }
 
-    // Real nearby vehicles (only before a driver is assigned)
-    if (_driverLatLng == null && !_isTaxiComing) {
-      markers.addAll(_fleet.markers);
-    }
-
-    // Live driver marker (with heading rotation + ETA infoWindow)
-    if (_driverLatLng != null) {
-      final eta = _driverEtaMin;
-      markers.add(Marker(
-        markerId: const MarkerId('driver'),
-        position: _driverLatLng!,
-        rotation: _driverHeading,
-        flat: true,
-        anchor: const Offset(0.5, 0.5),
-        icon: (_vehIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure)),
-        infoWindow: InfoWindow(
-          title: eta != null ? '${formatMinutes(eta)} away' : 'Driver',
-          snippet: _driverName,
-        ),
-      ));
-    }
+    // Real nearby vehicles of the selected type.
+    markers.addAll(_fleet.markers);
 
     return markers;
   }
@@ -1416,14 +842,13 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                   // Route fits land in the part of the map the sheet leaves visible.
                   padding: EdgeInsets.only(
                     top: MediaQuery.of(context).padding.top + 56,
-                    bottom: _showFullTripMap ? 0 : box.maxHeight * sheetInit,
+                    bottom: box.maxHeight * sheetInit,
                   ),
-                  markers: _tripDone ? const <Marker>{} : _buildMapMarkers(),
-                  polylines: _tripDone ? const <Polyline>{} : _buildMapPolylines(),
+                  markers: _buildMapMarkers(),
+                  polylines: _buildMapPolylines(),
                 ),
                 // Back — same as the system back button.
-                if (!_showFullTripMap && !_isTaxiComing)
-                  Positioned(
+                Positioned(
                     top: 0, left: 0,
                     child: SafeArea(
                       bottom: false,
@@ -1437,47 +862,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                       ),
                     ),
                   ),
-                if (_showFullTripMap)
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    child: SafeArea(
-                      bottom: false,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 0, 0),
-                        child: MapCircleButton(icon: Icons.arrow_back, onTap: () => Navigator.pop(context)),
-                      ),
-                    ),
-                  ),
-                if (_showFullTripMap || _showArrivingButtons)
-                  Positioned(
-                    top: 0,
-                    right: 0,
-                    child: SafeArea(
-                      bottom: false,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(0, 16, 16, 0),
-                        child: Column(
-                          children: [
-                            FloatingActionButton.small(
-                              heroTag: 'support_btn_map',
-                              onPressed: () {},
-                              backgroundColor: Theme.of(context).cardColor,
-                              child: Icon(Icons.support_agent, color: Theme.of(context).colorScheme.onSurface),
-                            ),
-                            const SizedBox(height: 12),
-                            FloatingActionButton.small(
-                              heroTag: 'share_btn_map',
-                              onPressed: _shareTrip,
-                              backgroundColor: Theme.of(context).cardColor,
-                              child: Icon(Icons.share, color: Theme.of(context).colorScheme.onSurface),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                if (!_showFullTripMap && !_bookingLocked)
+                if (!_bookingLocked)
                   DraggableScrollableSheet(
                     // A new key per step, so switching to the pickup check
                     // rebuilds the sheet at its own resting size.
@@ -1532,7 +917,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
               ],
             )),
           ),
-          if (!_showFullTripMap && !_bookingLocked)
+          if (!_bookingLocked)
             PrimaryCtaBar(
               // The method and coupon are picked on the confirm step (where the
               // vehicle, and so the fare, is fixed); this chip shows the choice.
@@ -2167,50 +1552,6 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     );
   }
 
-  Widget _buildRecentLocation(String title, String subtitle) {
-    return InkWell(
-      onTap: () {
-        setState(() {
-          _dropController.text = title;
-          _locationConfirmed = true;
-        });
-      },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.grey[100],
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.access_time, color: Colors.grey[600], size: 20),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    subtitle,
-                    style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.favorite_border, color: Colors.grey[400], size: 20),
-          ],
-        ),
-      ),
-    );
-  }
-
   // Grey, borderless field (Uber style). The marker that used to sit inside it
   // is now drawn by the dot–line–square connector beside the field.
   Widget _buildLocationInput(IconData icon, TextEditingController controller, Color iconColor, String hint,
@@ -2487,289 +1828,4 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     );
   }
 
-  void _showFinalWaitingDialog() {
-    final selectedVehicleData = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
-    // Selected vehicle's ETA in minutes (e.g. '4 min' -> 4), null if unavailable.
-    final etaMatch = RegExp(r'\d+').firstMatch('${selectedVehicleData['eta'] ?? ''}');
-    final int? etaMin = etaMatch != null ? int.tryParse(etaMatch.group(0)!) : null;
-
-    if (_phase != _RidePhase.idle || _tripDone) return; // one search per booking
-    _phase = _RidePhase.finding;
-    // Full-screen Ola-style finding view, as a sheet route the accept handler
-    // removes by reference. Cancel reuses the existing reason flow.
-    _findingRoute = _pushSheet((BuildContext context) {
-        return SizedBox(
-          height: MediaQuery.of(context).size.height,
-          child: FindingDriverView(
-            pickupLat: _myLocation.latitude,
-            pickupLng: _myLocation.longitude,
-            dropLat: _selectedMapLocation.latitude,
-            dropLng: _selectedMapLocation.longitude,
-            pickupAddress: _pickupController.text,
-            dropAddress: _dropController.text,
-            fareText: () {
-              final sel = _vehicles.where((v) => v['name'] == _selectedVehicle);
-              if (sel.isEmpty) return null;
-              final n = int.tryParse((sel.first['price'] ?? '').toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-              final f = (n - _couponDiscount).clamp(0, n);
-              return '₹$f';
-            }(),
-            // Same chip as the live ride screen shows for a taxi.
-            serviceLabel: 'Ride',
-            serviceIcon: Icons.local_taxi,
-            vehicleType: _selectedVehicle ?? '',
-            etaMin: etaMin,
-            onCancel: () => _showCancelReasonDialog(),
-          ),
-        );
-    });
-    // Poll backend: while pending keep searching; when accepted show driver.
-    _startStatusPolling(_onFindingStatus);
-  }
-
-  /// Pushes a non-dismissible bottom sheet and returns its route, so the phase
-  /// that opened it can later remove exactly this sheet.
-  Route<void> _pushSheet(WidgetBuilder builder, {Color? barrierColor}) {
-    final nav = Navigator.of(context);
-    final route = ModalBottomSheetRoute<void>(
-      // System Back must not close a live ride's sheet: underneath is the
-      // booking UI, and closing the driver sheet used to expose an active
-      // "Confirm Pickup" button for a ride that was already accepted. The
-      // phase handlers still remove these sheets themselves (pop/removeRoute
-      // do not consult PopScope).
-      builder: (ctx) => PopScope(canPop: false, child: builder(ctx)),
-      capturedThemes: InheritedTheme.capture(from: context, to: nav.context),
-      barrierLabel: MaterialLocalizations.of(context).scrimLabel,
-      isScrollControlled: true,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      modalBarrierColor: barrierColor ?? Theme.of(context).bottomSheetTheme.modalBarrierColor,
-    );
-    nav.push(route);
-    return route;
-  }
-
-  void _showDriverArrivingDialog() {
-    final selectedVehicleData = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle);
-
-    // Start tracking on map. The driver marker comes from the live location
-    // poll — there is no placeholder position until the server reports one.
-    setState(() {
-      _isTaxiComing = true;
-      _showArrivingButtons = true;
-    });
-
-    _pushSheet(barrierColor: Colors.transparent, (BuildContext context) {
-        // Rebuilt on every status / ETA update (see _sheetTick).
-        return ValueListenableBuilder<int>(
-          valueListenable: _sheetTick,
-          builder: (context, tick, child) {
-            final ongoing = _rideStatus == 'ongoing';
-            final arrived = _rideStatus == 'arrived';
-            final dropText = _dropController.text.trim();
-            final dropShort = dropText.contains(',') ? dropText.substring(0, dropText.indexOf(',')).trim() : dropText;
-            final etaMin = ongoing ? _tripEtaMin : _driverEtaMin;
-            final title = ongoing
-                ? (dropShort.isNotEmpty ? 'Heading to $dropShort' : 'On the way to your destination')
-                : arrived
-                    ? 'Your taxi has arrived'
-                    : 'Meet at the pickup point';
-            final subtitle = ongoing
-                ? _ongoingSubtitle()
-                : arrived
-                    ? 'Share the PIN with your driver to start'
-                    : _arrivingSubtitle();
-            final net = (selectedVehicleData['image'] == '__net__') ? (selectedVehicleData['networkImage'] as String?) : null;
-            return ConstrainedBox(
-              constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
-              child: RideSheetContainer(
-                radius: 24,
-                child: SingleChildScrollView(
-                  padding: EdgeInsets.only(
-                    left: 16, right: 16, top: 10,
-                    // Honour system bottom inset (gesture-bar) so the cancel button never overflows
-                    bottom: 12 + MediaQuery.of(context).viewPadding.bottom,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const SheetHandle(bottom: 14),
-                      // Status + big ETA
-                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Expanded(
-                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: RideUi.title(context, size: 19)),
-                            const SizedBox(height: 4),
-                            Text(subtitle, style: RideUi.caption(context, size: 13)),
-                          ]),
-                        ),
-                        // "0 min" says nothing; the subtitle reads "Arriving now".
-                        if (etaMin != null && etaMin > 0) ...[
-                          const SizedBox(width: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(color: RideUi.navy, borderRadius: BorderRadius.circular(12)),
-                            child: Column(mainAxisSize: MainAxisSize.min, children: [
-                              // "4 h" over "22 min" past the hour, not "262" over "min".
-                              Text(etaMin < 60 ? '$etaMin' : '${etaMin ~/ 60} h',
-                                  style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900, height: 1.0)),
-                              if (etaMin < 60 || etaMin % 60 > 0)
-                                Text(etaMin < 60 ? 'min' : '${etaMin % 60} min',
-                                    style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w700)),
-                            ]),
-                          ),
-                        ],
-                      ]),
-                      const SizedBox(height: 14),
-                      // The PIN starts the trip; once it is under way it is spent.
-                      if (_rideOtp != null && !ongoing) ...[
-                        Row(children: [
-                          PinChip(_rideOtp!),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text('Ride PIN — share it with your driver',
-                                maxLines: 2, overflow: TextOverflow.ellipsis,
-                                style: RideUi.caption(context, size: 12)),
-                          ),
-                        ]),
-                        const SizedBox(height: 14),
-                      ],
-                      // Driver card
-                      DriverInfoCard(
-                        name: _driverName,
-                        photoUrl: _driverPicUrl,
-                        rating: _driverRating > 0 ? _driverRating : null,
-                        trips: _driverTrips,
-                        vehicleType: _driverVehicleType,
-                        vehicleModel: _driverVehicleModel,
-                        plate: _driverVehicleNumber,
-                        vehicleImage: VehicleThumb(
-                          networkUrl: net,
-                          asset: net == null ? selectedVehicleData['image'] as String? : null,
-                          fallbackIcon: selectedVehicleData['icon'] as IconData,
-                          size: 56,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      // Call · Message · Share · Safety
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          RoundActionButton(icon: Icons.call_rounded, label: 'Call', color: const Color(0xFF16A34A),
-                              onTap: () => dialPhone(_driverPhone)),
-                          RoundActionButton(icon: Icons.chat_bubble_rounded, label: 'Message', onTap: _openChat),
-                          RoundActionButton(icon: Icons.ios_share_rounded, label: 'Share', onTap: _shareTrip),
-                          RoundActionButton(
-                            icon: Icons.shield_rounded,
-                            label: 'Safety',
-                            color: Colors.white,
-                            background: const Color(0xFFD32F2F),
-                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => EmergencyActionsScreen(rideId: _rideId))),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      // Change payment method
-                      StatefulBuilder(builder: (context, setRow) => paymentMethodRow(context, _paymentMode, () async {
-                        final m = await showPaymentPicker(context, _paymentMode);
-                        if (m != null) { _paymentMode = m; setRow(() {}); }
-                      })),
-                      // A trip under way cannot be cancelled from here.
-                      if (!ongoing) ...[
-                        const SizedBox(height: 4),
-                        RideTextAction(
-                          label: 'Cancel Ride',
-                          // Opens the reasons OVER this sheet: backing out of
-                          // them returns here instead of to an empty map.
-                          onPressed: _showCancelReasonDialog,
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            );
-          },
-        );
-    });
-    // Poll backend: when the ride starts switch to the trip map; when completed show the summary.
-    _startStatusPolling(_onArrivingStatus);
-  }
-
-  Future<void> _showCancelReasonDialog() async {
-    // The shared reasons sheet (same as the live ride screen): pick a reason,
-    // then confirm. It opens OVER the finding view / driver sheet, so backing
-    // out returns there.
-    final reason = await showCancelReasonsSheet(context, reasons: const [
-      'Plan changed',
-      'Driver is too far',
-      'Found another ride',
-      'Wait time is too long',
-      'Wrong location selected',
-      'Other',
-    ]);
-    if (reason == null || !mounted) return;
-    _confirmCancel(reason);
-  }
-
-  void _showRideCompletedDialog() {
-    showModalBottomSheet(
-      context: context,
-      isDismissible: false,
-      enableDrag: false,
-      backgroundColor: Colors.transparent,
-      builder: (BuildContext context) {
-        return RideSheetContainer(
-          radius: 24,
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 64, height: 64,
-                    decoration: const BoxDecoration(color: Color(0xFF16A34A), shape: BoxShape.circle),
-                    child: const Icon(Icons.check_rounded, color: Colors.white, size: 38),
-                  ),
-                  const SizedBox(height: 16),
-                  Text('Ride Completed!', style: RideUi.title(context, size: 22)),
-                  const SizedBox(height: 6),
-                  Text(
-                    'You have reached your destination safely.',
-                    style: RideUi.caption(context, size: 14),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-                  PrimaryRideButton(
-                    label: 'Rate Your Ride',
-                    onPressed: () {
-                      Navigator.pop(context);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => RatingScreen(
-                            driverName: _driverName,
-                            vehicleName: _selectedVehicle!,
-                            selectedTip: _selectedTip,
-                            rideId: _rideId,
-                            driverPhotoUrl: _driverPicUrl,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
 }
-/// Where the live ride is, for the status poll.
-enum _RidePhase { idle, finding, arriving, done }

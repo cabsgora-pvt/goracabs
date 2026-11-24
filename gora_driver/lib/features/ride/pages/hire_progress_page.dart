@@ -7,6 +7,7 @@ import '../../../services/driver_api_service.dart';
 import 'invoice_page.dart';
 import 'collect_fare_page.dart';
 import '../logic/job_settlement.dart';
+import '../logic/ride_actions.dart';
 import '../widgets/nav_map.dart';
 import '../widgets/ride_shell.dart';
 import '../widgets/ride_status_strip.dart';
@@ -45,6 +46,8 @@ class _HireProgressPageState extends State<HireProgressPage> {
   Object? _invoice;
 
   late int _bookedHours;
+  // An extension the driver asked for, waiting on the rider's confirmation.
+  PendingExtension? _pendingExt;
   // Live overtime projection from the server, refreshed on each 30s ping.
   // Projection only — the billed figure is still computed once, in /hire 'end'.
   double _liveExtraCharge = 0;
@@ -111,6 +114,7 @@ class _HireProgressPageState extends State<HireProgressPage> {
         if (booked != null && booked > 0) _bookedHours = booked;
         final secs = h['elapsedSec'];
         if (secs is num) _sync(secs.toInt());
+        if (h.containsKey('pendingExtension')) _pendingExt = PendingExtension.tryParse(h['pendingExtension']);
       });
     } catch (_) {/* a dropped ping must never interrupt the job */}
   }
@@ -118,20 +122,28 @@ class _HireProgressPageState extends State<HireProgressPage> {
   Future<void> _extend() async {
     final h = await showDialog<int>(context: context, builder: (dctx) => SimpleDialog(
       title: const Text('Extend hire by'),
-      children: [1, 2, 4].map((x) => SimpleDialogOption(onPressed: () => Navigator.pop(dctx, x), child: Text('+$x hours'))).toList()));
-    if (h == null) return;
-    final res = await DriverApiService.hireAction(widget.ride.id, {'action': 'extend', 'extraHours': h});
+      children: extendOptions.map((x) => SimpleDialogOption(onPressed: () => Navigator.pop(dctx, x), child: Text('+$x hours'))).toList()));
+    if (h == null || !validExtraHours(h)) return;
+    Map<String, dynamic> res;
+    try {
+      res = await DriverApiService.hireAction(widget.ride.id, {'action': 'extend', 'extraHours': h});
+    } catch (_) {
+      res = const {'error': 'No connection'};
+    }
     if (!mounted) return;
     if (res['error'] != null) {
       // Used to add the hours on screen whether or not the server accepted them.
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Could not extend: ${res['error']}'), backgroundColor: AppColors.red));
+        content: Text('Could not extend: ${rideActionError(res)}'), backgroundColor: AppColors.red));
       return;
     }
-    final booked = ((res['hire'] as Map?)?['totalHours'] as num?)?.toInt();
-    setState(() => _bookedHours = booked ?? _bookedHours + h);
+    // The booked hours change only once the rider confirms the extra charge
+    // in their app (15 min); a later ping brings the new total.
+    final pending = extensionFrom(res);
+    setState(() => _pendingExt = pending);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('Extended by $h hr'), backgroundColor: AppColors.green));
+      content: Text(pending != null ? waitingForRiderText(pending) : 'Extension requested'),
+      backgroundColor: AppColors.primary));
   }
 
   // Price first, then collect, then settle. See collectAndSettle for why the
@@ -247,6 +259,10 @@ class _HireProgressPageState extends State<HireProgressPage> {
           const SizedBox(height: 4),
           Text(r.pickupAddress, style: TextStyle(fontSize: 12, color: AppColors.textGrey), maxLines: 2, overflow: TextOverflow.ellipsis),
         ])),
+        if (_pendingExt != null && !_priced) ...[
+          const SizedBox(height: 10),
+          PendingExtensionNote(ext: _pendingExt!),
+        ],
         if (!_priced) ...[
           const SizedBox(height: 10),
           Container(padding: const EdgeInsets.all(16),

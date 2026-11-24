@@ -191,10 +191,19 @@ class _WithdrawPageState extends State<WithdrawPage> {
       if (!mounted) return;
       setState(() => _loading = false);
       if (res['success'] == true) {
+        // The amount is held from the wallet straight away, until it is paid
+        // out (or returned if the request is rejected).
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Withdrawal request submitted'), backgroundColor: AppColors.green),
+          SnackBar(content: Text(withdrawalHeldText(amt, res['walletBalance'])), backgroundColor: AppColors.green),
         );
-        Navigator.pop(context);
+        Navigator.pop(context, true);
+      } else if (res['_status'] == 409) {
+        // One request at a time: the earlier one still holds its money.
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${res['error'] ?? 'You already have a withdrawal request pending.'}'),
+          backgroundColor: AppColors.orange,
+          duration: const Duration(seconds: 6),
+        ));
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${res['error'] ?? 'Withdrawal failed'}'), backgroundColor: AppColors.red),
@@ -353,4 +362,10 @@ class UpperCaseTextFormatter extends TextInputFormatter {
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
     return newValue.copyWith(text: newValue.text.toUpperCase());
   }
+}
+
+/// "Withdrawal requested — ₹500 is on hold until it is paid out."
+String withdrawalHeldText(num amount, dynamic walletBalance) {
+  final bal = walletBalance is num ? ' Wallet balance: ₹${walletBalance.toStringAsFixed(0)}.' : '';
+  return 'Withdrawal requested — ₹${amount.toStringAsFixed(0)} is on hold until it is paid out.$bal';
 }

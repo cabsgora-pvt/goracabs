@@ -7,6 +7,7 @@ import '../features/auth/bloc/auth_bloc.dart';
 import '../features/splash/splash_page.dart';
 import '../providers/driver_provider.dart';
 import '../providers/theme_provider.dart';
+import '../services/session.dart';
 import 'app_routes.dart';
 
 class GoraDriverApp extends StatelessWidget {
@@ -23,7 +24,8 @@ class GoraDriverApp extends StatelessWidget {
         create: (_) => AuthBloc(),
         child: Consumer<ThemeProvider>(
           builder: (context, themeProv, _) => MaterialApp(
-          title: 'Gora Driver',
+          title: 'Gora Captain',
+          navigatorKey: Session.navigatorKey,
           debugShowCheckedModeBanner: false,
           theme: AppTheme.light,
           darkTheme: AppTheme.dark,

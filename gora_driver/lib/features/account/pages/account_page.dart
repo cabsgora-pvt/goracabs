@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../providers/driver_provider.dart';
+import '../../../services/session.dart';
 import '../../../widgets/captain_ui/captain_ui.dart';
 import '../../earnings/pages/earnings_page.dart';
 import '../../history/pages/history_page.dart';
@@ -145,22 +146,28 @@ class AccountPage extends StatelessWidget {
     );
   }
 
-  void _confirmLogout(BuildContext context) {
-    showDialog(context: context, builder: (_) => AlertDialog(
+  Future<void> _confirmLogout(BuildContext context) async {
+    final ok = await showDialog<bool>(context: context, builder: (dctx) => AlertDialog(
       title: const Text('Logout?'),
       content: const Text('Are you sure you want to logout?'),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(_), child: const Text('Cancel')),
+        TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('Cancel')),
         ElevatedButton(
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.red,
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
           ),
-          onPressed: () => Navigator.pushNamedAndRemoveUntil(context, '/login', (_) => false),
+          onPressed: () => Navigator.pop(dctx, true),
           child: const Text('Logout', style: TextStyle(color: Colors.white)),
         ),
       ],
     ));
+    if (ok != true || !context.mounted) return;
+    // This used to only open the login screen: the token stayed saved, the
+    // online service kept running and the server still had the driver online.
+    // Now: offline on the server, service stopped, session cleared, then login.
+    context.read<DriverProvider>().clear();
+    await Session.logout(context: context);
   }
 }
 

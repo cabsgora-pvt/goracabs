@@ -92,14 +92,10 @@ void main() {
   // ── When the driver ends it ──
   testWidgets('prepaid: the fare is not asked for again; the tolls are, for the driver', (tester) async {
     await screen.pumpRide(tester, trip(uiPhase: 'payment', tolls: _two, awaiting: true), screen.kCommon,
-        rideId: 'toll-pay-1', scrollSheet: true);
-    expect(find.text('Trip complete'), findsOneWidget);
-    expect(find.text('Your fare was paid when you booked. Please pay your driver ₹170 for tolls.'), findsOneWidget);
-    expect(find.text('Done'), findsOneWidget);
-    expect(find.text('Pay Now'), findsNothing);
+        rideId: 'toll-pay-1');
+    // No dialog and nothing to pay in the app: the panel says what is owed.
+    expect(find.textContaining('Pay ₹'), findsNothing);
     expect(find.textContaining('Please pay ₹5400'), findsNothing);
-    await tester.tap(find.text('Done'));
-    await tester.pump();
     // Top of the sheet: the amount, and right under it what is still owed.
     expect(find.text('PAID AT BOOKING'), findsOneWidget);
     expect(find.text('Fare paid when you booked. Please pay ₹170 for tolls to your driver.'), findsOneWidget);
@@ -111,7 +107,7 @@ void main() {
 
   testWidgets('prepaid with no tolls: nothing more to pay', (tester) async {
     await screen.pumpRide(tester, trip(uiPhase: 'payment', awaiting: true), screen.kCommon, rideId: 'toll-pay-2');
-    expect(find.text('Your fare was paid when you booked. Nothing more to pay.'), findsOneWidget);
+    expect(find.text('Already paid when you booked. Nothing more to pay.'), findsOneWidget);
     await screen.teardown(tester);
   });
 
@@ -120,7 +116,7 @@ void main() {
   testWidgets('cash: the prompt asks for the fare and tolls, never "paid at booking"', (tester) async {
     await screen.pumpRide(tester, trip(uiPhase: 'payment', payment: 'cash', tolls: _two, awaiting: true), screen.kCommon,
         rideId: 'toll-pay-3');
-    expect(find.text('Please pay your driver ₹5570 in cash — fare plus ₹170 tolls.'), findsOneWidget);
+    expect(find.text('Please pay ₹5570 to your driver in cash — fare plus ₹170 tolls.'), findsOneWidget);
     expect(find.textContaining('paid when you booked'), findsNothing);
     await screen.teardown(tester);
   });

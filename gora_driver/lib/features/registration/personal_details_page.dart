@@ -124,8 +124,20 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       });
       if (!mounted) return;
       if (res['error'] != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(res['error'].toString()), backgroundColor: AppColors.red));
+        // 409 REGISTRATION_LOCKED: already submitted — the server's text says
+        // what can no longer be changed here (zone / gender / name).
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(res['error'].toString()),
+          backgroundColor: AppColors.red,
+          duration: Duration(seconds: res['code'] == 'REGISTRATION_LOCKED' ? 7 : 4),
+        ));
       } else {
+        if (res['referralRewardOnApproval'] == true) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Referral code applied. Referral bonus is paid after approval.'),
+            backgroundColor: AppColors.green,
+          ));
+        }
         Navigator.pushNamed(
           context,
           FaceCapturePage.route,

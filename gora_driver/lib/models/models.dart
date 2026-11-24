@@ -89,6 +89,11 @@ class RideRequestModel {
   final String routePolyline;    // encoded polyline (pickup→drop)
   // Hire schedule (start/end ISO strings)
   final String hireStartAt, hireEndAt;
+  /// When a booked-ahead ride is due (feed field scheduledAt); null for "now".
+  final DateTime? scheduledAt;
+  /// 5 wrong pickup / drop OTPs were tried: the code is locked until support
+  /// unlocks it (from /rides/driver/active).
+  final bool otpLocked, dropOtpLocked;
   /// Where an in-progress job had got to, as the server last saw it. Default
   /// (nothing started) for a request that has not begun.
   final RideProgress progress;
@@ -109,6 +114,9 @@ class RideRequestModel {
     this.routePolyline = '',
     this.hireStartAt = '',
     this.hireEndAt = '',
+    this.scheduledAt,
+    this.otpLocked = false,
+    this.dropOtpLocked = false,
     this.service = 'taxi',
     this.tripType = 'one_way',
     this.cityFrom = '',
@@ -191,6 +199,9 @@ class RideRequestModel {
       routePolyline: (r['routePolyline'] ?? '').toString(),
       hireStartAt: (r['hireStartAt'] ?? '').toString(),
       hireEndAt: (r['hireEndAt'] ?? '').toString(),
+      scheduledAt: DateTime.tryParse((r['scheduledAt'] ?? '').toString())?.toLocal(),
+      otpLocked: r['otpLocked'] == true,
+      dropOtpLocked: r['dropOtpLocked'] == true,
       progress: RideProgress.fromJson(r),
     );
   }

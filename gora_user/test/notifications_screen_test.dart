@@ -25,7 +25,8 @@ MockClient get client => MockClient((req) async {
       if (req.url.path.endsWith('/auth/user/notifications')) {
         fetches++;
         expect(req.headers['Authorization'], 'Bearer t');
-        if (fail) return http.Response(jsonEncode({'error': 'Unauthorized'}), 401);
+        // Not a 401: that now signs the rider out (SessionGuard).
+        if (fail) return http.Response(jsonEncode({'error': 'Server busy'}), 503);
         return http.Response(jsonEncode({'notifications': feed}), 200);
       }
       return http.Response('{}', 200);
@@ -119,7 +120,7 @@ void main() {
   testWidgets('a failed load says so and offers Retry', (tester) async {
     fail = true;
     await open(tester);
-    expect(find.text('Unauthorized'), findsOneWidget);
+    expect(find.text('Server busy'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     fail = false;
     await act(() async {

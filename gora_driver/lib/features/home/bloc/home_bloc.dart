@@ -97,6 +97,43 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
     }
     summary = s;
     emit(HomeLoaded(d, s));
+    // Reopened while online (the app had been killed): the background service
+    // died with it and the server may have timed the driver out. Nothing used
+    // to restart either, so the toggle said "online" while no request could
+    // arrive once the app was minimised.
+    if (isOnline) await _restoreOnline(emit);
+  }
+
+  Future<void> _restoreOnline(Emitter emit) async {
+    try {
+      final pos = await LocationService.getCurrentLocation();
+      final res = await DriverApiService.setOnline(true, pos?.latitude, pos?.longitude);
+      if (res['accountHold'] == true || res['faceVerificationRequired'] == true) {
+        // Refused now: show it, and stop claiming to be online.
+        await _goOfflineLocally();
+        if (res['accountHold'] == true) {
+          final msg = (res['error'] ?? '').toString();
+          emit(AccountHoldState(
+            msg.isNotEmpty ? msg : 'Your account is on hold. Please contact support.',
+            kind: (res['holdKind'] ?? 'manual').toString(),
+            seq: ++_holdSeq,
+          ));
+        } else {
+          emit(FaceVerificationLockedState((res['faceVerificationReason'] ?? 'mismatch').toString()));
+        }
+        return;
+      }
+    } catch (_) {/* network blip: the service still polls, and the next toggle re-posts */}
+    try { await RideAlertService.start(); } catch (_) {}
+  }
+
+  Future<void> _goOfflineLocally() async {
+    isOnline = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('driver_online', false);
+    } catch (_) {}
+    try { await RideAlertService.stop(); } catch (_) {}
   }
 
   Future<void> _onToggle(ToggleOnlineEvent e, Emitter emit) async {

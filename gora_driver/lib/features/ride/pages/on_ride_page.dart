@@ -11,6 +11,7 @@ import '../../../utils/format_minutes.dart';
 import '../../account/pages/face_single_capture_page.dart';
 import '../bloc/ride_bloc.dart';
 import '../logic/job_settlement.dart';
+import '../logic/ride_actions.dart';
 import '../logic/trip_end_check.dart';
 import '../widgets/nav_engine.dart';
 import '../widgets/arrival_hint.dart';
@@ -97,6 +98,8 @@ class _OnRideViewState extends State<_OnRideView> {
   // the server had ongoing. Progress only moves forward.
   bool _arrivedHere = false;
   bool _startedHere = false;
+  // Too many wrong pickup OTPs (server otpLocked / 423 OTP_LOCKED).
+  late bool _otpLocked = widget.ride.otpLocked;
 
   // ── Mid-ride face re-check ──
   // Polls while the trip is underway; paused while a check prompt is open on
@@ -223,7 +226,12 @@ class _OnRideViewState extends State<_OnRideView> {
             ));
           }
           if (state is OtpErrorState) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.message)));
+            if (state.locked) _otpLocked = true;
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(state.message),
+              backgroundColor: state.locked ? AppColors.red : null,
+              duration: const Duration(seconds: 6),
+            ));
           }
         },
         child: BlocBuilder<RideBloc, RideState>(
@@ -452,7 +460,7 @@ class _OnRideViewState extends State<_OnRideView> {
         _waitingAtStop = res['isWaitingAtStop'] == true;
       }
     });
-    if (res['error'] != null) _fail('Could not update the stop', res['error']);
+    if (res['error'] != null) _fail('Could not update the stop', rideActionError(res));
   }
 
   Future<void> _setLeg(String leg) async {
@@ -748,6 +756,13 @@ class _OnRideViewState extends State<_OnRideView> {
   bool get _isParcel => r.service == 'delivery';
 
   void _showOtpDialog(BuildContext context, RideBloc bloc) {
+    // Locked after too many wrong codes: only support can unlock it, so asking
+    // for another code would only be refused.
+    if (_otpLocked) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text(otpLockedMessage), backgroundColor: AppColors.red, duration: Duration(seconds: 6)));
+      return;
+    }
     final dlg = _isParcel
         ? OtpDialog.show(context, title: 'Enter Pickup PIN', label: 'PIN from Sender', hint: 'e.g. 5678', action: 'Collect')
         : OtpDialog.show(context, title: 'Enter Ride OTP', label: 'OTP from Rider', hint: 'e.g. 5678', action: 'Start');
@@ -815,16 +830,22 @@ class _OnRideViewState extends State<_OnRideView> {
             amount: toll.toDouble(), title: 'Collect tolls from the rider')));
         if (collected != true || !context.mounted) return;
       }
-      done = true;
       if (r.paymentMode == 'online') {
-        // Online: the driver requests payment; the ride completes when the rider
-        // pays. Requesting it freezes the tolls on the server too.
+        // Online: the rider is asked to pay (which also freezes the tolls on
+        // the server), then the DRIVER ends the trip. It stays completed with
+        // the payment pending; the earning is credited once the rider pays —
+        // or the driver records that the rider paid cash instead.
         setState(() => _tollsLocked = true);
-        await waitForRiderPayment(context, r,
-            invoiceArgs: RideCompletionArgs(r, tollCollected: toll));
-      } else {
-        bloc.add(EndRideEvent()); // wallet — auto-deducted
+        try { await DriverApiService.requestPayment(r.id); } catch (_) {}
+        if (!context.mounted) return;
       }
+      // Online and wallet: /complete settles it. A wallet ride is debited from
+      // the rider's wallet by the server; if that is short it turns into a cash
+      // ride and the driver is asked to collect the cash (afterComplete).
+      final invoice = await settleForInvoice(context, r, tollCollected: toll);
+      if (invoice == null || !context.mounted) return;
+      done = true;
+      Navigator.pushReplacementNamed(context, InvoicePage.route, arguments: invoice);
     } finally {
       // Backed out before anything was sent: the trip, and its tolls, go on.
       if (!done && mounted) setState(() => _ending = false);

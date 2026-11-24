@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/phone.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:animated_text_kit/animated_text_kit.dart';
@@ -24,10 +25,10 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() { _phoneController.dispose(); super.dispose(); }
 
   Future<void> _sendOtp() async {
-    final phone = _phoneController.text.trim();
-    if (phone.length < 10) {
+    final phone = indianMobile(_phoneController.text);
+    if (phone == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid 10-digit phone number')),
+        const SnackBar(content: Text('Enter a valid 10-digit Indian mobile number (starting with 6, 7, 8 or 9)')),
       );
       return;
     }
@@ -40,8 +41,9 @@ class _LoginScreenState extends State<LoginScreen> {
           builder: (_) => OtpScreen(phone: phone),
         ));
       } else {
+        // The server's own words, including its daily limit (429).
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(res['error'] ?? 'Failed to send OTP')),
+          SnackBar(content: Text((res['error'] ?? res['message'] ?? 'Failed to send OTP').toString())),
         );
       }
     } catch (e) {

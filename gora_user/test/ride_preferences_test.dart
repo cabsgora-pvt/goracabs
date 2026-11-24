@@ -15,7 +15,7 @@ import 'package:customer_app/screens/rental_screen.dart';
 import 'package:customer_app/screens/taxi_booking_screen.dart';
 import 'package:customer_app/theme/app_theme.dart';
 import 'package:customer_app/utils/vehicle_marker.dart';
-import 'package:customer_app/widgets/finding_driver_view.dart';
+import 'package:customer_app/screens/active_ride_screen.dart';
 import 'package:customer_app/widgets/ride_preferences.dart';
 
 // Admin-defined ride preferences (GET /ride-preferences): only the ones for the
@@ -209,7 +209,8 @@ void main() {
       final body = _bookBody();
       expect(body['preferences'], ['pet_friendly']);
       expect(body['preferFemaleDriver'], false);
-      expect(find.byType(FindingDriverView), findsOneWidget);
+      // Tracked on the live ride screen, like every service.
+      expect(find.byType(ActiveRideScreen), findsOneWidget);
       await _teardown(tester);
     });
 
