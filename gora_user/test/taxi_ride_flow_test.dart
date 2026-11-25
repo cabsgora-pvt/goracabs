@@ -20,8 +20,8 @@ import 'package:customer_app/screens/active_ride_screen.dart';
 // The taxi booking flow end to end, against canned API answers:
 // choose → confirm pickup → confirm ride → handed to the live ride screen.
 //
-// On a real device the full-screen "Finding your ride" view stayed up under the
-// driver sheet for the whole trip, and came back behind "Ride Completed!".
+// Tracking, payment and "no driver found" are the live ride screen's job
+// (test/active_ride_screen_test.dart), as for every other service.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const kPhone = Size(400, 860);
