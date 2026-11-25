@@ -3,11 +3,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import mongoose from 'mongoose'
 import Driver from '@/models/Driver'
 import { guardZoneAdmin, logZoneActivity } from '@/lib/zone-admin'
+import { approvalBlocker } from '@/lib/driver-approval'
+import { bumpTokenVersion } from '@/lib/auth'
 
 async function ownDriver(id: string, zoneIds: string[]) {
   if (!mongoose.isValidObjectId(id)) return null
-  const d: any = await Driver.findById(id).select('-password').lean()
-  return d && zoneIds.includes(String(d.zoneId)) ? d : null
+  const d: any = await Driver.findById(id).select('-password -faceSignature -bankDetails -bankAccounts').lean()
+  // A soft-deleted driver is gone for the zone admin: not listed, not openable,
+  // and its stored deleted_<ts>_… phone is never shown.
+  return d && d.status !== 'deleted' && zoneIds.includes(String(d.zoneId)) ? d : null
 }
 
 // GET — one driver of their zone, with documents, for review.
@@ -39,7 +43,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const { action, reason } = await req.json()
     let set: any
     switch (action) {
-      case 'approve': set = { status: 'approved', rejectionReason: '' }; break
+      case 'approve': {
+        const chk = await approvalBlocker(d)
+        if (!chk.ok) return NextResponse.json({ error: chk.error, code: chk.code, missing: chk.missing }, { status: chk.status })
+        set = { status: 'approved', rejectionReason: '' }; break
+      }
       case 'reject': set = { status: 'rejected', rejectionReason: String(reason || '').slice(0, 300) }; break
       // A blocked driver is also taken offline so dispatch stops offering them.
       case 'block': set = { status: 'blocked', isOnline: false }; break
@@ -48,7 +56,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         set = { status: 'approved' }; break
       default: return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
     }
-    await Driver.updateOne({ _id: d._id }, { $set: set })
+    // Conditional on the status we checked, so a driver deleted (or changed)
+    // meanwhile is not overwritten — e.g. 'approved' on a deleted account.
+    const filter: any = { _id: d._id, status: d.status }
+    if (action === 'approve') filter.registrationStep = 'submitted'
+    const r = await Driver.updateOne(filter, { $set: set })
+    if (!r.matchedCount) return NextResponse.json({ error: 'Driver changed meanwhile — reload and try again', code: 'CONFLICT' }, { status: 409 })
+    // Blocking ends the driver's open sessions too (tokenVersion).
+    if (action === 'block') await bumpTokenVersion('driver', String(d._id))
     await logZoneActivity(g.admin._id, g.actor, `driver.${action}`, { driver: d.name, phone: d.phone, from: d.status, to: set.status, reason: set.rejectionReason || undefined })
     return NextResponse.json({ success: true, status: set.status })
   } catch (e: any) {

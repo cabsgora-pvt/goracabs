@@ -6,6 +6,8 @@ import Driver from '@/models/Driver'
 import Transaction from '@/models/Transaction'
 import { guardAdmin } from '@/lib/admin-guard'
 import { requireAdmin } from '@/lib/auth'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
 
 // Must match app/api/auth/driver/withdraw (the mutex held while a request is pending).
 const WITHDRAW_PENDING_TOKEN = 'wd:pending'
@@ -20,7 +22,9 @@ const WITHDRAW_PENDING_TOKEN = 'wd:pending'
 //   reject  → reason required; a held amount goes back to the wallet once.
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
+    const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+    await auditAdminBody(req, requireAdmin(req), 'withdrawal.decide', String(params.id))
     const admin: any = requireAdmin(req)
     const adminEmail = String(admin?.email || admin?.id || 'unknown')
     await connectDB()
@@ -33,6 +37,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
     if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Withdrawal not found' }, { status: 404 })
     if (action === 'reject' && !note) return NextResponse.json({ error: 'Rejection reason is required' }, { status: 400 })
+    // Approving means the money was sent: the bank UTR / payout reference is
+    // the record of it, so an approval without one is refused.
+    if (action === 'approve' && !payoutRef) return NextResponse.json({ error: 'Enter the bank UTR / payout reference of the transfer', code: 'payoutRefRequired' }, { status: 400 })
 
     const now = new Date()
     const set: any = { status: action === 'approve' ? 'approved' : 'rejected', processedAt: now, processedBy: adminEmail }

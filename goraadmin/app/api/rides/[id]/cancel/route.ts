@@ -25,7 +25,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const _r: any = await Ride.findById(params.id).select('riderId driverId').lean()
     if (!_r) return withCors({ error: 'Ride not found' }, 404)
     const _denied = guardRideActor(req, _r)
-    if (_denied) return withCors(await _denied.json(), _denied.status)
+    if (_denied) {
+      const j: any = await _denied.json()
+      return withCors(_denied.status === 403 ? { ...j, code: 'NOT_PARTICIPANT' } : j, _denied.status)
+    }
 
     // Who cancelled decides the fee and the refund, so it comes from the
     // caller's token, never from the body: a rider sending cancelledBy:'admin'
@@ -37,7 +40,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (asDriver?.id && _r.driverId && String(_r.driverId) === String(asDriver.id)) by = 'driver'
     else if (asUser?.id && _r.riderId && String(_r.riderId) === String(asUser.id)) by = 'rider'
     else if (asAdmin) by = ['admin', 'system'].includes(String(cancelledBy)) ? String(cancelledBy) : 'admin'
-    else return withCors({ error: 'Not a participant in this ride' }, 403)
+    else return withCors({ error: 'Not a participant in this ride', code: 'NOT_PARTICIPANT' }, 403)
     const out = await cancelRide(params.id, by, reason)
     if (out.error) return withCors({ error: out.error, ...(out.code ? { code: out.code } : {}) }, out.status || 400)
     if (out.alreadyCancelled) return withCors({ success: true, alreadyCancelled: true })

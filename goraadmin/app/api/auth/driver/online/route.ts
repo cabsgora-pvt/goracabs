@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
-import { requireDriverAuth } from '@/lib/auth'
+import { requireDriverAuth, requireActiveDriver } from '@/lib/auth'
 import { holdOf, holdMessage } from '@/lib/account-hold'
 import { maybeAutoSwitchZone } from '@/lib/zone-auto'
 import { isTeleport } from '@/lib/geo-guard'
@@ -15,7 +15,13 @@ export async function POST(req: NextRequest) {
     const payload = requireDriverAuth(req)
     if (!payload) return withCors({ error: 'Unauthorized' }, 401)
 
-    const { isOnline, lat, lng } = await req.json()
+    const { isOnline, lat, lng } = await req.json().catch(() => ({} as any))
+    // Going online needs a live account (not blocked / deleted, session not
+    // revoked). Going offline always works.
+    if (isOnline) {
+      const act = await requireActiveDriver(req)
+      if (!act.ok) return withCors({ error: act.error, code: act.code }, act.status)
+    }
     await connectDB()
 
     // A client could skip the app's own lock screen — this is the real gate.

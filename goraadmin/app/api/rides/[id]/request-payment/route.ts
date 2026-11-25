@@ -27,7 +27,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     const cur: any = await Ride.findById(params.id).lean()
     if (!cur) return withCors({ error: 'Ride not found' }, 404)
-    if (!cur.driverId || String(cur.driverId) !== String(drv.id)) return withCors({ error: 'Not a participant in this ride' }, 403)
+    if (!cur.driverId || String(cur.driverId) !== String(drv.id)) return withCors({ error: 'Not a participant in this ride', code: 'NOT_PARTICIPANT' }, 403)
     if (cur.status !== 'ongoing' && cur.status !== 'completed') {
       return withCors({ error: `Ride is ${cur.status}; payment can be requested only for an ongoing or completed ride` }, 400)
     }

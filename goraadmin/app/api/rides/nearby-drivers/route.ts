@@ -4,6 +4,7 @@ import { createHmac } from 'crypto'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
 import { withCors, corsOptions } from '@/lib/cors'
+import { rateLimitAsync } from '@/lib/rate-limit'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -20,6 +21,10 @@ function markerId(driverId: string): string {
 // Returns lightweight markers only (no PII): { drivers: [{ lat, lng, heading, vehicleType }] }
 export async function GET(req: NextRequest) {
   try {
+    // Public and polled by every open rider home screen: per-IP limit.
+    if (!(await rateLimitAsync(req, 'nearby-drivers', 120, 60_000))) {
+      return withCors({ error: 'Too many requests', code: 'RATE_LIMITED', drivers: [] }, 429)
+    }
     const { searchParams } = new URL(req.url)
     const lat = parseFloat(searchParams.get('lat') || '')
     const lng = parseFloat(searchParams.get('lng') || '')
@@ -39,11 +44,14 @@ export async function GET(req: NextRequest) {
     const latDelta = radiusKm / 111
     const lngDelta = radiusKm / (111 * Math.max(Math.cos((lat * Math.PI) / 180), 0.01))
 
+    // Equality fields first, then the fresh-fix range: served by the
+    // { isOnline, status, locationUpdatedAt } index (models/Driver).
     const query: any = {
       isOnline: true,
+      status: 'approved',
+      locationUpdatedAt: { $gte: freshSince },
       currentLat: { $gte: lat - latDelta, $lte: lat + latDelta },
       currentLng: { $gte: lng - lngDelta, $lte: lng + lngDelta },
-      locationUpdatedAt: { $gte: freshSince },
     }
     if (vehicleType) query.selectedVehicleTypeName = vehicleType
 

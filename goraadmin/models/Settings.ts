@@ -12,5 +12,8 @@ const SettingsSchema = new Schema({
   driverApp: { type: Schema.Types.Mixed, default: {} },
   // Franchise mode switch: { enabled, changedAt, changedBy } — lib/franchise.
   franchise: { type: Schema.Types.Mixed, default: {} },
+  // Support / safety: { opsPhones: '98xxxxxxxx, 97xxxxxxxx' } — SOS alerts are
+  // sent by SMS to these numbers (lib/sos-escalate).
+  support: { type: Schema.Types.Mixed, default: {} },
 }, { timestamps: true })
 export default mongoose.models.Settings || mongoose.model('Settings', SettingsSchema)

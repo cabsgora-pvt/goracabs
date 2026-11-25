@@ -5,6 +5,7 @@ import Ride from '@/models/Ride'
 import { guardZoneAdmin } from '@/lib/zone-admin'
 
 const IST = 5.5 * 3600e3
+const CSV_MAX_ROWS = 20_000
 
 /** YYYY-MM-DD (IST) → UTC instant of that IST midnight. */
 function istDay(s: string | null, fallback: Date) {
@@ -34,7 +35,8 @@ export async function GET(req: NextRequest) {
     }
 
     if (sp.get('format') === 'csv') {
-      const rides: any[] = await Ride.find(match).sort({ createdAt: 1 })
+      // Capped: a year of a busy zone must not be loaded into memory at once.
+      const rides: any[] = await Ride.find(match).sort({ createdAt: 1 }).limit(CSV_MAX_ROWS)
         .select('createdAt completedAt status service vehicleType riderName driverName pickupAddress dropAddress distance paymentMode totalFare commissionAmount driverEarning').lean()
       const head = ['Date (IST)', 'Status', 'Service', 'Vehicle', 'Rider', 'Driver', 'Pickup', 'Drop', 'Km', 'Payment', 'Fare', 'Commission', 'Driver earning']
       const lines = [head.join(',')]
@@ -48,6 +50,7 @@ export async function GET(req: NextRequest) {
       return new NextResponse('﻿' + lines.join('\n'), {
         headers: {
           'Content-Type': 'text/csv; charset=utf-8',
+          'X-Rows-Capped': rides.length >= CSV_MAX_ROWS ? String(CSV_MAX_ROWS) : '0',
           'Content-Disposition': `attachment; filename="gora-zone-rides-${sp.get('from') || 'last30'}-to-${sp.get('to') || 'today'}.csv"`,
         },
       })

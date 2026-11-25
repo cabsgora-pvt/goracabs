@@ -5,16 +5,19 @@ import ZoneAdmin from '@/models/ZoneAdmin'
 import ZoneStaff from '@/models/ZoneStaff'
 import { guardAdmin } from '@/lib/admin-guard'
 import { accessState, computeSettlement, zoneNameMap } from '@/lib/zone-admin'
+import { parsePaging } from '@/lib/list-params'
 
 // GET ?month=YYYY-MM — the franchise business at a glance: subscription
 // income, renewals coming up, revenue share owed, and reset requests.
 export async function GET(req: NextRequest) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   try {
     await connectDB()
     const month = req.nextUrl.searchParams.get('month') || ''
+    const paging = parsePaging(req.nextUrl.searchParams, 200)
     const [admins, names, staffResets] = await Promise.all([
-      ZoneAdmin.find().select('-password').lean(),
+      // Totals cover every franchise (capped at 1000); `rows` is paged.
+      ZoneAdmin.find().select('-password').sort({ createdAt: -1 }).limit(1000).lean(),
       zoneNameMap(),
       ZoneStaff.countDocuments({ passwordResetRequestedAt: { $ne: null } }),
     ])
@@ -50,8 +53,9 @@ export async function GET(req: NextRequest) {
         shareOwed: Math.round(rows.reduce((s, r) => s + r.settlement.due, 0) * 100) / 100,
         resetRequests: rows.filter(r => r.passwordResetRequested).length + staffResets,
       },
-      expiringSoon: rows.filter(r => r.daysLeft !== null && r.daysLeft >= 0 && r.daysLeft <= 30).sort((x, y) => (x.daysLeft! - y.daysLeft!)),
-      rows,
+      expiringSoon: rows.filter(r => r.daysLeft !== null && r.daysLeft >= 0 && r.daysLeft <= 30).sort((x, y) => (x.daysLeft! - y.daysLeft!)).slice(0, 100),
+      rows: rows.slice(paging.skip, paging.skip + paging.limit),
+      total: rows.length, page: paging.page, limit: paging.limit,
     })
   } catch (e: any) {
     return NextResponse.json({ error: e.message || 'Server error' }, { status: 500 })

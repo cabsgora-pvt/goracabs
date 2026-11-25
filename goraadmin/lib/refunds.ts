@@ -15,9 +15,14 @@
 //     driver accepted/arrived). Never negative. The fee portion is simply
 //     RETAINED: nothing credits the driver for it yet (cancel-fee settlement
 //     is a separate policy that does not exist yet).
-//   • paid split-fare shares — back to each payer, but only when no driver was
-//     ever assigned. split/pay credits an assigned driver immediately, so after
-//     an accept the share is already the driver's and is not refunded here.
+//   • paid split-fare shares — back to each payer on ANY cancel (a cancelled
+//     ride is never billed). split/pay credited the driver (share − commission)
+//     at once; that exact credit is taken back from the driver it went to
+//     (Transaction 'split_reversal'), claimed once per share (reversedAt).
+//   • the rider's own wallet debits tied to this ride (source 'ride', ref
+//     rideId) other than the linked prepayment — e.g. an old app build that
+//     paid from the wallet mid-trip before the ride was cancelled.
+//   • the coupon, unless the trip had started (releasePromoForRide, once).
 //
 // Never refunded automatically (flagged in refundReview for an admin instead):
 //   • 'prepay_unlinked'   — charged upfront but the payment could not be tied
@@ -38,8 +43,10 @@ import User from '@/models/User'
 import WalletTransaction from '@/models/WalletTransaction'
 import ServiceConfig from '@/models/ServiceConfig'
 import { chargedAtBooking } from './prepay'
-import { releasePromo } from './promo'
+import { releasePromoForRide } from './promo'
 import { settleOnlinePayment } from './settlement'
+import Driver from '@/models/Driver'
+import Transaction from '@/models/Transaction'
 
 /** Lease on a ride's refund work, so two concurrent runners do not both pay. */
 export const REFUND_LEASE_MS = 60_000
@@ -89,19 +96,35 @@ export async function settleCancelRefunds(rideId: any): Promise<number> {
     })
   }
 
-  if (!midTrip && !ride.driverId) {
-    const splits: any[] = ride.splitRequests || []
-    splits.forEach((sp: any, i: number) => {
-      const share = Math.round(Number(sp.share) || 0)   // split/pay debits Math.round(share)
-      if (sp.status === 'paid' && sp.paidBy && share > 0) {
-        items.push({
-          userId: sp.paidBy, amount: share, ref: `refund:${id}:split:${sp._id || i}`,
-          note: ride.cancelledBy === 'system'
-            ? 'Refund: split-fare share, no driver was found for that ride'
-            : 'Refund: split-fare share, that ride was cancelled',
-        })
-      }
-    })
+  const splits: any[] = ride.splitRequests || []
+  splits.forEach((sp: any, i: number) => {
+    const share = Math.round(Number(sp.share) || 0)   // split/pay debits Math.round(share)
+    if (sp.status === 'paid' && sp.paidBy && share > 0) {
+      items.push({
+        userId: sp.paidBy, amount: share, ref: `refund:${id}:split:${sp._id || i}`,
+        note: ride.cancelledBy === 'system'
+          ? 'Refund: split-fare share, no driver was found for that ride'
+          : 'Refund: split-fare share, that ride was cancelled',
+      })
+    }
+  })
+  // The driver gives back what each paid share credited them.
+  for (const sp of splits) {
+    if (sp.status !== 'paid' || !sp._id || sp.reversedAt) continue
+    try { await reverseSplitCredit(ride, sp) } catch (e) { console.error('[refunds] split reversal failed', e) }
+  }
+
+  // Any other wallet debit the rider made for this ride (not the linked
+  // prepayment, which is refunded above as prepaidAmount).
+  if (ride.riderId) {
+    const debits: any[] = await WalletTransaction.find({
+      userId: ride.riderId, type: 'debit', source: 'ride', ref: id,
+    }).select('_id amount').lean()
+    for (const d of debits) {
+      if (ride.prepaidVia === 'wallet' && String(d._id) === String(ride.prepaidRef || '')) continue
+      const amt = Math.round((Number(d.amount) || 0) * 100) / 100
+      if (amt > 0) items.push({ userId: ride.riderId, amount: amt, ref: `refund:${id}:ridedebit:${d._id}`, note: `Refund: wallet payment for a cancelled ${what}` })
+    }
   }
 
   let refunded = 0
@@ -117,11 +140,49 @@ export async function settleCancelRefunds(rideId: any): Promise<number> {
     refunded += it.amount
   }
 
+  // The coupon comes back for every cancel before the trip started — this is
+  // also the path of the system's "No driver found" close.
+  if (!midTrip) await releasePromoForRide(ride)
+
   await Ride.updateOne(
     { _id: ride._id },
     { $set: { refundPending: false, refundedAmount: refunded }, $unset: { refundLeaseAt: 1 } },
   )
   return refunded
+}
+
+/**
+ * Takes back from the driver what split/pay credited them for one share.
+ * Claimed on the share (reversedAt) so retries never debit twice. Shares paid
+ * before driverCredit was recorded fall back to share − its commission at the
+ * ride's split rate.
+ */
+async function reverseSplitCredit(ride: any, sp: any): Promise<void> {
+  const share = Math.round(Number(sp.share) || 0)
+  let credit = sp.driverCredit != null ? Number(sp.driverCredit) || 0 : NaN
+  let driverId = sp.creditedDriverId || null
+  if (!Number.isFinite(credit)) {
+    // Legacy share: the driver at the time is the ride's driver, if any.
+    if (!ride.driverId) credit = 0
+    else {
+      const collected = Number(ride.splitCollected) || 0
+      const commission = collected > 0 ? Math.round(share * (Number(ride.splitCommission) || 0) / collected) : 0
+      credit = Math.max(0, share - commission)
+      driverId = ride.driverId
+    }
+  }
+  const claimed = await Ride.updateOne(
+    { _id: ride._id, splitRequests: { $elemMatch: { _id: sp._id, status: 'paid', reversedAt: null } } },
+    { $set: { 'splitRequests.$.reversedAt': new Date() } },
+  )
+  if (!claimed.modifiedCount || !(credit > 0) || !driverId) return
+  const d: any = await Driver.findByIdAndUpdate(driverId,
+    { $inc: { walletBalance: -credit, totalEarnings: -credit } }, { new: true }).select('walletBalance').lean()
+  await Transaction.create({
+    driverId, rideId: ride._id, type: 'split_reversal', amount: -credit, paymentMode: 'wallet',
+    description: `Split-fare share from ${sp.name || 'a co-rider'} returned to them: ride cancelled`,
+    balanceAfter: d?.walletBalance,
+  })
 }
 
 export type CancelOutcome = {
@@ -226,8 +287,9 @@ export async function cancelRide(rideId: any, by: string, reason?: string): Prom
     const s = await settleOnlinePayment(String(ride._id))
     if (s.state === 'refunded') refundedAmount += s.refunded || 0
   } catch (e) { console.error('[cancel] online payment refund failed', e) }
-  // A coupon on a ride that never started is given back to the rider.
-  if (ride.couponCode && ride.cancelledFromStatus !== 'ongoing') await releasePromo(ride.couponCode, ride.couponSource, ride.riderId)
+  // A coupon on a ride that never started is given back to the rider (once —
+  // settleCancelRefunds above usually did it already).
+  if (ride.couponCode && ride.cancelledFromStatus !== 'ongoing') await releasePromoForRide(ride)
 
   return { ride, cancellationFee, review, refundedAmount }
 }

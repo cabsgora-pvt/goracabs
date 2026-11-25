@@ -5,7 +5,7 @@ import { guardAdmin } from '@/lib/admin-guard'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const ticket = await SupportTicket.findById(params.id).lean()
     if (!ticket) return NextResponse.json({ error: 'Ticket not found' }, { status: 404 })
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const ticket = await SupportTicket.findById(params.id)

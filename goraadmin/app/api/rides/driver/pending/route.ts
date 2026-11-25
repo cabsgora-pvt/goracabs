@@ -6,7 +6,7 @@ import Driver from '@/models/Driver'
 import User from '@/models/User'
 import { requireDriverAuth } from '@/lib/auth'
 import { getEtaFactor, crowKm, predictEtaMin, displayRoadKm } from '@/lib/eta'
-import { driverIsBusy, driverEligibleFor, cachedGlobalSettings, runDispatchSweepsThrottled, rideDueAt, rideIsOpenForDispatch } from '@/lib/dispatch'
+import { driverIsBusy, driverEligibleFor, cachedGlobalSettings, kickDispatchSweeps, rideDueAt, rideIsOpenForDispatch, isAdvanceService, NO_DRIVER } from '@/lib/dispatch'
 import { holdOf } from '@/lib/account-hold'
 import { withCors, corsOptions } from '@/lib/cors'
 import { sweepDueNotifications } from '@/lib/notifications'
@@ -18,11 +18,12 @@ const FEED_SCAN_LIMIT = 60
 const FEED_MAX = 20
 const FEED_FIELDS = [
   'riderId', 'riderName', 'pickupAddress', 'dropAddress', 'pickupLat', 'pickupLng', 'dropLat', 'dropLng',
-  'fare', 'tip', 'totalFare', 'distance', 'duration', 'vehicleType', 'paymentMode', 'routePolyline',
+  'fare', 'tip', 'totalFare', 'distance', 'duration', 'vehicleType', 'paymentMode',
   'createdAt', 'stops', 'service', 'tripType', 'cityFrom', 'cityTo', 'departureAt', 'returnAt', 'scheduledAt',
   'numPassengers', 'packageHours', 'packageKm', 'hireTotalHours', 'transmission', 'hireStartAt', 'hireEndAt',
   'senderName', 'receiverName', 'itemType', 'weightKg', 'packageSize', 'isFragile', 'codAmount', 'parcelPhotos',
   'offeredTo', 'offerExpiresAt', 'rejectedBy', 'zoneId', 'preferFemaleDriver', 'preferences', 'status',
+  'offerRound', 'dispatchActivatedAt', 'offeredHistory',
 ].join(' ')
 
 // GET → pending ride requests this driver may accept (same zone + vehicle type, recent, not rejected)
@@ -35,7 +36,7 @@ export async function GET(req: NextRequest) {
     await connectDB()
     sweepDueNotifications()   // scheduled admin notifications that are due
     const driver: any = await Driver.findById(payload.id)
-      .select('status isOnline accountHold faceVerificationRequired faceVerificationReason walletBalance selectedVehicleTypeName zoneId gender currentLat currentLng allowTaxi allowRental allowOutstation allowHireDriver allowDelivery acceptsRental acceptsOutstation acceptsHireDriver acceptsDelivery')
+      .select('status isOnline accountHold faceVerificationRequired faceVerificationReason walletBalance selectedVehicleTypeName zoneId gender currentLat currentLng allowTaxi allowRental allowOutstation allowHireDriver allowDelivery acceptsRental acceptsOutstation acceptsHireDriver acceptsDelivery offerCooldownUntil')
       .lean()
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
 
@@ -63,7 +64,8 @@ export async function GET(req: NextRequest) {
 
     // Move on lapsed offers / start scheduled rides due soon — throttled per
     // process, so 1 000 drivers polling every 4 s do not run it 250×/s.
-    await runDispatchSweepsThrottled().catch(() => {})
+    // Fire-and-forget: the sweep never delays this answer.
+    kickDispatchSweeps()
 
     // A busy driver (on a trip, or with an accepted ride due within the hour —
     // see BUSY in lib/dispatch.ts) is shown no new requests, offered or open-pool.
@@ -102,7 +104,8 @@ export async function GET(req: NextRequest) {
     // SCHEDULE_LEAD_MIN before they are due.
     rides = rides.filter((r: any) => {
       const due = rideDueAt(r).getTime()
-      const fresh = ['outstation', 'rental', 'hire_driver', 'delivery'].includes(r.service) ? 15 : 2
+      // Advance services stay listed for their whole no-driver grace.
+      const fresh = isAdvanceService(r.service) ? Math.max(15, NO_DRIVER.ADVANCE_GRACE_MIN) : r.service === 'delivery' ? 15 : 2
       return due >= now.getTime() - fresh * 60_000 && rideIsOpenForDispatch(r, now)
     })
 
@@ -179,7 +182,6 @@ export async function GET(req: NextRequest) {
         pickupDistance: pickupKm.get(String(r._id)) ?? null,
         vehicleType: r.vehicleType,
         paymentMode: r.paymentMode,
-        routePolyline: r.routePolyline,
         createdAt: r.createdAt,
         stops: r.stops,
         // Outstation extras (null for taxi rides — driver UI hides outstation chip)
@@ -208,7 +210,9 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    return withCors({ rides: result })
+    // Offers are paused after too many rejects (lib/dispatch REJECT_COOLDOWN); the open pool is still listed.
+    const cooldown = driver.offerCooldownUntil && new Date(driver.offerCooldownUntil).getTime() > now.getTime() ? driver.offerCooldownUntil : null
+    return withCors({ rides: result, ...(cooldown ? { offerCooldownUntil: cooldown } : {}) })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)
   }

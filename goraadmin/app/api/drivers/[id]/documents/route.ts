@@ -11,7 +11,7 @@ import { cleanDriverDoc } from '@/lib/admin-account'
 // WhatsApp). If the driver already has one of that type it is replaced.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Driver not found' }, { status: 404 })
     await connectDB()
     const b = await req.json().catch(() => ({}))

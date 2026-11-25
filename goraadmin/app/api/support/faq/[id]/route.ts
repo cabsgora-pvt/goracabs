@@ -5,7 +5,7 @@ import { guardAdmin } from '@/lib/admin-guard'
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const faq = await FAQ.findByIdAndUpdate(params.id, body, { new: true }).lean()
@@ -18,7 +18,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     await FAQ.findByIdAndDelete(params.id)
     return NextResponse.json({ success: true })

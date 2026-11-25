@@ -2,8 +2,8 @@ export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
-import Transaction from '@/models/Transaction'
-import { requireDriverAuth } from '@/lib/auth'
+import { requireDriverAuth, requireActiveDriver } from '@/lib/auth'
+import { creditDriverRecharge } from '@/lib/payment-credit'
 import { withCors, corsOptions } from '@/lib/cors'
 import { createRazorpayOrder, fetchRazorpayOrder, getRazorpayConfig, verifyRazorpaySignature } from '@/lib/razorpay'
 import { DRIVER_RECHARGE } from '@/lib/driver-recharge'
@@ -27,8 +27,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const payload = requireDriverAuth(req)
-    if (!payload) return withCors({ error: 'Unauthorized' }, 401)
+    const auth = await requireActiveDriver(req)
+    if (!auth.ok) return withCors({ error: auth.error, code: auth.code }, auth.status)
+    const payload = { id: auth.id }
     const b = await req.json().catch(() => ({}))
     await connectDB()
 
@@ -48,24 +49,9 @@ export async function POST(req: NextRequest) {
       const amount = Math.round(Number(o.amount_paid) || 0) / 100
       if (amount <= 0) return withCors({ error: 'Payment not completed yet' }, 400)
 
-      const updated: any = await Driver.findOneAndUpdate(
-        { _id: payload.id, walletRechargeRefs: { $ne: paymentId } },
-        { $inc: { walletBalance: amount }, $push: { walletRechargeRefs: paymentId } },
-        { new: true },
-      ).select('walletBalance').lean()
-
-      if (!updated) {
-        // Already credited (a retry of the same payment): report, add nothing.
-        const d: any = await Driver.findById(payload.id).select('walletBalance').lean()
-        if (!d) return withCors({ error: 'Driver not found' }, 404)
-        return withCors({ success: true, alreadyCredited: true, amount, walletBalance: d.walletBalance || 0 })
-      }
-      await Transaction.create({
-        driverId: payload.id, type: 'recharge', amount, paymentMode: 'online',
-        description: `Wallet recharge via Razorpay (${paymentId})`,
-        balanceAfter: updated.walletBalance,
-      })
-      return withCors({ success: true, amount, walletBalance: updated.walletBalance })
+      // Same claim as the Razorpay webhook (lib/payment-credit): credited once.
+      const out = await creditDriverRecharge(String(payload.id), paymentId, amount)
+      return withCors(out.body, out.status)
     }
 
     // ── Step 1: order ──

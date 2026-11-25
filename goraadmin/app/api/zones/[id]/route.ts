@@ -16,7 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const zone = await Zone.findByIdAndUpdate(params.id, body, { new: true }).lean()
@@ -29,7 +29,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     await Zone.findByIdAndDelete(params.id)
     return NextResponse.json({ success: true })

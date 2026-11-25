@@ -77,7 +77,9 @@ module.exports = {
       exec_mode: 'fork',
       autorestart: false,
       cron_restart: '* * * * *',
-      env: { NODE_ENV: 'production', CRON_TARGET_URL: 'http://127.0.0.1:3000' },
+      // 4 pings per run, 15 s apart → the dispatch sweeps every 15 s (offers
+      // lapse after 20 s; once a minute let them sit up to 80 s).
+      env: { NODE_ENV: 'production', CRON_TARGET_URL: 'http://127.0.0.1:3000', CRON_REPEAT: '4', CRON_EVERY_SEC: '15' },
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       error_file: '/var/log/goraadmin-cron-error.log',
       out_file: '/var/log/goraadmin-cron-out.log',

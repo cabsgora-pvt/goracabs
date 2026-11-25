@@ -5,7 +5,7 @@ import { guardAdmin } from '@/lib/admin-guard'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const owner = await FleetOwner.findById(params.id).lean()
     if (!owner) return NextResponse.json({ error: 'Fleet owner not found' }, { status: 404 })
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const owner = await FleetOwner.findByIdAndUpdate(params.id, body, { new: true }).lean()
@@ -30,7 +30,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     await FleetOwner.findByIdAndDelete(params.id)
     return NextResponse.json({ success: true })

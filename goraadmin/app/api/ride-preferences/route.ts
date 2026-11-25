@@ -6,6 +6,9 @@ import { requireAdmin } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 import { docTypeKey } from '@/lib/doc-types'
 import { PREF_SERVICES } from '@/lib/ride-prefs'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -25,7 +28,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!requireAdmin(req)) return withCors({ error: 'Unauthorized' }, 401)
+  const denied = await guardAdmin(req); if (denied) return denied
+  const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+  await auditAdminBody(req, requireAdmin(req), 'ride_preference.create', undefined)
   try {
     const b = await req.json().catch(() => ({}))
     const name = String(b.name || '').trim().slice(0, 40)

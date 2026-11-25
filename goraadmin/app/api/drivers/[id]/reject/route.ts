@@ -10,7 +10,7 @@ export async function OPTIONS() {
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json().catch(() => ({}))
     const driver = await Driver.findByIdAndUpdate(

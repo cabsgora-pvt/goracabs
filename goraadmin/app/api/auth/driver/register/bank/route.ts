@@ -29,8 +29,8 @@ export async function POST(req: NextRequest) {
     const driver = await Driver.findByIdAndUpdate(
       payload.id,
       registrationLocked(current)
-        ? { bankDetails }
-        : { bankDetails, registrationStep: 'submitted', status: 'pending' },
+        ? { bankDetails, bankUpdatedAt: new Date() }
+        : { bankDetails, bankUpdatedAt: new Date(), registrationStep: 'submitted', status: 'pending' },
       { new: true }
     ).select('_id').lean()
 

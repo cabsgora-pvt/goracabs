@@ -8,7 +8,7 @@ import { maskSettings, unmaskSettings } from '@/lib/settings-secrets'
 
 export async function GET(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     let settings: any = await Settings.findOne({ key: 'global' }).lean()
     if (!settings) settings = getSettings()
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 // Writes the whole payment block (incl. Razorpay secrets): admin + password.
 export async function PUT(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
     await connectDB()
     const body = await req.json().catch(() => null)

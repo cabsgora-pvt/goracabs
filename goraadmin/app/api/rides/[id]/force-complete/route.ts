@@ -6,6 +6,9 @@ import Ride from '@/models/Ride'
 import { requireAdmin } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 import { completeRide } from '@/lib/settlement'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -17,8 +20,11 @@ export async function OPTIONS() { return corsOptions() }
 // an ongoing ride, and an online ride is left awaiting its payment.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
+    const denied = await guardAdmin(req); if (denied) return denied
     const admin = requireAdmin(req) as any
     if (!admin?.id) return withCors({ error: 'Unauthorized' }, 401)
+    const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+    await auditAdminBody(req, requireAdmin(req), 'ride.force_complete', String(params.id))
     if (!mongoose.isValidObjectId(params.id)) return withCors({ error: 'Ride not found' }, 404)
 
     await connectDB()

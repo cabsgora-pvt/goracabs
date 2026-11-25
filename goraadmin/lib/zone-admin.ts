@@ -228,11 +228,13 @@ export async function computeSettlement(admin: any, month: string) {
 
   const [snap, legacy, subs] = await Promise.all([
     Ride.aggregate([
-      { $match: { 'franchiseShare.zoneAdminId': adminId, status: 'completed', completedAt: { $gte: from, $lt: to } } },
+      // Only rides whose money was collected: an online ride still awaiting its
+      // payment (or never paid) earns the franchise nothing yet.
+      { $match: { 'franchiseShare.zoneAdminId': adminId, status: 'completed', paymentStatus: 'paid', completedAt: { $gte: from, $lt: to } } },
       { $group: { _id: null, rides: { $sum: 1 }, fare: sum('$totalFare'), commission: sum('$commissionAmount'), share: sum('$franchiseShare.amount') } },
     ]),
     Ride.aggregate([
-      { $match: { zoneId: { $in: zoneObjIds }, status: 'completed', completedAt: { $gte: from, $lt: to }, franchiseShare: { $exists: false } } },
+      { $match: { zoneId: { $in: zoneObjIds }, status: 'completed', paymentStatus: 'paid', completedAt: { $gte: from, $lt: to }, franchiseShare: { $exists: false } } },
       { $group: { _id: null, rides: { $sum: 1 }, fare: sum('$totalFare'), commission: sum('$commissionAmount') } },
     ]),
     DriverSubscription.aggregate([

@@ -40,7 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       myPhone = normPhone(u?.phone || rider.phone || '')
     }
     const isCoRider = !!myPhone && reqs.some(s => s.phone === myPhone)
-    if (!isOwner && !isDriver && !isCoRider && !admin) return withCors({ error: 'Not a participant in this ride' }, 403)
+    if (!isOwner && !isDriver && !isCoRider && !admin) return withCors({ error: 'Not a participant in this ride', code: 'NOT_PARTICIPANT' }, 403)
     const mask = (p: string) => (p && p.length >= 4 ? '******' + p.slice(-4) : '')
     const list = reqs.map(s => ({
       ...s,
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await connectDB()
     const ride: any = await Ride.findById(params.id)
     if (!ride) return withCors({ error: 'Ride not found' }, 404)
-    if (String(ride.riderId) !== String(payload.id)) return withCors({ error: 'Unauthorized' }, 401)
+    if (String(ride.riderId) !== String(payload.id)) return withCors({ error: 'Not a participant in this ride', code: 'NOT_PARTICIPANT' }, 403)
     if (ride.status === 'completed' || ride.status === 'cancelled') {
       return withCors({ error: 'This ride is already over' }, 400)
     }

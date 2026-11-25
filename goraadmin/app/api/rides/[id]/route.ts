@@ -7,8 +7,9 @@ import { uiPhaseFor, waitingSecondsFor } from '@/lib/ride-phase'
 import User from '@/models/User'
 import { rentalExtras, hireExtras } from '@/lib/ride-extras'
 import { requireAuth, requireDriverAuth, isAdminPayload } from '@/lib/auth'
-import { expireIfNoDriver } from '@/lib/dispatch'
-import { driverSafeRide, ACTIVE_STATUSES } from '@/lib/ride-view'
+import { expireIfNoDriver, driverEligibleFor, cachedGlobalSettings } from '@/lib/dispatch'
+import { driverSafeRide, withoutPhones, ACTIVE_STATUSES } from '@/lib/ride-view'
+import mongoose from 'mongoose'
 
 // GET ride by id — also returns hydrated driver + rider sub-objects
 // (driver photo, plate, model, rating; rider photo) so both apps can render rich cards.
@@ -19,39 +20,55 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     if (!asUser?.id && !asDriver?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     await connectDB()
-    let ride: any = await Ride.findById(params.id).lean()
+    if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Ride not found' }, { status: 404 })
+    // ?lite=1: everything but the chat (the rider's 3 s poll after its first
+    // full load — the chat has its own endpoint).
+    const lite = req.nextUrl?.searchParams?.get('lite') === '1'
+    let ride: any = await Ride.findById(params.id).select(lite ? '-messages' : '').lean()
     if (!ride) return NextResponse.json({ error: 'Ride not found' }, { status: 404 })
 
     // Who may read it: an admin and the rider see everything; the assigned
-    // driver, or any driver while the request is still open, see it without
-    // the OTPs (the rider reads those out — a driver who could fetch them would
-    // make the check pointless). Anyone else gets nothing.
+    // driver sees it without the OTPs (the rider reads those out). A pending
+    // request is readable only by a driver who could take it (the same rule
+    // as accept and the feed) or the driver it is offered to — not by any
+    // driver who knows the id. Anyone else gets nothing.
     const isAdmin = isAdminPayload(asUser)
     const isRider = asUser?.type === 'user' && String(ride.riderId || '') === String(asUser.id)
     const isDriver = asDriver?.type === 'driver'
     const isAssigned = isDriver && String(ride.driverId || '') === String(asDriver.id)
-    if (!isAdmin && !isRider && !isAssigned && !(isDriver && ride.status === 'pending')) {
+    let openToThisDriver = false
+    if (!isAdmin && !isRider && !isAssigned && isDriver && ride.status === 'pending') {
+      if (ride.offeredTo && String(ride.offeredTo) === String(asDriver.id)) openToThisDriver = true
+      else {
+        const me: any = await Driver.findById(asDriver.id).lean()
+        openToThisDriver = !!me && (await driverEligibleFor(me, ride, { settings: await cachedGlobalSettings() })) === null
+      }
+    }
+    if (!isAdmin && !isRider && !isAssigned && !openToThisDriver) {
       return NextResponse.json({ error: 'Not a participant in this ride' }, { status: 403 })
     }
     // The rider polls this every 3 s while searching, so this is where a ride
     // nobody took is closed as "No driver found" (no-op unless overdue; see
     // lib/dispatch.ts). Re-read so this very answer carries the new state.
     if (ride.status === 'pending' && await expireIfNoDriver(ride._id).catch(() => false)) {
-      ride = await Ride.findById(params.id).lean()
+      ride = await Ride.findById(params.id).select(lite ? '-messages' : '').lean()
       if (!ride) return NextResponse.json({ error: 'Ride not found' }, { status: 404 })
     }
 
+    // The driver's live position, and the rider's / driver's phone numbers,
+    // are only shared while the trip is live.
+    const live = ACTIVE_STATUSES.includes(ride.status)
     if (!isAdmin && !isRider) {
       ride = driverSafeRide(ride)
       if (!isAssigned) {
         // An open request: names and area only until a driver accepts it.
-        delete ride.riderPhone; delete ride.senderPhone; delete ride.receiverPhone
         delete ride.messages; delete ride.deliveryStops
-        delete ride.rejectedBy
+        delete ride.rejectedBy; delete ride.offeredHistory
       }
+      if (!isAssigned || !live) ride = withoutPhones(ride)
+    } else if (isRider && !live) {
+      delete ride.driverPhone
     }
-    // The driver's live position is only shared while the trip is live.
-    const live = ACTIVE_STATUSES.includes(ride.status)
 
     if (ride.driverId) {
       const d: any = await Driver.findById(ride.driverId)
@@ -67,7 +84,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         ride.driver = {
           id: d._id,
           name: d.name,
-          phone: d.phone,
+          phone: live || isAdmin ? d.phone : undefined,
           profilePicUrl: d.profilePicUrl,
           vehicleModel: d.vehicleModel,
           vehicleNumber: d.vehicleNumber || d.vehicleRegistrationNumber,
@@ -88,7 +105,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       if (u) ride.rider = {
         id: u._id,
         name: u.name,
-        phone: isAdmin || isRider || isAssigned ? u.phone : undefined,
+        phone: isAdmin || isRider || (isAssigned && live) ? u.phone : undefined,
         profilePicUrl: u.profilePicUrl,
       }
     }

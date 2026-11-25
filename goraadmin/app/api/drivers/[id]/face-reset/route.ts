@@ -10,7 +10,7 @@ import { guardAdmin } from '@/lib/admin-guard'
 // flag when it is used). Without this the reference face is fixed after
 // submission, so an account cannot be handed to someone else by re-enrolling.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   try {
     const b = await req.json().catch(() => ({}))
     const allow = b?.allow !== false

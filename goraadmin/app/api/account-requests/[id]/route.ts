@@ -15,7 +15,7 @@ import { requireAdmin } from '@/lib/auth'
 //                           and money history stay (needed for accounts).
 //   zone_change + approve → driver moved to the requested zone (logged).
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   try {
     if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const admin: any = requireAdmin(req)

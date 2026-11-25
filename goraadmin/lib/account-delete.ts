@@ -1,6 +1,11 @@
 import Driver from '@/models/Driver'
 import User from '@/models/User'
 import Ride from '@/models/Ride'
+import Upload from '@/models/Upload'
+import FaceVerification from '@/models/FaceVerification'
+import crypto from 'crypto'
+import { deleteStoredFiles } from '@/lib/private-files'
+import { invalidateAccountCache } from '@/lib/auth'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Soft delete for a rider or driver account. Used by the account-request
@@ -10,7 +15,12 @@ import Ride from '@/models/Ride'
 //
 // What it does:
 //   • status 'deleted', deletedAt now, name -> 'Deleted user/driver', email ''
-//   • phone -> 'deleted_<ts>_<phone>' so the number can sign up again later
+//   • phone -> 'deleted_<ts>_<hash>_<last4>' so the number can sign up again
+//     later; the full number is not kept (sha256 prefix + last 4 for support)
+//   • tokenVersion bumped: every open session of the account is revoked
+//   • the person's KYC files are removed from disk: document images, face
+//     reference photo, face-check photos (drivers), ID photo (riders), and any
+//     private upload they own (models/Upload)
 //   • PII blanked (minimal, documented): documents, bankDetails, bankAccounts,
 //     faceSignature + faceReferencePhotoUrl (drivers); idNumber, idPhotoUrl
 //     (riders); fcmToken (both). Kept: id, walletBalance, ride/rating counters.
@@ -32,7 +42,7 @@ export async function softDeleteAccount(
   opts: { requireZeroBalance?: boolean } = {},
 ): Promise<DeleteResult> {
   const Model: any = kind === 'driver' ? Driver : User
-  const doc: any = await Model.findById(id).select('phone status walletBalance').lean()
+  const doc: any = await Model.findById(id).select('phone status walletBalance documents faceReferencePhotoUrl idPhotoUrl').lean()
   if (!doc) return { ok: false, status: 404, error: 'Account no longer exists' }
   if (doc.status === 'deleted') return { ok: false, status: 409, error: 'Account is already deleted' }
 
@@ -52,7 +62,7 @@ export async function softDeleteAccount(
     status: 'deleted',
     deletedAt: new Date(),
     name: kind === 'driver' ? 'Deleted driver' : 'Deleted user',
-    phone: `deleted_${Date.now()}_${doc.phone || ''}`.slice(0, 60),
+    phone: deletedPhone(doc.phone),
     email: '',
     fcmToken: '',
   }
@@ -70,7 +80,35 @@ export async function softDeleteAccount(
   if (opts.requireZeroBalance) {
     filter.$or = [{ walletBalance: { $exists: false } }, { walletBalance: null }, { walletBalance: { $gt: -0.01, $lt: 0.01 } }]
   }
-  const r = await Model.updateOne(filter, { $set: set, $unset: unset }, { strict: false })
+  const r = await Model.updateOne(filter, { $set: set, $unset: unset, $inc: { tokenVersion: 1 } }, { strict: false })
   if (!r.matchedCount) return { ok: false, status: 409, error: 'Account changed while deleting — reload and try again' }
+  invalidateAccountCache(kind, String(doc._id))
+  await removeKycFiles(kind, doc).catch(() => {})
   return { ok: true }
+}
+
+/** deleted_<ts>_<sha256(phone) 10 hex>_<last 4>: unique, frees the number, keeps
+ *  no full phone. */
+export function deletedPhone(phone: any): string {
+  const p = String(phone || '')
+  const h = crypto.createHash('sha256').update(p).digest('hex').slice(0, 10)
+  return `deleted_${Date.now()}_${h}_${p.replace(/\D/g, '').slice(-4)}`
+}
+
+/** Best effort: the stored KYC images of a deleted account. Ride history files
+ *  (delivery proofs) are kept — they belong to the ride record. */
+async function removeKycFiles(kind: 'rider' | 'driver', doc: any) {
+  const urls: string[] = []
+  if (kind === 'driver') {
+    for (const d of doc.documents || []) urls.push(d?.fileUrl, d?.frontUrl, d?.backUrl)
+    urls.push(doc.faceReferencePhotoUrl)
+    const fv: any[] = await FaceVerification.find({ driverId: doc._id }).select('photoUrl').lean().catch(() => [])
+    for (const f of fv) urls.push(f?.photoUrl)
+  } else {
+    urls.push(doc.idPhotoUrl)
+  }
+  const priv: any[] = await Upload.find({ ownerType: kind, ownerId: String(doc._id), private: true, purpose: { $ne: 'delivery_proof' } }).select('name').lean()
+  for (const u of priv) urls.push('/api/files/' + u.name)
+  await deleteStoredFiles(urls.filter(Boolean))
+  if (priv.length) await Upload.deleteMany({ _id: { $in: priv.map(u => u._id) } })
 }

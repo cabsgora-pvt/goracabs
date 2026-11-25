@@ -4,7 +4,7 @@ import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import EtaProfile from '@/models/EtaProfile'
 import crypto from 'crypto'
-import { requireAdmin } from '@/lib/auth'
+import { requireActiveAdmin, secretEquals } from '@/lib/auth'
 import {
   geoCell, coarseCell, hourBand, istParts, profileKey, clearEtaFactorCache,
   ETA_CONFIG, type DayType, type ProfileTier,
@@ -92,11 +92,8 @@ async function handle(req: NextRequest) {
   try {
     // CRON_SECRET header (scheduler) or an admin session. Rider/driver tokens
     // used to pass here (requireAuth accepted any signed token).
-    const secret = process.env.CRON_SECRET || ''
-    const headerSecret = req.headers.get('x-cron-secret') || ''
-    const viaSecret = !!secret && headerSecret.length === secret.length &&
-      crypto.timingSafeEqual(Buffer.from(headerSecret), Buffer.from(secret))
-    if (!viaSecret && !requireAdmin(req)) return withCors({ error: 'Unauthorized' }, 401)
+    const viaSecret = secretEquals(req.headers.get('x-cron-secret'), process.env.CRON_SECRET)
+    if (!viaSecret && !(await requireActiveAdmin(req))) return withCors({ error: 'Unauthorized' }, 401)
 
     const days = Math.max(1, Math.min(180, Number(req.nextUrl.searchParams.get('days')) || DEFAULT_LOOKBACK_DAYS))
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)

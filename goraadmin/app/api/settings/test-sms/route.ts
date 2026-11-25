@@ -7,7 +7,7 @@ import { guardAdmin } from '@/lib/admin-guard'
 // so the admin can verify SMS delivery from the settings page.
 export async function POST(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     const { phone } = await req.json()
     if (!phone || String(phone).replace(/\D/g, '').length < 10) {
       return NextResponse.json({ success: false, message: 'Valid 10-digit phone required' }, { status: 400 })

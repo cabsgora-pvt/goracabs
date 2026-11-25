@@ -54,6 +54,8 @@ const AppConfigSchema = new Schema({
     minVersion: { type: String, default: '1.0.0' },
     forceUpdate: { type: Boolean, default: false },
     message: { type: String, default: '' },
+    // Play Store / App Store link the update prompt opens.
+    storeUrl: { type: String, default: '' },
   },
 }, { timestamps: true })
 

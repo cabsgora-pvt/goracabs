@@ -20,5 +20,7 @@ const FaceVerificationSchema = new Schema({
 }, { timestamps: true })
 
 FaceVerificationSchema.index({ driverId: 1, createdAt: -1 })
+// Overdue-check sweep (lib/face-sweep): pending attempts past their deadline.
+FaceVerificationSchema.index({ status: 1, deadlineAt: 1 })
 
 export default mongoose.models.FaceVerification || mongoose.model('FaceVerification', FaceVerificationSchema)

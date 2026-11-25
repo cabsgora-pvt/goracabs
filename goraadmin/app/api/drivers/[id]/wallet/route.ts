@@ -6,6 +6,8 @@ import Driver from '@/models/Driver'
 import Transaction from '@/models/Transaction'
 import { guardAdmin } from '@/lib/admin-guard'
 import { requireAdmin } from '@/lib/auth'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
 
 // POST /api/drivers/[id]/wallet  body: { amount, type: 'credit'|'debit', note }
 // Admin manually adds or deducts money from a driver's wallet. One atomic $inc;
@@ -15,7 +17,9 @@ import { requireAdmin } from '@/lib/auth'
 // (admins use it to book dues), as before.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
+    const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+    await auditAdminBody(req, requireAdmin(req), 'driver.wallet.adjust', String(params.id))
     const admin: any = requireAdmin(req)
     const adminEmail = String(admin?.email || admin?.id || 'unknown')
     await connectDB()

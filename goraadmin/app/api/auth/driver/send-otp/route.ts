@@ -3,14 +3,14 @@ import { NextRequest } from 'next/server'
 import { withCors, corsOptions } from '@/lib/cors'
 import { issueOtp } from '@/lib/otp'
 import { normalizePhone } from '@/lib/phone'
-import { rateLimit, clientIp } from '@/lib/rate-limit'
+import { rateLimitAsync, clientIp } from '@/lib/rate-limit'
 
 export async function OPTIONS() { return corsOptions() }
 
 export async function POST(req: NextRequest) {
   try {
-    // Burst limit per IP (in-memory); daily per-IP / per-phone caps live in issueOtp.
-    if (!rateLimit(req, 'driver-send-otp', 5, 10 * 60_000)) {
+    // Burst limit per IP (Mongo-backed, survives restarts); daily per-IP / per-phone caps live in issueOtp.
+    if (!(await rateLimitAsync(req, 'driver-send-otp', 5, 10 * 60_000))) {
       return withCors({ error: 'Too many OTP requests. Try again in a few minutes.' }, 429)
     }
     const body = await req.json().catch(() => null)

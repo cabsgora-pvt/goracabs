@@ -11,7 +11,7 @@ import { financeTotals, istMidnight, istMonthStart } from '@/lib/finance'
 // totalDriverPayout, todayCommission, todayRevenue.
 export async function GET(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
 
     const [all, today, month] = await Promise.all([
@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
       cancellationFeesCollected: all.cancellationFeesCollected,
       refunds: all.refunds,
       refundsOnCompletedRides: all.refundsOnCompletedRides,
+      couponCost: all.couponCost,
       netCollectedRevenue: all.netCollectedRevenue,
       platformNet: all.platformNet,
       today,

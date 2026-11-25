@@ -5,11 +5,13 @@ import { requireAdmin } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import User from '@/models/User'
 import WalletTransaction from '@/models/WalletTransaction'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
 
 // GET /api/wallet/admin?userId=  → { balance, transactions } (admin user-detail page)
 export async function GET(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const userId = req.nextUrl.searchParams.get('userId')
     if (!userId) return Response.json({ error: 'userId required' }, { status: 400 })
@@ -28,7 +30,9 @@ export async function GET(req: NextRequest) {
 // change is one atomic $inc — a debit only applies while the balance covers it.
 export async function POST(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
+    const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+    await auditAdminBody(req, requireAdmin(req), 'rider.wallet.adjust', undefined)
     const admin: any = requireAdmin(req)
     const adminEmail = String(admin?.email || admin?.id || 'unknown')
     await connectDB()

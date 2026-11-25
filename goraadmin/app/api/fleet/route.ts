@@ -5,7 +5,7 @@ import { guardAdmin } from '@/lib/admin-guard'
 
 export async function GET(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const fleet = await FleetOwner.find().sort({ createdAt: -1 }).lean()
     return NextResponse.json({ fleet })
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const body = await req.json()
     const owner = await FleetOwner.create(body)

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth, requireDriverAuth, requireAdmin, isAdminPayload } from './auth'
+import { requireAuth, requireDriverAuth, requireActiveAdmin, isAdminPayload } from './auth'
+import { auditRequest } from './admin-audit'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Admin-only API guard.
@@ -17,13 +18,21 @@ import { requireAuth, requireDriverAuth, requireAdmin, isAdminPayload } from './
 // returns straight back.
 //
 // Usage, as the first line inside the handler:
-//     const denied = guardAdmin(req); if (denied) return denied
+//     const denied = await guardAdmin(req); if (denied) return denied
+//
+// It is async: besides the signature it checks the admin still exists and the
+// session was not revoked (tokenVersion — logout / log out everywhere), and it
+// writes a generic audit row for every non-GET call (lib/admin-audit). A
+// forgotten `await` makes `denied` a Promise, which is always truthy, so the
+// route returns a non-Response and fails closed (500) rather than open.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Returns a 401 response when the caller is not a signed-in admin, else null. */
-export function guardAdmin(req: NextRequest): NextResponse | null {
-  if (requireAdmin(req)) return null
-  return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+export async function guardAdmin(req: NextRequest): Promise<NextResponse | null> {
+  const admin = await requireActiveAdmin(req)
+  if (!admin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  auditRequest(req, admin)
+  return null
 }
 
 /**

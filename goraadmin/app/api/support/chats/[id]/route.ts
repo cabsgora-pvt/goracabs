@@ -7,7 +7,7 @@ import { guardAdmin } from '@/lib/admin-guard'
 // GET /api/support/chats/[id] → full chat (marks driver messages as read for admin)
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const chat: any = await SupportChat.findById(params.id)
     if (!chat) return NextResponse.json({ error: 'Chat not found' }, { status: 404 })
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 // POST /api/support/chats/[id] → admin sends a message  body: { message }
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const { message } = await req.json()
     if (!message || !message.trim()) return NextResponse.json({ error: 'Message required' }, { status: 400 })

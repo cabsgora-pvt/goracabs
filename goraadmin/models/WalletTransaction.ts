@@ -8,9 +8,12 @@ const WalletTransactionSchema = new Schema({
   balanceAfter: { type: Number, default: 0 },
   note: { type: String, default: '' },
   // recharge = user added money, ride = ride payment, admin = manual adjust, refund
-  source: { type: String, enum: ['recharge', 'ride', 'admin', 'refund', 'cashback'], default: 'recharge' },
+  source: { type: String, enum: ['recharge', 'ride', 'admin', 'refund', 'cashback', 'cod'], default: 'recharge' },
   // Razorpay payment id (or other gateway ref) — used for idempotency
   ref: { type: String, default: '', index: true },
 }, { timestamps: true })
 
+// Dev only: rebuild on hot reload so enum/field additions apply without a
+// server restart (same as models/Ride.ts).
+if (process.env.NODE_ENV !== 'production' && mongoose.models.WalletTransaction) mongoose.deleteModel('WalletTransaction')
 export default mongoose.models.WalletTransaction || mongoose.model('WalletTransaction', WalletTransactionSchema)

@@ -19,6 +19,12 @@
 //     never counted as revenue, so they are shown but not netted.
 //   • Franchise share (the zone admin's part) is deducted from Gora's net for
 //     both ride commission and subscriptions, as fixed on each record.
+//   • Coupon cost: Gora funds coupons (commission stays on the full fare, the
+//     rider pays less, and on cash rides Gora credits the discount back to the
+//     driver). The discount actually given on PAID rides — pendingCoupon, the
+//     amount settlement took off (older rides: couponDiscount) — is reported as
+//     couponCost and comes off netCollectedRevenue and platformNet. A rental's
+//     coupon is already off its fare, so it is not a separate cost.
 // ─────────────────────────────────────────────────────────────────────────────
 import Ride from '@/models/Ride'
 import DriverSubscription from '@/models/DriverSubscription'
@@ -94,8 +100,9 @@ export type FinanceTotals = {
   cancellationFeesCollected: number
   refunds: number
   refundsOnCompletedRides: number
-  netCollectedRevenue: number      // collectedRevenue − refundsOnCompletedRides
-  platformNet: number              // Gora's own: commission + subs + fees − franchise − refunds on completed rides
+  couponCost: number               // Gora-funded discounts on paid rides
+  netCollectedRevenue: number      // collectedRevenue − refundsOnCompletedRides − couponCost
+  platformNet: number              // Gora's own: commission + subs + fees − franchise − refunds on completed rides − couponCost
 }
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
@@ -115,6 +122,15 @@ export async function financeTotals(range?: Range): Promise<FinanceTotals> {
           commission: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, { $ifNull: ['$commissionAmount', 0] }, 0] } },
           payout: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, { $ifNull: ['$driverEarning', 0] }, 0] } },
           franchise: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, { $ifNull: ['$franchiseShare.amount', 0] }, 0] } },
+          coupon: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ['$paymentStatus', 'paid'] }, { $ne: ['$service', 'rental'] }] },
+                { $max: [0, { $ifNull: ['$pendingCoupon', { $ifNull: ['$couponDiscount', 0] }] }] },
+                0,
+              ],
+            },
+          },
           pendOnlineN: { $sum: { $cond: [{ $and: [{ $ne: ['$paymentStatus', 'paid'] }, { $in: ['$paymentMode', ['online', 'wallet']] }] }, 1, 0] } },
           pendOnline: { $sum: { $cond: [{ $and: [{ $ne: ['$paymentStatus', 'paid'] }, { $in: ['$paymentMode', ['online', 'wallet']] }] }, FARE_EXPR, 0] } },
         },
@@ -169,6 +185,7 @@ export async function financeTotals(range?: Range): Promise<FinanceTotals> {
   const subscriptionRevenue = round2(s.revenue)
   const subscriptionFranchiseShare = round2(s.franchise)
   const cancellationFeesCollected = round2(c.collected)
+  const couponCost = round2(r.coupon)
   return {
     completedRides: r.n || 0,
     bookedRevenue: round2(r.booked),
@@ -188,7 +205,8 @@ export async function financeTotals(range?: Range): Promise<FinanceTotals> {
     cancellationFeesCollected,
     refunds: round2(refunds),
     refundsOnCompletedRides: round2(refundsOnCompletedRides),
-    netCollectedRevenue: round2(collectedRevenue - refundsOnCompletedRides),
-    platformNet: round2(commission - rideFranchiseShare + subscriptionRevenue - subscriptionFranchiseShare + cancellationFeesCollected - refundsOnCompletedRides),
+    couponCost,
+    netCollectedRevenue: round2(collectedRevenue - refundsOnCompletedRides - couponCost),
+    platformNet: round2(commission - rideFranchiseShare + subscriptionRevenue - subscriptionFranchiseShare + cancellationFeesCollected - refundsOnCompletedRides - couponCost),
   }
 }

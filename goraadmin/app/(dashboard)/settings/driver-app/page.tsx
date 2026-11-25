@@ -1,8 +1,9 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { DocumentTypesManager } from '@/components/document-types-manager'
+import { AppVersionEditor } from '@/components/app-version-editor'
 
-const TABS = ['Subscription Plans', 'Registration Documents', 'Ringtones', 'Referral', 'Wallet Rules'] as const
+const TABS = ['Subscription Plans', 'Registration Documents', 'Ringtones', 'Referral', 'Wallet Rules', 'App Version'] as const
 const SERVICES = ['taxi', 'rental', 'outstation', 'delivery', 'hire_driver']
 const SERVICE_LABEL: Record<string, string> = {
   taxi: 'Taxi', rental: 'Rental', outstation: 'Outstation', delivery: 'Parcel', hire_driver: 'Hire Driver',
@@ -285,6 +286,7 @@ export default function DriverAppSettings() {
               </div>
             </div>
           )}
+          {tab === 'App Version' && <AppVersionEditor app="driver" />}
         </div>
       </div>
     </div>

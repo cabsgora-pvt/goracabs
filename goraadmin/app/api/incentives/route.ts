@@ -3,12 +3,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import IncentiveRule from '@/models/IncentiveRule'
 import { guardAdmin } from '@/lib/admin-guard'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
+import { requireAdmin } from '@/lib/auth'
 
 // Admin CRUD for driver incentives. Drivers read their own progress from
 // /api/auth/driver/incentives.
 export async function GET(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const rules = await IncentiveRule.find().sort({ createdAt: -1 }).lean()
     return NextResponse.json({ rules })
@@ -19,7 +22,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
+    const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+    await auditAdminBody(req, requireAdmin(req), 'incentive.create', undefined)
     await connectDB()
     const b = await req.json()
     if (!b.title || !b.target) {

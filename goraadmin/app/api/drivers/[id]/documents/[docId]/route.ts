@@ -10,7 +10,7 @@ import { cleanDriverDoc } from '@/lib/admin-account'
 // (number, expiry, replace a photo). Only the fields sent change.
 export async function PUT(req: NextRequest, { params }: { params: { id: string; docId: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Driver not found' }, { status: 404 })
     await connectDB()
     const b = await req.json().catch(() => ({}))
@@ -34,7 +34,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string; 
 // DELETE → removes this document from the driver.
 export async function DELETE(req: NextRequest, { params }: { params: { id: string; docId: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     if (!mongoose.isValidObjectId(params.id) || !mongoose.isValidObjectId(params.docId)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     await connectDB()
     const driver: any = await Driver.findByIdAndUpdate(params.id, { $pull: { documents: { _id: params.docId } } }, { new: true }).select('-faceSignature').lean()

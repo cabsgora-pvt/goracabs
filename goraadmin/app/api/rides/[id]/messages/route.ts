@@ -6,6 +6,7 @@ import Ride from '@/models/Ride'
 import { withCors, corsOptions } from '@/lib/cors'
 import { pushToUserAsync, pushToDriverAsync } from '@/lib/push'
 import { rideActor } from '@/lib/ride-view'
+import { limitHit } from '@/lib/rate-limit'
 
 export async function OPTIONS() {
   return corsOptions()
@@ -17,6 +18,7 @@ export async function OPTIONS() {
 // GET  → { messages: [{ sender, text, createdAt }] }
 // POST { text } → appends a message as 'user' (rider token) or 'driver'.
 const CHAT_STATUSES = ['accepted', 'arrived', 'ongoing']
+const CHAT_RATE = { LIMIT: 20, WINDOW_MS: 60_000 }
 
 async function load(req: NextRequest, id: string) {
   if (!mongoose.isValidObjectId(id)) return { res: withCors({ error: 'Ride not found' }, 404) }
@@ -48,6 +50,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (r.actor.role === 'admin') return withCors({ error: 'Admins can read this chat but not write in it' }, 403)
     if (!CHAT_STATUSES.includes(r.ride.status)) return withCors({ error: 'Chat is closed for this ride', code: 'CHAT_CLOSED' }, 409)
     const sender = r.actor.role === 'driver' ? 'driver' : 'user'
+    // 20 messages a minute per sender account (each one is a push to the other side).
+    if (!(await limitHit(`chat:${sender}:${r.actor.id}`, CHAT_RATE.LIMIT, CHAT_RATE.WINDOW_MS))) {
+      return withCors({ error: 'You are sending messages too fast. Please wait a moment.', code: 'RATE_LIMITED' }, 429)
+    }
     const msg = { sender, text: text.toString().trim().slice(0, 1000), createdAt: new Date() }
     const ride: any = await Ride.findByIdAndUpdate(
       params.id,

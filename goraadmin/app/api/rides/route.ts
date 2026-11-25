@@ -8,7 +8,7 @@ import { parsePaging, escapeRegex } from '@/lib/list-params'
 // Admin ride list — carries rider phones and ride OTPs, so admin only.
 export async function GET(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const { searchParams } = new URL(req.url)
     const { page, limit, skip } = parsePaging(searchParams)

@@ -49,13 +49,30 @@ const DriverSchema = new Schema({
     by: String,
   },
   deletedAt: Date,
+  // Bumped to revoke every token already issued (soft delete, block, "log out
+  // everywhere"). Tokens carry it as `tv`; see lib/auth requireActive*.
+  tokenVersion: { type: Number, default: 0 },
   // Zone: set by the admin (manual), or followed from the driver's location
   // when zoneAuto is on. Every change is kept in zoneHistory.
   zoneAuto: { type: Boolean, default: false },
   zoneHistory: [{ from: String, fromName: String, to: String, toName: String, by: String, at: Date, _id: false }],
   // Automatic zone follow (lib/zone-auto): the zone the driver's fixes have
   // been inside since `firstAt`. Switched only after a second fix ≥ 60 s later.
-  zoneAutoCandidate: { zoneId: String, firstAt: Date },
+  // Agent R: also the latest fix inside it (lastAt/lastLat/lastLng) and how many
+  // plausible fixes; a switch needs fixes spanning >= ZONE_AUTO_CONFIRM_MS.
+  zoneAutoCandidate: { zoneId: String, firstAt: Date, lastAt: Date, lastLat: Number, lastLng: Number, fixes: Number },
+  // ── Dispatch fairness (lib/dispatch recordDriverEvent) — additive ──
+  // Rolling 24 h counters, the last few rejects, and an offer cool-down after
+  // too many rejects (the open pool stays visible; only offers stop).
+  dispatchStats: {
+    windowStart: Date,
+    offers: { type: Number, default: 0 },
+    accepts: { type: Number, default: 0 },
+    rejects: { type: Number, default: 0 },
+    cancels: { type: Number, default: 0 },
+  },
+  recentRejectsAt: { type: [Date], default: undefined },
+  offerCooldownUntil: Date,
   // Ride preference types (admin-defined, e.g. 'pet_friendly') this driver offers.
   ridePreferences: { type: [String], default: [] },
   isOnline: { type: Boolean, default: false },
@@ -102,6 +119,10 @@ const DriverSchema = new Schema({
   subscriptionPlanName: { type: String, default: '' },
   subscriptionStartedAt: Date,
   subscriptionExpiresAt: Date,
+  // Last pass bought from the wallet: a second wallet purchase of the same plan
+  // within 30 s is a double tap (lib/payment-credit applyDriverSubscription).
+  subscriptionWalletBoughtAt: Date,
+  subscriptionWalletPlanId: String,
   subscriptionCommissionPercent: { type: Number, default: 0 }, // commission while subscribed (usually 0)
   documents: [DocumentSchema],
   fcmToken: String,
@@ -127,6 +148,9 @@ const DriverSchema = new Schema({
     ifscCode: String,
     accountType: { type: String, enum: ['savings', 'current'], default: 'savings' },
   },
+  // When bankDetails was last set (register/bank). Saved bankAccounts carry it in
+  // their own _id. Used to flag withdrawals right after a bank change.
+  bankUpdatedAt: Date,
   // Multiple saved bank accounts for withdrawals (driver adds/selects via radio)
   bankAccounts: {
     type: [{
@@ -145,5 +169,7 @@ const DriverSchema = new Schema({
 DriverSchema.index({ status: 1, isOnline: 1, selectedVehicleTypeName: 1, locationUpdatedAt: -1 })
 DriverSchema.index({ zoneId: 1 })
 DriverSchema.index({ status: 1, createdAt: -1 })
+// Nearby-driver map (rides/nearby-drivers): online + approved + fresh fix.
+DriverSchema.index({ isOnline: 1, status: 1, locationUpdatedAt: -1 })
 if (process.env.NODE_ENV !== 'production' && mongoose.models.Driver) mongoose.deleteModel('Driver')
 export default mongoose.models.Driver || mongoose.model('Driver', DriverSchema)

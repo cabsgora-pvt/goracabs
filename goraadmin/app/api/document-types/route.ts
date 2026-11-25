@@ -5,6 +5,9 @@ import DocumentType from '@/models/DocumentType'
 import { requireAdmin } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 import { ensureDocTypes, docTypeKey, docTypeFields, publicDocType, appliesTo } from '@/lib/doc-types'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
+import { guardAdmin } from '@/lib/admin-guard'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -25,7 +28,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!requireAdmin(req)) return withCors({ error: 'Unauthorized' }, 401)
+  const denied = await guardAdmin(req); if (denied) return denied
+  const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+  await auditAdminBody(req, requireAdmin(req), 'document_type.create', undefined)
   try {
     const b = await req.json().catch(() => ({}))
     const f = docTypeFields(b)

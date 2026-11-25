@@ -7,7 +7,7 @@ import { guardAdmin } from '@/lib/admin-guard'
 // newest first, for the admin to compare photo-vs-registration-signature.
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const verifications = await FaceVerification.find({ driverId: params.id })
       .sort({ createdAt: -1 })

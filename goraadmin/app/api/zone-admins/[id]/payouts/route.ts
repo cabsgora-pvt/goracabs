@@ -6,12 +6,16 @@ import ZoneAdmin from '@/models/ZoneAdmin'
 import { guardAdmin } from '@/lib/admin-guard'
 import { requireAdmin } from '@/lib/auth'
 import { logZoneActivity, publicZoneAdmin, zoneNameMap } from '@/lib/zone-admin'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
 
 // POST { month: 'YYYY-MM', amount, paymentRef?, notes? }
 // Records a revenue-share payment the super admin made to the zone admin
 // (outside the app — bank/UPI). Nothing is moved by this; it is the record.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
+  const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+  await auditAdminBody(req, requireAdmin(req), 'zone_admin.payout', String(params.id))
   try {
     if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const b = await req.json()

@@ -22,6 +22,16 @@
 //               until a verified Razorpay payment for this ride arrives
 //               (settleOnlinePayment) or the driver takes cash (collectCash).
 //   • outstation charged at booking → already paid; driver credited as online.
+//               If the prepayment does not cover what is due at the end (extras,
+//               an old booking that prepaid without the tip), the driver is
+//               credited only what the prepayment covers and the SHORTFALL is
+//               left due (paymentStatus 'pending', prepaidShortfall) — paid by
+//               the rider online / from the wallet, or taken in cash.
+//   • Money inputs are clamped: a non-finite or negative fare/tip/waiting/
+//     coupon counts as 0, so a corrupt ride can never push NaN into a wallet.
+//   • Only the assigned driver ends a ride; a rider may end only an online,
+//     non-prepaid TAXI ride (rental/hire/delivery/outstation bill extras the
+//     driver records, so the rider ending first would skip them).
 // ─────────────────────────────────────────────────────────────────────────────
 import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
@@ -31,14 +41,21 @@ import WalletTransaction from '@/models/WalletTransaction'
 import { commissionPercentFor, franchiseShareFor } from './commission'
 import { chargedAtBooking } from './prepay'
 import { distanceKm } from './geo'
+import Settings from '@/models/Settings'
 
 /** Rupee tolerance when comparing a gateway amount with what is due. */
 export const PAY_TOLERANCE = 1
 
+/** A money input as a finite, non-negative number (anything else → 0). */
+export function money(v: unknown): number {
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
 function serviceFinalOf(ride: any): number {
-  return ride.service === 'rental' ? (ride.finalFare || 0)
-    : ride.service === 'hire_driver' ? (ride.hireFinalFare || 0)
-    : ride.service === 'delivery' ? (ride.deliveryFinalFare || 0)
+  return ride.service === 'rental' ? money(ride.finalFare)
+    : ride.service === 'hire_driver' ? money(ride.hireFinalFare)
+    : ride.service === 'delivery' ? money(ride.deliveryFinalFare)
     : 0
 }
 
@@ -46,7 +63,7 @@ function serviceFinalOf(ride: any): number {
  *  already has it taken off at booking, so it is never subtracted again. */
 export function couponOffOf(ride: any): number {
   if (ride.service === 'rental') return 0
-  return Math.max(0, Number(ride.couponDiscount) || 0)
+  return money(ride.couponDiscount)
 }
 
 export type Figures = {
@@ -66,19 +83,19 @@ export type Figures = {
 /** Pure arithmetic of a settlement at `commissionPercent`. */
 export function figuresFor(ride: any, commissionPercent: number): Figures {
   const sf = serviceFinalOf(ride)
-  const billable = sf > 0 ? sf : (ride.fare || 0)
-  const waiting = ride.waitingChargeTotal || 0
-  const tip = ride.tip || 0
+  const billable = sf > 0 ? sf : money(ride.fare)
+  const waiting = money(ride.waitingChargeTotal)
+  const tip = money(ride.tip)
   const baseFare = billable + waiting
   const fare = baseFare + tip
-  const splitCollected = Math.min(ride.splitCollected || 0, baseFare)
-  const splitCommission = ride.splitCommission || 0
+  const splitCollected = Math.min(money(ride.splitCollected), baseFare)
+  const splitCommission = money(ride.splitCommission)
   const remainingBase = baseFare - splitCollected
   const commission = Math.round((remainingBase * commissionPercent) / 100)
   const driverEarning = (remainingBase - commission) + tip
   const coupon = Math.min(couponOffOf(ride), Math.max(0, remainingBase))
   const prepaid = chargedAtBooking(String(ride.service || ''), String(ride.paymentMode || ''))
-    ? Math.max(0, Number(ride.prepaidAmount) || 0) : 0
+    ? money(ride.prepaidAmount) : 0
   const amountDue = Math.max(0, Math.round(remainingBase + tip - coupon - prepaid))
   return { fare, baseFare, tip, splitCollected, splitCommission, remainingBase, commission, driverEarning, coupon, prepaid, amountDue }
 }
@@ -86,6 +103,18 @@ export function figuresFor(ride: any, commissionPercent: number): Figures {
 /** What the rider owes on this ride (commission-independent). */
 export function riderAmountDue(ride: any): number {
   return figuresFor(ride, 0).amountDue
+}
+
+/**
+ * The exact cash a driver must take from the rider for a cash ride right now:
+ * billable (service final amount incl. rental/hire/delivery extras, else the
+ * booked fare) + waiting + tip − coupon − split shares already paid − anything
+ * prepaid. Tolls are not in it (the rider pays those to the driver directly).
+ * Rental/hire 'end' responses should show this figure so the app and the
+ * settlement never disagree.
+ */
+export function cashDueFor(ride: any): number {
+  return riderAmountDue(ride)
 }
 
 export type Actor = { kind: 'driver' | 'rider' | 'admin'; id: string }
@@ -139,10 +168,14 @@ export async function completeRide(rideId: string, actor: Actor, attempt = 0): P
   const prepaid = chargedAtBooking(String(ride.service || ''), String(ride.paymentMode || ''))
   const isDriver = actor.kind === 'driver' && !!ride.driverId && String(ride.driverId) === actor.id
   const isRider = actor.kind === 'rider' && !!ride.riderId && String(ride.riderId) === actor.id
-  if (!isDriver && !isRider && actor.kind !== 'admin') return { status: 401, body: { error: 'Unauthorized' } }
-  // Installed rider apps end online rides themselves before paying. That stays
-  // allowed, but only as "driver ended it": the ride is left unpaid.
-  if (isRider && (ride.paymentMode !== 'online' || prepaid)) {
+  // A valid token that is not this ride's: 403, never 401 (a 401 makes the
+  // driver app sign the driver out).
+  if (!isDriver && !isRider && actor.kind !== 'admin') return { status: 403, body: { error: 'Not a participant in this ride', code: 'NOT_PARTICIPANT' } }
+  // Installed rider apps end online taxi rides themselves before paying. That
+  // stays allowed, but only as "driver ended it": the ride is left unpaid.
+  // Rental / hire / delivery / outstation are always ended by the driver: their
+  // extras (time, km, waiting) are recorded at the driver's end.
+  if (isRider && ((ride.service || 'taxi') !== 'taxi' || ride.paymentMode !== 'online' || prepaid)) {
     return { status: 403, body: { error: 'Only the driver can end this ride', code: 'driverMustEnd' } }
   }
 
@@ -200,11 +233,33 @@ export async function completeRide(rideId: string, actor: Actor, attempt = 0): P
   let switched = false
   let riderWalletBalance: number | undefined
 
-  if (prepaid) {
-    // Outstation paid in full at booking (book refuses unless verified).
+  let shortfall = 0
+  if (prepaid && f.amountDue <= PAY_TOLERANCE) {
+    // Outstation paid in full at booking (book refuses unless verified; a
+    // rupee of rounding is not chased).
     walletAfter = await creditDriver(claimed, ride.driverId, f.driverEarning, mode, f.fare, f.commission)
     await Ride.updateOne({ _id: ride._id }, { $set: { paymentStatus: 'paid', awaitingPayment: false, paidAt: new Date() } })
     paymentStatus = 'paid'
+  } else if (prepaid) {
+    // The prepayment does not cover everything due. Credit the driver only what
+    // it covers (prepaid + Gora's coupon − commission = earning − shortfall);
+    // the shortfall stays due and is credited when it is paid (online / wallet)
+    // or is already in the driver's hand (cash) — see collectCash.
+    shortfall = f.amountDue
+    const now = f.driverEarning - shortfall
+    if (now > 0) walletAfter = await creditDriver(claimed, ride.driverId, now, mode, f.fare, f.commission)
+    else if (now < 0) {
+      const u: any = await Driver.findByIdAndUpdate(ride.driverId, { $inc: { walletBalance: now } }, { new: true }).lean()
+      walletAfter = u?.walletBalance
+      await Transaction.create({
+        driverId: ride.driverId, rideId: ride._id, type: 'commission', amount: now, paymentMode: mode,
+        description: `Commission not covered by the prepayment on ₹${f.fare}`, balanceAfter: walletAfter,
+      })
+    }
+    await Ride.updateOne({ _id: ride._id }, { $set: {
+      prepaidShortfall: true, awaitingPayment: true,
+      pendingDriverEarning: shortfall, pendingCommission: 0, pendingCoupon: 0,
+    } })
   } else if (mode === 'wallet') {
     let debited = f.amountDue === 0
     if (f.amountDue > 0 && ride.riderId) {
@@ -269,12 +324,17 @@ export async function completeRide(rideId: string, actor: Actor, attempt = 0): P
       driverEarning: f.driverEarning,
       driverWalletBalance: walletAfter ?? 0,
       codSettled: codSettled.amount,
+      ...(codSettled.pending ? { codPendingRemittance: codSettled.pending } : {}),
       paymentMode: mode,
       paymentStatus,
       amountDue: f.amountDue,
       couponDiscount: f.coupon,
       awaitingPayment: paymentStatus !== 'paid',
-      ...(switched ? { paymentSwitchedToCash: true, cashToCollect: f.amountDue } : {}),
+      // The exact cash to take from the rider (cash rides, and a prepaid trip's
+      // shortfall when the driver takes it in cash).
+      ...(mode === 'cash' && !prepaid ? { cashToCollect: f.amountDue } : {}),
+      ...(shortfall > 0 ? { prepaidShortfall: true, cashToCollect: shortfall } : {}),
+      ...(switched ? { paymentSwitchedToCash: true } : {}),
       ...(riderWalletBalance != null ? { riderWalletBalance } : {}),
     },
   }
@@ -282,32 +342,75 @@ export async function completeRide(rideId: string, actor: Actor, attempt = 0): P
 
 // Cash on delivery: the sender's money that travelled in the driver's pocket.
 // Not revenue, never commissioned; stamped first so it can only move once.
-async function settleCod(rideId: string): Promise<{ amount: number; balance?: number }> {
+//
+// The sender is credited only what the driver's wallet can cover — down to the
+// admin's maxNegativeWallet — never the whole rider-chosen COD regardless: a
+// sender and a driver colluding on a ₹10,000 "COD" would otherwise mint wallet
+// money backed by a driver balance that is never repaid. The rest is recorded
+// as codPendingRemittance on the ride for an admin to collect and pay out.
+// Every sender credit writes a WalletTransaction { source 'cod', ref 'cod:<rideId>' }.
+async function maxNegativeWallet(): Promise<number> {
+  try {
+    const s: any = await Settings.findOne({ key: 'global' }).select('driverApp').lean()
+    const v = Math.abs(Number(s?.driverApp?.maxNegativeWallet ?? 500))
+    return Number.isFinite(v) ? v : 500
+  } catch { return 500 }
+}
+
+async function settleCod(rideId: string): Promise<{ amount: number; balance?: number; pending?: number }> {
   const ride: any = await Ride.findOneAndUpdate(
     { _id: rideId, service: 'delivery', codCollected: { $gt: 0 }, codSettledAt: null },
     { $set: { codSettledAt: new Date() } }, { new: true },
   ).lean()
   if (!ride) return { amount: 0 }
-  const cod = Math.max(0, Math.round(ride.codCollected || 0))
+  const cod = Math.max(0, Math.round(money(ride.codCollected)))
   let balance: number | undefined
+  let credited = 0
   try {
     if (ride.driverId) {
-      const updated: any = await Driver.findByIdAndUpdate(ride.driverId, { $inc: { walletBalance: -cod } }, { new: true }).lean()
-      balance = updated?.walletBalance
-      await Transaction.create({
-        driverId: ride.driverId, rideId: ride._id, type: 'cod_remittance',
-        amount: -cod, paymentMode: 'cash',
-        description: `COD ₹${cod} collected from receiver, owed to sender`,
-        balanceAfter: balance,
-      })
+      const maxNeg = await maxNegativeWallet()
+      // Optimistic on the balance read, so the cap holds against a parallel
+      // wallet movement on the same driver.
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const d: any = await Driver.findById(ride.driverId).select('walletBalance').lean()
+        if (!d) break
+        const before = Number(d.walletBalance) || 0
+        const take = Math.min(cod, Math.max(0, Math.floor(before + maxNeg)))
+        if (take <= 0) { balance = before; break }
+        const updated: any = await Driver.findOneAndUpdate(
+          { _id: ride.driverId, walletBalance: d.walletBalance ?? null },
+          { $inc: { walletBalance: -take } }, { new: true },
+        ).select('walletBalance').lean()
+        if (!updated) continue
+        credited = take
+        balance = updated.walletBalance
+        await Transaction.create({
+          driverId: ride.driverId, rideId: ride._id, type: 'cod_remittance',
+          amount: -take, paymentMode: 'cash',
+          description: `COD ₹${take} collected from receiver, owed to sender` + (take < cod ? ` (₹${cod - take} still to remit)` : ''),
+          balanceAfter: balance,
+        })
+        break
+      }
     }
-    if (ride.riderId) await User.findByIdAndUpdate(ride.riderId, { $inc: { walletBalance: cod } })
+    if (credited > 0 && ride.riderId) {
+      const u: any = await User.findByIdAndUpdate(ride.riderId, { $inc: { walletBalance: credited } }, { new: true }).select('walletBalance').lean()
+      if (u) {
+        await WalletTransaction.create({
+          userId: ride.riderId, type: 'credit', amount: credited, balanceAfter: u.walletBalance || 0,
+          note: 'Cash on delivery collected for your parcel', source: 'cod', ref: `cod:${String(ride._id)}`,
+        })
+      }
+    }
   } catch (e) {
     // Leave codSettledAt stamped: an unsettled balance is a reconciliation task,
     // a double payout is not recoverable.
     console.error('[complete] COD settlement failed', e)
   }
-  return { amount: cod, balance }
+  const pending = Math.max(0, cod - credited)
+  await Ride.updateOne({ _id: ride._id }, { $set: { codSenderCredited: credited, codPendingRemittance: pending } }).catch(() => {})
+  if (pending > 0) console.warn('[complete] COD only partly remitted', { rideId: String(ride._id), cod, credited, pending })
+  return { amount: credited, balance, pending }
 }
 
 /** Give a verified-but-unusable online payment back to the rider's wallet. */
@@ -401,8 +504,9 @@ async function settleOnlinePaymentStateAfterRace(rideId: string, op: any): Promi
 export async function collectCash(rideId: string, driverId: string): Promise<SettleResult> {
   const ride: any = await Ride.findById(rideId).lean()
   if (!ride) return { status: 404, body: { error: 'Ride not found' } }
-  if (!ride.driverId || String(ride.driverId) !== driverId) return { status: 403, body: { error: 'Not your ride' } }
+  if (!ride.driverId || String(ride.driverId) !== driverId) return { status: 403, body: { error: 'Not a participant in this ride', code: 'NOT_PARTICIPANT' } }
   if (chargedAtBooking(String(ride.service || ''), String(ride.paymentMode || ''))) {
+    if (ride.prepaidShortfall && ride.status === 'completed' && ride.paymentStatus !== 'paid') return collectShortfallCash(ride)
     return { status: 400, body: { error: 'This trip was paid at booking', code: 'prepaid' } }
   }
   if (ride.status !== 'completed') return { status: 400, body: { error: 'End the ride first', code: 'notCompleted' } }
@@ -428,3 +532,87 @@ export async function collectCash(rideId: string, driverId: string): Promise<Set
   return { status: 200, body: { success: true, paymentMode: 'cash', paymentStatus: 'paid', cashToCollect: due, commission, driverWalletBalance: bal ?? 0 } }
 }
 
+// A prepaid trip's shortfall taken in cash: the driver already holds exactly
+// what they were not credited at completion, so only the status moves.
+async function collectShortfallCash(ride: any): Promise<SettleResult> {
+  const flipped: any = await Ride.findOneAndUpdate(
+    { _id: ride._id, status: 'completed', prepaidShortfall: true, paymentStatus: 'pending', 'onlinePayment.paymentId': { $exists: false } },
+    { $set: { paymentStatus: 'paid', awaitingPayment: false, paidAt: new Date(), cashCollectedAt: new Date() } },
+    { new: true },
+  ).lean()
+  if (!flipped) {
+    const now: any = await Ride.findById(ride._id).select('paymentStatus onlinePayment').lean()
+    if (now?.onlinePayment?.paymentId) return { status: 409, body: { error: 'The rider has just paid online', code: 'paidOnline' } }
+    return { status: 400, body: { error: 'This ride is already paid', code: 'alreadyPaid' } }
+  }
+  const due = Number(flipped.amountDue) || 0
+  const d: any = await Driver.findById(flipped.driverId).select('walletBalance').lean()
+  return { status: 200, body: { success: true, paymentMode: 'cash', paymentStatus: 'paid', cashToCollect: due, commission: 0, driverWalletBalance: d?.walletBalance ?? 0 } }
+}
+
+/**
+ * The rider pays a COMPLETED, unpaid wallet ride from their Gora wallet
+ * (/wallet/pay with a rideId). Only a completed ride: before that the amount is
+ * not final (extensions, waiting, extras) — the driver's End settles a wallet
+ * ride itself. The amount is the server's amountDue, debited once under the
+ * claim key `ride:<id>` that /complete uses too; the driver is credited what
+ * was left pending (a prepaid trip's shortfall). A debit that loses the race to
+ * another settlement is refunded at once.
+ */
+export async function payRideFromWallet(rideId: string, userId: string, note = 'Ride payment'): Promise<SettleResult> {
+  const ride: any = await Ride.findById(rideId).lean()
+  if (!ride) return { status: 404, body: { error: 'Ride not found' } }
+  if (String(ride.riderId || '') !== String(userId)) return { status: 403, body: { error: 'Not your ride', code: 'NOT_PARTICIPANT' } }
+  const balanceOf = async () => ((await User.findById(userId).select('walletBalance').lean()) as any)?.walletBalance || 0
+
+  const claimKey = `ride:${rideId}`
+  const already =
+    ride.paymentStatus === 'paid' ||
+    (ride.riderWalletDebit || 0) > 0 ||
+    !!(await WalletTransaction.exists({ userId, type: 'debit', source: 'ride', ref: rideId })) ||
+    !!(await User.exists({ _id: userId, walletRechargeRefs: claimKey }))
+  if (already) return { status: 200, body: { success: true, alreadyPaid: true, balance: await balanceOf() } }
+  if (ride.status !== 'completed') {
+    return { status: 409, body: { error: 'This ride can be paid once it has ended', code: 'notPayableYet', rideStatus: ride.status } }
+  }
+  if (ride.paymentMode !== 'wallet') return { status: 400, body: { error: 'This ride is not paid by wallet' } }
+  const amt = ride.amountDue != null ? Math.max(0, Math.round(money(ride.amountDue))) : riderAmountDue(ride)
+  if (amt <= 0) return { status: 200, body: { success: true, alreadyPaid: true, balance: await balanceOf() } }
+
+  const updated: any = await User.findOneAndUpdate(
+    { _id: userId, walletBalance: { $gte: amt }, walletRechargeRefs: { $ne: claimKey } },
+    { $inc: { walletBalance: -amt }, $push: { walletRechargeRefs: claimKey } }, { new: true },
+  ).select('walletBalance').lean()
+  if (!updated) {
+    const u: any = await User.findById(userId).select('walletBalance walletRechargeRefs').lean()
+    if (!u) return { status: 404, body: { error: 'User not found' } }
+    if ((u.walletRechargeRefs || []).includes(claimKey)) return { status: 200, body: { success: true, alreadyPaid: true, balance: u.walletBalance || 0 } }
+    return { status: 402, body: { error: 'Insufficient wallet balance', balance: u.walletBalance || 0, amountDue: amt } }
+  }
+  const row: any = await WalletTransaction.create({
+    userId, type: 'debit', amount: amt, balanceAfter: updated.walletBalance,
+    note, source: 'ride', ref: rideId,
+  })
+  const flipped: any = await Ride.findOneAndUpdate(
+    { _id: rideId, status: 'completed', paymentMode: 'wallet', paymentStatus: { $ne: 'paid' } },
+    { $set: { paymentStatus: 'paid', awaitingPayment: false, paidAt: new Date(), riderWalletDebit: amt } },
+    { new: true },
+  ).lean()
+  if (!flipped) {
+    // Settled some other way in between: give this debit straight back.
+    const back: any = await User.findByIdAndUpdate(userId, { $inc: { walletBalance: amt } }, { new: true }).select('walletBalance').lean()
+    await WalletTransaction.updateOne({ _id: row._id }, { $set: { ref: `void:${rideId}` } })
+    await WalletTransaction.create({
+      userId, type: 'credit', amount: amt, balanceAfter: back?.walletBalance || 0,
+      note: 'Refund: this ride was already paid', source: 'refund', ref: `refund:${rideId}:walletpay:${row._id}`,
+    })
+    return { status: 200, body: { success: true, alreadyPaid: true, balance: back?.walletBalance || 0 } }
+  }
+  // Only a prepaid trip's shortfall left a driver credit pending; any other
+  // completed wallet ride already settled the driver at its End.
+  if (flipped.prepaidShortfall && flipped.driverId) {
+    const earning = money(flipped.pendingDriverEarning)
+    if (earning > 0) await creditDriver(flipped, flipped.driverId, earning, 'wallet', money(flipped.totalFare), money(flipped.pendingCommission))
+  }
+  return { status: 200, body: { success: true, amount: amt, balance: updated.walletBalance } }
+}

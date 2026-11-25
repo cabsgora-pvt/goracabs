@@ -4,13 +4,18 @@ import { connectDB } from '@/lib/mongodb'
 import SubscriptionPlan from '@/models/SubscriptionPlan'
 import { withCors, corsOptions } from '@/lib/cors'
 import { guardAdmin } from '@/lib/admin-guard'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
+import { requireAdmin } from '@/lib/auth'
 
 export async function OPTIONS() { return corsOptions() }
 
 // PUT /api/subscription-plans/[id] → update a plan (admin)
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
+    const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+    await auditAdminBody(req, requireAdmin(req), 'subscription_plan.update', String(params.id))
     await connectDB()
     const body = await req.json()
     const update: any = {}
@@ -29,7 +34,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 // DELETE /api/subscription-plans/[id] → remove a plan (admin)
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
+    const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+    await auditAdminBody(req, requireAdmin(req), 'subscription_plan.delete', String(params.id))
     await connectDB()
     await SubscriptionPlan.findByIdAndDelete(params.id)
     return withCors({ success: true })

@@ -4,6 +4,9 @@ import { connectDB } from '@/lib/mongodb'
 import Zone from '@/models/Zone'
 import { guardAdmin } from '@/lib/admin-guard'
 import { RENTAL_FIELDS, keptAdminRef } from '@/lib/zone-features'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
+import { requireAdmin } from '@/lib/auth'
 
 // GET all rental packages for a zone
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -20,7 +23,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 // PUT replace the full rental packages array (frontend sends edited list)
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
+    const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+    await auditAdminBody(req, requireAdmin(req), 'zone.rental_packages.update', String(params.id))
     await connectDB()
     const { packages } = await req.json()
     // New fares reset the reference zone admin limits use; untouched ones keep it.

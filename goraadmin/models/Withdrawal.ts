@@ -20,7 +20,15 @@ const WithdrawalSchema = new Schema({
   holdReleased: { type: Boolean, default: false },
   payoutRef: { type: String, default: '' },   // bank UTR / payout reference entered at approval
   processedBy: { type: String, default: '' }, // admin email
+  // The saved bank account the payout goes to (Driver.bankAccounts _id, or
+  // 'bankDetails' for the registration account), and whether it was added or
+  // changed in the 7 days before the request (a takeover signal for the admin).
+  accountId: { type: String, default: '' },
+  bankChangedRecently: { type: Boolean, default: false },
 }, { timestamps: true })
 WithdrawalSchema.index({ driverId: 1, createdAt: -1 })
 WithdrawalSchema.index({ status: 1, createdAt: -1 })
+// Dev only: rebuild on hot reload so enum/field additions apply without a
+// server restart (same as models/Ride.ts).
+if (process.env.NODE_ENV !== 'production' && mongoose.models.Withdrawal) mongoose.deleteModel('Withdrawal')
 export default mongoose.models.Withdrawal || mongoose.model('Withdrawal', WithdrawalSchema)

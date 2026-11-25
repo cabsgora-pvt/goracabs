@@ -7,7 +7,7 @@ import { maybeAutoSwitchZone } from '@/lib/zone-auto'
 import { withCors, corsOptions } from '@/lib/cors'
 import { sweepDueNotifications } from '@/lib/notifications'
 import { sweepOverdueFaceVerification } from '@/lib/face-sweep'
-import { isTeleport } from '@/lib/geo-guard'
+import { isTeleport, tooSoonToStore, GEO_GUARD } from '@/lib/geo-guard'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -26,11 +26,15 @@ export async function POST(req: NextRequest) {
     await connectDB()
     sweepDueNotifications()   // scheduled admin notifications that are due
 
-    const prev: any = await Driver.findById(payload.id).select('currentLat currentLng locationUpdatedAt').lean()
+    const prev: any = await Driver.findById(payload.id).select('currentLat currentLng locationUpdatedAt zoneAuto zoneId zoneName zoneAutoCandidate').lean()
     if (!prev) return withCors({ error: 'Driver not found' }, 404)
-    // Teleport guard: a jump implying > MAX_KMPH since the last stored fix is
-    // refused and NOT stored (spoofed GPS / a bad fix would otherwise move the
-    // driver into another city's dispatch pool or zone).
+    // At most one stored fix per driver per STORE_EVERY_MS: extra pings are
+    // acknowledged and dropped (they also cannot be used to step the speed check).
+    if (tooSoonToStore(prev)) return withCors({ success: true, throttled: true })
+    // Teleport guard: a move faster than MAX_KMPH from the last stored fix (every
+    // move, with a minimum elapsed time — no 1 km free step any more) is refused
+    // and NOT stored (spoofed GPS / a bad fix would otherwise move the driver
+    // into another city's dispatch pool or zone).
     if (isTeleport(prev, la, ln)) {
       return withCors({ error: 'Location jump ignored', code: 'LOCATION_JUMP', ignored: true }, 422)
     }
@@ -39,10 +43,15 @@ export async function POST(req: NextRequest) {
     const h = Number(heading)
     if (heading != null && Number.isFinite(h)) update.currentHeading = ((h % 360) + 360) % 360
 
-    await Driver.findByIdAndUpdate(payload.id, update)
+    // Atomic on the throttle too, so two parallel pings cannot both be stored.
+    const stored = await Driver.updateOne(
+      { _id: payload.id, $or: [{ locationUpdatedAt: null }, { locationUpdatedAt: { $lte: new Date(Date.now() - GEO_GUARD.STORE_EVERY_MS) } }, { locationUpdatedAt: { $gt: new Date() } }] },
+      { $set: update },
+    )
+    if (!stored.matchedCount) return withCors({ success: true, throttled: true })
     // Drivers on automatic zone follow their position (see lib/zone-auto):
-    // switched only after two fixes inside the new zone >= 60 s apart.
-    await maybeAutoSwitchZone(String(payload.id), la, ln).catch(() => null)
+    // switched only after fixes inside the new zone spanning >= 5 min (lib/zone-auto).
+    await maybeAutoSwitchZone(String(payload.id), la, ln, prev).catch(() => null)
     // The foreground service keeps pinging this even if the driver force-quit
     // the app right after a verification prompt appeared — this is what
     // catches that silence instead of leaving the check pending forever.

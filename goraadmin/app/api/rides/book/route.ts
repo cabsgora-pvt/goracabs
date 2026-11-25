@@ -13,19 +13,23 @@ import { holdOf, holdMessage } from '@/lib/account-hold'
 import RidePreference from '@/models/RidePreference'
 import { offerNext, withoutBusyDrivers, busyDriverIds } from '@/lib/dispatch'
 import mongoose from 'mongoose'
-import { chargedAtBooking, claimPrepayment, refundClaimedPrepayment, refundRefusedPrepayment, type Linked } from '@/lib/prepay'
+import { chargedAtBooking, claimPrepayment, refundClaimedPrepayment, refundRefusedPrepayment, refundPrepayExcess, type Linked } from '@/lib/prepay'
 import { quoteRental, type RentalQuote } from '@/lib/rental-pricing'
 import { evaluatePromo, redeemPromo, releasePromo, type PromoResult } from '@/lib/promo'
 import { verifyQuote, quoteCell, ENFORCE_QUOTES, stopsKey, weightKey, hireHours } from '@/lib/quote'
-import { requireRider } from '@/lib/auth'
+import { requireRider, requireActiveRider } from '@/lib/auth'
 import { newRideOtp } from '@/lib/ride-otp'
 import { withCors, corsOptions } from '@/lib/cors'
 import { getSettingsAsync } from '@/lib/settings'
+import { notStaleReviewFilter } from '@/lib/ride-view'
 
 export async function OPTIONS() { return corsOptions() }
 
 const MAX_TIP = 500
 const MAX_COD = 10000
+/** Upper bound on a prepayment that may back a booking; any excess over what
+ *  the booking needs is refunded to the wallet at once. */
+const MAX_PREPAY = 100000
 /** A booking this far ahead is a scheduled one (does not block a live ride). */
 const SCHEDULED_AHEAD_MS = 10 * 60 * 1000
 
@@ -117,10 +121,15 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
   try {
     await connectDB()
 
-    // The rider is whoever the token says — never a riderId from the body.
-    const auth = requireRider(req) as any
-    if (!auth?.id) return withCors({ error: 'Please sign in to book', code: 'unauthorized' }, 401)
-    const riderId = String(auth.id)
+    // The rider is whoever the token says — never a riderId from the body —
+    // and the account must still be usable (not blocked/deleted, session live).
+    const active = await requireActiveRider(req)
+    if (!active.ok) {
+      return active.code === 'UNAUTHORIZED'
+        ? withCors({ error: 'Please sign in to book', code: 'unauthorized' }, 401)
+        : withCors({ error: active.error, code: active.code }, active.status)
+    }
+    const riderId = String(active.id)
     const user: any = await User.findById(riderId).lean().catch(() => null)
     if (!user) return withCors({ error: 'Please sign in to book', code: 'unauthorized' }, 401)
     if (user.status === 'deleted') return withCors({ error: 'This account has been deleted.' }, 403)
@@ -217,6 +226,8 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
           { status: { $in: ['pending', 'accepted'] }, departureAt: { $gt: later } },
           { status: { $in: ['pending', 'accepted'] }, hireStartAt: { $gt: later } },
         ],
+        // A ride flagged for review more than 30 min ago no longer blocks booking.
+        $and: [notStaleReviewFilter()],
       }).select('_id status service').lean()
       if (active) {
         return withCors({
@@ -279,7 +290,7 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
     }
 
     // Compute fare from pricing row + road distance/duration
-    let computedFare = b.fare || 0
+    let computedFare = Number(b.fare) || 0
     let breakdown: any = null
     if (pricingRow && roadDistanceKm != null && roadDurationMin != null) {
       const base = pricingRow.baseFare || 0
@@ -319,6 +330,9 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
       }
       computedFare = rentalQuote.fare
       commissionPercent = rentalQuote.commissionPercent
+      if (!Number.isFinite(computedFare) || computedFare <= 0) {
+        return withCors({ error: 'This fare is not valid. Please refresh and try again.', code: 'invalidFare' }, 400)
+      }
 
       // A rental's fare has its (server-validated) coupon taken off here, as
       // before; every other service keeps the full fare (see below).
@@ -376,6 +390,12 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
     }
 
     const fare = computedFare
+    // Never a ride on a non-finite / zero / negative fare, whatever the quote
+    // enforcement mode (an unsigned old-app fare included). A rental may reach
+    // 0 only through its coupon (checked before the discount above).
+    if (service !== 'rental' && (!Number.isFinite(fare) || fare <= 0)) {
+      return withCors({ error: 'This fare is not valid. Please refresh and try again.', code: 'invalidFare' }, 400)
+    }
     // The per-km breakdown above is the taxi formula. Every other service is
     // priced elsewhere (signed quote, rental packages), so on an outstation ride
     // it stored ₹2535 / commission 507 beside a fare of ₹3450. Keep only what is
@@ -418,9 +438,13 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
     // one payment can back one ride only; a short payment is given back.
     const rideObjectId = new mongoose.Types.ObjectId()
     let linked: Linked | null = null
+    // What must be prepaid: the whole trip as booked — fare + tip − coupon. The
+    // tip is part of it: settlement credits the driver the tip, so prepaying
+    // without it left Gora paying the driver's tip.
+    let required = 0
     if (chargedAtBooking(service, paymentMode)) {
-      const required = Math.max(0, Math.round(fare - couponDiscount))
-      linked = await claimPrepayment({ _id: rideObjectId, service, paymentMode, fare, totalFare, createdAt: new Date() }, riderId, b)
+      required = Math.max(0, Math.round(fare + tip - couponDiscount))
+      linked = await claimPrepayment({ _id: rideObjectId, service, paymentMode, fare, totalFare, createdAt: new Date(), maxPrepay: MAX_PREPAY }, riderId, b)
       if (!linked || linked.amount < required - 1) {
         await releaseCoupon()
         let refund = null
@@ -429,7 +453,7 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
           error: linked
             ? `Your payment of ₹${linked.amount} does not cover the ₹${required} fare. It was added to your Gora wallet; please pay again.`
             : `Please pay ₹${required} to book this trip.`,
-          code: 'prepaymentRequired', amountDue: required, couponDiscount,
+          code: 'prepaymentRequired', amountDue: required, fare, tip, couponDiscount,
           ...(refund ? { refunded: refund.amount, refundedTo: 'wallet', walletBalance: refund.balance } : {}),
         }, 402)
       }
@@ -498,8 +522,12 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
             ? clientTime(b.departureAt)
             : undefined),
       deliveryStops: Array.isArray(b.deliveryStops) && b.deliveryStops.length ? b.deliveryStops : undefined,
-      // Charged before booking: the verified payment claimed above.
-      ...(linked ? { prepaidAmount: linked.amount, prepaidVia: linked.via, prepaidRef: linked.ref } : {}),
+      // Charged before booking: the verified payment claimed above. Only what
+      // the booking needs is kept; the excess is refunded right after create.
+      ...(linked ? {
+        prepaidAmount: Math.min(linked.amount, required), prepaidVia: linked.via, prepaidRef: linked.ref,
+        ...(linked.amount > required ? { prepaidCaptured: linked.amount } : {}),
+      } : {}),
       prepaidUnlinked: false,
       couponCode: promo?.applied ? promo.code : undefined,
       couponDiscount,
@@ -519,6 +547,17 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
     // From here the payment belongs to this ride — a later error must not
     // also refund it.
     ctx.rideCreated = true
+
+    // Paid more than the booking needs: the excess goes back to the wallet now.
+    let excessRefunded = 0
+    if (linked && linked.amount > required) {
+      const excess = Math.round((linked.amount - required) * 100) / 100
+      const r = await refundPrepayExcess(riderId, linked, excess)
+      if (r) {
+        excessRefunded = r.amount
+        await Ride.updateOne({ _id: ride._id }, { $set: { prepaidExcessRefunded: r.amount } }).catch(() => {})
+      }
+    }
 
     // Offer the ride to the best-ranked captain and push them, instead of
     // listing it to everyone at once. Best-effort: a dispatch failure must
@@ -575,7 +614,9 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
         distance: roadDistanceKm, duration: roadDurationMin, routePolyline, fareBreakdown: breakdown,
         couponCode: ride.couponCode || '', couponDiscount,
         // What the rider will pay at the end for this fare (before any extras).
-        payableEstimate: Math.max(0, Math.round(totalFare - (service === 'rental' ? 0 : couponDiscount) - (linked?.amount || 0))),
+        payableEstimate: Math.max(0, Math.round(totalFare - (service === 'rental' ? 0 : couponDiscount) - (linked ? Math.min(linked.amount, required) : 0))),
+        ...(linked ? { prepaidAmount: Math.min(linked.amount, required) } : {}),
+        ...(excessRefunded > 0 ? { prepaidExcessRefunded: excessRefunded, refundedTo: 'wallet' } : {}),
         hireTotalHours: service === 'hire_driver' ? hireTotalHours : undefined,
         hirePerHour: service === 'hire_driver' ? hirePerHour : undefined,
         clientRequestId,
@@ -586,8 +627,10 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
       quoteWarning,
       driverFound: !!nearest,
       offeredDriverId,
+      // Preview only: no id, no phone — the driver's contact is shared once a
+      // driver actually accepts (GET /rides/:id).
       driver: nearest
-        ? { id: nearest._id, name: nearest.name, phone: nearest.phone, distanceKm: nearestKm, etaMin: nearestEtaMin }
+        ? { name: nearest.name, distanceKm: nearestKm, etaMin: nearestEtaMin }
         : null,
     })
   } catch (e: any) {

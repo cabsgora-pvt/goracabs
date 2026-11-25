@@ -41,11 +41,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     // Atomic on status, so two correct starts cannot both run.
     const started = await Ride.findOneAndUpdate(
-      { _id: ride._id, driverId: ride.driverId, status: { $in: ['accepted', 'arrived'] } },
+      // unreachableCancelAt: the rider reported the driver unreachable and the
+      // ride is being cancelled (rides/{id}/report-issue) — it must not start.
+      { _id: ride._id, driverId: ride.driverId, status: { $in: ['accepted', 'arrived'] }, unreachableCancelAt: null },
       { $set: { status: 'ongoing', startedAt: new Date(), ...(ride.service === 'outstation' ? { outstationPhase: 'enroute' } : {}) } },
       { new: true },
     ).select('_id').lean()
-    if (!started) return withCors({ success: true, repeated: true })
+    if (!started) {
+      const now: any = await Ride.findById(ride._id).select('status unreachableCancelAt').lean()
+      if (now?.status === 'cancelled' || now?.unreachableCancelAt) {
+        return withCors({ error: 'This ride was cancelled', code: 'RIDE_CANCELLED' }, 409)
+      }
+      return withCors({ success: true, repeated: true })
+    }
     return withCors({ success: true })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)

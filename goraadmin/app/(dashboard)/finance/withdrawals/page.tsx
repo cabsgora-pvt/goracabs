@@ -185,8 +185,13 @@ export default function WithdrawalsPage() {
                 <span className="text-gray-500">Amount</span>
                 <span className="font-bold text-gray-900 text-right">₹{(approveTarget.amount || 0).toLocaleString()}</span>
               </div>
+              {approveTarget.bankChangedRecently && (
+                <div className="rounded-lg bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 text-xs">
+                  This bank account was added or changed in the last 7 days. Confirm it with the driver before paying.
+                </div>
+              )}
               <div className="pt-2">
-                <label htmlFor="payout-ref" className="block text-gray-500 mb-1">Payout reference / UTR (optional)</label>
+                <label htmlFor="payout-ref" className="block text-gray-500 mb-1">Payout reference / UTR (required)</label>
                 <input id="payout-ref" title="Payout reference" value={payoutRef} onChange={e => setPayoutRef(e.target.value)}
                   placeholder="Bank UTR after you transfer the money"
                   className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
@@ -197,7 +202,7 @@ export default function WithdrawalsPage() {
                 className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 border border-gray-200 hover:bg-gray-50 disabled:opacity-50">
                 Cancel
               </button>
-              <button type="button" onClick={confirmApprove} disabled={submitting}
+              <button type="button" onClick={confirmApprove} disabled={submitting || !payoutRef.trim()}
                 className="px-4 py-2 rounded-lg text-sm font-medium bg-green-600 text-white hover:bg-green-700 disabled:opacity-50">
                 Confirm &amp; Approve
               </button>

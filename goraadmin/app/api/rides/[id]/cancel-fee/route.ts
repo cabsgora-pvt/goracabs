@@ -17,7 +17,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const ride: any = await Ride.findById(params.id).select('riderId driverId service status').lean()
     if (!ride) return withCors({ error: 'Ride not found' }, 404)
     const denied = guardRideActor(req, ride)
-    if (denied) return withCors(await denied.json(), denied.status)
+    if (denied) {
+      const j: any = await denied.json()
+      return withCors(denied.status === 403 ? { ...j, code: 'NOT_PARTICIPANT' } : j, denied.status)
+    }
 
     const driverWasCommitted = ['accepted', 'arrived'].includes(ride.status)
     let fee = 0

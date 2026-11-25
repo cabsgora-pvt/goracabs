@@ -8,7 +8,7 @@ import { computeSettlement } from '@/lib/zone-admin'
 
 // GET — revenue share owed to the zone admin for the last six months.
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   await connectDB()
   const a: any = await ZoneAdmin.findById(params.id).lean()

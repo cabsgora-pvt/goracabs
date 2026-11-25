@@ -13,7 +13,7 @@ import { financeTotals, istRange, completedMatch, PAID, FARE_EXPR } from '@/lib/
 // − refunds on completed rides.
 export async function GET(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const { searchParams } = new URL(req.url)
     const range = istRange(searchParams.get('dateFrom'), searchParams.get('dateTo'))
@@ -63,6 +63,7 @@ export async function GET(req: NextRequest) {
       cancellationFeesCharged: t.cancellationFeesCharged,
       refunds: t.refunds,
       refundsOnCompletedRides: t.refundsOnCompletedRides,
+      couponCost: t.couponCost,               // Gora-funded coupons on paid rides (already off netCollectedRevenue and platformNet)
       netCollectedRevenue: t.netCollectedRevenue,
       platformNet: t.platformNet,               // + subscriptions + cancellation fees kept − their franchise share − refunds on completed rides
       range: { from: range.from || null, to: range.to || null, timezone: 'Asia/Kolkata' },

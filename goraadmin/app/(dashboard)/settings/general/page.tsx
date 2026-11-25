@@ -98,6 +98,14 @@ export default function GeneralSettingsPage() {
                   onChange={e => setSettings({ ...settings, general: { ...settings.general, supportPhone: e.target.value } })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
+              {/* SOS escalation: every SOS alert is sent by SMS to these numbers. */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">SOS ops phones (comma separated)</label>
+                <input value={settings?.support?.opsPhones ?? ''} placeholder="9876543210, 9123456789"
+                  onChange={e => setSettings({ ...settings, support: { ...(settings.support || {}), opsPhones: e.target.value } })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <p className="text-xs text-gray-500 mt-1">Each SOS alert is texted to these numbers and to the person&apos;s own emergency contacts.</p>
+              </div>
               {/* Shown on zone admin (franchise) subscription invoices. */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Company legal name (invoices)</label>

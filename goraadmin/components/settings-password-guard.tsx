@@ -2,50 +2,88 @@
 import { useEffect, useRef, useState } from 'react'
 import { Lock } from 'lucide-react'
 
-// Every settings change needs the admin's password again. Rather than touch
-// each settings page, this wraps window.fetch once: a POST/PUT to
-// /api/settings, /api/settings/franchise, /api/app-config or /api/finance/wallet first asks for the password, sends
-// it in X-Admin-Password, and asks again if it was wrong. Cancelling rejects
-// the fetch, so a page never shows "Saved" for a change that was not made.
-// A correct password is remembered for 2 minutes (one save + its test call).
-const GUARDED = /^\/api\/(settings(\/franchise)?|app-config|finance\/wallet)\/?(\?.*)?$/
-const REMEMBER_MS = 2 * 60 * 1000
+// Settings, money, pricing and destructive admin changes need the admin's
+// password again (server: lib/admin-password). Rather than touch each page,
+// this wraps window.fetch once:
+//   • a POST/PUT/PATCH/DELETE to a GUARDED route asks for the password first,
+//     unless a correct one was given in the last few minutes (the server keeps
+//     a 5-minute "sudo" window for this session, so no password is kept here);
+//   • any admin API that still answers 428/403 { needsPassword } — the window
+//     ran out, or the route is guarded but not listed below — asks and retries.
+// Cancelling rejects the fetch, so a page never shows "Saved" for a change
+// that was not made.
+const ALL = ['POST', 'PUT', 'PATCH', 'DELETE']
+const GUARDED: [RegExp, string[]][] = [
+  ...[
+    'settings(/franchise)?', 'app-config', 'finance/wallet',
+    'services/[^/]+', 'zones/[^/]+/(pricing|rental-packages)', 'vehicles/types(/[^/]+)?',
+    'surge(/[^/]+)?', 'promos(/[^/]+)?', 'subscription-plans(/[^/]+)?', 'zone-plans(/[^/]+)?',
+    'incentives(/[^/]+)?', 'drivers/[^/]+/wallet', 'wallet/admin', 'finance/withdrawals/[^/]+',
+    'zone-admins/[^/]+/(payouts|subscription)', 'rides/[^/]+/(force-complete|otp-unlock)',
+    'document-types(/[^/]+)?', 'ride-preferences(/[^/]+)?',
+  ].map(p => [new RegExp(`^/api/(${p})/?$`), ALL] as [RegExp, string[]]),
+  [/^\/api\/notifications\/?$/, ['POST']],
+  // Deleting an account. A driver PUT that changes bank details is guarded
+  // server-side and prompts through the 428 fallback below.
+  [/^\/api\/(users|drivers)\/[^/]+\/?$/, ['DELETE']],
+]
+const isGuarded = (path: string, method: string) => GUARDED.some(([re, m]) => m.includes(method) && re.test(path))
+const METHODS = new Set(ALL)
+const SUDO_CLIENT_MS = 4.5 * 60 * 1000   // a little under the server's 5 minutes
 
 type Ask = { resolve: (pwd: string | null) => void; wrong: boolean }
 
 export function SettingsPasswordGuard() {
   const [ask, setAsk] = useState<Ask | null>(null)
   const [pwd, setPwd] = useState('')
-  const remembered = useRef<{ pwd: string; until: number } | null>(null)
+  const sudoUntil = useRef(0)
   const askRef = useRef<(wrong: boolean) => Promise<string | null>>()
 
   askRef.current = (wrong: boolean) => new Promise(resolve => { setPwd(''); setAsk({ resolve, wrong }) })
 
   useEffect(() => {
     const original = window.fetch
+    // The session was revoked (logout elsewhere) or expired: clear the cookie
+    // and go to sign-in instead of showing empty pages.
+    let leaving = false
+    const signedOutCheck = (res: Response) => {
+      if (res.status === 401 && !leaving) {
+        leaving = true
+        original('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+          .catch(() => {}).finally(() => { window.location.href = '/login' })
+      }
+      return res
+    }
     const guarded: typeof window.fetch = async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.pathname + input.search : (input as Request).url
       let path = url
       try { path = new URL(url, window.location.origin).pathname } catch {}
       const method = (init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase()
-      if (!GUARDED.test(path) || (method !== 'POST' && method !== 'PUT')) return original(input, init)
+      if (!path.startsWith('/api/') || path.startsWith('/api/auth/')) return original(input, init)
+      if (!METHODS.has(method)) return signedOutCheck(await original(input, init))
 
+      let password: string | null = null
       let wrong = false
+      if (isGuarded(path, method) && sudoUntil.current < Date.now()) {
+        password = await askRef.current!(false)
+        if (!password) throw new Error('Not saved: password not entered')
+      }
       for (;;) {
-        let password = remembered.current && remembered.current.until > Date.now() ? remembered.current.pwd : null
-        if (!password) {
-          password = await askRef.current!(wrong)
-          if (!password) throw new Error('Settings not saved: password not entered')
-        }
         const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined))
-        headers.set('X-Admin-Password', password)
+        if (password) headers.set('X-Admin-Password', password)
         const res = await original(input, { ...init, headers })
         if (res.status === 403 || res.status === 428) {
           const body = await res.clone().json().catch(() => ({}))
-          if (body?.needsPassword) { remembered.current = null; wrong = !!body.wrongPassword; continue }
+          if (body?.needsPassword) {
+            sudoUntil.current = 0
+            wrong = !!body.wrongPassword
+            password = await askRef.current!(wrong)
+            if (!password) throw new Error('Not saved: password not entered')
+            continue
+          }
         }
-        if (res.ok) remembered.current = { pwd: password, until: Date.now() + REMEMBER_MS }
-        return res
+        if (res.ok && password) sudoUntil.current = Date.now() + SUDO_CLIENT_MS
+        return signedOutCheck(res)
       }
     }
     window.fetch = guarded
@@ -62,7 +100,7 @@ export function SettingsPasswordGuard() {
           <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center"><Lock className="w-5 h-5" /></div>
           <div>
             <p className="font-semibold text-gray-900">Confirm it&apos;s you</p>
-            <p className="text-xs text-gray-500">Enter your admin password to save these settings.</p>
+            <p className="text-xs text-gray-500">Enter your admin password to confirm this change. You won&apos;t be asked again for 5 minutes.</p>
           </div>
         </div>
         <input type="password" autoFocus value={pwd} onChange={e => setPwd(e.target.value)} placeholder="Password"
@@ -71,7 +109,7 @@ export function SettingsPasswordGuard() {
         {ask.wrong && <p className="text-xs text-red-600 -mt-2">Wrong password — try again.</p>}
         <div className="flex justify-end gap-2">
           <button type="button" onClick={() => done(null)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
-          <button type="submit" disabled={!pwd} className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-semibold disabled:opacity-50">Confirm &amp; save</button>
+          <button type="submit" disabled={!pwd} className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-semibold disabled:opacity-50">Confirm</button>
         </div>
       </form>
     </div>

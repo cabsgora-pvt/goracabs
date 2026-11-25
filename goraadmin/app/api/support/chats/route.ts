@@ -7,7 +7,7 @@ import { guardAdmin } from '@/lib/admin-guard'
 // GET /api/support/chats → list of driver chats for the admin panel
 export async function GET(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const chats: any[] = await SupportChat.find({}).sort({ lastMessageAt: -1 }).limit(200).lean()
     const list = chats.map((c) => {

@@ -4,13 +4,76 @@
 import { NextRequest } from 'next/server'
 import { requireAdmin, requireDriverAuth, requireRider } from './auth'
 
-const DRIVER_HIDDEN = ['otp', 'dropOtp', 'otpAttempts', 'dropOtpAttempts', 'receiverPhoneNorm', 'refundLeaseAt'] as const
+import { randomBytes } from 'crypto'
+
+const DRIVER_HIDDEN = [
+  'otp', 'dropOtp', 'otpAttempts', 'dropOtpAttempts', 'receiverPhoneNorm', 'refundLeaseAt',
+  // The rider's money / promo / share link are none of the driver's business.
+  'couponCode', 'couponSource', 'onlinePayment', 'prepaidRef', 'prepaidVia', 'prepaidUnlinked',
+  'prepaidCaptured', 'prepaidExcessRefunded', 'shareToken', 'clientRequestId', 'issueReports',
+  'refundAttempts', 'refundNextAt', 'unreachableCancelAt',
+] as const
+
+/** Phone fields on a ride, shown only while the trip is live (accepted/arrived/ongoing). */
+export const RIDE_PHONE_FIELDS = ['riderPhone', 'senderPhone', 'receiverPhone', 'driverPhone'] as const
 
 export function driverSafeRide<T extends Record<string, any>>(ride: T): T {
   if (!ride) return ride
   const out: any = { ...ride }
   for (const k of DRIVER_HIDDEN) delete out[k]
+  // Split payers are the rider's contacts: never their phone numbers.
+  if (Array.isArray(out.splitRequests)) {
+    out.splitRequests = out.splitRequests.map((s: any) => {
+      const { phone: _p, phoneNorm: _n, payerPhone: _pp, ...rest } = s || {}
+      return rest
+    })
+  }
   return out
+}
+
+/** Removes every phone number from a ride (and its delivery stops) — for a ride that is not live. */
+export function withoutPhones<T extends Record<string, any>>(ride: T): T {
+  if (!ride) return ride
+  const out: any = { ...ride }
+  for (const k of RIDE_PHONE_FIELDS) delete out[k]
+  if (Array.isArray(out.deliveryStops)) out.deliveryStops = out.deliveryStops.map(({ receiverPhone: _r, ...s }: any) => s)
+  return out
+}
+
+// ── Share link ───────────────────────────────────────────────────────────────
+/** A fresh public share token: 24 random bytes (192 bit), url-safe. */
+export function newShareToken(): string {
+  return randomBytes(24).toString('base64url')
+}
+/** Plausible share token shape (avoids a DB lookup for junk). */
+export function isShareToken(t: any): boolean {
+  return typeof t === 'string' && /^[A-Za-z0-9_-]{22,64}$/.test(t)
+}
+
+// ── Review flags and new bookings ────────────────────────────────────────────
+/** A ride flagged needsReview this long ago no longer stops its rider booking again. */
+export const REVIEW_BLOCK_GRACE_MS = 30 * 60_000
+const BLOCKING_STATUSES = ['pending', 'accepted', 'arrived', 'ongoing']
+
+/**
+ * Does this ride stop its rider booking another one? Yes while it is
+ * pending/accepted/arrived/ongoing — unless it was flagged needsReview more
+ * than REVIEW_BLOCK_GRACE_MS ago (a stuck ride an admin has not resolved yet
+ * must not lock the rider out). rides/book applies this to its active-ride
+ * lookup (together with its own "scheduled for later" exception).
+ */
+export function blocksNewBooking(ride: any, now: Date = new Date()): boolean {
+  if (!ride || !BLOCKING_STATUSES.includes(ride.status)) return false
+  if (ride.needsReview === true) {
+    const at = ride.needsReviewAt ? new Date(ride.needsReviewAt).getTime() : 0
+    if (now.getTime() - at >= REVIEW_BLOCK_GRACE_MS) return false
+  }
+  return true
+}
+
+/** Mongo filter twin of blocksNewBooking's review exception (AND it into the active-ride query). */
+export function notStaleReviewFilter(now: Date = new Date()): Record<string, any> {
+  return { $or: [{ needsReview: { $ne: true } }, { needsReviewAt: { $gt: new Date(now.getTime() - REVIEW_BLOCK_GRACE_MS) } }] }
 }
 
 export type RideActor = { role: 'rider' | 'driver' | 'admin'; id: string }
@@ -56,7 +119,9 @@ export function uploadPath(u: any): string | null {
   if (/^https?:\/\//i.test(path)) {
     try { path = new URL(path).pathname } catch { return null }
   }
-  if (!/^\/uploads\/[A-Za-z0-9._\-\/]+$/.test(path) || path.includes('..')) return null
+  // /uploads/<file> (public) or /api/files/<name> (private uploads, served with auth).
+  const ok = /^\/uploads\/[A-Za-z0-9._\-\/]+$/.test(path) || /^\/api\/files\/[A-Za-z0-9._\-]+$/.test(path)
+  if (!ok || path.includes('..')) return null
   return path
 }
 export function isUploadPath(u: any): boolean { return uploadPath(u) !== null }

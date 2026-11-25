@@ -3,18 +3,24 @@ import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
 import Settings from '@/models/Settings'
 import Transaction from '@/models/Transaction'
+import mongoose from 'mongoose'
 import { guardAdmin } from '@/lib/admin-guard'
+import { requireAdmin } from '@/lib/auth'
+import { auditAdmin } from '@/lib/admin-audit'
+import { approvalBlocker, approveDriverAtomic } from '@/lib/driver-approval'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
-    const driver: any = await Driver.findByIdAndUpdate(
-      params.id,
-      { status: 'approved' },
-      { new: true }
-    ).select('-faceSignature -walletRechargeRefs').lean()
-    if (!driver) return NextResponse.json({ error: 'Driver not found' }, { status: 404 })
+    if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Driver not found' }, { status: 404 })
+    // Only a submitted, complete, pending/rejected registration (lib/driver-approval).
+    const current: any = await Driver.findById(params.id).select('status registrationStep documents selectedVehicleTypeName vehicleType name').lean()
+    const chk = await approvalBlocker(current)
+    if (!chk.ok) return NextResponse.json({ error: chk.error, code: chk.code, missing: chk.missing }, { status: chk.status })
+    const driver: any = await approveDriverAtomic(params.id, { rejectionReason: '' })
+    if (!driver) return NextResponse.json({ error: 'Driver changed while approving — reload and try again', code: 'CONFLICT' }, { status: 409 })
+    await auditAdmin(req, requireAdmin(req), 'driver.approve', { target: `driver:${params.id}`, summary: `Approved ${current.name || 'driver'} (was ${current.status})` })
 
     const referral = await payReferralOnApproval(driver).catch(e => {
       console.error('[approve] referral payout failed', e)

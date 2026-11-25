@@ -3,6 +3,9 @@ import { connectDB } from '@/lib/mongodb'
 import Zone from '@/models/Zone'
 import { guardAdmin } from '@/lib/admin-guard'
 import { PRICING_FIELDS, keptAdminRef } from '@/lib/zone-features'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
+import { requireAdmin } from '@/lib/auth'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -17,7 +20,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
+    const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+    await auditAdminBody(req, requireAdmin(req), 'zone.pricing.create', String(params.id))
     await connectDB()
     const body = await req.json()
     const zone = await Zone.findById(params.id)
@@ -44,7 +49,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
+    const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+    await auditAdminBody(req, requireAdmin(req), 'zone.pricing.update', String(params.id))
     await connectDB()
     const { pricing } = await req.json()
     const current: any = await Zone.findById(params.id).select('pricing').lean()

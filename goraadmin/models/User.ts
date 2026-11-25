@@ -15,6 +15,9 @@ const UserSchema = new Schema({
     by: String,
   },
   deletedAt: Date,
+  // Bumped to revoke every token already issued (soft delete, block, "log out
+  // everywhere"). Tokens carry it as `tv`; see lib/auth requireActive*.
+  tokenVersion: { type: Number, default: 0 },
   walletBalance: { type: Number, default: 0 },
   // Razorpay payment ids already added by a wallet top-up, checked and pushed in
   // the same update as the credit so one payment is never added twice.

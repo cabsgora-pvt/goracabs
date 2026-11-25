@@ -9,14 +9,14 @@ import { isFranchiseMode, setFranchiseMode } from '@/lib/franchise'
 
 // GET → { enabled, changedAt, changedBy }; PUT { enabled } — super admin only.
 export async function GET(req: NextRequest) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   await connectDB()
   const s: any = await Settings.findOne({ key: 'global' }).select('franchise').lean()
   return NextResponse.json({ enabled: await isFranchiseMode(), changedAt: s?.franchise?.changedAt || null, changedBy: s?.franchise?.changedBy || '' })
 }
 
 export async function PUT(req: NextRequest) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
   const { enabled } = await req.json().catch(() => ({}))
   if (typeof enabled !== 'boolean') return NextResponse.json({ error: 'enabled must be true or false' }, { status: 400 })

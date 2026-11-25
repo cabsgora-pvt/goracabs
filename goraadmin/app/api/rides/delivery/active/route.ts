@@ -11,7 +11,7 @@ export async function OPTIONS() { return corsOptions() }
 // GET → active deliveries (accepted/ongoing) with their driver's live position, for the admin map
 // Admin pages only. It answered anyone with every matching ride and rider.
 export async function GET(req: NextRequest) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   try {
     await connectDB()
     const rides: any[] = await Ride.find({

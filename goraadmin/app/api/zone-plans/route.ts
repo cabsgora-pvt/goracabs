@@ -4,9 +4,12 @@ import { connectDB } from '@/lib/mongodb'
 import ZonePlan from '@/models/ZonePlan'
 import { guardAdmin } from '@/lib/admin-guard'
 import { cleanFeatures } from '@/lib/zone-features'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
+import { requireAdmin } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   try {
     await connectDB()
     const plans = await ZonePlan.find().sort({ isActive: -1, months: 1 }).lean()
@@ -18,7 +21,9 @@ export async function GET(req: NextRequest) {
 
 // POST { name, months, price, description?, features? }
 export async function POST(req: NextRequest) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
+  const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+  await auditAdminBody(req, requireAdmin(req), 'zone_plan.create', undefined)
   try {
     const b = await req.json()
     const months = Math.floor(Number(b.months)), price = Number(b.price)

@@ -5,13 +5,16 @@ import PushNotification from '@/models/PushNotification'
 import User from '@/models/User'
 import Driver from '@/models/Driver'
 import { pushToTargets, sendDueNotifications, SCHEDULE_MIN_LEAD_MS, SCHEDULE_MAX_AHEAD_MS } from '@/lib/notifications'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
+import { requireAdmin } from '@/lib/auth'
 
 // Admin-only: returns every notification, including ones targeted at a named
 // user, so it must not be reachable from an app. Drivers read their own feed
 // from /api/auth/driver/notifications, riders from /api/auth/user/notifications.
 export async function GET(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     // Anything already due goes out before the list is shown.
     await sendDueNotifications().catch(() => 0)
@@ -30,7 +33,9 @@ export async function GET(req: NextRequest) {
 // accounts it reached.
 export async function POST(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
+    const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+    await auditAdminBody(req, requireAdmin(req), 'notification.create', undefined)
     await connectDB()
     const body = await req.json()
     const { title, message, target } = body
@@ -103,7 +108,7 @@ export async function POST(req: NextRequest) {
 // sent cannot be taken back from phones, so it is refused.
 export async function DELETE(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const id = req.nextUrl.searchParams.get('id') || ''
     if (!/^[a-f0-9]{24}$/i.test(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 })

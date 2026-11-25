@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 
 type Cfg = any
-const TABS = ['Banners', 'Offers', 'Coupons', 'Places', 'FAQs', 'Why Choose Us', 'Support', 'Referral'] as const
+const TABS = ['Banners', 'Offers', 'Coupons', 'Places', 'FAQs', 'Why Choose Us', 'Support', 'Referral', 'App Version'] as const
 
 export default function UserAppSettings() {
   const [cfg, setCfg] = useState<Cfg | null>(null)
@@ -175,6 +175,18 @@ export default function UserAppSettings() {
         <div className="bg-white border rounded-xl p-4 space-y-3 max-w-md">
           <Field label="Reward Amount (₹)"><input className={inp} title="Reward amount" placeholder="Reward amount" type="number" value={cfg.referral?.rewardAmount || 0} onChange={e => setCfg({ ...cfg, referral: { ...cfg.referral, rewardAmount: +e.target.value } })} /></Field>
           <Field label="Message"><input className={inp} title="Message" placeholder="Message" value={cfg.referral?.message || ''} onChange={e => setCfg({ ...cfg, referral: { ...cfg.referral, message: e.target.value } })} /></Field>
+        </div>
+      )}
+
+      {/* APP VERSION (force update) */}
+      {tab === 'App Version' && (
+        <div className="bg-white border rounded-xl p-4 space-y-3 max-w-md">
+          <p className="text-xs text-gray-500">Riders on a version below the minimum must update before using the app. With &quot;Force update&quot; on, anyone below the latest version must update.</p>
+          <Field label="Latest version"><input className={inp} title="Latest version" placeholder="1.5.0" value={cfg.version?.latestVersion || ''} onChange={e => setCfg({ ...cfg, version: { ...cfg.version, latestVersion: e.target.value } })} /></Field>
+          <Field label="Minimum supported version"><input className={inp} title="Minimum version" placeholder="1.4.0" value={cfg.version?.minVersion || ''} onChange={e => setCfg({ ...cfg, version: { ...cfg.version, minVersion: e.target.value } })} /></Field>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!cfg.version?.forceUpdate} onChange={e => setCfg({ ...cfg, version: { ...cfg.version, forceUpdate: e.target.checked } })} /> Force update to the latest version</label>
+          <Field label="Message"><input className={inp} title="Update message" placeholder="A new version is available" value={cfg.version?.message || ''} onChange={e => setCfg({ ...cfg, version: { ...cfg.version, message: e.target.value } })} /></Field>
+          <Field label="Store link (https://)"><input className={inp} title="Store link" placeholder="https://play.google.com/store/apps/details?id=…" value={cfg.version?.storeUrl || ''} onChange={e => setCfg({ ...cfg, version: { ...cfg.version, storeUrl: e.target.value } })} /></Field>
         </div>
       )}
 

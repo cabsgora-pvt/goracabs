@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest } from 'next/server'
 import mongoose from 'mongoose'
-import { requireRider } from '@/lib/auth'
+import { requireActiveRider } from '@/lib/auth'
 import { connectDB } from '@/lib/mongodb'
 import { withCors, corsOptions } from '@/lib/cors'
 import { createRazorpayOrder } from '@/lib/razorpay'
@@ -23,8 +23,9 @@ const MAX_AMOUNT = 100000
 // → { orderId, keyId, amount (paise), currency }
 export async function POST(req: NextRequest) {
   try {
-    const payload = requireRider(req) as any
-    if (!payload?.id) return withCors({ error: 'Unauthorized' }, 401)
+    const auth = await requireActiveRider(req)
+    if (!auth.ok) return withCors({ error: auth.error, code: auth.code }, auth.status)
+    const payload = { id: auth.id }
 
     const body = await req.json().catch(() => ({}))
     const purpose = String(body.purpose || 'wallet')

@@ -14,7 +14,7 @@ import { requireAdmin } from '@/lib/auth'
 import { cleanFeatures } from '@/lib/zone-features'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   try {
     if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     await connectDB()
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 // PUT { name?, phone?, businessName?, address?, gstNumber?, zoneIds?, status?, password?,
 //       features?, revenueSharePercent?, priceChangeLimitPct? }
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   try {
     if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     await connectDB()
@@ -94,7 +94,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   try {
     if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     await connectDB()

@@ -6,12 +6,17 @@ import RidePreference from '@/models/RidePreference'
 import Driver from '@/models/Driver'
 import { guardAdmin } from '@/lib/admin-guard'
 import { PREF_SERVICES } from '@/lib/ride-prefs'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
+import { requireAdmin } from '@/lib/auth'
 
 
 // PUT { name?, description?, icon?, services?, isActive?, order? }
 // DELETE → removes it, and from every driver who offered it.
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
+  const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+  await auditAdminBody(req, requireAdmin(req), 'ride_preference.update', String(params.id))
   if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   const b = await req.json().catch(() => ({}))
   const set: any = {}
@@ -31,7 +36,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
+  const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+  await auditAdminBody(req, requireAdmin(req), 'ride_preference.delete', String(params.id))
   if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   await connectDB()
   const p: any = await RidePreference.findByIdAndDelete(params.id).lean()

@@ -3,20 +3,22 @@ import { NextRequest } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
-import { requireDriverAuth } from '@/lib/auth'
+import { requireActiveDriver } from '@/lib/auth'
 import { crowKm, getEtaFactor, predictEtaMin, ETA_CONFIG } from '@/lib/eta'
 import { withCors, corsOptions } from '@/lib/cors'
 import { pushToUserAsync } from '@/lib/push'
-import { driverIsBusy, driverEligibleFor, cachedGlobalSettings, acquireAcceptLease, releaseAcceptLease } from '@/lib/dispatch'
-import { driverSafeRide } from '@/lib/ride-view'
+import { driverIsBusy, driverEligibleFor, cachedGlobalSettings, acquireAcceptLease, releaseAcceptLease, recordDriverEvent } from '@/lib/dispatch'
+import { driverSafeRide, newShareToken } from '@/lib/ride-view'
 
 export async function OPTIONS() { return corsOptions() }
 
 // POST → driver accepts a pending ride
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const payload = requireDriverAuth(req)
-    if (!payload) return withCors({ error: 'Unauthorized' }, 401)
+    // A blocked / deleted account or a revoked session takes no rides.
+    const act = await requireActiveDriver(req)
+    if (!act.ok) return withCors({ error: act.error, code: act.code }, act.status)
+    const payload = act.payload
 
     await connectDB()
     const driver: any = await Driver.findById(payload.id).lean()
@@ -105,6 +107,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     if (ride.service === 'outstation') {
       await Ride.updateOne({ _id: ride._id }, { $set: { outstationPhase: 'driver_arriving' } }).catch(() => {})
     }
+    // The rider's live-tracking share link (GET /rides/track/{shareToken}),
+    // unless they already asked for one while searching.
+    await Ride.updateOne({ _id: ride._id, shareToken: null }, { $set: { shareToken: newShareToken() } }).catch(() => {})
+    recordDriverEvent(driver._id, 'accepts').catch(() => {})
 
     // ── ETA telemetry ──
     // Record what we predicted so /arrived can measure the error. This is what

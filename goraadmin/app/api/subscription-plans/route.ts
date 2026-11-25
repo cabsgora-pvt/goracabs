@@ -4,6 +4,9 @@ import { connectDB } from '@/lib/mongodb'
 import SubscriptionPlan from '@/models/SubscriptionPlan'
 import { withCors, corsOptions } from '@/lib/cors'
 import { guardAdmin } from '@/lib/admin-guard'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
+import { requireAdmin } from '@/lib/auth'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -11,7 +14,7 @@ export async function OPTIONS() { return corsOptions() }
 // GET /api/subscription-plans?active=1 → only active plans (driver app)
 export async function GET(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const activeOnly = req.nextUrl.searchParams.get('active') === '1'
     const filter = activeOnly ? { isActive: true } : {}
@@ -25,7 +28,9 @@ export async function GET(req: NextRequest) {
 // POST /api/subscription-plans → create a plan (admin)
 export async function POST(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
+    const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+    await auditAdminBody(req, requireAdmin(req), 'subscription_plan.create', undefined)
     await connectDB()
     const body = await req.json()
     const plan = await SubscriptionPlan.create({

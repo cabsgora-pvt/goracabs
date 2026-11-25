@@ -123,6 +123,11 @@ const RideSchema = new Schema({
   // Set once the collected COD has been moved from the driver to the sender, so
   // a repeated /complete (retry, double-tap) can never pay the sender twice.
   codSettledAt: Date,
+  // COD credited to the sender's wallet at settlement — capped at what the
+  // driver's wallet can cover (down to −maxNegativeWallet). Any remainder is
+  // codPendingRemittance: still owed by the driver, for an admin to follow up.
+  codSenderCredited: Number,
+  codPendingRemittance: Number,
   // Final delivery fare at handover. Mirrors finalFare / hireFinalFare so the
   // settlement path can bill delivery the same way it bills the other services.
   deliveryFinalFare: Number,
@@ -143,6 +148,11 @@ const RideSchema = new Schema({
       status: { type: String, enum: ['pending', 'paid'], default: 'pending' },
       paidBy: { type: Schema.Types.ObjectId, ref: 'User' },
       paidAt: Date,
+      // What split/pay credited the driver for this share (share − commission),
+      // and which driver — so a cancel can take exactly that back (lib/refunds).
+      driverCredit: Number,
+      creditedDriverId: { type: Schema.Types.ObjectId, ref: 'Driver' },
+      reversedAt: Date,              // the driver credit was reversed on cancel
     }],
     default: undefined,
   },
@@ -214,6 +224,17 @@ const RideSchema = new Schema({
   // ride (old app build, gateway lookup failed). Such a ride is never closed
   // automatically, because the system could not give the money back.
   prepaidUnlinked: { type: Boolean, default: false },
+  // What the verified prepayment actually captured, when it was more than the
+  // booking needed (prepaidAmount keeps only what was needed; the excess was
+  // refunded to the wallet at booking).
+  prepaidCaptured: Number,
+  prepaidExcessRefunded: Number,
+  // A prepaid ride whose prepayment did not cover what was due at completion
+  // (extras, legacy prepay without tip): amountDue is the shortfall, and the
+  // ride stays paymentStatus 'pending' until it is paid (lib/settlement).
+  prepaidShortfall: { type: Boolean, default: false },
+  // The coupon on this ride was given back (cancel / no driver), once.
+  couponReleasedAt: Date,
   // Refund bookkeeping for any cancellation (lib/refunds.ts). refundPending is
   // set in the same atomic update that cancels the ride, so a crash before the
   // wallet credit is retried by the next sweep instead of being lost.
@@ -329,6 +350,48 @@ const RideSchema = new Schema({
     }, { _id: false }),
     default: undefined,
   },
+  // ── Agent R (dispatch / ride integrity) — additive ──
+  // Rental km plausibility at 'end': the quoted/planned route km, and set when
+  // the tracked km exceed 1.5x of it (flag only — the bill is not changed).
+  kmExpected: Number,
+  kmAnomaly: Boolean,
+  // How many extensions the driver asked for on this ride (cap: lib/ride-extension).
+  extensionRequests: { type: Number, default: 0 },
+  // Public live-tracking link token (GET /rides/track/{shareToken}); random
+  // 128-bit+, made at accept or on the rider's first share request.
+  shareToken: String,
+  // Drivers this ride has been offered to (offer ladder), so a driver who let
+  // an offer time out is not offered it again and not counted as "available".
+  offeredHistory: { type: [String], default: undefined },
+  // Needs an admin: stuck active ride (no driver location / overdue), a rider
+  // issue report, a driver cancelling mid-trip, a prepaid scheduled ride
+  // nobody took. Resolved through POST /rides/{id}/report-issue (admin).
+  needsReview: Boolean,
+  needsReviewAt: Date,
+  reviewReason: String,
+  stuckSince: Date,
+  reviewResolvedAt: Date,
+  reviewResolvedBy: String,
+  reviewNote: String,
+  issueReports: {
+    type: [{ kind: String, note: String, by: String, at: Date, _id: false }],
+    default: undefined,
+  },
+  // report-issue 'driver_unreachable' claims the ride with this before
+  // cancelling it, so a /start racing the cancel cannot land.
+  unreachableCancelAt: Date,
+  // A scheduled prepaid ride nobody took by its grace: flagged, not cancelled.
+  noDriverFlaggedAt: Date,
+  // Driver cancels counted on the driver once (sweep backstop).
+  driverCancelNoted: Boolean,
+  // Refund retry fairness (lib/dispatch expireUnmatchedRides).
+  refundAttempts: { type: Number, default: 0 },
+  refundNextAt: Date,
+  // Admin verbal confirmation of a parcel handover (no OTP), audited.
+  deliveryVerbalConfirm: {
+    type: new Schema({ by: String, adminId: String, note: String, at: Date }, { _id: false }),
+    default: undefined,
+  },
   // In-ride chat between rider and driver
   messages: [{
     sender: { type: String, enum: ['user', 'driver'] },
@@ -376,6 +439,10 @@ RideSchema.index({ status: 1, completedAt: -1 })
 RideSchema.index({ status: 1, offerExpiresAt: 1 })
 RideSchema.index({ refundPending: 1 }, { partialFilterExpression: { refundPending: true } })
 RideSchema.index({ scheduledAt: 1 })
+// Agent R: share links, review queue, refund retry queue.
+RideSchema.index({ shareToken: 1 }, { unique: true, partialFilterExpression: { shareToken: { $type: 'string' } } })
+RideSchema.index({ needsReview: 1, needsReviewAt: -1 }, { partialFilterExpression: { needsReview: true } })
+RideSchema.index({ status: 1, refundPending: 1, refundLeaseAt: 1 }, { partialFilterExpression: { refundPending: true } })
 
 // Dev only: mongoose.models survives hot reloads (mongoose is an external
 // package), so a field added here would be silently stripped by the stale

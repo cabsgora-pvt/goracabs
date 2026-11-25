@@ -60,7 +60,7 @@ export function cleanDriverDoc(b: any): { fields: Record<string, string> } | { e
   for (const k of ['frontUrl', 'backUrl']) {
     if (typeof b[k] === 'string') {
       const u = b[k].trim()
-      if (u && !/^(https?:\/\/|\/uploads\/)/.test(u)) return { error: 'Photo must be an uploaded file' }
+      if (u && !/^(https?:\/\/|\/uploads\/|\/api\/files\/)/.test(u)) return { error: 'Photo must be an uploaded file' }
       fields[k] = u
     }
   }
@@ -91,7 +91,7 @@ export function validateAccountEdit(body: any): string | null {
   }
   if (body['bankDetails.accountType'] !== undefined && !['savings', 'current'].includes(body['bankDetails.accountType'])) return 'Account type must be savings or current'
   for (const k of ['profilePicUrl', 'idPhotoUrl']) {
-    if (body[k] && !/^(https?:\/\/|\/uploads\/)/.test(body[k])) return 'Photo must be an uploaded file'
+    if (body[k] && !/^(https?:\/\/|\/uploads\/|\/api\/files\/)/.test(body[k])) return 'Photo must be an uploaded file'
   }
   return null
 }

@@ -153,3 +153,6 @@ migrate_working_dir/
 # Public folders and uploads are NOT ignored
 # !public/
 # !**/uploads/
+
+# Private uploads (KYC, face, delivery proofs) never go in git
+goraadmin/data/private-uploads/

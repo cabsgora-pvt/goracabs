@@ -6,11 +6,15 @@ import ZoneAdmin from '@/models/ZoneAdmin'
 import { guardAdmin } from '@/lib/admin-guard'
 import { requireAdmin } from '@/lib/auth'
 import { applyPlan, logZoneActivity, publicZoneAdmin, zoneNameMap } from '@/lib/zone-admin'
+import { requireAdminPassword } from '@/lib/admin-password'
+import { auditAdminBody } from '@/lib/admin-audit'
 
 // POST { planId, paymentRef?, notes? }
 // Gives the zone admin another period of a plan the super admin made.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
+  const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
+  await auditAdminBody(req, requireAdmin(req), 'zone_admin.subscription', String(params.id))
   try {
     if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const b = await req.json()

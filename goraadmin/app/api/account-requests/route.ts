@@ -7,7 +7,7 @@ import { guardAdmin } from '@/lib/admin-guard'
 // GET ?status=pending|all&kind=delete|zone_change → requests, newest first,
 // plus the count of pending ones (for the sidebar badge).
 export async function GET(req: NextRequest) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   await connectDB()
   const sp = req.nextUrl.searchParams
   const status = sp.get('status') || 'pending'

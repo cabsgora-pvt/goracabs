@@ -5,15 +5,13 @@ import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
 import SubscriptionPlan from '@/models/SubscriptionPlan'
 import DriverSubscription from '@/models/DriverSubscription'
-import Transaction from '@/models/Transaction'
-import { requireDriverAuth } from '@/lib/auth'
+import { requireActiveDriver } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 import { verifyRazorpaySignature, fetchRazorpayOrder } from '@/lib/razorpay'
-import { franchiseShareFor } from '@/lib/commission'
+import { applyDriverSubscription } from '@/lib/payment-credit'
 
 export async function OPTIONS() { return corsOptions() }
 
-const DAY = 24 * 60 * 60 * 1000
 // A second wallet purchase of the same plan this soon after the last one is
 // treated as a double tap of the same purchase, not a new one.
 const WALLET_DEDUPE_MS = 30 * 1000
@@ -24,16 +22,17 @@ const WALLET_DEDUPE_MS = 30 * 1000
 //     read the order back from Razorpay: it must be OUR subscription order for
 //     this driver and this plan (notes.purpose 'driver_subscription',
 //     notes.driverId, notes.planId — stamped by /subscription/order) and
-//     amount_paid must cover the plan price. Each payment id activates once.
+//     amount_paid must cover the plan price. Each payment id activates once —
+//     the Razorpay webhook applies the same payment with the same claim
+//     ('sub:<paymentId>'), so whichever arrives second reports alreadyApplied.
 //   - Wallet path (gateway off): no payment fields → deduct plan price from wallet
 //
-// The pass is extended with an optimistic guard on subscriptionExpiresAt, in the
-// same atomic update as the wallet debit / payment claim, so two parallel
-// requests can never both extend it.
+// Activation itself is lib/payment-credit applyDriverSubscription.
 export async function POST(req: NextRequest) {
   try {
-    const payload = requireDriverAuth(req)
-    if (!payload) return withCors({ error: 'Unauthorized' }, 401)
+    const auth = await requireActiveDriver(req)
+    if (!auth.ok) return withCors({ error: auth.error, code: auth.code }, auth.status)
+    const payload = { id: auth.id }
 
     const { planId, orderId, paymentId, signature } = await req.json().catch(() => ({}))
     if (!planId || !mongoose.isValidObjectId(String(planId))) return withCors({ error: 'planId required' }, 400)
@@ -46,7 +45,6 @@ export async function POST(req: NextRequest) {
     if (!exists) return withCors({ error: 'Driver not found' }, 404)
 
     const price = Math.max(0, Number(plan.price) || 0)
-    const durationMs = (Number(plan.durationDays) || 0) * DAY
     const paidViaGateway = !!(orderId || paymentId || signature)
 
     if (paidViaGateway) {
@@ -81,91 +79,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    let updated: any = null
-    let now = new Date(), expiresAt = now, claimKey = ''
-    // Gateway: retry on a lost race (the key is the payment id, so a retry can
-    // never apply it twice). Wallet: one attempt only — a retry would read the
-    // expiry a racing duplicate just set and build a NEW key from it; instead
-    // the duplicate finds its key already claimed below and reports alreadyApplied.
-    const attempts = paidViaGateway ? 5 : 1
-    for (let attempt = 0; attempt < attempts && !updated; attempt++) {
-      const d: any = await Driver.findById(payload.id).select('subscriptionExpiresAt walletBalance walletRechargeRefs').lean()
-      if (!d) return withCors({ error: 'Driver not found' }, 404)
-      now = new Date()
-      const cur: Date | null = d.subscriptionExpiresAt ? new Date(d.subscriptionExpiresAt) : null
-      const extending = !!cur && cur > now
-      const base = extending && cur ? cur : now
-      expiresAt = new Date(base.getTime() + durationMs)
-      // Gateway: the payment id. Wallet: the plan + the expiry this request
-      // extends — a racing duplicate reads the same expiry, so the same key.
-      claimKey = paidViaGateway ? `sub:${paymentId}` : `subw:${plan._id}:${cur ? cur.getTime() : 0}`
-      if ((d.walletRechargeRefs || []).includes(claimKey)) break
-
-      const filter: any = { _id: payload.id, subscriptionExpiresAt: d.subscriptionExpiresAt ?? null, walletRechargeRefs: { $ne: claimKey } }
-      const set: any = {
-        subscriptionActive: true,
-        subscriptionPlanId: plan._id,
-        subscriptionPlanName: plan.name,
-        subscriptionExpiresAt: expiresAt,
-        subscriptionCommissionPercent: Number(plan.commissionPercentWhileActive) || 0,
-      }
-      if (!extending) set.subscriptionStartedAt = now
-      const update: any = { $set: set, $push: { walletRechargeRefs: claimKey } }
-      if (!paidViaGateway) {
-        if ((d.walletBalance || 0) < price) {
-          return withCors({ error: 'Insufficient wallet balance. Please recharge to buy this plan.', walletBalance: d.walletBalance || 0 }, 402)
-        }
-        filter.walletBalance = { $gte: price }
-        update.$inc = { walletBalance: -price }
-      }
-      updated = await Driver.findOneAndUpdate(filter, update, { new: true })
-        .select('walletBalance zoneId subscriptionCommissionPercent').lean()
-    }
-
-    if (!updated) {
-      const d: any = await Driver.findById(payload.id).select('walletBalance walletRechargeRefs subscriptionExpiresAt').lean()
-      if ((d?.walletRechargeRefs || []).includes(claimKey)) {
-        // Replay of an already-used payment / duplicate submit: nothing more to do.
-        const last = await DriverSubscription.findOne({ driverId: payload.id }).sort({ createdAt: -1 }).lean()
-        return withCors({ success: true, alreadyApplied: true, subscription: last, walletBalance: d?.walletBalance || 0, expiresAt: d?.subscriptionExpiresAt, paidVia: paidViaGateway ? 'razorpay' : 'wallet' })
-      }
-      if (!paidViaGateway && (d?.walletBalance || 0) < price) {
-        return withCors({ error: 'Insufficient wallet balance. Please recharge to buy this plan.', walletBalance: d?.walletBalance || 0 }, 402)
-      }
-      return withCors({ error: 'Busy, please try again' }, 409)
-    }
-
-    await DriverSubscription.updateMany(
-      { driverId: payload.id, status: 'active' },
-      { $set: { status: 'expired' } }
-    )
-    // Franchise mode: a subscribed driver pays no ride commission, so the zone
-    // admin's share comes from the subscription price instead (lib/commission).
-    let franchiseShare: any
-    try { franchiseShare = await franchiseShareFor(updated.zoneId, price) } catch (e) { console.error('[subscription] franchise share failed', e) }
-    const sub = await DriverSubscription.create({
-      driverId: payload.id, planId: plan._id, planName: plan.name, price,
-      durationDays: plan.durationDays, commissionPercentWhileActive: updated.subscriptionCommissionPercent,
-      startedAt: now, expiresAt, status: 'active',
-      zoneId: updated.zoneId || null, paidVia: paidViaGateway ? 'razorpay' : 'wallet', franchiseShare,
-    })
-
-    // Only record a wallet transaction when paid from wallet (gateway payments don't touch the wallet)
-    if (!paidViaGateway) {
-      await Transaction.create({
-        driverId: payload.id, type: 'subscription', amount: -price,
-        description: `Subscription: ${plan.name} (${plan.durationDays} days)`,
-        balanceAfter: updated.walletBalance,
-      })
-    }
-
-    return withCors({
-      success: true,
-      subscription: sub,
-      walletBalance: updated.walletBalance,
-      expiresAt,
-      paidVia: paidViaGateway ? 'razorpay' : 'wallet',
-    })
+    const out = await applyDriverSubscription(String(payload.id), plan, paidViaGateway ? String(paymentId) : undefined)
+    return withCors(out.body, out.status)
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)
   }

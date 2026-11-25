@@ -9,7 +9,7 @@ import { requireAdmin } from '@/lib/auth'
 import { applyPlan, logZoneActivity, publicZoneAdmin, zoneNameMap, zonesTakenByOthers } from '@/lib/zone-admin'
 
 export async function GET(req: NextRequest) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   try {
     await connectDB()
     const [admins, names] = await Promise.all([
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
 // POST { name, email, phone, password, businessName?, address?, gstNumber?, zoneIds[],
 //        planId?, paymentRef?, notes? }  — a plan made under Subscription Plans
 export async function POST(req: NextRequest) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   try {
     await connectDB()
     const b = await req.json()

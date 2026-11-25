@@ -6,13 +6,13 @@ import { signToken } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 import { checkOtp } from '@/lib/otp'
 import { normalizePhone } from '@/lib/phone'
-import { rateLimit } from '@/lib/rate-limit'
+import { rateLimitAsync } from '@/lib/rate-limit'
 
 export async function OPTIONS() { return corsOptions() }
 
 export async function POST(req: NextRequest) {
   try {
-    if (!rateLimit(req, 'user-verify-otp', 30, 10 * 60_000)) {
+    if (!(await rateLimitAsync(req, 'user-verify-otp', 30, 10 * 60_000))) {
       return withCors({ error: 'Too many attempts. Try again in a few minutes.' }, 429)
     }
     const body = await req.json().catch(() => null)
@@ -34,7 +34,8 @@ export async function POST(req: NextRequest) {
       isNewUser = true
     }
 
-    const token = signToken({ id: user._id, phone: user.phone, type: 'user' })
+    // tv: the account's tokenVersion — bumped on block / delete to revoke.
+    const token = signToken({ id: user._id, phone: user.phone, type: 'user', tv: Number(user.tokenVersion || 0) })
 
     return withCors({
       token,

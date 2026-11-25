@@ -8,6 +8,11 @@ import Driver from '@/models/Driver'
 import User from '@/models/User'
 import Ride from '@/models/Ride'
 import { withCors, corsOptions } from '@/lib/cors'
+import { limitHit } from '@/lib/rate-limit'
+import { escalateSos } from '@/lib/sos-escalate'
+
+const SOS_RATE = { LIMIT: 3, WINDOW_MS: 10 * 60_000 }
+const SOS_DEDUPE_MS = 2 * 60_000
 
 export async function OPTIONS() {
   return corsOptions()
@@ -37,10 +42,23 @@ export async function POST(req: NextRequest) {
       const mine = r && (asDriver?.id ? String(r.driverId || '') === String(asDriver.id) : String(r.riderId || '') === String(asRider.id))
       if (mine) rideId = r._id
     }
+    const triggeredBy = asDriver?.id ? 'driver' : 'user'
+    // A repeat tap of the same SOS (same account, same ride) within 2 min is
+    // the same emergency: answer with the alert already raised.
+    const dup: any = await SOSAlert.findOne({
+      triggeredBy, phone: person.phone || '', rideId: rideId ?? null, status: 'active',
+      createdAt: { $gte: new Date(Date.now() - SOS_DEDUPE_MS) },
+    }).sort({ createdAt: -1 }).select('_id').lean()
+    if (dup) return withCors({ success: true, id: dup._id, deduped: true })
+    // 3 alerts per 10 min per account — enough for any real emergency, not a flood.
+    const accountId = String(asDriver?.id || asRider?.id)
+    if (!(await limitHit(`sos:${triggeredBy}:${accountId}`, SOS_RATE.LIMIT, SOS_RATE.WINDOW_MS))) {
+      return withCors({ error: 'SOS already sent. Our team has been alerted — if you are in danger call 112.', code: 'RATE_LIMITED' }, 429)
+    }
     const num = (v: any, lim: number) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= lim ? v : undefined)
     const alert = await SOSAlert.create({
       rideId,
-      triggeredBy: asDriver?.id ? 'driver' : 'user',
+      triggeredBy,
       name: person.name || '',
       phone: person.phone || '',
       lat: num(b.lat, 90),
@@ -48,6 +66,8 @@ export async function POST(req: NextRequest) {
       address: typeof b.address === 'string' ? b.address.slice(0, 300) : '',
       status: 'active',
     })
+    // Escalation (admins / SOS contacts) never delays or fails the answer.
+    escalateSos(alert, { personId: accountId }).catch(() => {})
     return withCors({ success: true, id: alert._id })
   } catch (error: any) {
     return withCors({ error: error.message || 'Server error' }, 500)

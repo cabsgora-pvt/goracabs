@@ -13,6 +13,20 @@ const APPS = ['user', 'driver']
 
 export async function OPTIONS() { return corsOptions() }
 
+// Force update: the apps compare their own version with `version` (public in
+// GET): below minVersion — or forceUpdate with a newer latestVersion — they
+// block with `message` and a button to storeUrl.
+const VER_RE = /^\d{1,4}(\.\d{1,4}){0,3}$/
+function cleanVersion(v: any): { version: any } | { error: string } {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return { error: 'Invalid version settings' }
+  const latestVersion = String(v.latestVersion ?? '1.0.0').trim()
+  const minVersion = String(v.minVersion ?? '1.0.0').trim()
+  if (!VER_RE.test(latestVersion) || !VER_RE.test(minVersion)) return { error: 'Versions must look like 1.4.0' }
+  const storeUrl = String(v.storeUrl ?? '').trim()
+  if (storeUrl && !/^https:\/\/[^\s]+$/i.test(storeUrl)) return { error: 'Store link must start with https://' }
+  return { version: { latestVersion, minVersion, forceUpdate: v.forceUpdate === true, message: String(v.message ?? '').slice(0, 300), storeUrl: storeUrl.slice(0, 300) } }
+}
+
 // GET /api/app-config?app=user  → returns the config (creates a default doc if none)
 export async function GET(req: NextRequest) {
   try {
@@ -32,7 +46,7 @@ export async function GET(req: NextRequest) {
 // POST /api/app-config  body: { app, ...sections }  → upsert (admin + password)
 export async function POST(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     const pwdDenied = await requireAdminPassword(req); if (pwdDenied) return pwdDenied
     await connectDB()
     let body: any
@@ -43,6 +57,11 @@ export async function POST(req: NextRequest) {
     const set: Record<string, any> = {}
     for (const k of WRITABLE_KEYS) if (k in body) set[k] = body[k]
     if (!Object.keys(set).length) return withCors({ error: 'Nothing to update' }, 400)
+    if ('version' in set) {
+      const v = cleanVersion(set.version)
+      if ('error' in v) return withCors({ error: v.error }, 400)
+      set.version = v.version
+    }
     const cfg = await AppConfig.findOneAndUpdate(
       { app },
       { $set: set },

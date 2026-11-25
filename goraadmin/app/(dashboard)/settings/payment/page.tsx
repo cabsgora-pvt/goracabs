@@ -138,6 +138,22 @@ export default function PaymentSettingsPage() {
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
                   </div>
                 </div>
+
+                {/* Webhook */}
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-2">
+                  <p className="text-sm font-semibold text-gray-700">Webhook</p>
+                  <p className="text-xs text-gray-500">
+                    In the Razorpay Dashboard → Settings → Webhooks, add the URL{' '}
+                    <code className="font-mono bg-white px-1 rounded border">https://&lt;admin domain&gt;/api/payment/razorpay/webhook</code>{' '}
+                    with events <strong>payment.captured</strong> and <strong>order.paid</strong>, and the same secret as below.
+                    Payments are then credited even if the app closes before confirming.
+                  </p>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Webhook Secret</label>
+                  <input type="password" value={settings?.payment?.razorpay?.webhookSecret || ''}
+                    onChange={e => update(['payment', 'razorpay', 'webhookSecret'], e.target.value)}
+                    placeholder="••••••••" title="Razorpay Webhook Secret"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
               </>
             )}
 

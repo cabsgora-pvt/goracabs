@@ -8,7 +8,7 @@ import {
   MessageSquare, Bell, Image, Gift, ChevronRight,
   Truck, FileText, HelpCircle, AlertCircle,
   CheckCircle, XCircle, Clock, DollarSign, Wallet, TrendingUp,
-  Package, Zap, UserCheck, MapPin, Smartphone, Building2, BadgeIndianRupee, Inbox, Sparkles, FileCheck
+  Package, Zap, UserCheck, MapPin, Smartphone, Building2, BadgeIndianRupee, Inbox, Sparkles, FileCheck, ScrollText
 } from 'lucide-react'
 
 interface NavItem {
@@ -137,6 +137,7 @@ const navSections: { title: string; items: NavItem[] }[] = [
           { label: 'Firebase', href: '/settings/firebase', icon: Bell },
         ]
       },
+      { label: 'Audit Log', href: '/audit-log', icon: ScrollText },
     ],
   },
 ]

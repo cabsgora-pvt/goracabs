@@ -8,7 +8,7 @@ import { invoiceFor } from '@/lib/zone-admin'
 
 // GET — invoice for one subscription payment.
 export async function GET(req: NextRequest, { params }: { params: { id: string; pid: string } }) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   await connectDB()
   const a: any = await ZoneAdmin.findById(params.id).lean()

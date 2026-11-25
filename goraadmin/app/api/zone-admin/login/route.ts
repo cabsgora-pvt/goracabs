@@ -4,15 +4,21 @@ import bcrypt from 'bcryptjs'
 import { connectDB } from '@/lib/mongodb'
 import ZoneAdmin from '@/models/ZoneAdmin'
 import ZoneStaff from '@/models/ZoneStaff'
-import { rateLimit } from '@/lib/rate-limit'
+import { rateLimitAsync, limitHit, limitPeek, limitReset } from '@/lib/rate-limit'
+
+// Per-account lockout (zone admin or staff email), Mongo-backed so a restart
+// does not reset it: MAX_FAILS wrong passwords in FAIL_WINDOW lock the address
+// for the rest of the window, whatever the caller IP.
+const MAX_FAILS = 5
+const FAIL_WINDOW = 15 * 60_000
 import { FRANCHISE_OFF_MESSAGE, isFranchiseMode } from '@/lib/franchise'
 import { ACCESS_MESSAGE, ZONE_ADMIN_COOKIE, accessState, logZoneActivity, signZoneAdminToken } from '@/lib/zone-admin'
 
 // One sign-in for zone admins and their staff.
 export async function POST(req: NextRequest) {
   try {
-    // Password guessing: 10 tries a minute per address.
-    if (!rateLimit(req, 'zone-admin-login', 10, 60_000)) {
+    // Password guessing: 10 tries a minute per IP.
+    if (!(await rateLimitAsync(req, 'zone-admin-login', 10, 60_000))) {
       return NextResponse.json({ error: 'Too many attempts. Wait a minute and try again.' }, { status: 429 })
     }
     if (!(await isFranchiseMode())) return NextResponse.json({ error: FRANCHISE_OFF_MESSAGE, access: 'franchise_off' }, { status: 403 })
@@ -20,6 +26,10 @@ export async function POST(req: NextRequest) {
     const { email, password } = await req.json()
     if (!email || !password) return NextResponse.json({ error: 'Email and password required' }, { status: 400 })
     const e = String(email).toLowerCase().trim()
+    const failKey = `zone-login-fail:${e}`
+    if ((await limitPeek(failKey, FAIL_WINDOW)) >= MAX_FAILS) {
+      return NextResponse.json({ error: 'Too many failed attempts for this account. Try again in 15 minutes.' }, { status: 429 })
+    }
 
     let admin: any = await ZoneAdmin.findOne({ email: e })
     let staff: any = null
@@ -34,7 +44,11 @@ export async function POST(req: NextRequest) {
         staff = null
       }
     }
-    if (!admin) return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
+    if (!admin) {
+      await limitHit(failKey, MAX_FAILS, FAIL_WINDOW)
+      return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
+    }
+    await limitReset(failKey, FAIL_WINDOW)
 
     // Blocked or expired: say why at the door. The grace period still opens,
     // read-only, so they can see what to renew.

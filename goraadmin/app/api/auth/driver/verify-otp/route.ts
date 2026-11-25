@@ -6,7 +6,7 @@ import { signToken } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 import { checkOtp } from '@/lib/otp'
 import { normalizePhone } from '@/lib/phone'
-import { rateLimit } from '@/lib/rate-limit'
+import { rateLimitAsync } from '@/lib/rate-limit'
 
 export async function OPTIONS() {
   return corsOptions()
@@ -14,7 +14,7 @@ export async function OPTIONS() {
 
 export async function POST(req: NextRequest) {
   try {
-    if (!rateLimit(req, 'driver-verify-otp', 30, 10 * 60_000)) {
+    if (!(await rateLimitAsync(req, 'driver-verify-otp', 30, 10 * 60_000))) {
       return withCors({ error: 'Too many attempts. Try again in a few minutes.' }, 429)
     }
     const body = await req.json().catch(() => null)
@@ -35,7 +35,8 @@ export async function POST(req: NextRequest) {
       driver = created.toObject()
     }
 
-    const token = signToken({ id: driver._id, phone, type: 'driver' })
+    // tv: the account's tokenVersion — bumped on block / delete to revoke.
+    const token = signToken({ id: driver._id, phone, type: 'driver', tv: Number(driver.tokenVersion || 0) })
 
     // Set cookie
     const response = withCors(

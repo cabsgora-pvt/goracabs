@@ -16,7 +16,18 @@ export async function GET(req: NextRequest) {
     if (!payload) return withCors({ error: 'Unauthorized' }, 401)
 
     await connectDB()
-    const rides = await Ride.find({ riderId: payload.id }).sort({ createdAt: -1 }).lean() as any[]
+    // Paginated: ?limit (1..50, default 50) & ?page (1-based). It used to send
+    // the rider's entire history, chat and all, on every home-screen load —
+    // the current ride now has its own small endpoint (GET /rides/active).
+    const sp = req.nextUrl?.searchParams
+    const limit = Math.min(50, Math.max(1, parseInt(sp?.get('limit') || '50', 10) || 50))
+    const page = Math.max(1, parseInt(sp?.get('page') || '1', 10) || 1)
+    const found = await Ride.find({ riderId: payload.id }).sort({ createdAt: -1 })
+      .skip((page - 1) * limit).limit(limit + 1)
+      .select('-messages -otpAttempts -dropOtpAttempts -refundLeaseAt -shareToken -offeredHistory -rejectedBy')
+      .lean() as any[]
+    const hasMore = found.length > limit
+    const rides = found.slice(0, limit)
 
     // Batch-load drivers for all rides that have one
     const driverIds = Array.from(new Set(rides.map(r => r.driverId).filter(Boolean).map(String)))
@@ -33,12 +44,15 @@ export async function GET(req: NextRequest) {
 
     const hydrated = rides.map(r => {
       const d = r.driverId ? dMap.get(String(r.driverId)) : null
+      // Phone numbers only while the trip is live.
+      const live = ["accepted", "arrived", "ongoing"].includes(r.status)
+      if (!live) delete r.driverPhone
       return {
         ...r,
         vehicleImageUrl: vtMap.get(r.vehicleType) || '',
         driver: d ? {
           name: d.name,
-          phone: d.phone,
+          phone: live ? d.phone : undefined,
           profilePicUrl: d.profilePicUrl,
           vehicleModel: d.vehicleModel,
           vehicleNumber: d.vehicleNumber || d.vehicleRegistrationNumber,
@@ -47,7 +61,7 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    return withCors({ rides: hydrated })
+    return withCors({ rides: hydrated, page, limit, hasMore })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)
   }

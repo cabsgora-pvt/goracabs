@@ -10,7 +10,7 @@ import { maskSettings, unmaskSettings } from '@/lib/settings-secrets'
 // back is replaced with the stored one (lib/settings-secrets).
 export async function GET(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     let settings: any = await Settings.findOne({ key: 'global' }).lean()
     if (!settings) {
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     // Changing settings needs the admin's password again (panel prompts for it).
     const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
     await connectDB()

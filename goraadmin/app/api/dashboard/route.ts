@@ -16,7 +16,7 @@ import { istMidnight, istMonthStart, FARE_EXPR } from '@/lib/finance'
 
 export async function GET(req: NextRequest) {
   try {
-    const denied = guardAdmin(req); if (denied) return denied
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
     const today = istMidnight()
     const weekAgo = istMidnight(6)

@@ -11,7 +11,7 @@ import { ZONE_ADMIN_COOKIE, logZoneActivity, signZoneAdminToken } from '@/lib/zo
 // The session is marked as the super admin's, logged, and lasts two hours; it
 // cannot change the zone admin's password. Expiry and blocking still apply.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const denied = guardAdmin(req); if (denied) return denied
+  const denied = await guardAdmin(req); if (denied) return denied
   if (!mongoose.isValidObjectId(params.id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   await connectDB()
   const a: any = await ZoneAdmin.findById(params.id).select('name').lean()

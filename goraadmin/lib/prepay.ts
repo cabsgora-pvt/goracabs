@@ -26,6 +26,7 @@
 import Ride from '@/models/Ride'
 import User from '@/models/User'
 import WalletTransaction from '@/models/WalletTransaction'
+import RazorpayPrepay from '@/models/RazorpayPrepay'
 import { verifyRazorpaySignature, fetchRazorpayOrder } from './razorpay'
 
 /** How far back a wallet debit may be and still count as this booking's. */
@@ -59,6 +60,10 @@ export function isPrepayOrder(o: any, now = Date.now()): boolean {
   return Number.isFinite(created) && created > 0 && now - created <= LEGACY_PREPAY_ORDER_MS
 }
 
+// The largest prepayment that may back this ride: the booking passes a cap
+// (excess is refunded there); legacy linking keeps the fare + ₹1 rule.
+const boundOf = (ride: any) => ride.maxPrepay != null ? Number(ride.maxPrepay) : (Number(ride.totalFare ?? ride.fare) || 0) + 1
+
 async function linkWallet(ride: any, riderId: string): Promise<Linked | null> {
   const since = new Date(new Date(ride.createdAt || Date.now()).getTime() - PREPAY_WALLET_WINDOW_MS)
   // Claim: flips ref '' → this ride atomically, so two bookings racing cannot
@@ -72,7 +77,7 @@ async function linkWallet(ride: any, riderId: string): Promise<Linked | null> {
   const amount = Number(row.amount) || 0
   // A debit larger than the whole fare is not this booking's payment. Put the
   // claim back rather than tie an unrelated charge to the ride.
-  if (amount <= 0 || amount > (Number(ride.totalFare ?? ride.fare) || 0) + 1) {
+  if (amount <= 0 || amount > boundOf(ride)) {
     await WalletTransaction.updateOne({ _id: row._id, ref: String(ride._id) }, { $set: { ref: '' } })
     return null
   }
@@ -93,7 +98,7 @@ async function linkOnline(ride: any, riderId: string, prepaid: any): Promise<Lin
   if (!isPrepayOrder(o)) return null
   const amount = Math.round((Number(o.amount_paid) || 0)) / 100
   if (amount <= 0) return null
-  if (amount > (Number(ride.totalFare ?? ride.fare) || 0) + 1) return null
+  if (amount > boundOf(ride)) return null
 
   // One payment backs one ride.
   const used = await Ride.exists({ prepaidRef: paymentId, _id: { $ne: ride._id } })
@@ -173,7 +178,7 @@ export async function refundRefusedPrepayment(riderId: string, body: any): Promi
 }
 
 // Claim `token` and add `amount` in one atomic update on the rider.
-async function credit(riderId: string, amount: number, token: string, txRef: string, via: 'wallet' | 'online'): Promise<RefusedRefund | null> {
+async function credit(riderId: string, amount: number, token: string, txRef: string, via: 'wallet' | 'online', note = 'Refund: your outstation trip could not be booked'): Promise<RefusedRefund | null> {
   const user: any = await User.findOneAndUpdate(
     { _id: riderId, walletRechargeRefs: { $ne: token } },
     { $inc: { walletBalance: amount }, $push: { walletRechargeRefs: token } },
@@ -182,7 +187,7 @@ async function credit(riderId: string, amount: number, token: string, txRef: str
   if (!user) return null
   await WalletTransaction.create({
     userId: riderId, type: 'credit', amount, balanceAfter: user.walletBalance || 0,
-    note: 'Refund: your outstation trip could not be booked', source: 'refund', ref: txRef,
+    note, source: 'refund', ref: txRef,
   })
   return { amount, via, balance: user.walletBalance || 0 }
 }
@@ -194,7 +199,7 @@ async function credit(riderId: string, amount: number, token: string, txRef: str
  * payment does not cover the fare. Never throws.
  */
 export async function claimPrepayment(
-  ride: { _id: any; service: string; paymentMode: string; totalFare: number; fare: number; createdAt?: Date },
+  ride: { _id: any; service: string; paymentMode: string; totalFare: number; fare: number; createdAt?: Date; maxPrepay?: number },
   riderId: string | undefined,
   body: any,
 ): Promise<Linked | null> {
@@ -254,4 +259,133 @@ export async function linkPrepayment(ride: any, riderId: string | undefined, bod
   } catch (e) {
     console.error('[prepay] link failed', e)
   }
+}
+
+/**
+ * The part of a linked prepayment above what the booking needed, back to the
+ * rider's wallet — once per payment (claim `prepay-excess:<ref>`). The ref
+ * deliberately carries the payment, not the ride, so finance never mistakes it
+ * for a refund of a completed ride's revenue. Never throws.
+ */
+export async function refundPrepayExcess(riderId: string, linked: Linked, excess: number): Promise<RefusedRefund | null> {
+  try {
+    const amount = Math.round((Number(excess) || 0) * 100) / 100
+    if (amount <= 0) return null
+    return await credit(riderId, amount, `prepay-excess:${linked.ref}`, `refund:prepay-excess:${linked.ref}`, linked.via,
+      'Refund: you paid more than this outstation trip costs')
+  } catch (e) {
+    console.error('[prepay] excess refund failed', e)
+    return null
+  }
+}
+
+/** A wallet prepayment (ref '') this old is never linked (linking looks back 10 min). */
+export const ORPHAN_WALLET_MS = 15 * 60 * 1000
+/** A webhook-seen Razorpay prepayment no booking linked within this is refunded. */
+export const ORPHAN_ONLINE_MS = 30 * 60 * 1000
+/** Older orphans are left for an admin: they predate the booking-time claim and
+ *  may belong to a legacy ride that went ahead unlinked. */
+export const ORPHAN_HORIZON_MS = 3 * 24 * 60 * 60 * 1000
+
+// A ride that was charged upfront but could not be tied to its payment
+// (prepaidUnlinked) near the time of this payment may be the one it paid for:
+// refunding it automatically could hand back the fare of a trip that happens.
+async function unlinkedRideNear(userId: any, at: Date): Promise<boolean> {
+  const t = new Date(at).getTime()
+  return !!(await Ride.exists({
+    riderId: userId, prepaidUnlinked: true,
+    createdAt: { $gte: new Date(t - 5 * 60_000), $lte: new Date(t + ORPHAN_ONLINE_MS) },
+  }))
+}
+
+/**
+ * Records an outstation prepayment Razorpay reported as captured (webhook), so
+ * the orphan sweep can refund it if no booking ever links it. Idempotent.
+ */
+export async function notePrepayCaptured(p: { paymentId: string; orderId: string; userId: string; amount: number }): Promise<void> {
+  if (!p.paymentId || !p.userId || !(p.amount > 0)) return
+  await RazorpayPrepay.updateOne(
+    { paymentId: p.paymentId },
+    { $setOnInsert: { paymentId: p.paymentId, orderId: p.orderId, userId: p.userId, amount: p.amount, state: 'open' } },
+    { upsert: true },
+  ).catch((e: any) => { if (e?.code !== 11000) throw e })
+}
+
+export type OrphanSweep = { walletRefunded: number; onlineRefunded: number; linked: number; amount: number }
+
+/**
+ * Gives back prepayments that never backed a booking (run by POST
+ * /api/cron/payments and the dispatch cron):
+ *   (a) wallet debits source 'ride' ref '' older than 15 minutes — claimed by
+ *       flipping ref '' → 'orphan-refund' atomically; linkWallet claims the
+ *       same row by flipping ref '' → rideId, so only one of them can win;
+ *   (b) Razorpay outstation prepayments seen via the webhook that no ride linked
+ *       within 30 minutes — refunded by claiming `prepay:<paymentId>` on the
+ *       rider, the token linkOnline / refundRefusedPrepayment claim too, so a
+ *       payment is linked or refunded, never both.
+ * Every refund is a wallet credit (source 'refund'). Never throws.
+ */
+export async function sweepOrphanPrepayments(limit = 50, nowMs = Date.now()): Promise<OrphanSweep> {
+  const out: OrphanSweep = { walletRefunded: 0, onlineRefunded: 0, linked: 0, amount: 0 }
+  try {
+    const rows: any[] = await WalletTransaction.find({
+      type: 'debit', source: 'ride', ref: '',
+      createdAt: { $lt: new Date(nowMs - ORPHAN_WALLET_MS), $gte: new Date(nowMs - ORPHAN_HORIZON_MS) },
+    }).select('_id userId createdAt').limit(limit).lean()
+    for (const r of rows) {
+      try {
+        if (await unlinkedRideNear(r.userId, r.createdAt)) {
+          await WalletTransaction.updateOne({ _id: r._id, ref: '' }, { $set: { ref: 'orphan-review' } })
+          continue
+        }
+        const row: any = await WalletTransaction.findOneAndUpdate(
+          { _id: r._id, ref: '' }, { $set: { ref: 'orphan-refund' } }, { new: true },
+        ).lean()
+        if (!row || !row.userId) continue
+        const amount = Math.round((Number(row.amount) || 0) * 100) / 100
+        if (amount <= 0) continue
+        const c = await credit(String(row.userId), amount, `refund:orphan:${row._id}`, `refund:orphan:${row._id}`, 'wallet',
+          'Refund: an outstation prepayment that was not used for a booking')
+        if (c) { out.walletRefunded++; out.amount += c.amount }
+      } catch (e) { console.error('[prepay] orphan wallet refund failed', e) }
+    }
+
+    const lease = new Date(nowMs - 60_000)
+    const open: any[] = await RazorpayPrepay.find({
+      state: 'open', createdAt: { $lt: new Date(nowMs - ORPHAN_ONLINE_MS) },
+    }).select('_id').limit(limit).lean()
+    for (const o of open) {
+      try {
+        const doc: any = await RazorpayPrepay.findOneAndUpdate(
+          { _id: o._id, state: 'open', $or: [{ leaseAt: null }, { leaseAt: { $lt: lease } }] },
+          { $set: { leaseAt: new Date(nowMs) } }, { new: true },
+        ).lean()
+        if (!doc) continue
+        const ride: any = await Ride.findOne({ prepaidRef: doc.paymentId }).select('_id').lean()
+        if (ride) {
+          await RazorpayPrepay.updateOne({ _id: doc._id }, { $set: { state: 'linked', rideId: ride._id } })
+          out.linked++
+          continue
+        }
+        if (await unlinkedRideNear(doc.userId, doc.createdAt)) {
+          await RazorpayPrepay.updateOne({ _id: doc._id }, { $set: { state: 'skipped' } })
+          continue
+        }
+        const c = await credit(String(doc.userId), Number(doc.amount) || 0, prepayToken(doc.paymentId), `refund:orphan:${doc.paymentId}`, 'online',
+          'Refund: an outstation payment that was not used for a booking')
+        if (c) {
+          await RazorpayPrepay.updateOne({ _id: doc._id }, { $set: { state: 'refunded', refundedAt: new Date() } })
+          out.onlineRefunded++; out.amount += c.amount
+        } else {
+          // The token was already claimed: linked to a booking (possibly one
+          // being created right now) or refunded by a refused booking.
+          await RazorpayPrepay.updateOne({ _id: doc._id }, { $set: { state: 'skipped' } })
+        }
+      } catch (e) { console.error('[prepay] orphan online refund failed', e) }
+    }
+  } catch (e) {
+    console.error('[prepay] orphan sweep failed', e)
+  }
+  out.amount = Math.round(out.amount * 100) / 100
+  return out
 }

@@ -170,6 +170,28 @@ export async function releasePromo(code: string | undefined | null, source: stri
   }
 }
 
+/**
+ * Give back the coupon a ride redeemed — at most once per ride, whoever asks
+ * (rider/admin cancel, the "No driver found" close, the refund sweep). Claimed
+ * on the ride (couponReleasedAt), so two callers never decrement a code's
+ * usedCount twice. Returns true when this call released it. Never throws.
+ */
+export async function releasePromoForRide(ride: any): Promise<boolean> {
+  try {
+    if (!ride?._id || !String(ride.couponCode || '').trim()) return false
+    const claimed = await Ride.updateOne(
+      { _id: ride._id, couponCode: ride.couponCode, couponReleasedAt: null },
+      { $set: { couponReleasedAt: new Date() } },
+    )
+    if (!claimed.modifiedCount) return false
+    await releasePromo(ride.couponCode, ride.couponSource, ride.riderId)
+    return true
+  } catch (e) {
+    console.error('[promo] ride release failed', e)
+    return false
+  }
+}
+
 /** @deprecated use redeemPromo — kept for callers that only count usage. */
 export async function consumePromo(code: string): Promise<void> {
   if (!code) return

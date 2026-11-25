@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const g = await guardZoneAdmin(req, { feature: 'drivers' })
   if ('denied' in g) return g.denied
   try {
-    const drivers = await Driver.find({ zoneId: { $in: g.zoneIds } })
+    const drivers = await Driver.find({ zoneId: { $in: g.zoneIds }, status: { $ne: 'deleted' } })
       .select('name phone status isOnline selectedVehicleTypeName vehicleNumber vehicleModel rating totalRides profilePicUrl createdAt zoneId')
       .sort({ createdAt: -1 }).limit(500).lean()
     return NextResponse.json({ drivers })
