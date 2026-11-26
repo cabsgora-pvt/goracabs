@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../utils/call_util.dart';
 
 class SupportScreen extends StatefulWidget {
   const SupportScreen({super.key});
@@ -14,12 +16,17 @@ class _SupportScreenState extends State<SupportScreen> {
   Map<String, dynamic>? _cfg;
   // The helpline of the zone the rider is in, when its zone admin set one.
   String? _zonePhone, _zoneName;
+  // FAQs the admin wrote (Support → FAQ in the panel), when there are any.
+  List<Map<String, String>> _serverFaqs = const [];
 
   @override
   void initState() {
     super.initState();
     ApiService.getAppConfig().then((c) {
       if (mounted) setState(() => _cfg = c);
+    });
+    ApiService.getFaqs().then((f) {
+      if (mounted && f.isNotEmpty) setState(() => _serverFaqs = f);
     });
     _loadZoneHelpline();
   }
@@ -84,21 +91,28 @@ class _SupportScreenState extends State<SupportScreen> {
           const SizedBox(height: 24),
           const Text('Contact Us', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
+          // Every row used to be plain text: tapping Call / Email / WhatsApp
+          // did nothing, and "Live Chat · Available 24/7" did not exist.
           if (phone != null) ...[
-            _buildContactCard(context, Icons.phone, _zoneName != null ? 'Call $_zoneName helpline' : 'Call Us', phone),
+            _buildContactCard(context, Icons.phone, _zoneName != null ? 'Call $_zoneName helpline' : 'Call Us', phone,
+                onTap: () => dialPhone(phone, context: context)),
           ],
           const SizedBox(height: 10),
-          _buildContactCard(context, Icons.email, 'Email Us', email),
+          _buildContactCard(context, Icons.email, 'Email Us', email,
+              onTap: () => _open(Uri(scheme: 'mailto', path: email, queryParameters: {'subject': 'Gora Cabs support'}))),
           if (whatsapp != null) ...[
             const SizedBox(height: 10),
-            _buildContactCard(context, Icons.chat, 'WhatsApp', whatsapp),
+            _buildContactCard(context, Icons.chat, 'WhatsApp', whatsapp,
+                onTap: () => _open(Uri.parse('https://wa.me/${whatsappDigits(whatsapp)}'))),
           ],
           if (address != null) ...[
             const SizedBox(height: 10),
-            _buildContactCard(context, Icons.location_on, 'Visit Us', address),
+            _buildContactCard(context, Icons.location_on, 'Visit Us', address,
+                onTap: () => _open(Uri.parse('https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address)}'))),
           ],
           const SizedBox(height: 10),
-          _buildContactCard(context, Icons.chat_bubble, 'Live Chat', 'Available 24/7'),
+          _buildContactCard(context, Icons.chat_bubble, 'Chat with support', 'Replies in My Tickets',
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyTicketsScreen()))),
         ],
       ),
     );
@@ -151,14 +165,14 @@ class _SupportScreenState extends State<SupportScreen> {
   List<Widget> _buildFAQs() {
     const fallbackFaqs = [
       {'q': 'How do I cancel a ride?', 'a': 'You can cancel a ride from the trip tracking screen before the driver arrives.'},
-      {'q': 'What is the cancellation policy?', 'a': 'Free cancellation within 2 minutes of booking. After that, cancellation charges apply.'},
+      {'q': 'Is there a cancellation fee?', 'a': 'Cancelling before a driver accepts is free. Once a driver is on the way a fee may apply — the app shows the exact amount before you confirm the cancellation.'},
       {'q': 'How do I add money to wallet?', 'a': 'Go to Wallet section and tap on Add Money. Choose amount and payment method.'},
-      {'q': 'How does driver bidding work?', 'a': 'Multiple drivers can bid for your ride with their own prices. You can choose the best offer.'},
+      {'q': 'How do I report a problem with a trip?', 'a': 'Open Help & Support → Create Support Ticket (or Trip Details → Get help). Our team replies in My Tickets.'},
     ];
 
-    List<Map<String, String>> faqs = const [];
+    List<Map<String, String>> faqs = _serverFaqs;
     final cfgFaqs = _cfg?['faqs'];
-    if (cfgFaqs is List && cfgFaqs.isNotEmpty) {
+    if (faqs.isEmpty && cfgFaqs is List && cfgFaqs.isNotEmpty) {
       faqs = cfgFaqs
           .whereType<Map>()
           .map((f) => {'q': _str(f['q']) ?? '', 'a': _str(f['a']) ?? ''})
@@ -180,26 +194,42 @@ class _SupportScreenState extends State<SupportScreen> {
     }).toList();
   }
 
-  Widget _buildContactCard(BuildContext context, IconData icon, String title, String value) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
+  Future<void> _open(Uri uri) async {
+    var ok = false;
+    try { ok = await launchUrl(uri, mode: LaunchMode.externalApplication); } catch (_) {}
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No app found to open this')));
+    }
+  }
+
+  Widget _buildContactCard(BuildContext context, IconData icon, String title, String value, {VoidCallback? onTap}) {
+    return Material(
+      color: Theme.of(context).cardColor,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        key: ValueKey('contact-$title'),
         borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: AppTheme.primaryBlue, size: 22),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
             children: [
-              Text(title, style: const TextStyle(fontSize: 12, color: AppTheme.textGrey)),
-              const SizedBox(height: 2),
-              Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+              Icon(icon, color: AppTheme.primaryBlue, size: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontSize: 12, color: AppTheme.textGrey)),
+                    const SizedBox(height: 2),
+                    Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+              if (onTap != null) const Icon(Icons.chevron_right, color: AppTheme.textGrey),
             ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -777,4 +807,11 @@ class _EnquiryScreenState extends State<EnquiryScreen> {
       ),
     );
   }
+}
+
+/// WhatsApp wants the number in international form, digits only: an Indian
+/// 10-digit number gets 91 in front.
+String whatsappDigits(String raw) {
+  final d = raw.replaceAll(RegExp(r'[^0-9]'), '');
+  return d.length == 10 ? '91$d' : d;
 }

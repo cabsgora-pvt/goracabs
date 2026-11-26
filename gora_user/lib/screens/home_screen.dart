@@ -13,6 +13,7 @@ import '../services/api_service.dart';
 import '../services/route_observer.dart';
 import '../utils/active_ride.dart';
 import '../utils/vehicle_marker.dart';
+import '../widgets/popular_places.dart';
 import '../widgets/ride_ui/ride_ui.dart';
 import 'active_ride_screen.dart';
 import 'welcome_screen.dart';
@@ -774,6 +775,18 @@ class _HomeScreenState extends State<HomeScreen>
                   const RideSectionTitle('Services'),
                   const SizedBox(height: 12),
                   _buildServicesGrid(),
+                  // Popular places near the rider (stations, airport, malls,
+                  // tourist spots) — tap to book a ride there.
+                  PopularPlacesSection(
+                    at: _currentLatLng,
+                    onTap: (p) => Navigator.push(context, MaterialPageRoute(builder: (_) => TaxiBookingScreen(
+                          fromLocation: 'Current Location',
+                          toLocation: p.dropLabel,
+                          initialDropLat: p.lat,
+                          initialDropLng: p.lng,
+                          hideLocationInputs: false,
+                        ))),
+                  ),
                   _buildBannerRow(),
                 ],
               ),

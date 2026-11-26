@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../config/app_version.dart';
+import 'legal_screens.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/theme_provider.dart';
@@ -50,13 +51,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Icons.shield_outlined,
             'Privacy Policy',
             'Read our privacy policy',
-            () {},
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RiderPrivacyScreen())),
           ),
           _buildSettingTile(
             Icons.description_outlined,
             'Terms & Conditions',
             'Read terms of service',
-            () {},
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RiderTermsScreen())),
           ),
           const SizedBox(height: 24),
           const Text('About', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textGrey)),
@@ -65,19 +66,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Icons.info_outline,
             'About Gora Cabs',
             'Version $kAppVersion',
-            () {},
+            () => showAboutGora(context),
           ),
           _buildSettingTile(
             Icons.rate_review_outlined,
             'Rate Us',
             'Rate us on Play Store',
-            () {},
+            () => openRiderStorePage(context),
           ),
           _buildSettingTile(
             Icons.share_outlined,
             'Share App',
             'Invite friends to Gora Cabs',
-            () {},
+            () => shareRiderApp(),
           ),
           const SizedBox(height: 24),
           _buildSettingTile(

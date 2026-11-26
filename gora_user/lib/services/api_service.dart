@@ -528,6 +528,36 @@ class ApiService {
   static Future<Map<String, dynamic>> deleteSosContact(String id) =>
       delete('/user/sos-contacts/${Uri.encodeComponent(id)}');
 
+  // ── FAQs the admin wrote (public) ─────────────────────────
+  static Future<List<Map<String, String>>> getFaqs() async {
+    try {
+      final res = await get('/faqs?for=rider');
+      final list = res['faqs'];
+      if (list is! List) return const [];
+      return list
+          .whereType<Map>()
+          .map((f) => {'q': (f['q'] ?? '').toString(), 'a': (f['a'] ?? '').toString()})
+          .where((f) => f['q']!.trim().isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  // ── Popular places near the rider (home) ──────────────────
+  // GET /places/popular?lat&lng → {places:[{id, name, category, type, address,
+  // lat, lng, rating, ratings, photoUrl, distanceKm}]}. Empty list on any error.
+  static Future<List<Map<String, dynamic>>> getPopularPlaces(double lat, double lng) async {
+    try {
+      final res = await get('/places/popular?lat=${lat.toStringAsFixed(5)}&lng=${lng.toStringAsFixed(5)}');
+      final list = res['places'];
+      if (list is! List) return const [];
+      return list.whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
   // ── Support tickets (rider) ───────────────────────────────
   // GET → {tickets:[{id, subject, category, status, rideId, createdAt, updatedAt, messages}]}
   static Future<Map<String, dynamic>> getSupportTickets() => get('/user/support/tickets');
