@@ -1,7 +1,38 @@
 import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:geolocator/geolocator.dart';
 
 class LocationService {
+  /// The newest fix any live stream (home map, navigation, rental) delivered.
+  static Position? _lastStreamed;
+
+  /// The last streamed fix when it is at most [maxAge] old ([now] for tests).
+  static Position? recentFix({Duration maxAge = const Duration(seconds: 20), DateTime? now}) {
+    final p = _lastStreamed;
+    if (p == null) return null;
+    final age = (now ?? DateTime.now()).difference(p.timestamp);
+    return age <= maxAge && age >= const Duration(seconds: -30) ? p : null;
+  }
+
+  @visibleForTesting
+  static set lastStreamedForTest(Position? p) => _lastStreamed = p;
+
+  /// A position for a periodic ping, cheapest first: a fix a live stream just
+  /// delivered, else the platform's last known fix if it is still fresh, and
+  /// only then a new high-accuracy fix (GPS on for up to 10 s).
+  static Future<Position?> fixForPing({DateTime? now}) async {
+    final streamed = recentFix(now: now);
+    if (streamed != null) return streamed;
+    try {
+      final known = await Geolocator.getLastKnownPosition();
+      if (known != null) {
+        final age = (now ?? DateTime.now()).difference(known.timestamp);
+        if (age <= const Duration(seconds: 20) && age >= const Duration(seconds: -30)) return known;
+      }
+    } catch (_) {}
+    return getCurrentLocation();
+  }
+
   // Robust location fetch:
   // (1) ensure GPS service is on (2) request permission (3) try cached lastKnownPosition for instant UI
   // (4) fetch fresh high-accuracy fix with 10s timeout. Returns cached on timeout, null on deny.
@@ -75,7 +106,11 @@ class LocationService {
     int distanceFilter = 10,
     String notificationTitle = 'Gora Driver',
     String notificationText = 'Tracking your trip',
-  }) {
+  }) =>
+      _stream(background, distanceFilter, notificationTitle, notificationText)
+          .map((p) { _lastStreamed = p; return p; });
+
+  static Stream<Position> _stream(bool background, int distanceFilter, String notificationTitle, String notificationText) {
     if (background && Platform.isAndroid) {
       return Geolocator.getPositionStream(
         locationSettings: AndroidSettings(

@@ -15,15 +15,51 @@ class RideCompletionArgs {
   /// The rider has not paid yet (an online ride, or a prepaid trip's rest):
   /// the earning reaches the wallet only once they do — shown as "Pending".
   final bool earningPending;
+  /// What the trip billed, tip included (/complete's `fare`); 0 when not
+  /// known — then the booked fare is shown.
+  final num fare;
+  /// How it was settled ('cash' | 'online' | 'wallet'); null: the ride's own.
+  final String? paymentMode;
   const RideCompletionArgs(this.ride,
-      {this.driverEarning = 0, this.adminProfit = 0, this.tollCollected = 0, this.earningPending = false});
+      {this.driverEarning = 0, this.adminProfit = 0, this.tollCollected = 0, this.earningPending = false,
+      this.fare = 0, this.paymentMode});
 }
+
+/// The money lines of the Order Complete screen.
+class InvoiceFigures {
+  /// Trip fare without the tip.
+  final num tripFare;
+  final num tip;
+  final num commission;
+  /// What the driver keeps: the server's driverEarning, or worked out from
+  /// the lines above when an older reply did not send it.
+  final num net;
+  final bool cash;
+  const InvoiceFigures({required this.tripFare, required this.tip, required this.commission, required this.net, required this.cash});
+
+  factory InvoiceFigures.of(RideCompletionArgs a) {
+    final r = a.ride;
+    final tip = r.tipAmount;
+    final gross = a.fare > 0 ? a.fare : (r.totalFareValue > 0 ? r.totalFareValue : r.baseFare + tip);
+    final trip = (gross - tip) < 0 ? 0 : gross - tip;
+    final net = a.driverEarning > 0 ? a.driverEarning : (gross - a.adminProfit < 0 ? 0 : gross - a.adminProfit);
+    return InvoiceFigures(
+      tripFare: trip, tip: tip, commission: a.adminProfit, net: net,
+      cash: (a.paymentMode ?? r.paymentMode) == 'cash',
+    );
+  }
+}
+
+/// "₹18 commission taken from your wallet" — a cash ride: the rider paid the
+/// driver the whole fare, so Gora's part comes out of the wallet.
+String commissionFromWalletText(num c) => '₹${c.round()} commission taken from your wallet';
 
 /// Under the earning on an unpaid ride.
 const earningPendingText = 'Pending — added to your wallet once the rider pays';
 
-// "Order Complete" screen shown after a ride ends: estimated earning, a
-// customer rating and quick tags. The commission is not shown here. Styled in the app's brand colours.
+// "Order Complete" screen shown after a ride ends: what the trip billed, the
+// tip, Gora's commission and what the driver keeps (never the gross fare as
+// "earning"), a customer rating and quick tags.
 class InvoicePage extends StatefulWidget {
   static const route = '/invoice';
   const InvoicePage({super.key});
@@ -58,7 +94,8 @@ class _InvoicePageState extends State<InvoicePage> {
         : RideCompletionArgs(args as RideRequestModel? ?? _fallbackRide());
     final ride = data.ride;
 
-    final earning = data.driverEarning > 0 ? data.driverEarning : ride.totalFareValue;
+    final fig = InvoiceFigures.of(data);
+    final earning = fig.net;
     final distKm = ride.distanceKm > 0 ? ride.distanceKm : ride.pickupDistanceKm;
     final perKm = distKm > 0 ? earning / distKm : 0;
     // Rentals and hires carry no trip distance or duration here (they are
@@ -100,12 +137,11 @@ class _InvoicePageState extends State<InvoicePage> {
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Column(children: [
-              // ── Earning ── (no commission here: the review screen shows only
-              // what the driver earned; the split is in Wallet / Earnings)
+              // ── Earning ── what the driver keeps, then how it was made up.
               _Card(child: Column(children: [
                 Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('Estimated Earning', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.textDark)),
+                    Text(data.earningPending ? 'Net earning · Pending' : 'Net earning', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.textDark)),
                     const SizedBox(height: 6),
                     Text('₹${earning.toStringAsFixed(0)}',
                         style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900,
@@ -123,6 +159,22 @@ class _InvoicePageState extends State<InvoicePage> {
                     ],
                   ])),
                 ]),
+                Divider(color: AppColors.divider, height: 28),
+                _line('Trip fare', '₹${fig.tripFare.toStringAsFixed(0)}'),
+                if (fig.tip > 0) _line('Tip from rider', '+ ₹${fig.tip.toStringAsFixed(0)}', color: AppColors.green),
+                _line(fig.commission > 0 ? 'Gora commission' : 'Commission (none on this trip)',
+                    fig.commission > 0 ? '- ₹${fig.commission.toStringAsFixed(0)}' : '₹0'),
+                if (fig.cash && fig.commission > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(children: [
+                      Icon(Icons.account_balance_wallet_outlined, size: 16, color: AppColors.textGrey),
+                      const SizedBox(width: 6),
+                      Expanded(child: Text(commissionFromWalletText(fig.commission),
+                          key: const ValueKey('commission_from_wallet'),
+                          style: TextStyle(fontSize: 12, color: AppColors.textGrey, fontWeight: FontWeight.w600))),
+                    ]),
+                  ),
                 if (data.tollCollected > 0) ...[
                   Divider(color: AppColors.divider, height: 28),
                   Row(children: [
@@ -223,6 +275,16 @@ class _InvoicePageState extends State<InvoicePage> {
       ]),
     );
   }
+
+  Widget _line(String label, String value, {bool bold = false, Color? color}) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 3),
+    child: Row(children: [
+      Expanded(child: Text(label, style: TextStyle(fontSize: 13.5,
+          fontWeight: bold ? FontWeight.w800 : FontWeight.w600, color: AppColors.textDark))),
+      Text(value, style: TextStyle(fontSize: bold ? 15.5 : 14,
+          fontWeight: bold ? FontWeight.w900 : FontWeight.w700, color: color ?? AppColors.textDark)),
+    ]),
+  );
 
   String _ratingLabel(int s) {
     if (s <= 0) return 'TAP TO RATE';

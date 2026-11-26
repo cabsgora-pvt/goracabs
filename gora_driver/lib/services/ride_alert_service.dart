@@ -1,3 +1,6 @@
+import 'dart:io' show Platform;
+import 'dart:typed_data';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -16,7 +19,46 @@ import 'location_ping.dart';
 // (Fully-killed delivery needs FCM push — see fcm_service notes. This layer
 // covers the app being minimized / backgrounded.)
 
-const _incomingChannelId = 'incoming_ride';
+// v2: a channel's sound and vibration are fixed when it is first created on a
+// phone, so the one with the ride-request sound and buzz pattern needs a new
+// id. The old channel is deleted on start.
+const _incomingChannelId = 'incoming_ride_v2';
+const _oldIncomingChannelId = 'incoming_ride';
+
+/// The request alert's vibration: buzz, pause, buzz.
+final incomingVibration = Int64List.fromList([0, 700, 400, 700, 400, 700]);
+
+/// res/raw/ride_request.mp3 — the same sound as the in-app ringtone.
+const incomingSound = RawResourceAndroidNotificationSound('ride_request');
+
+/// How long the "New ride request" heads-up may stay up: until the offer to
+/// this driver lapses, else [openPoolAlertFor] (an open-pool request is
+/// listed for about two minutes). At least 5 s, at most 3 min.
+const openPoolAlertFor = Duration(minutes: 2);
+int incomingTimeoutMs(DateTime? offerExpiresAt, {DateTime? now}) {
+  final n = now ?? DateTime.now();
+  final ms = offerExpiresAt == null
+      ? openPoolAlertFor.inMilliseconds
+      : offerExpiresAt.difference(n).inMilliseconds;
+  return ms.clamp(5000, 180000);
+}
+
+/// Title and text of the heads-up for [rides] (the pending feed, nearest
+/// first): one request, or "3 new ride requests" with the nearest one's fare.
+({String title, String body}) incomingAlertText(List<Map<String, dynamic>> rides) {
+  final first = rides.first;
+  final fare = '₹${first['totalFare'] ?? first['fare'] ?? ''}';
+  final pickup = (first['pickupAddress'] ?? '').toString();
+  final drop = (first['dropAddress'] ?? '').toString();
+  final route = pickup.isEmpty ? '' : (drop.isEmpty ? pickup : '$pickup → $drop');
+  if (rides.length > 1) {
+    return (
+      title: '${rides.length} new ride requests',
+      body: route.isEmpty ? 'Nearest $fare — tap to view' : 'Nearest $fare · $route',
+    );
+  }
+  return (title: 'New Ride Request  $fare', body: route.isEmpty ? 'Tap to view and accept' : route);
+}
 const _fgBeat = 'app-foreground';
 
 /// Sent from the background task to the app when the server ended the
@@ -106,10 +148,17 @@ class RideAlertService {
   /// is). False when it could not be started.
   static Future<bool> start() => startImpl();
 
+  /// Why the last [start] returned false, in words for the driver; null when
+  /// it did not fail (or the reason is unknown).
+  static String? lastStartFailure;
+
   /// Stops the online service, if it is running.
   static Future<void> stop() => stopImpl();
 
   static Future<bool> _startService() async {
+    lastStartFailure = null;
+    // No such service on a desktop host (tests): nothing to start, not a failure.
+    if (!Platform.isAndroid && !Platform.isIOS) return true;
     // Ask for notification permission (Android 13+) so alerts can show.
     final perm = await FlutterForegroundTask.checkNotificationPermission();
     if (perm != NotificationPermission.granted) {
@@ -120,14 +169,23 @@ class RideAlertService {
     // position while the app is in the background). Android 14+ refuses to
     // start one without a location grant, so do not try.
     final loc = await Geolocator.checkPermission();
-    if (loc != LocationPermission.always && loc != LocationPermission.whileInUse) return false;
+    if (loc != LocationPermission.always && loc != LocationPermission.whileInUse) {
+      lastStartFailure = loc == LocationPermission.deniedForever
+          ? 'You are still offline: location is turned off for Gora Captain. Allow it in the phone\'s Settings › Apps, then go online again.'
+          : 'You are still offline: ride alerts need location access. Allow location for Gora Captain, then go online again.';
+      return false;
+    }
     final r = await FlutterForegroundTask.startService(
       serviceId: 256,
       notificationTitle: "You're online",
       notificationText: 'Waiting for ride requests…',
       callback: startCallback,
     );
-    return r is ServiceRequestSuccess;
+    if (r is! ServiceRequestSuccess) {
+      lastStartFailure = 'You are still offline: the online service could not start. Please try again.';
+      return false;
+    }
+    return true;
   }
 
   static Future<void> _stopService() async {
@@ -163,6 +221,7 @@ class RideAlertTaskHandler extends TaskHandler {
 
   final _fln = FlutterLocalNotificationsPlugin();
   String _lastNotifiedId = '';
+  int _lastCount = 0;
   DateTime? _appSeenAt;
   int _ticks = 0;
   bool _signedOut = false;
@@ -179,14 +238,17 @@ class RideAlertTaskHandler extends TaskHandler {
     await _fln.initialize(const InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
     ));
-    await _fln
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(const AndroidNotificationChannel(
+    final android = _fln.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    try { await android?.deleteNotificationChannel(_oldIncomingChannelId); } catch (_) {}
+    await android?.createNotificationChannel(AndroidNotificationChannel(
           _incomingChannelId,
           'Incoming Ride Requests',
           description: 'Alerts when a new ride request arrives',
           importance: Importance.max,
           playSound: true,
+          sound: incomingSound,
+          enableVibration: true,
+          vibrationPattern: incomingVibration,
         ));
   }
 
@@ -245,35 +307,46 @@ class RideAlertTaskHandler extends TaskHandler {
       }
       if (rides.isEmpty) {
         _lastNotifiedId = '';
+        _lastCount = 0;
         FlutterForegroundTask.updateService(
           notificationTitle: "You're online",
           notificationText: 'Waiting for ride requests…',
         );
         return;
       }
-      final first = Map<String, dynamic>.from(rides.first as Map);
+      final list = [for (final r in rides) if (r is Map) Map<String, dynamic>.from(r)];
+      if (list.isEmpty) return;
+      final first = list.first;
       final id = first['id']?.toString() ?? '';
-      if (id.isEmpty || id == _lastNotifiedId) return;
+      if (id.isEmpty) return;
+      // Same top request, same count: nothing new to say.
+      if (id == _lastNotifiedId && list.length == _lastCount) return;
+      // A new top request rings; only the count changing updates it quietly.
+      final quiet = id == _lastNotifiedId;
       _lastNotifiedId = id;
+      _lastCount = list.length;
 
+      final text = incomingAlertText(list);
+      final expires = DateTime.tryParse((first['offerExpiresAt'] ?? '').toString());
+      try {
+        await _showIncoming(text.title, text.body,
+            timeoutMs: incomingTimeoutMs(expires), count: list.length, quiet: quiet);
+      } catch (_) {}
       final fare = '₹${first['totalFare'] ?? first['fare'] ?? ''}';
-      final pickup = (first['pickupAddress'] ?? '').toString();
-      final drop = (first['dropAddress'] ?? '').toString();
-
-      try { await _showIncoming(fare, pickup, drop); } catch (_) {}
       FlutterForegroundTask.updateService(
-        notificationTitle: 'New ride request!',
+        notificationTitle: list.length > 1 ? '${list.length} new ride requests' : 'New ride request!',
         notificationText: '$fare — tap to open',
       );
     } catch (_) {/* keep the service alive on transient errors */}
   }
 
-  Future<void> _showIncoming(String fare, String pickup, String drop) async {
+  Future<void> _showIncoming(String title, String body,
+      {required int timeoutMs, int count = 1, bool quiet = false}) async {
     await _fln.show(
       RideAlertService.incomingNotificationId,
-      'New Ride Request  $fare',
-      pickup.isEmpty ? 'Tap to view and accept' : '$pickup → $drop',
-      const NotificationDetails(
+      title,
+      body,
+      NotificationDetails(
         android: AndroidNotificationDetails(
           _incomingChannelId,
           'Incoming Ride Requests',
@@ -281,9 +354,18 @@ class RideAlertTaskHandler extends TaskHandler {
           importance: Importance.max,
           priority: Priority.max,
           category: AndroidNotificationCategory.call, // ring-style, shows over lock screen
-          fullScreenIntent: true,
+          fullScreenIntent: !quiet,
           autoCancel: true,
           ongoing: false,
+          sound: incomingSound,
+          enableVibration: true,
+          vibrationPattern: incomingVibration,
+          // Comes down by itself once the offer has lapsed, instead of sitting
+          // on the lock screen for a request that is gone.
+          timeoutAfter: timeoutMs,
+          number: count > 1 ? count : null,
+          onlyAlertOnce: quiet,
+          styleInformation: count > 1 ? BigTextStyleInformation(body, contentTitle: title) : null,
         ),
       ),
       // MainActivity shows over the lock screen and turns the screen on only

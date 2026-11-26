@@ -133,6 +133,8 @@ RideCompletionArgs invoiceFor(RideRequestModel ride, Map<String, dynamic> settle
       adminProfit: _n(settled['adminProfit'] ?? settled['commissionAmount'] ?? settled['pendingCommission']),
       tollCollected: tollCollected,
       earningPending: earningPending,
+      fare: _n(settled['fare'] ?? settled['totalFare']),
+      paymentMode: settled['paymentSwitchedToCash'] == true ? 'cash' : settled['paymentMode']?.toString(),
     );
 
 /// Calls /complete and reports a failure instead of swallowing it, then walks

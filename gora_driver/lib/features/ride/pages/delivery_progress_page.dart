@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:geolocator/geolocator.dart' show Position;
 import 'package:image_picker/image_picker.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../config/app_config.dart';
@@ -56,7 +57,7 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
   String? _proofPhoto; // full url of captured proof
   String? _signatureUrl;
   final _picker = ImagePicker();
-  Timer? _ping;
+  StreamSubscription<Position>? _ping;
   final List<Offset?> _sigPoints = [];
 
   /// The last delivered/returned answer, kept so a cancelled collection or a
@@ -85,15 +86,21 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
   @override
   void dispose() { _ping?.cancel(); super.dispose(); }
 
-  // Accumulate distance every 20s while delivering.
+  // Accumulate distance while delivering — from the same background location
+  // stream a rental uses, so it keeps counting with the screen off or another
+  // app (Maps) in front. It was a fresh GPS fix every 20 s from a timer that
+  // stopped in the background. `at` is when the fix was taken.
   void _startPinging() {
-    _ping ??= Timer.periodic(const Duration(seconds: 20), (_) async {
-      final p = await LocationService.getCurrentLocation();
-      if (p != null) {
-        DriverApiService.deliveryAction(widget.ride.id, {'action': 'ping', 'lat': p.latitude, 'lng': p.longitude})
-            .catchError((_) => <String, dynamic>{});
-      }
-    });
+    _ping ??= LocationService.liveLocation(
+      background: true,
+      distanceFilter: 25,
+      notificationText: 'Parcel on its way — tracking distance',
+    ).listen((pos) {
+      DriverApiService.deliveryAction(widget.ride.id, {
+        'action': 'ping', 'lat': pos.latitude, 'lng': pos.longitude,
+        'at': pos.timestamp.millisecondsSinceEpoch,
+      }).catchError((_) => <String, dynamic>{});
+    }, onError: (_) {});
   }
 
   // Capture receiver signature via a simple draw pad, upload as PNG

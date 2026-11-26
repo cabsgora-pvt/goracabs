@@ -291,7 +291,7 @@ String maneuverKind(String maneuver) {
 /// Thresholds tuned for city driving.
 class NavThresholds {
   /// Beyond this from the route line, treat the driver as off-route.
-  static const double offRouteM = 60;
+  static const double offRouteM = 50;
 
   /// Consecutive off-route fixes before rerouting, so one bad fix cannot
   /// trigger a reroute storm.

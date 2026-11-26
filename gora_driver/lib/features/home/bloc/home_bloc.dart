@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart' show MissingPluginException;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -44,6 +45,29 @@ class AccountHoldState extends HomeState {
   AccountHoldState(this.message, {this.kind = 'manual', this.seq = 0});
   @override List<Object?> get props => [message, kind, seq];
 }
+// Going online did not happen — the server refused or could not be reached,
+// or the online service (which needs location permission) would not start.
+// The driver stays offline and is told why, instead of a toggle that says
+// "online" while no request can arrive.
+class GoOnlineFailedState extends HomeState {
+  final String message;
+  /// Bumped per failure, so the same reason shows again on the next try.
+  final int seq;
+  GoOnlineFailedState(this.message, {this.seq = 0});
+  @override List<Object?> get props => [message, seq];
+}
+
+/// Why going online failed, for the driver.
+const goOnlineNoNetworkText = 'Could not reach Gora, so you are still offline. Check your internet and try again.';
+const goOnlineNoServiceText =
+    'You are still offline: ride alerts need location access. Allow location (and notifications) for Gora Captain, then go online again.';
+
+/// The line for a server refusal of going online.
+String goOnlineRefusedText(Map<String, dynamic> res) {
+  final e = (res['error'] ?? '').toString().trim();
+  return e.isEmpty ? 'Could not go online. Please try again.' : 'Could not go online: $e';
+}
+
 // A mid-ride face check came back mismatched/unanswered on a previous ride —
 // the server refused to let this driver go online again until they re-verify.
 class FaceVerificationLockedState extends HomeState {
@@ -57,6 +81,20 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   DriverModel? driver;
   Map<String, String> summary = {};
   int _holdSeq = 0;
+  int _failSeq = 0;
+
+  /// Starts the online service. A phone with no such plugin (a test, a
+  /// non-Android build) has nothing to start, which is not a failure; the
+  /// plugin saying it could not start is.
+  static Future<bool> _startService() async {
+    try {
+      return await RideAlertService.start();
+    } on MissingPluginException {
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   HomeBloc() : super(HomeInitial()) {
     on<LoadHomeDataEvent>(_onLoad);
@@ -124,7 +162,12 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         return;
       }
     } catch (_) {/* network blip: the service still polls, and the next toggle re-posts */}
-    try { await RideAlertService.start(); } catch (_) {}
+    if (!await _startService()) {
+      // No alerts could arrive: say so instead of showing "online".
+      await _goOfflineLocally();
+      try { await DriverApiService.setOnline(false); } catch (_) {}
+      emit(GoOnlineFailedState(RideAlertService.lastStartFailure ?? goOnlineNoServiceText, seq: ++_failSeq));
+    }
   }
 
   Future<void> _goOfflineLocally() async {
@@ -160,9 +203,26 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
           emit(FaceVerificationLockedState((res['faceVerificationReason'] ?? 'mismatch').toString()));
           return;
         }
+        if (res['error'] != null) {
+          // Refused, or no answer (an HTML error page, a 5xx): still offline.
+          emit(GoOnlineFailedState(goOnlineRefusedText(res), seq: ++_failSeq));
+          return;
+        }
         final z = (res['zoneChangedTo'] ?? '').toString();
         if (z.isNotEmpty) zoneChangedTo = z;
-      } catch (_) {/* network blip — proceed optimistically, same as before */}
+      } catch (_) {
+        // Timed out / no connection: the server never put us online.
+        emit(GoOnlineFailedState(goOnlineNoNetworkText, seq: ++_failSeq));
+        return;
+      }
+      // The online service is what delivers requests while minimised, and it
+      // cannot run without location permission: no service, no "online".
+      if (!await _startService()) {
+        try { await DriverApiService.setOnline(false); } catch (_) {}
+        await _goOfflineLocally();
+        emit(GoOnlineFailedState(RideAlertService.lastStartFailure ?? goOnlineNoServiceText, seq: ++_failSeq));
+        return;
+      }
     } else {
       try { await DriverApiService.setOnline(false); } catch (_) {}
     }
@@ -173,14 +233,11 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('driver_online', e.isOnline);
     } catch (_) {}
-    // Start/stop the foreground service so requests keep arriving while minimized.
-    try {
-      if (e.isOnline) {
-        await RideAlertService.start();
-      } else {
-        await RideAlertService.stop();
-      }
-    } catch (_) {}
+    // Stop the foreground service when going offline (going online started it
+    // above, before anything said "online").
+    if (!e.isOnline) {
+      try { await RideAlertService.stop(); } catch (_) {}
+    }
     emit(OnlineStatusChanged(e.isOnline, zoneChangedTo: zoneChangedTo));
   }
 }

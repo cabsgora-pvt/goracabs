@@ -55,8 +55,11 @@ class RideEndedState extends RideState {
   final RideRequestModel ride;
   final num adminProfit;
   final num driverEarning;
-  RideEndedState(this.ride, {this.adminProfit = 0, this.driverEarning = 0});
-  @override List<Object?> get props => [ride, adminProfit, driverEarning];
+  /// Billed, tip included (/complete `fare`); 0 when not sent.
+  final num fare;
+  final String? paymentMode;
+  RideEndedState(this.ride, {this.adminProfit = 0, this.driverEarning = 0, this.fare = 0, this.paymentMode});
+  @override List<Object?> get props => [ride, adminProfit, driverEarning, fare, paymentMode];
 }
 /// The server did not record the end of the trip. The screen stays on the trip
 /// and says why, instead of showing an invoice for a ride that is still ongoing.
@@ -186,6 +189,8 @@ class RideBloc extends Bloc<RideEvent, RideState> {
       ride,
       adminProfit: _num(res['adminProfit'] ?? res['commissionAmount']),
       driverEarning: _num(res['driverEarning']),
+      fare: _num(res['fare']),
+      paymentMode: res['paymentSwitchedToCash'] == true ? 'cash' : res['paymentMode']?.toString(),
     ));
   }
 

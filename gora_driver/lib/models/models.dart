@@ -97,6 +97,13 @@ class RideRequestModel {
   /// Where an in-progress job had got to, as the server last saw it. Default
   /// (nothing started) for a request that has not begun.
   final RideProgress progress;
+  /// The rider's real rating (feed riderRating), 0 when they have none yet.
+  /// [userRating] shows "5.0" for a rider with no rating; this does not.
+  final double riderRating;
+  /// What the driver would keep if they accepted: fare + tip − commission,
+  /// worked out by the server's own commission rule (feed estDriverEarning).
+  /// An estimate — the bill is settled at the end. Null on an older server.
+  final num? estDriverEarning;
 
   const RideRequestModel({
     required this.id, required this.userName, required this.userPhone, required this.userRating,
@@ -137,6 +144,8 @@ class RideRequestModel {
     this.packageSize = '', this.isFragile = false, this.codAmount = 0, this.parcelPhotos = const [],
     this.stops = const [],
     this.progress = const RideProgress(),
+    this.riderRating = 0,
+    this.estDriverEarning,
   });
 
   // Build a request model from a pending-request JSON row (backend /rides/driver/pending)
@@ -203,6 +212,8 @@ class RideRequestModel {
       otpLocked: r['otpLocked'] == true,
       dropOtpLocked: r['dropOtpLocked'] == true,
       progress: RideProgress.fromJson(r),
+      riderRating: ratingNum is num && ratingNum > 0 ? ratingNum.toDouble() : 0,
+      estDriverEarning: r['estDriverEarning'] is num ? r['estDriverEarning'] as num : null,
     );
   }
 

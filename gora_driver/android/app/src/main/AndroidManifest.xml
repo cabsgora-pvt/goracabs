@@ -20,6 +20,8 @@
          background location.) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Ride requests vibrate (looping) while they are on screen -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Full-screen "incoming ride" alert over the lock screen (Ola/Rapido style) -->

@@ -39,6 +39,84 @@ String? withdrawalRefusal(Map<String, dynamic> res) {
   return null;
 }
 
+/// One withdrawal request, as GET /auth/driver/withdraw lists it.
+class WithdrawalItem {
+  final String id;
+  final double amount;
+  /// 'pending' | 'approved' | 'rejected'.
+  final String status;
+  final DateTime? createdAt;
+  final DateTime? processedAt;
+  final String bankName;
+  final String accountLast4;
+  /// Rejection reason / admin note.
+  final String note;
+  final String payoutRef;
+  /// The amount left the wallet when it was requested (held until paid out).
+  final bool held;
+  const WithdrawalItem({
+    required this.id, required this.amount, required this.status, this.createdAt, this.processedAt,
+    this.bankName = '', this.accountLast4 = '', this.note = '', this.payoutRef = '', this.held = false,
+  });
+
+  factory WithdrawalItem.fromJson(Map<String, dynamic> j) {
+    final acct = (j['accountNumber'] ?? '').toString().trim();
+    return WithdrawalItem(
+      id: (j['_id'] ?? j['id'] ?? '').toString(),
+      amount: (j['amount'] as num?)?.toDouble() ?? 0,
+      status: (j['status'] ?? 'pending').toString(),
+      createdAt: DateTime.tryParse('${j['createdAt'] ?? ''}')?.toLocal(),
+      processedAt: DateTime.tryParse('${j['processedAt'] ?? ''}')?.toLocal(),
+      bankName: (j['bankName'] ?? '').toString(),
+      accountLast4: acct.length >= 4 ? acct.substring(acct.length - 4) : acct,
+      note: (j['note'] ?? '').toString(),
+      payoutRef: (j['payoutRef'] ?? '').toString(),
+      held: j['holdPlaced'] == true && j['holdReleased'] != true,
+    );
+  }
+
+  /// "Pending", "Paid", "Rejected".
+  String get statusLabel => switch (status) {
+        'approved' => 'Paid',
+        'rejected' => 'Rejected',
+        _ => 'Pending',
+      };
+}
+
+/// The withdrawal page's figures from GET /auth/driver/withdraw.
+class WithdrawalsInfo {
+  final List<WithdrawalItem> items;
+  /// The least a request may be (driverApp.minWithdrawal); null when the
+  /// server does not say (older server) — then only it checks.
+  final int? minWithdrawal;
+  /// Money held by requests still waiting to be paid out.
+  final double pendingHeld;
+  const WithdrawalsInfo({this.items = const [], this.minWithdrawal, this.pendingHeld = 0});
+
+  factory WithdrawalsInfo.fromJson(Map<String, dynamic> res) {
+    final items = ((res['withdrawals'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((m) => WithdrawalItem.fromJson(Map<String, dynamic>.from(m)))
+        .toList();
+    final held = res['pendingHeld'] is num
+        ? (res['pendingHeld'] as num).toDouble()
+        : items.where((w) => w.status == 'pending' && w.held).fold<double>(0, (s, w) => s + w.amount);
+    final min = res['minWithdrawal'];
+    return WithdrawalsInfo(items: items, minWithdrawal: min is num ? min.round() : null, pendingHeld: held);
+  }
+
+  bool get hasPending => items.any((w) => w.status == 'pending');
+}
+
+/// Why [amount] cannot be asked for, or null when it can.
+String? withdrawalAmountProblem(double amount, {required double balance, int? min}) {
+  if (amount <= 0) return 'Enter a valid amount';
+  if (amount != amount.roundToDouble()) return 'Enter a whole amount';
+  if (min != null && amount < min) return 'Minimum withdrawal is ₹$min';
+  if (amount > balance) return 'You can withdraw up to ₹${balance.floor()}';
+  return null;
+}
+
 class WithdrawPage extends StatefulWidget {
   final double balance;
   const WithdrawPage({super.key, required this.balance});
@@ -52,11 +130,21 @@ class _WithdrawPageState extends State<WithdrawPage> {
   String _driverName = '';
   List<Map<String, dynamic>> _banks = [];
   int _selectedIndex = -1;
+  WithdrawalsInfo _history = const WithdrawalsInfo();
 
   @override
   void initState() {
     super.initState();
     _loadBanks();
+    _loadHistory();
+  }
+
+  Future<void> _loadHistory() async {
+    try {
+      final res = await DriverApiService.getWithdrawals();
+      if (!mounted || res['error'] != null) return;
+      setState(() => _history = WithdrawalsInfo.fromJson(res));
+    } catch (_) {}
   }
 
   @override
@@ -88,6 +176,44 @@ class _WithdrawPageState extends State<WithdrawPage> {
         SnackBar(content: Text('Failed to load bank accounts: $e'), backgroundColor: AppColors.red),
       );
     }
+  }
+
+  Widget _historyRow(WithdrawalItem w) {
+    final color = w.status == 'approved'
+        ? AppColors.green
+        : w.status == 'rejected' ? AppColors.red : AppColors.orange;
+    String date(DateTime? d) {
+      if (d == null) return '';
+      const m = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return '${d.day} ${m[d.month - 1]} ${d.year}';
+    }
+    final details = [
+      date(w.createdAt),
+      if (w.bankName.isNotEmpty || w.accountLast4.isNotEmpty) '${w.bankName} •••• ${w.accountLast4}'.trim(),
+      if (w.status == 'approved' && w.payoutRef.isNotEmpty) 'Ref ${w.payoutRef}',
+    ].where((x) => x.isNotEmpty).join(' · ');
+    return Container(
+      key: ValueKey('withdrawal_${w.id}'),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(12)),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('₹${w.amount.toStringAsFixed(0)}',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppColors.textDark)),
+          if (details.isNotEmpty)
+            Text(details, style: TextStyle(fontSize: 12, color: AppColors.textGrey)),
+          if (w.status == 'rejected' && w.note.isNotEmpty)
+            Text(w.note, style: const TextStyle(fontSize: 12, color: AppColors.red)),
+        ])),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
+          child: Text(w.statusLabel, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: color)),
+        ),
+      ]),
+    );
   }
 
   String _mask(String accountNumber) {
@@ -201,9 +327,10 @@ class _WithdrawPageState extends State<WithdrawPage> {
 
   Future<void> _withdraw() async {
     final amt = double.tryParse(_ctrl.text.trim()) ?? 0;
-    if (amt <= 0) {
+    final problem = withdrawalAmountProblem(amt, balance: widget.balance, min: _history.minWithdrawal);
+    if (problem != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Enter a valid amount'), backgroundColor: AppColors.red),
+        SnackBar(content: Text(problem), backgroundColor: AppColors.red),
       );
       return;
     }
@@ -308,8 +435,30 @@ class _WithdrawPageState extends State<WithdrawPage> {
                     ),
                   ]),
                 ],
+                if (_history.pendingHeld > 0) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    key: const ValueKey('withdraw_pending_held'),
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: AppColors.orange.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(12)),
+                    child: Row(children: [
+                      const Icon(Icons.hourglass_top_rounded, size: 18, color: AppColors.orange),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(
+                        '₹${_history.pendingHeld.toStringAsFixed(0)} is on hold for a withdrawal being processed '
+                        '(not in the balance above).',
+                        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.textDark))),
+                    ]),
+                  ),
+                ],
                 const SizedBox(height: 28),
-                Text('Enter amount', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+                Row(children: [
+                  Expanded(child: Text('Enter amount', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.textDark))),
+                  if (_history.minWithdrawal != null)
+                    Text('Min ₹${_history.minWithdrawal}', key: const ValueKey('withdraw_min'),
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textGrey)),
+                ]),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _ctrl,
@@ -396,6 +545,12 @@ class _WithdrawPageState extends State<WithdrawPage> {
                   loading: _loading,
                   onTap: hasBanks ? _withdraw : null,
                 ),
+                if (_history.items.isNotEmpty) ...[
+                  const SizedBox(height: 28),
+                  Text('Your withdrawals', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.textDark)),
+                  const SizedBox(height: 8),
+                  for (final w in _history.items.take(20)) _historyRow(w),
+                ],
               ]),
             ),
     );

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The ride-request notification channel plays @raw/ride_request by name
+     (flutter_local_notifications RawResourceAndroidNotificationSound), which
+     resource shrinking cannot see: keep it. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@raw/ride_request" />

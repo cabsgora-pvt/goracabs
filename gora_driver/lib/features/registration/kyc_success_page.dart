@@ -13,7 +13,7 @@ class KycSuccessPage extends StatefulWidget {
   State<KycSuccessPage> createState() => _KycSuccessPageState();
 }
 
-class _KycSuccessPageState extends State<KycSuccessPage> {
+class _KycSuccessPageState extends State<KycSuccessPage> with WidgetsBindingObserver {
   Timer? _poll;
 
   @override
@@ -21,13 +21,22 @@ class _KycSuccessPageState extends State<KycSuccessPage> {
     super.initState();
     // Check immediately, then every 5s
     _checkStatus();
-    _poll = Timer.periodic(const Duration(seconds: 5), (_) => _checkStatus());
+    // Approval takes hours, not seconds: a slow poll, plus a check as soon as
+    // the driver comes back to the app.
+    _poll = Timer.periodic(kycStatusPollEvery, (_) => _checkStatus());
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
     _poll?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _checkStatus();
   }
 
   Future<void> _checkStatus() async {
@@ -41,7 +50,9 @@ class _KycSuccessPageState extends State<KycSuccessPage> {
         Navigator.pushNamedAndRemoveUntil(context, HomePage.route, (_) => false);
       } else if (status == 'rejected') {
         _poll?.cancel();
-        Navigator.pushNamedAndRemoveUntil(context, RejectionPage.route, (_) => false);
+        // The reason goes with it — the page has nothing to show otherwise.
+        Navigator.pushNamedAndRemoveUntil(context, RejectionPage.route, (_) => false,
+            arguments: rejectionArgs(driver));
       }
     } catch (_) {
       // silent retry next tick

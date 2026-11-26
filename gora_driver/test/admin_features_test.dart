@@ -27,6 +27,7 @@ import 'package:gora_driver/features/ride/pages/incoming_requests_page.dart';
 import 'package:gora_driver/features/ride/widgets/swipe_to_confirm.dart';
 import 'package:gora_driver/providers/driver_provider.dart';
 import 'package:gora_driver/providers/theme_provider.dart';
+import 'package:gora_driver/services/ride_alert_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Admin-managed features in the driver app: document types, ride preferences,
@@ -113,6 +114,9 @@ void main() {
       const MethodChannel('flutter_foreground_task/methods'),
       (call) async => throw PlatformException(code: 'unavailable'),
     );
+    // v1.5.1: a service that cannot start keeps the driver offline, so these
+    // tests (about zones, not the service) say it started.
+    RideAlertService.startImpl = () async => true;
   });
 
   // ── 1. Documents ──────────────────────────────────────────────────────────

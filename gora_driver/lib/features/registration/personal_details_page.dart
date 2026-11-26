@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/driver_provider.dart';
@@ -8,6 +10,7 @@ import 'widgets/reg_step_scaffold.dart';
 import 'widgets/reg_ui.dart';
 import '../../services/driver_api_service.dart';
 import 'face_capture_page.dart';
+import 'registration_draft.dart';
 
 const _indianStates = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
@@ -39,10 +42,43 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
   bool _zonesLoading = true;
   late String _phone;
 
+  // What is typed here survives the app closing mid-form (RegistrationDraft).
+  late final DraftSaver _draft = DraftSaver(RegistrationDraft.personal, () => {
+    'name': _name.text, 'email': _email.text, 'referral': _referralController.text,
+    'state': _selectedState, 'gender': _selectedGender,
+    'zoneId': _selectedZoneId, 'zoneName': _selectedZoneName,
+  });
+
   @override
   void initState() {
     super.initState();
+    RegistrationDraft.sealed = false; // filling in (again): drafts are kept
     _loadZones();
+    for (final c in [_name, _email, _referralController]) {
+      c.addListener(_draft.schedule);
+    }
+  }
+
+  /// Fills what is still empty from the saved draft.
+  Future<void> _restoreDraft() async {
+    final d = await RegistrationDraft.load(RegistrationDraft.personal);
+    if (!mounted || d.isEmpty) return;
+    setState(() {
+      RegistrationDraft.restoreInto(_name, d, 'name');
+      RegistrationDraft.restoreInto(_email, d, 'email');
+      RegistrationDraft.restoreInto(_referralController, d, 'referral');
+      final st = (d['state'] ?? '').toLowerCase();
+      _selectedState ??= _indianStates.where((x) => x.toLowerCase() == st).firstOrNull;
+      final g = d['gender'];
+      if (_selectedGender == null && const ['female', 'male', 'other'].contains(g)) _selectedGender = g;
+      if (_selectedZoneId == null && d['zoneId'] != null) {
+        final known = _zonesLoading || _zones.any((z) => (z['_id'] ?? z['id']) == d['zoneId']);
+        if (known) {
+          _selectedZoneId = d['zoneId'];
+          _selectedZoneName = d['zoneName'];
+        }
+      }
+    });
   }
 
   bool _prefilled = false;
@@ -80,6 +116,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
       _selectedZoneId = driver['zoneId'] as String?;
       _selectedZoneName = driver['zoneName'] as String?;
     }
+    _restoreDraft();
   }
 
   Future<void> _loadZones() async {
@@ -153,6 +190,8 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
 
   @override
   void dispose() {
+    _draft.cancel();
+    unawaited(_draft.flush());
     _name.dispose();
     _email.dispose();
     _referralController.dispose();
@@ -226,7 +265,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                       DropdownMenuItem(value: 'male', child: Text('Male')),
                       DropdownMenuItem(value: 'other', child: Text('Other')),
                     ],
-                    onChanged: (v) => setState(() => _selectedGender = v),
+                    onChanged: (v) { setState(() => _selectedGender = v); _draft.schedule(); },
                   ),
                 ),
               ],
@@ -251,7 +290,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                       value: s,
                       child: Text(s, maxLines: 1, overflow: TextOverflow.ellipsis),
                     )).toList(),
-                    onChanged: (v) => setState(() => _selectedState = v),
+                    onChanged: (v) { setState(() => _selectedState = v); _draft.schedule(); },
                   ),
                 ),
                 RegField(
@@ -286,6 +325,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
                               _selectedZoneId = v;
                               _selectedZoneName = zone['name'] as String?;
                             });
+                            _draft.schedule();
                           },
                         ),
                 ),

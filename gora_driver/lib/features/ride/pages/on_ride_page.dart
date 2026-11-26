@@ -219,6 +219,8 @@ class _OnRideViewState extends State<_OnRideView> {
                 driverEarning: state.driverEarning,
                 adminProfit: state.adminProfit,
                 tollCollected: _tollTotal,
+                fare: state.fare,
+                paymentMode: state.paymentMode,
               ),
             );
           }

@@ -5,6 +5,18 @@ import 'widgets/reg_motion.dart';
 import 'widgets/reg_ui.dart';
 import 'widgets/status_views.dart';
 
+/// How often the "under review" screens ask whether the application has been
+/// decided. Approval takes hours: every 5 s was 720 profile reads an hour per
+/// waiting applicant. The screens also check whenever the app is reopened.
+const kycStatusPollEvery = Duration(seconds: 45);
+
+/// The arguments [RejectionPage] reads: the admin's reason from the profile,
+/// when there is one (without it the page shows its general line).
+Map<String, dynamic> rejectionArgs(Map<String, dynamic>? driver) {
+  final reason = (driver?['rejectionReason'] ?? '').toString().trim();
+  return {if (reason.isNotEmpty) 'reason': reason};
+}
+
 class RejectionPage extends StatelessWidget {
   static const route = '/registration/rejected';
   const RejectionPage({super.key});

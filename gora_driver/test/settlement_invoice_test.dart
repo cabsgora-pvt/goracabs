@@ -50,8 +50,8 @@ void main() {
         ? json({'success': true, 'fare': 85, 'adminProfit': 17, 'driverEarning': 68})
         : json({}));
     expect(find.text('₹68'), findsOneWidget);
-    // The review screen shows only the earning; the commission is not on it.
-    expect(find.textContaining('₹17'), findsNothing);
+    // v1.5.1: the net is the headline; the commission is its own line.
+    expect(find.text('- ₹17'), findsOneWidget);
     expect(find.text('₹124999'), findsNothing, reason: 'not the whole fare');
   });
 
@@ -61,7 +61,7 @@ void main() {
       return json({'_id': 'ride-1', 'status': 'completed', 'driverEarning': 68, 'commissionAmount': 17});
     });
     expect(find.text('₹68'), findsOneWidget);
-    expect(find.textContaining('₹17'), findsNothing);
+    expect(find.text('- ₹17'), findsOneWidget, reason: 'commission shown as a line, net as the headline');
   });
 
   testWidgets('a failed settlement says so and stays', (tester) async {

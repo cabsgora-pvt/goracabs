@@ -13,20 +13,29 @@ class KycPendingPage extends StatefulWidget {
   State<KycPendingPage> createState() => _KycPendingPageState();
 }
 
-class _KycPendingPageState extends State<KycPendingPage> {
+class _KycPendingPageState extends State<KycPendingPage> with WidgetsBindingObserver {
   Timer? _poll;
 
   @override
   void initState() {
     super.initState();
     _checkStatus();
-    _poll = Timer.periodic(const Duration(seconds: 5), (_) => _checkStatus());
+    // Approval takes hours, not seconds: a slow poll, plus a check as soon as
+    // the driver comes back to the app.
+    _poll = Timer.periodic(kycStatusPollEvery, (_) => _checkStatus());
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
     _poll?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _checkStatus();
   }
 
   Future<void> _checkStatus() async {
@@ -40,7 +49,9 @@ class _KycPendingPageState extends State<KycPendingPage> {
         Navigator.pushNamedAndRemoveUntil(context, HomePage.route, (_) => false);
       } else if (status == 'rejected') {
         _poll?.cancel();
-        Navigator.pushNamedAndRemoveUntil(context, RejectionPage.route, (_) => false);
+        // The reason goes with it — the page has nothing to show otherwise.
+        Navigator.pushNamedAndRemoveUntil(context, RejectionPage.route, (_) => false,
+            arguments: rejectionArgs(driver));
       }
     } catch (_) {
       // silent retry next tick

@@ -6,6 +6,7 @@ import 'kyc_success_page.dart';
 import 'widgets/reg_motion.dart';
 import 'widgets/reg_ui.dart';
 import 'widgets/status_views.dart';
+import 'registration_draft.dart';
 
 /// Opened for a driver resuming at server registrationStep 'bank': documents
 /// saved by an older app build that still asked for bank details. Bank details
@@ -52,6 +53,8 @@ class _SubmitApplicationPageState extends State<SubmitApplicationPage> {
       final code = res['statusCode'] is int ? res['statusCode'] as int : 0;
       final error = res['error']?.toString();
       if (error == null && code >= 200 && code < 300) {
+        // Submitted: the typed-in drafts of the earlier steps are done with.
+        await RegistrationDraft.clear();
         nav.pushNamedAndRemoveUntil(KycSuccessPage.route, (_) => false);
         return;
       }

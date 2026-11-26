@@ -8,6 +8,7 @@ import '../../services/driver_api_service.dart';
 import 'document_upload_page.dart';
 import 'widgets/reg_ui.dart';
 import 'widgets/vehicle_visuals.dart';
+import 'registration_draft.dart';
 
 class VehicleDetailsPage extends StatefulWidget {
   static const route = '/registration/vehicle-details';
@@ -22,12 +23,33 @@ class _VehicleDetailsPageState extends State<VehicleDetailsPage> {
   final _vehicleModel = TextEditingController();
   bool _loading = false;
   late Map<String, dynamic> _vehicle;
+  bool _restored = false;
+
+  // What is typed here survives the app closing mid-form (RegistrationDraft).
+  late final DraftSaver _draft = DraftSaver(RegistrationDraft.vehicle, () => {
+    'model': _vehicleModel.text, 'regNumber': _regNumber.text,
+  });
+
+  @override
+  void initState() {
+    super.initState();
+    RegistrationDraft.sealed = false; // filling in (again): drafts are kept
+    _regNumber.addListener(_draft.schedule);
+    _vehicleModel.addListener(_draft.schedule);
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final args = ModalRoute.of(context)?.settings.arguments as Map?;
     _vehicle = Map<String, dynamic>.from(args?['vehicle'] as Map? ?? {});
+    if (_restored) return;
+    _restored = true;
+    RegistrationDraft.load(RegistrationDraft.vehicle).then((d) {
+      if (!mounted || d.isEmpty) return;
+      RegistrationDraft.restoreInto(_vehicleModel, d, 'model');
+      RegistrationDraft.restoreInto(_regNumber, d, 'regNumber');
+    });
   }
 
   Future<void> _submit() async {
@@ -56,6 +78,8 @@ class _VehicleDetailsPageState extends State<VehicleDetailsPage> {
 
   @override
   void dispose() {
+    _draft.cancel();
+    _draft.flush();
     _regNumber.dispose();
     _vehicleModel.dispose();
     super.dispose();

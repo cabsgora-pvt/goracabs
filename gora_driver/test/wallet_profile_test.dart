@@ -243,7 +243,9 @@ void main() {
 
   group('order complete', () {
     for (final commission in const [18, 0]) {
-      testWidgets('shows the earning, never the commission (commission $commission)', (tester) async {
+      // v1.5.1: the split is shown (trip fare, commission, net) — the net is
+      // the headline, never the gross fare.
+      testWidgets('shows the net earning and the commission line (commission $commission)', (tester) async {
         phone(tester);
         final ride = RideRequestModel.fromJson({
           'id': 'r1', 'service': 'taxi', 'riderName': 'Rahul', 'vehicleType': 'Cab',
@@ -262,9 +264,14 @@ void main() {
         });
         expect(find.text('Order Complete'), findsOneWidget);
         expect(find.text('₹92'), findsOneWidget);
-        expect(find.textContaining('Commission'), findsNothing);
-        expect(find.textContaining('COMMISSION'), findsNothing);
-        expect(find.text('- ₹18'), findsNothing);
+        expect(find.text('₹110'), findsOneWidget, reason: 'the trip fare, as a line');
+        if (commission > 0) {
+          expect(find.text('Gora commission'), findsOneWidget);
+          expect(find.text('- ₹18'), findsOneWidget);
+          expect(find.text(commissionFromWalletText(18)), findsOneWidget, reason: 'a cash ride');
+        } else {
+          expect(find.text('Commission (none on this trip)'), findsOneWidget);
+        }
         expect(find.text('Rate your Customer'), findsOneWidget);
       });
     }

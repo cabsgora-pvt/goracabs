@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../core/constants/app_colors.dart';
+import '../../../services/device_channel.dart';
+import '../../../services/driver_api_service.dart';
 import '../../../utils/call_util.dart';
 import '../pages/emergency_actions_page.dart';
 import '../pages/ride_chat_page.dart';
@@ -33,6 +37,15 @@ import 'nav_map.dart';
 // controls, the "Navigate to" button and the camera's centre all sit in the
 // part of the map the driver can actually see.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// How often an open trip screen checks for new rider messages (the chat
+/// screen itself polls every 3 s while it is open; this only feeds the badge).
+const chatBadgePollEvery = Duration(seconds: 10);
+
+/// Messages in a ride's chat that the rider (not this driver) sent.
+int riderMessageCount(Iterable<Object?> messages) => messages
+    .where((m) => m is Map && m['sender'] != null && m['sender'] != 'driver')
+    .length;
 
 /// Who the driver is dealing with right now — the rider, or for a parcel the
 /// sender and then the receiver.
@@ -110,7 +123,17 @@ class RideShell extends StatefulWidget {
   State<RideShell> createState() => _RideShellState();
 }
 
-class _RideShellState extends State<RideShell> {
+class _RideShellState extends State<RideShell> with WidgetsBindingObserver {
+  /// Rider messages the driver has seen, per ride: survives the trip screen
+  /// being replaced by the next service screen of the same ride.
+  static final Map<String, int> _seenByRide = {};
+
+  Timer? _chatPoll;
+  bool _chatOpen = false;
+  int _riderMessages = 0;
+
+  int get _unread => (_riderMessages - (_seenByRide[widget.rideId] ?? 0)).clamp(0, 999);
+
   // A first guess until the sheet has been measured, close to its usual height
   // so the map controls do not visibly jump on the first frame.
   double _sheetHeight = 300;
@@ -120,13 +143,37 @@ class _RideShellState extends State<RideShell> {
   @override
   void initState() {
     super.initState();
+    // The display stays on for the whole trip — a driver following the map
+    // should not have to tap a dimmed screen awake at every junction.
+    if (RideShell._open == 0) unawaited(DeviceChannel.keepScreenOn(true));
     RideShell._open++;
+    WidgetsBinding.instance.addObserver(this);
+    _chatPoll = Timer.periodic(chatBadgePollEvery, (_) => _checkMessages());
   }
 
   @override
   void dispose() {
+    _chatPoll?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     RideShell._open--;
+    if (RideShell._open == 0) unawaited(DeviceChannel.keepScreenOn(false));
     super.dispose();
+  }
+
+  /// One look at the ride's chat. A new rider message beeps once and shows on
+  /// the badge. Not while the chat itself is open (it polls), nor in the
+  /// background.
+  Future<void> _checkMessages() async {
+    if (_chatOpen || !mounted || widget.rideId.isEmpty) return;
+    final st = WidgetsBinding.instance.lifecycleState;
+    if (st != null && st != AppLifecycleState.resumed) return;
+    try {
+      final res = await DriverApiService.getRideMessages(widget.rideId);
+      if (res['error'] != null || !mounted || _chatOpen) return;
+      final n = riderMessageCount((res['messages'] as List?) ?? const []);
+      if (n > _riderMessages && n > (_seenByRide[widget.rideId] ?? 0)) unawaited(DeviceChannel.beep());
+      if (n != _riderMessages) setState(() => _riderMessages = n);
+    } catch (_) {}
   }
 
   @override
@@ -141,8 +188,21 @@ class _RideShellState extends State<RideShell> {
     setState(() => _sheetHeight = size.height);
   }
 
-  void _openChat() => Navigator.push(context, MaterialPageRoute(
-      builder: (_) => RideChatPage(rideId: widget.rideId, otherName: widget.chatWith)));
+  Future<void> _openChat() async {
+    _chatOpen = true;
+    setState(() => _seenByRide[widget.rideId] = _riderMessages);
+    await Navigator.push(context, MaterialPageRoute(
+        builder: (_) => RideChatPage(rideId: widget.rideId, otherName: widget.chatWith)));
+    if (!mounted) return;
+    // Everything up to now was on screen: read it again as the new baseline.
+    try {
+      final res = await DriverApiService.getRideMessages(widget.rideId);
+      if (res['error'] == null) _riderMessages = riderMessageCount((res['messages'] as List?) ?? const []);
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() => _seenByRide[widget.rideId] = _riderMessages);
+    _chatOpen = false;
+  }
 
   void _openSos() => Navigator.push(context, MaterialPageRoute(
       builder: (_) => EmergencyActionsPage(rideId: widget.rideId)));
@@ -338,6 +398,7 @@ class _RideShellState extends State<RideShell> {
         color: AppColors.textDark,
         tooltip: 'Message rider',
         onTap: _openChat,
+        badge: _unread,
       ),
     ]);
   }
@@ -348,17 +409,38 @@ class _RideShellState extends State<RideShell> {
     required Color color,
     required String tooltip,
     required VoidCallback onTap,
+    int badge = 0,
   }) => Tooltip(
     message: tooltip,
-    child: Material(
-      color: AppColors.cardBg,
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: SizedBox(width: 44, height: 44, child: Icon(icon, color: color, size: 21)),
+    child: Stack(clipBehavior: Clip.none, children: [
+      Material(
+        color: AppColors.cardBg,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(width: 44, height: 44, child: Icon(icon, color: color, size: 21)),
+        ),
       ),
-    ),
+      if (badge > 0)
+        Positioned(
+          top: -3, right: -3,
+          child: IgnorePointer(
+            child: Container(
+              key: const ValueKey('chat_unread_badge'),
+              constraints: const BoxConstraints(minWidth: 18),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+              decoration: BoxDecoration(
+                color: AppColors.red,
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(color: AppColors.white, width: 1.5),
+              ),
+              child: Text(badge > 9 ? '9+' : '$badge', textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.w900)),
+            ),
+          ),
+        ),
+    ]),
   );
 }
 

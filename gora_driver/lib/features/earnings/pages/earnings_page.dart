@@ -30,6 +30,25 @@ class _EarningsPageState extends State<EarningsPage> {
         backgroundColor: Cap.surface,
         body: BlocBuilder<EarningsBloc, EarningsState>(
           builder: (context, state) {
+            if (state is EarningsError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.cloud_off_rounded, size: 40, color: Cap.muted),
+                    const SizedBox(height: 10),
+                    Text(state.message, textAlign: TextAlign.center, style: Cap.body(size: 14, weight: FontWeight.w700)),
+                    const SizedBox(height: 14),
+                    CapButton(
+                      label: 'Retry',
+                      icon: Icons.refresh_rounded,
+                      height: 46,
+                      onPressed: () => context.read<EarningsBloc>().add(LoadEarningsEvent()),
+                    ),
+                  ]),
+                ),
+              );
+            }
             if (state is! EarningsLoaded) return const AppLoader();
             return Column(children: [
               Padding(
@@ -40,7 +59,14 @@ class _EarningsPageState extends State<EarningsPage> {
                   onChanged: (i) => setState(() => _tab = i),
                 ),
               ),
-              Expanded(child: _content(state)),
+              Expanded(child: RefreshIndicator(
+                onRefresh: () async {
+                  final bloc = context.read<EarningsBloc>();
+                  bloc.add(LoadEarningsEvent());
+                  await bloc.stream.firstWhere((s) => s is EarningsLoaded || s is EarningsError);
+                },
+                child: _content(state),
+              )),
             ]);
           },
         ),
@@ -51,14 +77,19 @@ class _EarningsPageState extends State<EarningsPage> {
   Widget _content(EarningsLoaded s) {
     switch (_tab) {
       case 1:
-        return _periodView(s.weekly, _weekSel, (i) => setState(() => _weekSel = i), 'Last 7 days');
+        return _periodView(s.weekly, _weekSel, (i) => setState(() => _weekSel = i), 'Last 7 days',
+            incentive: s.incentives['week']);
       case 2:
-        return _periodView(s.monthly, _monthSel, (i) => setState(() => _monthSel = i), 'Year ${DateTime.now().year}');
+        return _periodView(s.monthly, _monthSel, (i) => setState(() => _monthSel = i), 'Year ${DateTime.now().year}',
+            incentive: s.incentives['month']);
       default:
         return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
           child: Column(children: [
             _heroCard("Today's earnings", s.today),
+            const SizedBox(height: 12),
+            _moneySplit(s.today, incentive: s.incentives['day']),
             const SizedBox(height: 12),
             _statGrid(s.today),
           ]),
@@ -66,7 +97,13 @@ class _EarningsPageState extends State<EarningsPage> {
     }
   }
 
-  Widget _periodView(List<PeriodStat> items, int sel, ValueChanged<int> onSel, String listTitle) {
+  Widget _periodView(List<PeriodStat> items, int sel, ValueChanged<int> onSel, String listTitle, {double? incentive}) {
+    if (items.isEmpty) {
+      return ListView(physics: const AlwaysScrollableScrollPhysics(), children: [
+        const SizedBox(height: 80),
+        Center(child: Text('No earnings yet', style: Cap.body(size: 14, weight: FontWeight.w700))),
+      ]);
+    }
     final i = sel.clamp(0, items.length - 1);
     final selected = items[i];
     return Column(children: [
@@ -83,9 +120,13 @@ class _EarningsPageState extends State<EarningsPage> {
       ),
       Expanded(
         child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           child: Column(children: [
             _heroCard('${selected.label} ${selected.sub}', selected),
+            const SizedBox(height: 12),
+            // Incentives are per current week / month, not per picked day.
+            _moneySplit(selected, incentive: selected.isCurrent ? incentive : null),
             const SizedBox(height: 12),
             _statGrid(selected),
             const SizedBox(height: 8),
@@ -144,6 +185,36 @@ class _EarningsPageState extends State<EarningsPage> {
         ),
         const SizedBox(height: 4),
         Text('${p.rides} ${p.rides == 1 ? "trip" : "trips"} completed', style: Cap.caption(size: 13)),
+      ]),
+    );
+  }
+
+  /// Where the money came from: cash vs online trips, Gora's commission, tips,
+  /// and incentives reached.
+  Widget _moneySplit(PeriodStat p, {double? incentive}) {
+    Widget row(String label, String value, {Color? color, Key? key}) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(key: key, children: [
+        Expanded(child: Text(label, style: Cap.body(size: 13.5, weight: FontWeight.w600))),
+        Text(value, style: Cap.body(size: 14, weight: FontWeight.w900, color: color)),
+      ]),
+    );
+    String rs(double v) => '₹${v.toStringAsFixed(0)}';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+      decoration: BoxDecoration(
+        color: Cap.surface,
+        borderRadius: BorderRadius.circular(Cap.radius),
+        border: Border.all(color: Cap.divider),
+      ),
+      child: Column(children: [
+        row('From cash trips', rs(p.cash), key: const ValueKey('earn_cash')),
+        row('From online / wallet trips', rs(p.online), key: const ValueKey('earn_online')),
+        row('Tips', rs(p.tips), color: p.tips > 0 ? AppColors.green : null),
+        row('Gora commission', p.commission > 0 ? '- ${rs(p.commission)}' : rs(0)),
+        if (incentive != null && incentive > 0)
+          row('Incentives reached', '+ ${rs(incentive)}', color: AppColors.green, key: const ValueKey('earn_incentive')),
       ]),
     );
   }

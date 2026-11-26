@@ -65,6 +65,13 @@ class _HomePageState extends State<HomePage> {
             // Refresh so the red hold banner shows on the map too.
             context.read<DriverProvider>().loadProfile();
             showAccountHoldDialog(context, state.message);
+          } else if (state is GoOnlineFailedState) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              key: const ValueKey('go_online_failed'),
+              content: Text(state.message),
+              backgroundColor: Cap.red,
+              duration: const Duration(seconds: 6),
+            ));
           } else if (state is OnlineStatusChanged && state.zoneChangedTo != null) {
             context.read<DriverProvider>().loadProfile();
             ScaffoldMessenger.of(context).showSnackBar(
@@ -655,6 +662,15 @@ class _LowBalanceBanner extends StatelessWidget {
   }
 }
 
+/// The wait before the next request-feed poll after [failures] failed ones in
+/// a row: 4 s normally, doubling on each failure up to 30 s, so a server or
+/// network outage is not hammered every 4 s by every online phone.
+Duration feedPollDelay(int failures) {
+  if (failures <= 0) return const Duration(seconds: 4);
+  final s = 4 * (1 << failures.clamp(0, 4));
+  return Duration(seconds: s > 30 ? 30 : s);
+}
+
 // Polls the backend for pending ride requests + pushes location while online.
 class _RidePoller extends StatefulWidget {
   const _RidePoller();
@@ -666,16 +682,27 @@ class _RidePollerState extends State<_RidePoller> {
   Timer? _pollTimer;
   Timer? _locTimer;
   bool _navigating = false;
+  int _failures = 0;
+  bool _disposed = false;
 
   @override
   void initState() {
     super.initState();
-    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) => _poll());
+    _schedulePoll();
     _locTimer = Timer.periodic(const Duration(seconds: 15), (_) => _pushLocation());
+  }
+
+  void _schedulePoll() {
+    if (_disposed) return;
+    _pollTimer = Timer(feedPollDelay(_failures), () async {
+      await _poll();
+      _schedulePoll();
+    });
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _pollTimer?.cancel();
     _locTimer?.cancel();
     feedBlock.value = null;
@@ -691,8 +718,10 @@ class _RidePollerState extends State<_RidePoller> {
   Future<void> _pushLocation() async {
     if (_inBackground) return;
     try {
-      // Never a stale last-known fix passed off as where the driver is now.
-      await pushFreshLocation(await LocationService.getCurrentLocation());
+      // The home map already streams the position: its last fix is reused,
+      // and a new GPS fix is only taken when nothing recent is at hand.
+      // pushFreshLocation still refuses a stale one.
+      await pushFreshLocation(await LocationService.fixForPing());
     } catch (_) {}
   }
 
@@ -715,6 +744,9 @@ class _RidePollerState extends State<_RidePoller> {
     // The app is in front: the background service's own poll can rest.
     RideAlertService.foregroundHeartbeat();
     if (_navigating || !mounted) return;
+    // Minimised: the online service's background poll takes over (it only
+    // polls while this screen's heartbeats have stopped).
+    if (_inBackground) return;
     // Not over a trip in progress. The pending feed does not leave out drivers
     // already on a job, and opt-in services (rental, hire, outstation, parcel)
     // stay listed for 15 minutes — so right after accepting one, the request
@@ -723,6 +755,8 @@ class _RidePollerState extends State<_RidePoller> {
     try {
       final res = await DriverApiService.getPendingRequests();
       if (!mounted) return;
+      // A refusal or outage backs the next poll off (feedPollDelay).
+      _failures = res['error'] == null ? 0 : _failures + 1;
       if (res['error'] == null) {
         // An empty feed with a reason (not approved, wallet blocked …) shows
         // that reason instead of nothing.
@@ -739,9 +773,13 @@ class _RidePollerState extends State<_RidePoller> {
       // Open the multi-request screen (shows up to 5 pending requests at once).
       if (!mounted) return;
       _navigating = true;
-      await Navigator.pushNamed(context, IncomingRequestsPage.route);
-      _navigating = false;
-    } catch (_) {}
+      // Not awaited: polling (and with it the foreground heartbeat that keeps
+      // the background service quiet) carries on while the page is open.
+      unawaited(Navigator.pushNamed(context, IncomingRequestsPage.route)
+          .whenComplete(() => _navigating = false));
+    } catch (_) {
+      _failures++;
+    }
   }
 
   @override

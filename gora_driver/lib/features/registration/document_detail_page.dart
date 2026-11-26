@@ -108,6 +108,31 @@ class DocumentDetailPage extends StatefulWidget {
   State<DocumentDetailPage> createState() => _DocumentDetailPageState();
 }
 
+/// Asks where a document photo comes from: the camera (listed first, the
+/// default) or the gallery. Null when dismissed.
+Future<ImageSource?> pickPhotoSource(BuildContext context) => showModalBottomSheet<ImageSource>(
+  context: context,
+  showDragHandle: true,
+  builder: (c) => SafeArea(
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+      ListTile(
+        key: const ValueKey('photo_source_camera'),
+        leading: const Icon(Icons.photo_camera_outlined),
+        title: const Text('Take a photo'),
+        subtitle: const Text('Recommended — place the document flat, in good light'),
+        onTap: () => Navigator.pop(c, ImageSource.camera),
+      ),
+      ListTile(
+        key: const ValueKey('photo_source_gallery'),
+        leading: const Icon(Icons.photo_library_outlined),
+        title: const Text('Choose from gallery'),
+        onTap: () => Navigator.pop(c, ImageSource.gallery),
+      ),
+      const SizedBox(height: 8),
+    ]),
+  ),
+);
+
 class _DocumentDetailPageState extends State<DocumentDetailPage> {
   late final TextEditingController _number;
   DateTime? _expiry;
@@ -127,7 +152,11 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
   void dispose() { _number.dispose(); super.dispose(); }
 
   Future<void> _pick(bool front) async {
-    final file = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 70,
+    // Camera first: a document is usually photographed there and then. The
+    // gallery is still offered for a photo already taken.
+    final source = await pickPhotoSource(context);
+    if (source == null || !mounted) return;
+    final file = await ImagePicker().pickImage(source: source, imageQuality: 70,
         maxWidth: DriverApiService.maxImageSide, maxHeight: DriverApiService.maxImageSide);
     if (file == null) return;
     setState(() => front ? _frontBusy = true : _backBusy = true);

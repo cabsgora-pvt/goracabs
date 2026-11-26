@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
+import '../logic/request_announcement.dart';
 import 'voice_guide.dart';
 
 /// Voice guidance settings: on/off, language, and a sample to hear it.
@@ -17,11 +18,20 @@ class VoiceSettingsCard extends StatefulWidget {
 class _VoiceSettingsCardState extends State<VoiceSettingsCard> {
   final VoiceGuide _voice = VoiceGuide();
   bool _loaded = false;
+  bool _announce = true;
 
   @override
   void initState() {
     super.initState();
-    _voice.init().then((_) { if (mounted) setState(() => _loaded = true); });
+    _voice.init().then((_) async {
+      final a = await RequestAnnouncer.enabled();
+      if (mounted) setState(() { _loaded = true; _announce = a; });
+    });
+  }
+
+  Future<void> _setAnnounce(bool on) async {
+    setState(() => _announce = on);
+    await RequestAnnouncer.setEnabled(on);
   }
 
   @override
@@ -47,7 +57,8 @@ class _VoiceSettingsCardState extends State<VoiceSettingsCard> {
   Widget build(BuildContext context) {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final on = !_voice.muted;
-    final hindiMissing = _voice.preferredLanguage == VoiceLanguage.hindi && _voice.language != VoiceLanguage.hindi;
+    final missing = _voice.preferredMissing;
+    final missingName = _voice.preferredLanguage == VoiceLanguage.gujarati ? 'Gujarati' : 'Hindi';
 
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 6, 14, 12),
@@ -75,7 +86,7 @@ class _VoiceSettingsCardState extends State<VoiceSettingsCard> {
         Text('Language', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textGrey)),
         const SizedBox(height: 6),
         Wrap(spacing: 8, children: [
-          for (final code in const [VoiceLanguage.english, VoiceLanguage.hindi])
+          for (final code in VoiceLanguage.all)
             ChoiceChip(
               label: Text(VoiceLanguage.label(code)),
               selected: _voice.preferredLanguage == code,
@@ -83,20 +94,33 @@ class _VoiceSettingsCardState extends State<VoiceSettingsCard> {
               selectedColor: AppColors.primary.withOpacity(0.15),
             ),
         ]),
-        if (hindiMissing)
+        if (missing)
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const Icon(Icons.info_outline, size: 16, color: AppColors.orange),
               const SizedBox(width: 6),
               Expanded(child: Text(
-                'This phone has no Hindi voice installed, so guidance stays in English. '
-                'Add Hindi in the phone\'s Text-to-speech settings.',
+                'This phone has no $missingName voice installed, so guidance stays in English. '
+                'Add $missingName in the phone\'s Text-to-speech settings.',
                 style: TextStyle(fontSize: 11.5, color: AppColors.textGrey),
               )),
             ]),
           ),
-        const SizedBox(height: 4),
+        // New ride requests are read out ("New ride, 142 rupees, 1.2 km
+        // away") in the same language. Its own setting, so a driver can mute
+        // turn-by-turn and keep the request announcement, or the other way.
+        CheckboxListTile(
+          key: const ValueKey('announce_requests'),
+          value: _announce,
+          onChanged: _loaded ? (v) => _setAnnounce(v ?? true) : null,
+          dense: true,
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          activeColor: AppColors.primary,
+          title: Text('Read out new ride requests',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: onSurface)),
+        ),
         TextButton.icon(
           onPressed: _loaded
               ? () => _voice.say(NavAnnouncer.samplePhrase(_voice.language), evenIfMuted: true)

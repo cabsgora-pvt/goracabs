@@ -531,6 +531,11 @@ class DriverApiService {
   static Future<Map<String, dynamic>> addBank(Map<String, dynamic> bank) =>
       post('/auth/driver/banks', bank, auth: true);
 
+  /// Saves the driver's UPI ID (the cash-ride QR): {success, upiId}, or
+  /// 400 {code: INVALID_UPI}. '' clears it.
+  static Future<Map<String, dynamic>> saveUpiId(String upiId) =>
+      put('/auth/driver/banks', {'upiId': upiId});
+
   /// {amount, accountId?}: the payout account is one of the driver's saved
   /// accounts (the server never takes bank details from here). 400
   /// bankAccountRequired / bankAccountNotFound, 403 notApproved / accountHold,

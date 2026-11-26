@@ -19,6 +19,14 @@ class WalletLoaded extends WalletState {
   WalletLoaded(this.balance, this.transactions);
   @override List<Object?> get props => [balance, transactions];
 }
+/// The wallet could not be read. Never shown as a ₹0 balance: a server
+/// {error} or a dropped connection used to read as "₹ 0.00 — recharge".
+class WalletError extends WalletState {
+  final String message;
+  WalletError(this.message);
+  @override List<Object?> get props => [message];
+}
+
 class WalletBloc extends Bloc<WalletEvent, WalletState> {
   WalletBloc() : super(WalletInitial()) {
     on<LoadWalletEvent>(_onLoad);
@@ -27,7 +35,14 @@ class WalletBloc extends Bloc<WalletEvent, WalletState> {
     emit(WalletLoading());
     try {
       final res = await DriverApiService.getWallet();
-      final balance = (res['balance'] as num?)?.toDouble() ?? 0;
+      final bal = res['balance'];
+      if (res['error'] != null || bal is! num) {
+        emit(WalletError(res['error'] != null
+            ? 'Could not load your wallet: ${res['error']}'
+            : 'Could not load your wallet. Please try again.'));
+        return;
+      }
+      final balance = bal.toDouble();
       final txns = ((res['transactions'] as List?) ?? []).map((raw) {
         final t = Map<String, dynamic>.from(raw as Map);
         final amt = (t['amount'] as num?) ?? 0;
@@ -43,7 +58,7 @@ class WalletBloc extends Bloc<WalletEvent, WalletState> {
       }).toList();
       emit(WalletLoaded(balance, txns));
     } catch (_) {
-      emit(WalletLoaded(0, []));
+      emit(WalletError('Could not load your wallet. Check your internet and try again.'));
     }
   }
 

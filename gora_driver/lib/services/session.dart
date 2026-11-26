@@ -53,6 +53,8 @@ class Session {
   static const sessionKeys = [
     'driver_token', 'driver_online', 'logged_in', 'driver_upi',
     'sos_default_contact', 'sos_call_default', refreshAfterKey,
+    // Registration drafts (features/registration/registration_draft.dart).
+    'reg_draft_personal', 'reg_draft_vehicle',
   ];
 
   static bool _ending = false;

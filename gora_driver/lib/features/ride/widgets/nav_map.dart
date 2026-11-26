@@ -51,6 +51,10 @@ class NavLeg {
   LatLng? get target => isValid ? LatLng(destLat!, destLng!) : null;
 }
 
+/// How often an unchanged route is fetched again (for a fresh traffic ETA).
+/// Going off it fetches a new one straight away.
+const routeRefreshEvery = Duration(minutes: 2);
+
 class NavMapPanel extends StatefulWidget {
   final NavLeg leg;
   final String? fallbackPolyline;
@@ -176,7 +180,11 @@ class _NavMapPanelState extends State<NavMapPanel> with WidgetsBindingObserver {
       background: true,
       notificationText: 'Navigating to your next stop',
     ).listen(_onPosition, onError: (_) {});
-    _routeTimer = Timer.periodic(const Duration(seconds: 30), (_) => _fetchRoute());
+    // A reroute (off the line by more than NavThresholds.offRouteM) fetches a
+    // new route at once; otherwise the route — and its traffic ETA — is only
+    // refreshed every [routeRefreshEvery]. It was every 30 s, for a route that
+    // had not changed.
+    _routeTimer = Timer.periodic(routeRefreshEvery, (_) => _fetchRoute());
   }
 
   @override
@@ -466,7 +474,9 @@ class _NavMapPanelState extends State<NavMapPanel> with WidgetsBindingObserver {
   /// The banner on the last stretch, where the destination is what lies ahead.
   String _arriveText(String label) => _announcer.language == VoiceLanguage.hindi
       ? '${NavAnnouncer.spokenLabel(label, VoiceLanguage.hindi)} पर पहुँचें'
-      : 'Arrive at the ${NavAnnouncer.spokenLabel(label, VoiceLanguage.english)}';
+      : _announcer.language == VoiceLanguage.gujarati
+          ? '${NavAnnouncer.spokenLabel(label, VoiceLanguage.gujarati)} પર પહોંચો'
+          : 'Arrive at the ${NavAnnouncer.spokenLabel(label, VoiceLanguage.english)}';
 
   void _announce() {
     final p = _progress;

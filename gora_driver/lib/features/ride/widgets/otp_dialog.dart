@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// A 4-digit code the driver types: the rider's OTP to start a trip, the
 /// receiver's to hand over a parcel. Resolves to what was typed, or null on
@@ -27,22 +30,56 @@ class OtpDialog extends StatefulWidget {
   State<OtpDialog> createState() => _OtpDialogState();
 }
 
+/// Digits in a ride / parcel OTP. At this many the dialog submits itself.
+const otpLength = 4;
+
+/// The pause between the last digit and the automatic submit, so the driver
+/// sees the full code before the dialog closes.
+const otpAutoSubmitAfter = Duration(milliseconds: 250);
+
 class _OtpDialogState extends State<OtpDialog> {
   String _otp = '';
+  bool _done = false;
+  Timer? _auto;
+
+  @override
+  void dispose() {
+    _auto?.cancel();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_done) return;
+    _done = true;
+    _auto?.cancel();
+    Navigator.pop(context, _otp);
+  }
+
+  void _changed(String v) {
+    _otp = v.trim();
+    _auto?.cancel();
+    if (_otp.length == otpLength) _auto = Timer(otpAutoSubmitAfter, () { if (mounted) _submit(); });
+  }
 
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text(widget.title, style: const TextStyle(fontWeight: FontWeight.w700)),
     content: TextField(
-      onChanged: (v) => _otp = v.trim(),
+      // The keypad is up the moment the dialog opens, digits only, and the
+      // code goes in by itself at the 4th digit.
+      autofocus: true,
+      onChanged: _changed,
+      onSubmitted: (_) => _submit(),
       keyboardType: TextInputType.number,
-      maxLength: 4,
+      textInputAction: TextInputAction.done,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      maxLength: otpLength,
       decoration: InputDecoration(labelText: widget.label, hintText: widget.hint),
       style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: 8),
     ),
     actions: [
-      TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-      ElevatedButton(onPressed: () => Navigator.pop(context, _otp), child: Text(widget.action)),
+      TextButton(onPressed: () { _done = true; _auto?.cancel(); Navigator.pop(context); }, child: const Text('Cancel')),
+      ElevatedButton(onPressed: _submit, child: Text(widget.action)),
     ],
   );
 }

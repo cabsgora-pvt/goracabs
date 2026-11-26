@@ -24,13 +24,47 @@ class WalletPage extends StatelessWidget {
         body: BlocBuilder<WalletBloc, WalletState>(
           builder: (context, state) {
             if (state is WalletLoading) return const AppLoader();
-            if (state is WalletLoaded) return _Body(balance: state.balance, transactions: state.transactions);
+            if (state is WalletError) return _ErrorView(message: state.message);
+            if (state is WalletLoaded) {
+              // Pull down to read the balance and history again.
+              return RefreshIndicator(
+                onRefresh: () async {
+                  final bloc = context.read<WalletBloc>();
+                  bloc.add(LoadWalletEvent());
+                  await bloc.stream.firstWhere((s) => s is WalletLoaded || s is WalletError);
+                },
+                child: _Body(balance: state.balance, transactions: state.transactions),
+              );
+            }
             return const AppLoader();
           },
         ),
       ),
     );
   }
+}
+
+class _ErrorView extends StatelessWidget {
+  final String message;
+  const _ErrorView({required this.message});
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.cloud_off_rounded, size: 40, color: Cap.muted),
+        const SizedBox(height: 10),
+        Text(message, textAlign: TextAlign.center, style: Cap.body(size: 14, weight: FontWeight.w700)),
+        const SizedBox(height: 14),
+        CapButton(
+          label: 'Retry',
+          icon: Icons.refresh_rounded,
+          height: 46,
+          onPressed: () => context.read<WalletBloc>().add(LoadWalletEvent()),
+        ),
+      ]),
+    ),
+  );
 }
 
 class _Body extends StatelessWidget {
@@ -56,6 +90,7 @@ class _Body extends StatelessWidget {
   Widget build(BuildContext context) {
     final negative = balance < 0;
     return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
         // Balance summary

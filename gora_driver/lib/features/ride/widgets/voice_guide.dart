@@ -27,9 +27,27 @@ class VoiceLanguage {
   VoiceLanguage._();
   static const english = 'en';
   static const hindi = 'hi';
+  static const gujarati = 'gu';
+
+  /// Every language offered in settings, in order.
+  static const all = [english, hindi, gujarati];
 
   /// Name shown in settings, in its own script.
-  static String label(String code) => code == hindi ? 'हिंदी' : 'English';
+  static String label(String code) => code == hindi
+      ? 'हिंदी'
+      : code == gujarati
+          ? 'ગુજરાતી'
+          : 'English';
+
+  /// The device speech locale for [code].
+  static String locale(String code) => code == hindi
+      ? 'hi-IN'
+      : code == gujarati
+          ? 'gu-IN'
+          : 'en-IN';
+
+  /// [code] when it is a supported language, else English.
+  static String of(String? code) => all.contains(code) ? code! : english;
 }
 
 class NavAnnouncer {
@@ -58,6 +76,7 @@ class NavAnnouncer {
   DateTime? _lastReroute;
 
   bool get _hi => language == VoiceLanguage.hindi;
+  bool get _gu => language == VoiceLanguage.gujarati;
 
   /// Forget everything announced. Call when the route is replaced (a reroute or
   /// a new leg), so the new route's first manoeuvre is announced afresh.
@@ -97,6 +116,7 @@ class NavAnnouncer {
     if (arrived) {
       if (_arrivedDone) return null;
       _arrivedDone = true;
+      if (_gu) return 'તમે ${spokenLabel(destinationLabel, language)} પર પહોંચી ગયા છો';
       return _hi
           ? 'आप ${spokenLabel(destinationLabel, language)} पर पहुँच गए हैं'
           : 'You have arrived at the ${spokenLabel(destinationLabel, language)}';
@@ -129,6 +149,7 @@ class NavAnnouncer {
     if (!_farDone && toManeuverM <= farM) {
       _farDone = true;
       final distance = spokenDistance(toManeuverM, language: language);
+      if (_gu) return '$distance પછી, $phrase';
       return _hi ? '$distance बाद, $phrase' : 'In $distance, ${_lowerFirst(phrase)}';
     }
     return null;
@@ -140,18 +161,23 @@ class NavAnnouncer {
     final last = _lastReroute;
     if (last != null && t.difference(last) < rerouteQuiet) return null;
     _lastReroute = t;
+    if (_gu) return 'નવો રસ્તો શોધાઈ રહ્યો છે';
     return _hi ? 'नया रास्ता ढूँढा जा रहा है' : 'Rerouting';
   }
 
   /// Said as the driver reaches a toll road, alongside the on-screen prompt.
   static String tollPhrase(String language) => language == VoiceLanguage.hindi
       ? 'आप टोल रोड पर हैं। टोल देने के बाद उसे ऐप में जोड़ें।'
-      : 'You are on a toll road. Add the toll in the app when you pay it.';
+      : language == VoiceLanguage.gujarati
+          ? 'તમે ટોલ રોડ પર છો. ટોલ ચૂકવ્યા પછી તેને એપમાં ઉમેરો.'
+          : 'You are on a toll road. Add the toll in the app when you pay it.';
 
   /// A short sample for the settings screen, in [language].
   static String samplePhrase(String language) => language == VoiceLanguage.hindi
       ? 'आवाज़ से रास्ता बताना चालू है। 200 मीटर बाद, बाएँ मुड़ें।'
-      : 'Voice guidance is on. In 200 metres, turn left.';
+      : language == VoiceLanguage.gujarati
+          ? 'અવાજથી રસ્તો બતાવવાનું ચાલુ છે. 200 મીટર પછી, ડાબે વળો.'
+          : 'Voice guidance is on. In 200 metres, turn left.';
 
   /// "412" -> "400 metres"; "1260" -> "1.3 kilometres" (Hindi: मीटर, किलोमीटर).
   ///
@@ -159,15 +185,18 @@ class NavAnnouncer {
   /// spelled out, because an engine reads "m" as the letter M.
   static String spokenDistance(double metres, {String language = VoiceLanguage.english}) {
     final hi = language == VoiceLanguage.hindi;
+    final gu = language == VoiceLanguage.gujarati;
     if (metres >= 1000) {
       final km = (metres / 100).round() / 10;
       final text = km == km.roundToDouble() ? km.toStringAsFixed(0) : km.toStringAsFixed(1);
+      if (gu) return '$text કિલોમીટર';
       return hi ? '$text किलोमीटर' : '$text kilometre${km == 1 ? '' : 's'}';
     }
     final rounded = metres < 100
         ? ((metres / 10).round() * 10)
         : ((metres / 50).round() * 50);
     final m = rounded < 10 ? 10 : rounded;
+    if (gu) return '$m મીટર';
     return hi ? '$m मीटर' : '$m metres';
   }
 
@@ -180,9 +209,23 @@ class NavAnnouncer {
     'start point': 'शुरुआती जगह',
   };
 
+  static const _gujaratiLabels = <String, String>{
+    'pickup': 'પિકઅપ',
+    'drop': 'ડ્રોપ',
+    'customer': 'ગ્રાહક',
+    'receiver': 'રીસીવર',
+    'sender': 'મોકલનાર',
+    'start point': 'શરૂઆતની જગ્યા',
+  };
+
   /// How a leg label is said: "pickup", "stop 2" — or in Hindi, "पिकअप", "स्टॉप 2".
   static String spokenLabel(String label, String language) {
     final l = label.trim().toLowerCase();
+    if (language == VoiceLanguage.gujarati) {
+      final stop = RegExp(r'^stop\s+(\d+)$').firstMatch(l);
+      if (stop != null) return 'સ્ટોપ ${stop.group(1)}';
+      return _gujaratiLabels[l] ?? label.trim();
+    }
     if (language != VoiceLanguage.hindi) return l;
     final stop = RegExp(r'^stop\s+(\d+)$').firstMatch(l);
     if (stop != null) return 'स्टॉप ${stop.group(1)}';
@@ -213,13 +256,16 @@ class NavAnnouncer {
     var s = raw.trim();
     if (s.isEmpty) return s;
     final hi = language == VoiceLanguage.hindi;
+    final gu = language == VoiceLanguage.gujarati;
 
     // Highways first: "NH48", "NH 48", "SH-17" -> "National Highway 48".
     s = s.replaceAllMapped(
       RegExp(r'\b(NH|SH)[\s-]*(\d+)'),
       (m) => hi
           ? '${m[1] == 'NH' ? 'नेशनल' : 'स्टेट'} हाईवे ${m[2]}'
-          : '${m[1] == 'NH' ? 'National' : 'State'} Highway ${m[2]}',
+          : gu
+              ? '${m[1] == 'NH' ? 'નેશનલ' : 'સ્ટેટ'} હાઈવે ${m[2]}'
+              : '${m[1] == 'NH' ? 'National' : 'State'} Highway ${m[2]}',
     );
 
     // Saint before a capitalised name, Street everywhere else.
@@ -261,6 +307,13 @@ class VoiceGuide {
   /// Whether this phone can speak Hindi. Null until [init] has asked.
   bool? hindiAvailable;
 
+  /// Whether this phone has a voice for [preferredLanguage]. Null until asked.
+  bool? preferredAvailable;
+
+  /// The chosen language has no voice on this phone, so English is spoken.
+  bool get preferredMissing =>
+      preferredLanguage != VoiceLanguage.english && language != preferredLanguage;
+
   /// Configures the engine and restores the driver's voice settings.
   ///
   /// Every call is guarded: a device with no speech engine, or a test
@@ -270,9 +323,7 @@ class VoiceGuide {
     try {
       final prefs = await SharedPreferences.getInstance();
       muted = prefs.getBool(mutedKey) ?? false;
-      preferredLanguage = prefs.getString(languageKey) == VoiceLanguage.hindi
-          ? VoiceLanguage.hindi
-          : VoiceLanguage.english;
+      preferredLanguage = VoiceLanguage.of(prefs.getString(languageKey));
     } catch (_) {}
 
     try {
@@ -297,9 +348,14 @@ class VoiceGuide {
   /// Chooses the voice for [preferredLanguage], falling back to English.
   Future<void> _applyLanguage() async {
     hindiAvailable = await _available('hi-IN');
-    if (preferredLanguage == VoiceLanguage.hindi && hindiAvailable == true) {
-      await _tts.setLanguage('hi-IN');
-      language = VoiceLanguage.hindi;
+    preferredAvailable = preferredLanguage == VoiceLanguage.hindi
+        ? hindiAvailable
+        : preferredLanguage == VoiceLanguage.english
+            ? true
+            : await _available(VoiceLanguage.locale(preferredLanguage));
+    if (preferredLanguage != VoiceLanguage.english && preferredAvailable == true) {
+      await _tts.setLanguage(VoiceLanguage.locale(preferredLanguage));
+      language = preferredLanguage;
       return;
     }
     // Indian English where the device has it: it pronounces local road and
@@ -330,7 +386,7 @@ class VoiceGuide {
   /// Saves [code] as the driver's language and switches the voice to it.
   /// Returns the language that will actually be spoken.
   Future<String> setLanguage(String code) async {
-    preferredLanguage = code == VoiceLanguage.hindi ? VoiceLanguage.hindi : VoiceLanguage.english;
+    preferredLanguage = VoiceLanguage.of(code);
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(languageKey, preferredLanguage);

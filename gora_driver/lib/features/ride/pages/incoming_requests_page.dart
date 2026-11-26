@@ -12,6 +12,8 @@ import '../../../services/ride_alert_service.dart';
 import '../../home/logic/feed_status.dart';
 import '../logic/accept_outcome.dart';
 import '../logic/dismissed_requests.dart';
+import '../logic/request_announcement.dart';
+import '../widgets/voice_guide.dart';
 import '../widgets/swipe_to_confirm.dart';
 import '../../../widgets/captain_ui/captain_ui.dart';
 import '../../../services/session.dart';
@@ -43,6 +45,13 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   Map<String, String> _ringtones = {};
   final AudioPlayer _player = AudioPlayer();
   String? _playingService;
+  bool _vibrating = false;
+
+  // "New ride, 142 rupees, 1.2 km away", once per request (voice settings).
+  final VoiceGuide _voice = VoiceGuide();
+  bool _voiceReady = false;
+  bool _announceOn = true;
+  final Set<String> _announced = {};
   bool _closed = false; // guards against double-pop (which lands on the start screen)
 
   // Driver's current location — used to compute the driver → pickup distance
@@ -66,13 +75,54 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
         setState(() { _driverLat = pos.latitude; _driverLng = pos.longitude; });
       }
     }).catchError((_) {});
+    // The ringtone plays as an alarm-class sound (not media), so a phone with
+    // its media volume down still rings for a request.
+    unawaited(_setRingContext());
+    unawaited(_initVoice());
     try {
       final cfg = await DriverApiService.getDriverConfig();
       final r = (cfg['ringtones'] as Map?) ?? {};
       _ringtones = r.map((k, v) => MapEntry(k.toString(), v.toString()));
     } catch (_) {}
     await _refresh();
-    _timer = Timer.periodic(const Duration(seconds: 3), (_) => _refresh());
+    _timer = Timer.periodic(requestRefreshEvery, (_) => _refresh());
+  }
+
+  Future<void> _setRingContext() async {
+    try { await _player.setAudioContext(requestRingContext); } catch (_) {}
+  }
+
+  Future<void> _initVoice() async {
+    try {
+      _announceOn = await RequestAnnouncer.enabled();
+      if (!_announceOn) return;
+      await _voice.init();
+      _voiceReady = true;
+      if (mounted && _requests.isNotEmpty) _announce(_requests.first);
+    } catch (_) {}
+  }
+
+  /// Says the top request once. The ringtone is turned down while it speaks.
+  void _announce(RideRequestModel r) {
+    if (!_announceOn || !_voiceReady || _announced.contains(r.id) || _closed) return;
+    _announced.add(r.id);
+    final km = r.pickupDistanceKm > 0 ? r.pickupDistanceKm.toDouble() : _localPickupKm(r);
+    final text = RequestAnnouncer.phrase(r, _voice.language, pickupKm: km);
+    unawaited(_speakOverRing(text));
+  }
+
+  Future<void> _speakOverRing(String text) async {
+    try { await _player.setVolume(0.3); } catch (_) {}
+    // evenIfMuted: this has its own switch; the voice-guidance mute is for
+    // turn-by-turn directions.
+    await _voice.say(text, evenIfMuted: true);
+    await Future<void>.delayed(const Duration(seconds: 4));
+    try { if (!_closed) await _player.setVolume(1.0); } catch (_) {}
+  }
+
+  double? _localPickupKm(RideRequestModel r) {
+    if (_driverLat == null || _driverLng == null || r.pickupLat == 0 || r.pickupLng == 0) return null;
+    return Geolocator.distanceBetween(_driverLat!, _driverLng!, r.pickupLat, r.pickupLng) / 1000;
   }
 
   @override
@@ -80,6 +130,8 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     _timer?.cancel();
     _player.stop();
     _player.dispose();
+    if (_vibrating) unawaited(DeviceChannel.stopVibration());
+    unawaited(_voice.stop());
     super.dispose();
   }
 
@@ -112,6 +164,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
       if (models.isEmpty) { _close(); return; }
       setState(() => _requests = models);
       _updateRing();
+      _announce(models.first);
     } catch (_) {}
   }
 
@@ -126,6 +179,12 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   Future<void> _playRing(String svc) async {
     final rel = _ringtones[svc] ?? '';
     _playingService = svc;
+    // Buzzes too, for as long as a request is up: a phone on silent, or in a
+    // pocket on a loud road, still gets the driver's attention.
+    if (!_vibrating) {
+      _vibrating = true;
+      unawaited(DeviceChannel.startVibration());
+    }
     try {
       await _player.stop();
       await _player.setReleaseMode(ReleaseMode.loop);
@@ -145,6 +204,11 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
 
   Future<void> _stopRing() async {
     _playingService = null;
+    if (_vibrating) {
+      _vibrating = false;
+      unawaited(DeviceChannel.stopVibration());
+    }
+    unawaited(_voice.stop());
     try { await _player.stop(); } catch (_) {}
     unawaited(DeviceChannel.stopSystemAlert());
   }
@@ -282,7 +346,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
       }
       _accepting = false;
     });
-    _timer = Timer.periodic(const Duration(seconds: 3), (_) => _refresh());
+    _timer = Timer.periodic(requestRefreshEvery, (_) => _refresh());
     if (_requests.isEmpty) { _close(); } else { _updateRing(); }
   }
 
@@ -622,10 +686,27 @@ class _RequestCardState extends State<_RequestCard> with SingleTickerProviderSta
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
             child: _fareWithTip(r),
           ),
+          if (r.estDriverEarning != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+              child: Text(youGetText(r.estDriverEarning!),
+                  key: ValueKey('you_get_${r.id}'),
+                  style: Cap.body(size: 14.5, weight: FontWeight.w900, color: AppColors.green)),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: _paymentLine(r),
           ),
+          // What the feed knows about the job beyond the fare: the rider's
+          // rating, stops, a round trip and its return, passengers, the rental
+          // package, the hire's hours and gearbox, the outstation cities.
+          if (requestFacts(r).isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Wrap(spacing: 6, runSpacing: 6, children: [
+                for (final f in requestFacts(r)) _factChip(f),
+              ]),
+            ),
           // A booking for later (a scheduled taxi, or outstation / rental /
           // hire listed up to 48 h ahead): when it is due, plainly.
           if (showsScheduledTime(r))
@@ -722,6 +803,19 @@ class _RequestCardState extends State<_RequestCard> with SingleTickerProviderSta
       ),
     );
   }
+
+  Widget _factChip(RequestFact f) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+    decoration: BoxDecoration(color: Cap.tile, borderRadius: BorderRadius.circular(20)),
+    child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(f.icon, size: 14, color: f.icon == Icons.star_rounded ? AppColors.orange : Cap.ink),
+      const SizedBox(width: 4),
+      Flexible(
+        child: Text(f.text, maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: Cap.body(size: 12, weight: FontWeight.w800)),
+      ),
+    ]),
+  );
 
   // What the parcel is, before the driver takes it on: a bike will not carry
   // every carton, and a fragile or cash-on-delivery job asks more of them.
@@ -848,6 +942,70 @@ class _RequestCardState extends State<_RequestCard> with SingleTickerProviderSta
 Source ringtoneSource(String adminPath) => adminPath.trim().isEmpty
     ? AssetSource(defaultRingtoneAsset)
     : UrlSource(AppConfig.imageUrl(adminPath));
+
+/// How often the open request page re-reads the feed (taken / new requests).
+/// The home screen's poller already found these; 3 s was more than needed.
+const requestRefreshEvery = Duration(seconds: 5);
+
+/// The ringtone's audio: an alarm-class sound, so it follows the alarm volume
+/// and is heard with media muted, and it keeps the CPU awake while it rings.
+final requestRingContext = AudioContext(
+  android: const AudioContextAndroid(
+    usageType: AndroidUsageType.alarm,
+    contentType: AndroidContentType.sonification,
+    audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+    stayAwake: true,
+  ),
+  iOS: AudioContextIOS(category: AVAudioSessionCategory.playback),
+);
+
+/// "You get ≈ ₹118" — the server's estimate of the driver's part.
+String youGetText(num est) => 'You get ≈ ₹${est.round()}';
+
+/// One fact on a request card.
+class RequestFact {
+  final IconData icon;
+  final String text;
+  const RequestFact(this.icon, this.text);
+  @override
+  String toString() => text;
+}
+
+String _plural(int n, String one) => n == 1 ? '1 $one' : '$n ${one}s';
+
+/// The extra facts a request card shows, in order.
+List<RequestFact> requestFacts(RideRequestModel r, {DateTime? now}) {
+  String when(String iso) {
+    final t = DateTime.tryParse(iso)?.toLocal();
+    return t == null ? '' : scheduledLabel(t, now: now).replaceFirst('Scheduled for ', '');
+  }
+  final facts = <RequestFact>[];
+  if (r.riderRating > 0) facts.add(RequestFact(Icons.star_rounded, r.riderRating.toStringAsFixed(1)));
+  if (r.service == 'outstation' && r.cityFrom.trim().isNotEmpty && r.cityTo.trim().isNotEmpty) {
+    facts.add(RequestFact(Icons.alt_route_rounded, '${r.cityFrom.trim()} → ${r.cityTo.trim()}'));
+  }
+  if (r.tripType == 'round_trip') {
+    final back = when(r.returnAt);
+    facts.add(RequestFact(Icons.sync_alt_rounded, back.isEmpty ? 'Round trip' : 'Round trip · back $back'));
+  }
+  if (r.stops.isNotEmpty) facts.add(RequestFact(Icons.more_horiz_rounded, _plural(r.stops.length, 'stop')));
+  if (r.numPassengers > 0) facts.add(RequestFact(Icons.people_alt_outlined, _plural(r.numPassengers, 'passenger')));
+  if (r.service == 'rental' && (r.packageHours > 0 || r.packageKm > 0)) {
+    facts.add(RequestFact(Icons.timer_outlined, [
+      if (r.packageHours > 0) '${r.packageHours} hr',
+      if (r.packageKm > 0) '${r.packageKm} km',
+    ].join(' · ')));
+  }
+  if (r.service == 'hire_driver') {
+    if (r.hireTotalHours > 0) facts.add(RequestFact(Icons.timer_outlined, '${r.hireTotalHours} hr hire'));
+    final gear = r.transmission.trim().toLowerCase();
+    if (gear.isNotEmpty) {
+      facts.add(RequestFact(Icons.settings_outlined,
+          gear.startsWith('auto') ? 'Automatic' : gear.startsWith('man') ? 'Manual' : r.transmission.trim()));
+    }
+  }
+  return facts;
+}
 
 /// Bundled request ringtone, played when no admin ringtone is set.
 const defaultRingtoneAsset = 'sounds/ride_request.mp3';

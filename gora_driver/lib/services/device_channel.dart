@@ -17,9 +17,22 @@ class DeviceChannel {
 
   static Future<void> stopSystemAlert() => _call('stopSystemAlert');
 
-  static Future<Object?> _call(String m) async {
+  /// Vibrates in a repeating ride-request pattern until [stopVibration].
+  /// False when the phone cannot (no vibrator, no platform).
+  static Future<bool> startVibration() async => (await _call('startVibration')) == true;
+
+  static Future<void> stopVibration() => _call('stopVibration');
+
+  /// A short beep and buzz — a new chat message.
+  static Future<void> beep() => _call('beep');
+
+  /// Keeps the display on while [on] (FLAG_KEEP_SCREEN_ON on the activity's
+  /// window, so it only applies while the app is in front).
+  static Future<void> keepScreenOn(bool on) => _call('keepScreenOn', on);
+
+  static Future<Object?> _call(String m, [Object? args]) async {
     try {
-      return await _ch.invokeMethod<Object?>(m);
+      return await _ch.invokeMethod<Object?>(m, args);
     } catch (_) {
       return null;
     }
