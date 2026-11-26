@@ -8,7 +8,7 @@ import { rateLimit } from '@/lib/rate-limit'
 export async function OPTIONS() { return corsOptions() }
 
 // Instruction languages the driver app speaks: English and Hindi.
-const SUPPORTED_LANGUAGES = new Set(['en', 'hi'])
+const SUPPORTED_LANGUAGES = new Set(['en', 'hi', 'gu'])
 
 // GET /api/directions?originLat=..&originLng=..&destLat=..&destLng=..
 //   &waypoints=lat,lng|lat,lng      (optional, ordered — for multi-stop legs)

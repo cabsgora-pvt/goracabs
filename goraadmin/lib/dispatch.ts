@@ -220,11 +220,16 @@ const OPT_IN: Record<string, { accepts: string; allow: string }> = {
  * for non-taxi services, the ride's zone, and no cash rides on a negative
  * wallet. driverEligibleFor applies the same rule to one driver in memory.
  */
+/** The service part of driverFilterFor: the admin's allow* gate and, for a
+ *  non-taxi service, the driver's own accepts* opt-in. Also used by the
+ *  rider map (nearby-drivers) so it shows only drivers who could take it. */
+export function serviceOptInFilter(service: any): Record<string, any> {
+  const o = OPT_IN[String(service || 'taxi')]
+  return o ? { [o.accepts]: true, [o.allow]: { $ne: false } } : { allowTaxi: { $ne: false } }
+}
+
 export function driverFilterFor(ride: any): Record<string, any> {
-  const filter: Record<string, any> = { selectedVehicleTypeName: ride.vehicleType }
-  const o = OPT_IN[ride.service]
-  if (o) { filter[o.accepts] = true; filter[o.allow] = { $ne: false } }
-  else filter.allowTaxi = { $ne: false }
+  const filter: Record<string, any> = { selectedVehicleTypeName: ride.vehicleType, ...serviceOptInFilter(ride.service) }
   if (ride.zoneId) filter.zoneId = String(ride.zoneId)
   if (ride.paymentMode === 'cash') filter.walletBalance = { $gte: 0 }
   return filter

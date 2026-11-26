@@ -64,7 +64,7 @@ export default function DashboardPage() {
           <StatsCard href="/rides" icon={TrendingUp} label="Today's Rides" value={n('todayRides').toLocaleString()}
             sub={`${n('todayCompleted')} completed · ${n('todayCancelled')} cancelled`} iconColor="text-purple-600" iconBg="bg-purple-50" />
           <StatsCard href="/finance/reports" icon={IndianRupee} label="Today's Revenue" value={inr(n('todayRevenue'))}
-            sub={`${inr(n('todayCommission'))} commission`} iconColor="text-orange-600" iconBg="bg-orange-50" />
+            sub={`${inr(n('todayCommission'))} commission · ${inr(n('todayPending'))} completed but unpaid`} iconColor="text-orange-600" iconBg="bg-orange-50" />
           <StatsCard href="/rides/ongoing" icon={Radio} label="Rides live now" value={n('liveNow')}
             sub={`${n('searchingNow')} searching for a driver`} iconColor="text-green-600" iconBg="bg-green-50" />
           <StatsCard href="/drivers" icon={Car} label="Drivers online" value={`${n('onlineDrivers')} / ${n('totalDrivers')}`}
@@ -74,14 +74,16 @@ export default function DashboardPage() {
         {/* Week / month / people */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           <StatsCard href="/finance/reports" icon={IndianRupee} label="Last 7 days revenue" value={inr(n('weekRevenue'))}
-            sub={`${n('weekCompleted')} trips · ${inr(n('weekCommission'))} commission`} iconColor="text-teal-600" iconBg="bg-teal-50" />
+            sub={`${n('weekCompleted')} trips · ${inr(n('weekCommission'))} commission · ${inr(n('weekPending'))} unpaid`} iconColor="text-teal-600" iconBg="bg-teal-50" />
           <StatsCard href="/finance/reports" icon={IndianRupee} label="This month revenue" value={inr(n('monthRevenue'))}
-            sub={`${inr(n('monthCommission'))} commission`} iconColor="text-indigo-600" iconBg="bg-indigo-50" />
+            sub={`${inr(n('monthCommission'))} commission · ${inr(n('monthPending'))} completed but unpaid`} iconColor="text-indigo-600" iconBg="bg-indigo-50" />
           <StatsCard href="/users" icon={Users} label="Riders" value={n('totalUsers').toLocaleString()}
             sub={`+${n('newRidersToday')} today · +${n('newRidersWeek')} this week`} iconColor="text-sky-600" iconBg="bg-sky-50" />
           <StatsCard href="/drivers/pending" icon={UserPlus} label="New drivers (7 days)" value={n('newDriversWeek')}
             sub={`${n('pendingApprovals')} waiting for approval`} iconColor="text-amber-600" iconBg="bg-amber-50" />
         </div>
+
+        <p className="text-xs text-gray-500 -mt-2">Revenue counts completed rides whose payment was collected. &quot;Unpaid&quot; is completed rides still waiting for payment — not yet in revenue.</p>
 
         {/* Charts row */}
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
@@ -104,7 +106,7 @@ export default function DashboardPage() {
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
             <h3 className="font-semibold text-gray-800 mb-4">Needs attention</h3>
             <div className="space-y-2.5">
-              {alert('/support/sos', Siren, 'Active SOS', n('openSos'), 'bg-red-50 border-red-100 text-red-700')}
+              {alert('/support/sos', Siren, 'Active SOS (unresolved)', n('openSos'), 'bg-red-50 border-red-100 text-red-700')}
               {alert('/account-requests', Inbox, 'Account requests', n('pendingRequests'), 'bg-purple-50 border-purple-100 text-purple-700')}
               {alert('/drivers/pending', Clock, 'Driver approvals', n('pendingApprovals'), 'bg-yellow-50 border-yellow-100 text-yellow-800')}
               {alert('/support/tickets', AlertCircle, 'Open tickets', n('openTickets'), 'bg-orange-50 border-orange-100 text-orange-700')}
@@ -170,7 +172,7 @@ export default function DashboardPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {recentRides.map((r: any) => (
-                    <tr key={r._id} className="hover:bg-gray-50 cursor-pointer" onClick={() => { window.location.href = SERVICE_PAGE[r.service || 'taxi'] || '/rides' }}>
+                    <tr key={r._id} className="hover:bg-gray-50 cursor-pointer" onClick={() => { window.location.href = `/rides/${r._id}` }}>
                       <td className="py-2.5 text-gray-700">{r.riderName || '—'}</td>
                       <td className="py-2.5 text-gray-500 text-xs max-w-xs truncate">{r.pickupAddress} → {r.dropAddress}</td>
                       <td className="py-2.5 text-gray-600 text-xs">{SERVICE_LABEL[r.service || 'taxi'] || r.service}</td>

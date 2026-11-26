@@ -111,6 +111,9 @@ const DriverSchema = new Schema({
   referralRewardPaid: { type: Boolean, default: false },
   // Driver's own payment/UPI QR image (shown to riders for direct payment)
   paymentQrUrl: { type: String, default: '' },
+  // The driver's UPI ID (name@bank) for the cash-ride "Scan to pay" QR. Set
+  // by the driver (PUT /api/auth/driver/banks {upiId}); '' until then.
+  upiId: { type: String, default: '' },
   // Sequential serial for the Gora Captain ID card (assigned lazily)
   serialNo: { type: Number },
   // ── Subscription (Rapido-style pass; overrides ride commission while active) ──

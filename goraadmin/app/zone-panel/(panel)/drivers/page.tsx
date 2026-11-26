@@ -19,10 +19,19 @@ export default function ZoneDrivers() {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  // Paged on the server (true total); search on Enter.
+  const [page, setPage] = useState(1)
+  const [appliedQ, setAppliedQ] = useState('')
+  const [meta, setMeta] = useState<{ total: number; pages: number; counts: Record<string, number> }>({ total: 0, pages: 1, counts: {} })
 
   const load = useCallback(() => {
-    zoneFetch('/api/zone-admin/drivers').then(r => r.json()).then(d => setDrivers(d.drivers || [])).catch(() => {})
-  }, [])
+    const p = new URLSearchParams({ page: String(page) })
+    if (tab) p.set('status', tab)
+    if (appliedQ) p.set('q', appliedQ)
+    zoneFetch(`/api/zone-admin/drivers?${p}`).then(r => r.json())
+      .then(d => { setDrivers(d.drivers || []); setMeta({ total: d.total || 0, pages: d.pages || 1, counts: d.counts || {} }) })
+      .catch(() => {})
+  }, [page, tab, appliedQ])
   useEffect(() => { load() }, [load])
 
   const review = async (id: string) => {
@@ -46,9 +55,7 @@ export default function ZoneDrivers() {
     } finally { setBusy(false) }
   }
 
-  const shown = (drivers || [])
-    .filter(d => !tab || d.status === tab)
-    .filter(d => !q || [d.name, d.phone, d.vehicleNumber].some((v: string) => (v || '').toLowerCase().includes(q.toLowerCase())))
+  const shown = drivers || []
 
   return (
     <div>
@@ -58,15 +65,18 @@ export default function ZoneDrivers() {
           <div className="p-4 border-b border-[#e9ebec] flex flex-wrap gap-3 items-center justify-between">
             <div className="flex flex-wrap gap-2">
               {STATUS_TABS.map(s => (
-                <button key={s || 'all'} type="button" onClick={() => setTab(s)}
+                <button key={s || 'all'} type="button" onClick={() => { setTab(s); setPage(1) }}
                   className={`px-3 py-1.5 rounded text-[13px] capitalize ${tab === s ? 'bg-primary text-white' : 'bg-[#f3f6f9] text-[#495057]'}`}>
-                  {s || 'All'}{s && drivers ? ` (${drivers.filter(d => d.status === s).length})` : ''}
+                  {s || 'All'}{s ? ` (${meta.counts[s] || 0})` : ''}
                 </button>
               ))}
             </div>
             <div className="flex items-center gap-2 border border-[#ced4da] rounded px-3 py-2 w-full max-w-xs">
               <Search className="w-4 h-4 text-gray-400" />
-              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, phone or vehicle…" className="outline-none text-[13px] w-full" />
+              <input value={q} onChange={e => setQ(e.target.value)} aria-label="Search drivers"
+                onKeyDown={e => { if (e.key === 'Enter') { setAppliedQ(q.trim()); setPage(1) } }}
+                onBlur={() => { if (q.trim() !== appliedQ) { setAppliedQ(q.trim()); setPage(1) } }}
+                placeholder="Search name, phone or vehicle (Enter)" className="outline-none text-[13px] w-full" />
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -93,6 +103,14 @@ export default function ZoneDrivers() {
                   ))}
               </tbody>
             </table>
+          </div>
+          <div className="p-4 flex items-center justify-between gap-2 text-[13px]">
+            <span className="text-gray-500">{meta.total} driver{meta.total === 1 ? '' : 's'}</span>
+            <div className="flex items-center gap-2">
+              <button type="button" disabled={page <= 1} onClick={() => setPage(p => p - 1)} className="px-3 py-1.5 border rounded disabled:opacity-40">Prev</button>
+              <span>Page {page} of {meta.pages}</span>
+              <button type="button" disabled={page >= meta.pages} onClick={() => setPage(p => p + 1)} className="px-3 py-1.5 border rounded disabled:opacity-40">Next</button>
+            </div>
           </div>
         </div>
         <p className="text-xs text-gray-500 mt-3">

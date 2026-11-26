@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     sweepDueNotifications()
     const rows: any[] = await PushNotification.find({
       ...SENT_ONLY,
-      $or: [{ target: 'all' }, { target: 'riders' }, { target: 'specific', targetUserId: String(p.id) }],
+      $or: [{ target: 'all' }, { target: 'riders' }, { target: 'specific', targetUserId: String(p.id) }, { target: 'zone_riders', targetUserIds: String(p.id) }],
     }).sort({ sentAt: -1 }).limit(50).lean()
     return withCors({
       notifications: rows.map(n => ({

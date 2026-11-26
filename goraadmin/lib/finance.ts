@@ -29,6 +29,7 @@
 import Ride from '@/models/Ride'
 import DriverSubscription from '@/models/DriverSubscription'
 import WalletTransaction from '@/models/WalletTransaction'
+import mongoose from 'mongoose'
 
 export const IST_MS = 5.5 * 3600e3
 const DAY_MS = 864e5
@@ -107,11 +108,16 @@ export type FinanceTotals = {
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100
 
-export async function financeTotals(range?: Range): Promise<FinanceTotals> {
+// Optional zone scope (additive): rides and cancellations by Ride.zoneId,
+// subscriptions by DriverSubscription.zoneId, and only refunds whose ref names
+// a ride of that zone. Without it the totals are platform-wide, as before.
+export async function financeTotals(range?: Range, opts: { zoneId?: string } = {}): Promise<FinanceTotals> {
   const w = within(range)
+  const zid = opts.zoneId && mongoose.isValidObjectId(opts.zoneId) ? new mongoose.Types.ObjectId(opts.zoneId) : null
+  const z = zid ? { zoneId: zid } : {}
   const [rideAgg, subAgg, cancelAgg, refundRows] = await Promise.all([
     Ride.aggregate([
-      { $match: completedMatch(range) },
+      { $match: completedMatch(range, z) },
       {
         $group: {
           _id: null,
@@ -137,13 +143,13 @@ export async function financeTotals(range?: Range): Promise<FinanceTotals> {
       },
     ]),
     DriverSubscription.aggregate([
-      { $match: w ? { createdAt: w } : {} },
+      { $match: { ...(w ? { createdAt: w } : {}), ...z } },
       { $group: { _id: null, n: { $sum: 1 }, revenue: { $sum: { $ifNull: ['$price', 0] } }, franchise: { $sum: { $ifNull: ['$franchiseShare.amount', 0] } } } },
     ]),
     // A cancelled ride has no cancelledAt; updatedAt is when it was cancelled
     // (the refund sweep touches it right after).
     Ride.aggregate([
-      { $match: { status: 'cancelled', cancellationFee: { $gt: 0 }, ...(w ? { updatedAt: w } : {}) } },
+      { $match: { status: 'cancelled', cancellationFee: { $gt: 0 }, ...(w ? { updatedAt: w } : {}), ...z } },
       {
         $group: {
           _id: null,
@@ -168,13 +174,19 @@ export async function financeTotals(range?: Range): Promise<FinanceTotals> {
   const c = cancelAgg[0] || {}
 
   // Refunds that give back money from a completed ride: their ref names it.
-  const refunds = (refundRows as any[]).reduce((t, x) => t + (Number(x.amount) || 0), 0)
   const idOf = (ref: string) => (/\b([a-f0-9]{24})\b/i.exec(ref || '') || [])[1]
-  const ids = Array.from(new Set((refundRows as any[]).map(x => idOf(x.ref)).filter(Boolean))) as string[]
+  let refundList = refundRows as any[]
+  if (zid) {
+    const refIds = Array.from(new Set(refundList.map(x => idOf(x.ref)).filter(Boolean))) as string[]
+    const inZone = new Set(refIds.length ? (await Ride.find({ _id: { $in: refIds }, zoneId: zid }).select('_id').lean()).map((x: any) => String(x._id)) : [])
+    refundList = refundList.filter(x => { const id = idOf(x.ref); return id && inZone.has(id) })
+  }
+  const refunds = refundList.reduce((t, x) => t + (Number(x.amount) || 0), 0)
+  const ids = Array.from(new Set(refundList.map(x => idOf(x.ref)).filter(Boolean))) as string[]
   let refundsOnCompletedRides = 0
   if (ids.length) {
     const done = new Set((await Ride.find({ _id: { $in: ids }, status: 'completed' }).select('_id').lean()).map((x: any) => String(x._id)))
-    refundsOnCompletedRides = (refundRows as any[])
+    refundsOnCompletedRides = refundList
       .filter(x => { const id = idOf(x.ref); return id && done.has(id) })
       .reduce((t, x) => t + (Number(x.amount) || 0), 0)
   }

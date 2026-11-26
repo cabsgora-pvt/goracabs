@@ -4,6 +4,7 @@ import { Header } from '@/components/header'
 import { PageHeader } from '@/components/ui/page-header'
 import { Modal } from '@/components/ui/modal'
 import { Toast } from '@/components/ui/toast'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Plus, Copy, Trash2 } from 'lucide-react'
 
 const defaultForm = { code: '', type: 'percent' as 'percent' | 'flat', value: 10, minOrderAmount: 100, maxUses: 100, expiryDate: '' }
@@ -14,6 +15,7 @@ export default function PromosPage() {
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState(defaultForm)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null)
+  const [deleting, setDeleting] = useState<any | null>(null)
 
   const fetchPromos = () => {
     fetch('/api/promos')
@@ -35,7 +37,8 @@ export default function PromosPage() {
 
   const deletePromo = async (id: string) => {
     const res = await fetch(`/api/promos/${id}`, { method: 'DELETE' })
-    if (res.ok) { fetchPromos(); setToast({ msg: 'Promo code deleted', type: 'error' }) }
+    if (res.ok) { fetchPromos(); setDeleting(null); setToast({ msg: 'Promo code deleted', type: 'success' }) }
+    else { const d = await res.json().catch(() => ({})); setToast({ msg: d.error || 'Delete failed', type: 'error' }) }
   }
 
   const copyCode = (code: string) => {
@@ -119,7 +122,7 @@ export default function PromosPage() {
                       </button>
                     </td>
                     <td className="px-4 py-3">
-                      <button type="button" title="Delete promo" onClick={() => deletePromo(p._id)}
+                      <button type="button" title="Delete promo" onClick={() => setDeleting(p)}
                         className="p-1.5 hover:bg-red-50 rounded-lg text-red-400">
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -186,6 +189,11 @@ export default function PromosPage() {
         </Modal>
       )}
 
+      {deleting && (
+        <ConfirmDialog title="Delete promo code" confirmLabel="Delete"
+          message={<>Delete promo code <strong className="font-mono">{deleting.code}</strong>? Riders can no longer use it. Used {deleting.usedCount || 0} time(s).</>}
+          onConfirm={() => deletePromo(deleting._id)} onClose={() => setDeleting(null)} />
+      )}
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   )

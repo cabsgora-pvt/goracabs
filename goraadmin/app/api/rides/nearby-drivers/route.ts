@@ -3,8 +3,28 @@ import { NextRequest } from 'next/server'
 import { createHmac } from 'crypto'
 import { connectDB } from '@/lib/mongodb'
 import Driver from '@/models/Driver'
+import VehicleType from '@/models/VehicleType'
 import { withCors, corsOptions } from '@/lib/cors'
 import { rateLimitAsync } from '@/lib/rate-limit'
+import { serviceOptInFilter } from '@/lib/dispatch'
+
+// Services a rider can book; `service` narrows the map to drivers who could
+// take that service (vehicle types the admin enabled for it + the driver's own
+// opt-in), so a parcel booking shows parcel vehicles, not every cab in town.
+const SERVICES = new Set(['taxi', 'delivery', 'rental', 'outstation', 'hire_driver'])
+let vtCache: { at: number; byService: Map<string, string[]> } | null = null
+async function vehicleTypesFor(service: string): Promise<string[]> {
+  if (!vtCache || Date.now() - vtCache.at > 60_000) {
+    const all: any[] = await VehicleType.find({ isActive: { $ne: false } }).select('name services').lean()
+    const byService = new Map<string, string[]>()
+    for (const v of all) for (const s of (v.services || ['taxi'])) {
+      const k = s === 'parcel' ? 'delivery' : s
+      byService.set(k, [...(byService.get(k) || []), v.name])
+    }
+    vtCache = { at: Date.now(), byService }
+  }
+  return vtCache.byService.get(service) || []
+}
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -54,6 +74,11 @@ export async function GET(req: NextRequest) {
       currentLng: { $gte: lng - lngDelta, $lte: lng + lngDelta },
     }
     if (vehicleType) query.selectedVehicleTypeName = vehicleType
+    const service = (searchParams.get('service') || '').trim()
+    if (SERVICES.has(service)) {
+      Object.assign(query, serviceOptInFilter(service))
+      if (!vehicleType) query.selectedVehicleTypeName = { $in: await vehicleTypesFor(service) }
+    }
 
     const docs: any[] = await Driver.find(query)
       .select('currentLat currentLng currentHeading selectedVehicleTypeName vehicleType')

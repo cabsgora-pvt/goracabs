@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   try {
     // Public endpoint that bills a paid Google API: capped per IP.
     if (!rateLimit(req, 'places-details', 60, 60_000)) {
-      return withCors({ error: 'Too many requests, please slow down' }, 429)
+      return withCors({ error: 'Too many requests, please slow down', code: 'RATE_LIMITED' }, 429)
     }
     const placeId = req.nextUrl.searchParams.get('placeId') || ''
     if (!placeId) return withCors({ error: 'placeId required' }, 400)
@@ -20,7 +20,11 @@ export async function GET(req: NextRequest) {
     const key = s?.maps?.googleMapsApiKey || s?.maps?.javascriptApiKey || ''
     if (!key) return withCors({ error: 'Maps API key not configured' }, 500)
 
-    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(placeId)}&fields=geometry,formatted_address,name&key=${encodeURIComponent(key)}`
+    // Optional: the autocomplete session this pick ends (additive; see
+    // /api/places/autocomplete). Google bills the session as one.
+    const token = req.nextUrl.searchParams.get('sessiontoken') || ''
+    const session = /^[A-Za-z0-9_-]{8,64}$/.test(token) ? `&sessiontoken=${encodeURIComponent(token)}` : ''
+    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(placeId)}&fields=geometry,formatted_address,name${session}&key=${encodeURIComponent(key)}`
     const r = await fetch(url)
     const data = await r.json()
     const result = data.result

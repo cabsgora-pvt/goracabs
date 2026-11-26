@@ -4,6 +4,7 @@ import { Header } from '@/components/header'
 import { PageHeader } from '@/components/ui/page-header'
 import { Modal } from '@/components/ui/modal'
 import { Toast } from '@/components/ui/toast'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Plus, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react'
 
 export default function FAQPage() {
@@ -14,6 +15,7 @@ export default function FAQPage() {
   const [editItem, setEditItem] = useState<any>(null)
   const [form, setForm] = useState({ question: '', answer: '', category: 'general' })
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  const [deleting, setDeleting] = useState<any | null>(null)
 
   const fetchFAQs = () => {
     fetch('/api/support/faq')
@@ -49,7 +51,8 @@ export default function FAQPage() {
 
   const deleteFaq = async (id: string) => {
     const res = await fetch(`/api/support/faq/${id}`, { method: 'DELETE' })
-    if (res.ok) { fetchFAQs(); setToast({ msg: 'FAQ deleted', type: 'error' }) }
+    if (res.ok) { fetchFAQs(); setDeleting(null); setToast({ msg: 'FAQ deleted', type: 'success' }) }
+    else setToast({ msg: 'Delete failed', type: 'error' })
   }
 
   const categories = Array.from(new Set(faqs.map(f => f.category).filter(Boolean)))
@@ -99,7 +102,7 @@ export default function FAQPage() {
                           className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-blue-600">
                           <Pencil className="w-4 h-4" />
                         </button>
-                        <button type="button" title="Delete FAQ" onClick={e => { e.stopPropagation(); deleteFaq(faq._id) }}
+                        <button type="button" title="Delete FAQ" onClick={e => { e.stopPropagation(); setDeleting(faq) }}
                           className="p-1 hover:bg-red-50 rounded text-gray-400 hover:text-red-500">
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -155,6 +158,11 @@ export default function FAQPage() {
         </Modal>
       )}
 
+      {deleting && (
+        <ConfirmDialog title="Delete FAQ" confirmLabel="Delete"
+          message={<>Delete the FAQ <strong>&ldquo;{deleting.question}&rdquo;</strong>? It disappears from the apps.</>}
+          onConfirm={() => deleteFaq(deleting._id)} onClose={() => setDeleting(null)} />
+      )}
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   )

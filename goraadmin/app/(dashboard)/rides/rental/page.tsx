@@ -1,86 +1,89 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Header } from '@/components/header'
 import { PageHeader } from '@/components/ui/page-header'
-import { Clock, Timer, MapPin, Search, Activity } from 'lucide-react'
+import { RidesPager } from '@/components/rides/pager'
+import { SearchBox } from '@/components/rides/search-box'
+import { useRideList } from '@/components/rides/use-ride-list'
+import { fmtISTShort, rideHref } from '@/components/rides/format'
+import { Clock, Timer, MapPin, Activity, AlertTriangle } from 'lucide-react'
 
 export default function RentalRidesPage() {
-  const [rides, setRides] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const router = useRouter()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
-
-  const fetch_ = () => {
-    setLoading(true)
-    const params = new URLSearchParams({ limit: '200', service: 'rental' })
-    if (statusFilter !== 'all') params.set('status', statusFilter)
-    fetch(`/api/rides?${params}`)
-      .then(r => r.json())
-      .then(d => { setRides(d.rides || []); setLoading(false) })
-      .catch(() => setLoading(false))
-  }
-  useEffect(() => { fetch_() }, [statusFilter])
-
-  const filtered = rides.filter(r => {
-    if (!search) return true
-    const s = search.toLowerCase()
-    return [r.riderName, r.driverName, r.pickupAddress, r.vehicleType].some(v => (v || '').toLowerCase().includes(s))
+  const [anomalyOnly, setAnomalyOnly] = useState(false)
+  const { rides, total, stats, page, setPage, loading, error, limit } = useRideList({
+    service: 'rental', status: statusFilter, search, anomaly: anomalyOnly ? '1' : undefined,
   })
 
-  const totalFare  = filtered.reduce((s, r) => s + (r.finalFare || r.totalFare || r.fare || 0), 0)
-  const active     = filtered.filter(r => ['ongoing', 'extra_time', 'paused'].includes(r.rentalPhase)).length
-  const completed  = filtered.filter(r => r.status === 'completed').length
+  const ph = stats?.byPhase || {}
+  const active = (ph.ongoing || 0) + (ph.extra_time || 0) + (ph.paused || 0)
 
   return (
     <div>
       <Header title="Rental Rides" />
       <div className="p-6 space-y-6">
-        <PageHeader title="Rental Rides" subtitle={`${filtered.length} bookings · ₹${totalFare.toFixed(0)} total`} />
+        <PageHeader title="Rental Rides" subtitle={stats ? `${stats.total} bookings · ₹${stats.revenue} from completed rides` : 'Loading…'} />
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatBox label="Total" value={filtered.length.toString()} icon={Clock} color="text-blue-600 bg-blue-50" />
-          <StatBox label="Active now" value={active.toString()} icon={Activity} color="text-green-600 bg-green-50" />
-          <StatBox label="Completed" value={completed.toString()} icon={Timer} color="text-purple-600 bg-purple-50" />
-          <StatBox label="Revenue" value={`₹${totalFare.toFixed(0)}`} icon={MapPin} color="text-orange-600 bg-orange-50" />
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <StatBox label="Total" value={stats?.total ?? '…'} icon={Clock} color="text-blue-600 bg-blue-50" />
+          <StatBox label="Active now" value={stats ? active : '…'} icon={Activity} color="text-green-600 bg-green-50" />
+          <StatBox label="Completed" value={stats?.byStatus?.completed ?? (stats ? 0 : '…')} icon={Timer} color="text-purple-600 bg-purple-50" />
+          <StatBox label="Revenue (completed)" value={stats ? `₹${stats.revenue}` : '…'} icon={MapPin} color="text-orange-600 bg-orange-50" />
+          <button type="button" onClick={() => setAnomalyOnly(!anomalyOnly)} className="text-left">
+            <StatBox label={anomalyOnly ? 'km anomalies (showing)' : 'km anomalies'} value={stats?.anomalies ?? '…'} icon={AlertTriangle} color={`text-red-600 bg-red-50 ${anomalyOnly ? 'ring-2 ring-red-300' : ''}`} />
+          </button>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-wrap gap-3">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder="Search rider, driver, vehicle..."
-              value={search} onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-wrap gap-3 items-center">
+          <SearchBox value={search} onSearch={setSearch} placeholder="Search rider, driver, phone, vehicle" />
           <select aria-label="Status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
             <option value="all">All status</option>
             <option value="pending">Pending</option>
+            <option value="accepted">Accepted</option>
             <option value="ongoing">Ongoing</option>
             <option value="completed">Completed</option>
             <option value="cancelled">Cancelled</option>
           </select>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={anomalyOnly} onChange={e => setAnomalyOnly(e.target.checked)} aria-label="km anomalies only" />
+            km anomalies only
+          </label>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
+          {error && <p className="px-4 py-3 text-sm text-red-600 bg-red-50">{error}</p>}
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
-                <Th>Date</Th><Th>Rider</Th><Th>Vehicle</Th><Th>Package</Th><Th>Used</Th>
+                <Th>Date (IST)</Th><Th>Rider</Th><Th>Vehicle</Th><Th>Package</Th><Th>Used</Th><Th>km expected</Th>
                 <Th>Driver</Th><Th>Base</Th><Th>Extras</Th><Th>Final</Th><Th>Phase</Th><Th>Status</Th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {loading && <tr><td colSpan={11} className="text-center py-12 text-gray-400">Loading...</td></tr>}
-              {!loading && filtered.length === 0 && <tr><td colSpan={11} className="text-center py-12 text-gray-400">No rental rides.</td></tr>}
-              {filtered.map(r => {
+              {loading && <tr><td colSpan={12} className="text-center py-12 text-gray-400">Loading...</td></tr>}
+              {!loading && rides.length === 0 && <tr><td colSpan={12} className="text-center py-12 text-gray-400">No rental rides.</td></tr>}
+              {!loading && rides.map(r => {
                 const extras = (r.extraHoursCharge || 0) + (r.extraKmCharge || 0)
                 return (
-                  <tr key={r._id} className="hover:bg-gray-50">
-                    <Td>{r.createdAt ? new Date(r.createdAt).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'}</Td>
+                  <tr key={r._id} className={`hover:bg-gray-50 cursor-pointer ${r.kmAnomaly ? 'bg-red-50/40' : ''}`} onClick={() => router.push(rideHref(r._id))}>
+                    <Td><Link href={rideHref(r._id)} onClick={e => e.stopPropagation()} className="text-blue-600 hover:underline">{fmtISTShort(r.createdAt)}</Link></Td>
                     <Td className="font-semibold text-gray-900">{r.riderName || '—'}</Td>
                     <Td>{r.vehicleType || '—'}</Td>
                     <Td>{r.packageHours || 0}hr / {r.packageKm || 0}km</Td>
                     <Td>{(r.actualHours || 0).toFixed(1)}hr / {(r.actualKm || 0).toFixed(1)}km</Td>
+                    <Td>
+                      {r.kmExpected != null ? (
+                        <span className={r.kmAnomaly ? 'text-red-600 font-semibold' : 'text-gray-700'}>
+                          {r.kmExpected} km <span className="text-xs text-gray-500">vs {(r.actualKm || 0).toFixed(1)}</span>
+                        </span>
+                      ) : <span className="text-gray-400">—</span>}
+                      {r.kmAnomaly && <span className="ml-1 px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-bold uppercase">km anomaly</span>}
+                    </Td>
                     <Td>{r.driverName || <span className="text-gray-400">Unassigned</span>}</Td>
                     <Td className="text-gray-700">₹{r.fare || 0}</Td>
                     <Td className={extras > 0 ? 'text-orange-600 font-semibold' : 'text-gray-400'}>₹{extras}</Td>
@@ -98,6 +101,7 @@ export default function RentalRidesPage() {
               })}
             </tbody>
           </table>
+          <RidesPager page={page} limit={limit} total={total} onPage={setPage} loading={loading} />
         </div>
       </div>
     </div>
@@ -106,11 +110,11 @@ export default function RentalRidesPage() {
 
 function StatBox({ label, value, icon: Icon, color }: any) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center gap-3 h-full">
       <div className={`p-3 rounded-lg ${color}`}><Icon className="w-5 h-5" /></div>
       <div><div className="text-xs text-gray-500">{label}</div><div className="text-xl font-bold text-gray-900">{value}</div></div>
     </div>
   )
 }
-function Th({ children }: any) { return <th className="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3">{children}</th> }
+function Th({ children }: any) { return <th className="text-left text-xs font-semibold text-gray-500 uppercase px-4 py-3 whitespace-nowrap">{children}</th> }
 function Td({ children, className = '' }: any) { return <td className={`px-4 py-3 ${className}`}>{children}</td> }

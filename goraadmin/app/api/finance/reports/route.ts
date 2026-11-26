@@ -1,5 +1,6 @@
 export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
+import mongoose from 'mongoose'
 import { connectDB } from '@/lib/mongodb'
 import Ride from '@/models/Ride'
 import { guardAdmin } from '@/lib/admin-guard'
@@ -17,10 +18,13 @@ export async function GET(req: NextRequest) {
     await connectDB()
     const { searchParams } = new URL(req.url)
     const range = istRange(searchParams.get('dateFrom'), searchParams.get('dateTo'))
-    const paidMatch = completedMatch(range, PAID)
+    // ?zoneId= scopes every figure to one zone (lib/finance financeTotals opts).
+    const zoneId = searchParams.get('zoneId') || ''
+    if (zoneId && !mongoose.isValidObjectId(zoneId)) return NextResponse.json({ error: 'Invalid zone' }, { status: 400 })
+    const paidMatch = completedMatch(range, { ...PAID, ...(zoneId ? { zoneId: new mongoose.Types.ObjectId(zoneId) } : {}) })
 
     const [t, byService, byPayment, topDrivers] = await Promise.all([
-      financeTotals(range),
+      financeTotals(range, { zoneId: zoneId || undefined }),
       Ride.aggregate([
         { $match: paidMatch },
         { $group: { _id: '$service', revenue: { $sum: FARE_EXPR }, count: { $sum: 1 } } },
@@ -67,6 +71,7 @@ export async function GET(req: NextRequest) {
       netCollectedRevenue: t.netCollectedRevenue,
       platformNet: t.platformNet,               // + subscriptions + cancellation fees kept − their franchise share − refunds on completed rides
       range: { from: range.from || null, to: range.to || null, timezone: 'Asia/Kolkata' },
+      zoneId: zoneId || null,
     })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

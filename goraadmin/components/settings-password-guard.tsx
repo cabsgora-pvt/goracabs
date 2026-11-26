@@ -19,7 +19,7 @@ const GUARDED: [RegExp, string[]][] = [
     'services/[^/]+', 'zones/[^/]+/(pricing|rental-packages)', 'vehicles/types(/[^/]+)?',
     'surge(/[^/]+)?', 'promos(/[^/]+)?', 'subscription-plans(/[^/]+)?', 'zone-plans(/[^/]+)?',
     'incentives(/[^/]+)?', 'drivers/[^/]+/wallet', 'wallet/admin', 'finance/withdrawals/[^/]+',
-    'zone-admins/[^/]+/(payouts|subscription)', 'rides/[^/]+/(force-complete|otp-unlock)',
+    'zone-admins/[^/]+/(payouts|subscription)', 'rides/[^/]+/(force-complete|otp-unlock)', 'rides/[^/]+/admin',
     'document-types(/[^/]+)?', 'ride-preferences(/[^/]+)?', 'review',
   ].map(p => [new RegExp(`^/api/(${p})/?$`), ALL] as [RegExp, string[]]),
   [/^\/api\/notifications\/?$/, ['POST']],

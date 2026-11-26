@@ -5,12 +5,104 @@ import { Header } from '@/components/header'
 import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
 import { Toast } from '@/components/ui/toast'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Pager } from '@/components/ui/pager'
 import {
   ArrowLeft, Phone, Car, Star, TrendingUp, DollarSign,
   CheckCircle, XCircle, Mail, MapPin, CreditCard, FileText,
   Trash2, Ban, CalendarClock, ArrowDownToLine, SlidersHorizontal,
-  ShieldAlert, ShieldCheck, Plus, Pencil,
+  ShieldAlert, ShieldCheck, Plus, Pencil, Activity, BookOpen,
 } from 'lucide-react'
+
+const LEDGER_LIMIT = 25
+const LEDGER_LABEL: Record<string, string> = {
+  ride_earning: 'Ride earning', commission: 'Commission', recharge: 'Recharge / bonus', withdrawal: 'Withdrawal',
+  subscription: 'Subscription', cod_remittance: 'COD remittance', withdrawal_hold: 'Withdrawal hold',
+  withdrawal_released: 'Withdrawal released', admin_credit: 'Admin credit', admin_debit: 'Admin debit', split_reversal: 'Split reversal',
+}
+const fmtIst = (d?: string) => d ? new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' }) : '—'
+
+/** Dispatch fairness numbers (models/Driver dispatchStats, rolling 24 h) and the offer cool-down. */
+function DispatchCard({ driver }: { driver: any }) {
+  const st = driver.dispatchStats || {}
+  const cool = driver.offerCooldownUntil ? new Date(driver.offerCooldownUntil) : null
+  const cooling = !!cool && cool.getTime() > Date.now()
+  const offers = Number(st.offers || 0), accepts = Number(st.accepts || 0)
+  const rate = offers ? Math.round((accepts / offers) * 100) : null
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+      <h3 className="font-semibold text-gray-800 mb-1 flex items-center gap-2"><Activity className="w-4 h-4" /> Dispatch (last 24 h)</h3>
+      <p className="text-xs text-gray-400 mb-3">{st.windowStart ? `Window started ${fmtIst(st.windowStart)}` : 'No offers recorded yet'}</p>
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
+        {[['Offers', st.offers], ['Accepts', st.accepts], ['Rejects', st.rejects], ['Cancels', st.cancels]].map(([l, v]) => (
+          <div key={String(l)} className="bg-gray-50 rounded-lg py-2">
+            <p className="text-lg font-bold text-gray-900">{Number(v || 0)}</p>
+            <p className="text-xs text-gray-500">{l}</p>
+          </div>
+        ))}
+        <div className="bg-gray-50 rounded-lg py-2">
+          <p className="text-lg font-bold text-gray-900">{rate === null ? '—' : `${rate}%`}</p>
+          <p className="text-xs text-gray-500">Accept rate</p>
+        </div>
+      </div>
+      <p className={`mt-3 text-sm ${cooling ? 'text-amber-700' : 'text-gray-500'}`}>
+        {cooling
+          ? `Offer cool-down until ${fmtIst(cool!.toISOString())} — too many rejects; the driver still sees the open pool but gets no direct offers.`
+          : 'No offer cool-down.'}
+      </p>
+    </div>
+  )
+}
+
+/** Wallet ledger: every Transaction / WalletTransaction of the driver, newest first. */
+function LedgerCard({ id, refreshKey }: { id: string; refreshKey: number }) {
+  const [rows, setRows] = useState<any[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    setLoading(true)
+    fetch(`/api/drivers/${id}/ledger?page=${page}&limit=${LEDGER_LIMIT}`).then(r => r.json())
+      .then(d => { setRows(d.rows || []); setTotal(d.total || 0); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [id, page, refreshKey])
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+      <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2"><BookOpen className="w-4 h-4" /> Wallet ledger</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100 text-left text-xs text-gray-500 uppercase">
+              <th className="px-3 py-2">When (IST)</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Description</th>
+              <th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2 text-right">Balance after</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {loading && rows.length === 0 ? (
+              <tr><td colSpan={5} className="px-3 py-6 text-center text-gray-400">Loading…</td></tr>
+            ) : rows.length === 0 ? (
+              <tr><td colSpan={5} className="px-3 py-6 text-center text-gray-400">No wallet movements yet</td></tr>
+            ) : rows.map(r => (
+              <tr key={r.source + r._id}>
+                <td className="px-3 py-2 whitespace-nowrap text-gray-600">{fmtIst(r.at)}</td>
+                <td className="px-3 py-2 text-xs">{LEDGER_LABEL[r.type] || r.type}</td>
+                <td className="px-3 py-2 text-gray-600 max-w-sm">
+                  {r.description || '—'}
+                  {r.rideId && <Link href={`/rides/${r.rideId}`} className="ml-2 text-xs text-blue-600 hover:underline">ride</Link>}
+                </td>
+                <td className={`px-3 py-2 text-right font-medium whitespace-nowrap ${r.amount < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                  {r.amount < 0 ? '−' : '+'}₹{Math.abs(r.amount).toLocaleString('en-IN')}
+                </td>
+                <td className="px-3 py-2 text-right text-gray-700 whitespace-nowrap">{r.balanceAfter === undefined || r.balanceAfter === null ? '—' : `₹${Number(r.balanceAfter).toLocaleString('en-IN')}`}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <Pager page={page} limit={LEDGER_LIMIT} total={total} onPage={setPage} noun={['entry', 'entries']} />
+    </div>
+  )
+}
 import Link from 'next/link'
 import { EditAccountButton, HoldCard, ZoneCard } from '@/components/account-admin'
 import { DriverDocModal } from '@/components/account-admin-extra'
@@ -45,6 +137,8 @@ export default function DriverDetailPage() {
   const [wType, setWType] = useState<'credit' | 'debit'>('credit')
   const [wNote, setWNote] = useState('')
   const [wBusy, setWBusy] = useState(false)
+  const [wConfirm, setWConfirm] = useState(false)
+  const [ledgerKey, setLedgerKey] = useState(0)
   const [allowTaxi, setAllowTaxi] = useState(true)
   const [allowRental, setAllowRental] = useState(true)
   const [allowOutstation, setAllowOutstation] = useState(true)
@@ -197,12 +291,19 @@ export default function DriverDetailPage() {
     setDeleteModal(false)
   }
 
-  const adjustWallet = async () => {
+  // Step 1: check the amount and open the confirmation; step 2 (confirmed) applies it.
+  const askAdjustWallet = () => {
     const amount = Number(wAmount)
     if (!amount || amount <= 0) {
       setToast({ msg: 'Enter a valid amount', type: 'error' })
       return
     }
+    setWConfirm(true)
+  }
+
+  const adjustWallet = async () => {
+    const amount = Number(wAmount)
+    if (!amount || amount <= 0) return
     setWBusy(true)
     try {
       const res = await fetch(`/api/drivers/${id}/wallet`, {
@@ -214,7 +315,9 @@ export default function DriverDetailPage() {
       if (res.ok && d.success) {
         setWAmount('')
         setWNote('')
+        setWConfirm(false)
         fetchDriver()
+        setLedgerKey(k => k + 1)
         setToast({ msg: `Wallet ${wType === 'credit' ? 'credited' : 'debited'}`, type: 'success' })
       } else {
         setToast({ msg: d.error || 'Failed to adjust wallet', type: 'error' })
@@ -506,7 +609,7 @@ export default function DriverDetailPage() {
                 />
                 <button
                   type="button"
-                  onClick={adjustWallet}
+                  onClick={askAdjustWallet}
                   disabled={wBusy}
                   aria-label="Apply wallet adjustment"
                   title="Apply wallet adjustment"
@@ -515,6 +618,9 @@ export default function DriverDetailPage() {
                 </button>
               </div>
             </div>
+
+            <DispatchCard driver={driver} />
+            <LedgerCard id={String(id)} refreshKey={ledgerKey} />
 
             {/* Service Preferences */}
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
@@ -937,6 +1043,21 @@ export default function DriverDetailPage() {
         <DriverDocModal driverId={String(id)} doc={docEdit.add ? undefined : docEdit} presetType={docEdit.type}
           docTypes={docTypes} onClose={() => setDocEdit(null)} onSaved={(d: any) => setDriver(d)} onToast={setToast} />
       )}
+      {wConfirm && (
+        <ConfirmDialog
+          title={wType === 'credit' ? 'Add money to wallet' : 'Deduct money from wallet'}
+          confirmLabel={wType === 'credit' ? `Add ₹${Math.round(Number(wAmount) || 0)}` : `Deduct ₹${Math.round(Number(wAmount) || 0)}`}
+          tone={wType === 'credit' ? 'primary' : 'danger'}
+          message={<>
+            {wType === 'credit' ? 'Credit' : 'Debit'} <strong>₹{Math.round(Number(wAmount) || 0).toLocaleString('en-IN')}</strong> {wType === 'credit' ? 'to' : 'from'} <strong>{driver?.name || driver?.phone}</strong>&apos;s wallet?
+            <span className="block mt-1 text-gray-500">
+              Balance now ₹{Math.round(driver?.walletBalance || 0).toLocaleString('en-IN')} → ₹{Math.round((driver?.walletBalance || 0) + (wType === 'credit' ? 1 : -1) * Math.round(Number(wAmount) || 0)).toLocaleString('en-IN')}
+              {wNote.trim() ? ` · Note: ${wNote.trim()}` : ''}
+            </span>
+          </>}
+          onConfirm={adjustWallet} onClose={() => setWConfirm(false)} />
+      )}
+
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   )

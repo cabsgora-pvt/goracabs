@@ -6,51 +6,57 @@ import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
 import { Toast } from '@/components/ui/toast'
 import { PageHeader } from '@/components/ui/page-header'
+import { Pager } from '@/components/ui/pager'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Users, UserCheck, UserX, UserPlus, Search, Eye, Ban, Trash2 } from 'lucide-react'
+
+const LIMIT = 50
 
 export default function UsersPage() {
   const [users, setUsers] = useState<any[]>([])
+  const [total, setTotal] = useState(0)
+  const [counts, setCounts] = useState<Record<string, number>>({})
+  const [page, setPage] = useState(1)
+  const [deleting, setDeleting] = useState<any | null>(null)
+  const [ready, setReady] = useState(false)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   // Set by dashboard links (?filter=held / ?filter=negative)
   const [quickFilter, setQuickFilter] = useState<string>('')
-  useEffect(() => { setQuickFilter(new URLSearchParams(window.location.search).get('filter') || '') }, [])
+  useEffect(() => { setQuickFilter(new URLSearchParams(window.location.search).get('filter') || ''); setReady(true) }, [])
   const [showAddModal, setShowAddModal] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null)
   const [newUser, setNewUser] = useState({ name: '', phone: '', email: '' })
 
   const fetchUsers = () => {
     setLoading(true)
-    const params = new URLSearchParams({ limit: '100' })
+    const params = new URLSearchParams({ page: String(page), limit: String(LIMIT) })
     if (statusFilter !== 'all') params.set('status', statusFilter)
     if (quickFilter) params.set('filter', quickFilter)
     if (search) params.set('search', search)
     fetch(`/api/users?${params}`)
       .then(r => r.json())
-      .then(d => { setUsers(d.users || []); setLoading(false) })
+      .then(d => { setUsers(d.users || []); setTotal(d.total || 0); setCounts(d.counts || {}); setLoading(false) })
       .catch(() => setLoading(false))
   }
 
-  useEffect(() => { fetchUsers() }, [statusFilter, quickFilter])
+  useEffect(() => { if (ready) fetchUsers() }, [statusFilter, quickFilter, page, ready]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const filtered = users.filter(u => {
-    if (!search) return true
-    const s = search.toLowerCase()
-    return u.name?.toLowerCase().includes(s) || u.email?.toLowerCase().includes(s) || u.phone?.includes(search)
-  })
+  // Search runs on the server (Enter); the rows are this page of results.
+  const filtered = users
 
   const stats = {
-    total: users.length,
-    active: users.filter(u => u.status !== 'blocked' && u.status !== 'deleted').length,
-    blocked: users.filter(u => u.status === 'blocked').length,
+    total: counts.all || 0,
+    active: counts.active || 0,
+    blocked: counts.blocked || 0,
   }
 
-  const deleteUser = async (id: string, name: string) => {
-    if (!confirm(`Delete user "${name}"? This cannot be undone.`)) return
+  const deleteUser = async (id: string) => {
     const res = await fetch(`/api/users/${id}`, { method: 'DELETE' })
     if (res.ok) {
-      setUsers(prev => prev.filter(u => u._id !== id))
+      setDeleting(null)
+      fetchUsers()
       setToast({ msg: 'User deleted', type: 'success' })
     } else {
       const d = await res.json().catch(() => ({}))
@@ -100,7 +106,7 @@ export default function UsersPage() {
         <div className="px-6 pt-4">
           <span className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-semibold px-3 py-1.5 rounded-full">
             Showing: {({ held: 'Riders on hold' } as Record<string, string>)[quickFilter] || quickFilter}
-            <button type="button" aria-label="Clear filter" onClick={() => { setQuickFilter(''); window.history.replaceState(null, '', window.location.pathname) }} className="hover:text-red-600">✕</button>
+            <button type="button" aria-label="Clear filter" onClick={() => { setPage(1); setQuickFilter(''); window.history.replaceState(null, '', window.location.pathname) }} className="hover:text-red-600">✕</button>
           </span>
         </div>
       )}
@@ -123,7 +129,7 @@ export default function UsersPage() {
           <StatsCard icon={Users} label="Total Users" value={stats.total} iconColor="text-blue-600" iconBg="bg-blue-50" />
           <StatsCard icon={UserCheck} label="Active" value={stats.active} iconColor="text-green-600" iconBg="bg-green-50" />
           <StatsCard icon={UserX} label="Blocked" value={stats.blocked} iconColor="text-red-600" iconBg="bg-red-50" />
-          <StatsCard icon={UserPlus} label="New Today" value={0} iconColor="text-purple-600" iconBg="bg-purple-50" />
+          <StatsCard icon={UserPlus} label="New Today" value={counts.newToday || 0} iconColor="text-purple-600" iconBg="bg-purple-50" />
         </div>
 
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
@@ -133,15 +139,16 @@ export default function UsersPage() {
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && fetchUsers()}
-                placeholder="Search users..."
+                onKeyDown={e => { if (e.key === 'Enter') { if (page === 1) fetchUsers(); else setPage(1) } }}
+                placeholder="Search name, phone, email (Enter)"
+                aria-label="Search users"
                 className="bg-transparent text-sm outline-none w-full"
               />
             </div>
             <select
               aria-label="Filter by status"
               value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value)}
+              onChange={e => { setPage(1); setStatusFilter(e.target.value) }}
               className="border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Status</option>
@@ -196,7 +203,7 @@ export default function UsersPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => deleteUser(u._id, u.name || u.phone)}
+                            onClick={() => setDeleting(u)}
                             className="p-1.5 hover:bg-red-50 rounded-lg text-red-500"
                             title="Delete"
                           >
@@ -213,8 +220,17 @@ export default function UsersPage() {
               </table>
             </div>
           )}
+          <div className="px-4 border-t border-gray-100">
+            <Pager page={page} limit={LIMIT} total={total} onPage={setPage} noun={['rider', 'riders']} />
+          </div>
         </div>
       </div>
+
+      {deleting && (
+        <ConfirmDialog title="Delete rider" confirmLabel="Delete rider"
+          message={<>Delete rider <strong>{deleting.name || deleting.phone}</strong>? This cannot be undone.</>}
+          onConfirm={() => deleteUser(deleting._id)} onClose={() => setDeleting(null)} />
+      )}
 
       {showAddModal && (
         <Modal title="Add New User" onClose={() => setShowAddModal(false)}>

@@ -3,10 +3,15 @@ import { useState, useEffect } from 'react'
 import { Header } from '@/components/header'
 import { PageHeader } from '@/components/ui/page-header'
 import { Toast } from '@/components/ui/toast'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Bell, Send, Clock, ImagePlus } from 'lucide-react'
 
 export default function NotificationsPage() {
-  const [form, setForm] = useState({ title: '', message: '', target: 'all', scheduleType: 'now', scheduleTime: '', targetPhone: '', imageUrl: '' })
+  const EMPTY = { title: '', message: '', target: 'all', scheduleType: 'now', scheduleTime: '', targetPhone: '', imageUrl: '', zoneId: '' }
+  const [form, setForm] = useState(EMPTY)
+  const [zones, setZones] = useState<any[]>([])
+  // Recipient count shown before anything is sent (GET /api/notifications?count=1).
+  const [confirm, setConfirm] = useState<{ total: number; riders: number; drivers: number; withPush: number; scheduledAt?: string; zoneName?: string } | null>(null)
   const [uploading, setUploading] = useState(false)
   const uploadImage = async (f: File | undefined) => {
     if (!f) return
@@ -23,6 +28,7 @@ export default function NotificationsPage() {
   const [history, setHistory] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
+  useEffect(() => { fetch('/api/zones').then(r => r.json()).then(d => setZones(d.zones || [])).catch(() => {}) }, [])
   useEffect(() => {
     fetch('/api/notifications')
       .then(r => r.json())
@@ -45,17 +51,35 @@ export default function NotificationsPage() {
       if (at.getTime() < Date.now() + 60_000) { setToast({ msg: 'Schedule it at least 1 minute from now', type: 'error' }); return }
       scheduledAt = at.toISOString()
     }
+    if (form.target.startsWith('zone_') && !form.zoneId) { setToast({ msg: 'Choose the zone', type: 'error' }); return }
+    // Step 1: count who it reaches, then ask.
+    setSending(true)
+    const q = new URLSearchParams({ count: '1', target: form.target })
+    if (form.targetPhone) q.set('targetPhone', form.targetPhone)
+    if (form.zoneId) q.set('zoneId', form.zoneId)
+    const cr = await fetch(`/api/notifications?${q}`)
+    const c = await cr.json().catch(() => ({}))
+    setSending(false)
+    if (!cr.ok) { setToast({ msg: c.error || 'Could not count recipients', type: 'error' }); return }
+    setConfirm({ total: c.total || 0, riders: c.riders || 0, drivers: c.drivers || 0, withPush: c.withPush || 0, scheduledAt, zoneName: c.zoneName })
+  }
+
+  // Step 2 (confirmed): send or schedule.
+  const doSend = async () => {
+    const scheduledAt = confirm?.scheduledAt
     setSending(true)
     const res = await fetch('/api/notifications', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: form.title, message: form.message, target: form.target, targetPhone: form.targetPhone, imageUrl: form.imageUrl, scheduledAt }),
-    })
+      body: JSON.stringify({ title: form.title, message: form.message, target: form.target, targetPhone: form.targetPhone, zoneId: form.zoneId, imageUrl: form.imageUrl, scheduledAt }),
+    }).catch((e: any) => { setToast({ msg: e?.message || 'Not sent', type: 'error' }); return null })
     setSending(false)
+    if (!res) return
     const d = await res.json().catch(() => ({}))
     if (res.ok) {
+      setConfirm(null)
       setHistory(prev => [d.notification, ...prev])
-      setForm({ title: '', message: '', target: 'all', scheduleType: 'now', scheduleTime: '', targetPhone: '', imageUrl: '' })
+      setForm(EMPTY)
       setToast({
         msg: d.scheduled ? `Scheduled for ${new Date(d.notification.scheduledAt).toLocaleString()}` : 'Notification sent successfully!',
         type: 'success',
@@ -111,8 +135,22 @@ export default function NotificationsPage() {
                   <option value="all">All Users</option>
                   <option value="riders">All Riders</option>
                   <option value="drivers">All Drivers</option>
+                  <option value="zone_riders">Riders in a zone</option>
+                  <option value="zone_drivers">Drivers in a zone</option>
                   <option value="specific">Specific User</option>
                 </select>
+                {form.target.startsWith('zone_') && (
+                  <>
+                    <select aria-label="Zone" value={form.zoneId} onChange={e => setForm({ ...form, zoneId: e.target.value })}
+                      className="mt-2 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">Choose zone…</option>
+                      {zones.map(z => <option key={z._id} value={z._id}>{z.name}</option>)}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {form.target === 'zone_drivers' ? 'Drivers whose zone is this zone.' : 'Riders who took a ride in this zone in the last 90 days.'}
+                    </p>
+                  </>
+                )}
                 {form.target === 'specific' && (
                   <input aria-label="Phone number" value={form.targetPhone} onChange={e => setForm({ ...form, targetPhone: e.target.value })}
                     placeholder="Rider or driver phone number"
@@ -203,7 +241,7 @@ export default function NotificationsPage() {
                           <span>{n.title}<span className="block text-xs font-normal text-gray-500 truncate max-w-xs">{n.message}</span></span>
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-gray-600 capitalize">{n.target}</td>
+                      <td className="px-4 py-3 text-gray-600 capitalize">{n.target?.startsWith('zone_') ? `${n.target === 'zone_drivers' ? 'Drivers' : 'Riders'} · ${n.zoneName || 'zone'}` : n.target}</td>
                       <td className="px-4 py-3">
                         {n.status === 'scheduled' ? (
                           <span className="inline-flex items-center gap-2">
@@ -240,6 +278,22 @@ export default function NotificationsPage() {
           )}
         </div>
       </div>
+      {confirm && (
+        <ConfirmDialog
+          title={confirm.scheduledAt ? 'Schedule notification' : 'Send notification'}
+          tone="primary"
+          confirmLabel={confirm.total === 0 ? 'Nobody to send to' : confirm.scheduledAt ? 'Schedule' : `Send to ${confirm.total.toLocaleString('en-IN')}`}
+          message={<>
+            <strong>&ldquo;{form.title}&rdquo;</strong> will reach <strong>{confirm.total.toLocaleString('en-IN')}</strong> account{confirm.total === 1 ? '' : 's'}
+            {' '}({confirm.riders.toLocaleString('en-IN')} rider{confirm.riders === 1 ? '' : 's'}, {confirm.drivers.toLocaleString('en-IN')} driver{confirm.drivers === 1 ? '' : 's'}){confirm.zoneName ? ` in ${confirm.zoneName}` : ''}.
+            <span className="block mt-1 text-gray-500">
+              {confirm.withPush.toLocaleString('en-IN')} have push enabled; the rest see it in the app&apos;s notification list.
+              {confirm.scheduledAt ? ` Goes out ${new Date(confirm.scheduledAt).toLocaleString()} (count may change by then).` : ' A sent notification cannot be taken back.'}
+            </span>
+          </>}
+          onConfirm={async () => { if (confirm.total > 0) await doSend(); else setConfirm(null) }}
+          onClose={() => setConfirm(null)} />
+      )}
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   )

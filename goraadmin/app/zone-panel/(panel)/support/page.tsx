@@ -16,7 +16,11 @@ export default function ZoneSupport() {
   const [reply, setReply] = useState('')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
-  const load = useCallback(() => { zoneFetch('/api/zone-admin/support').then(r => r.json()).then(setD).catch(() => {}) }, [])
+  const [ticketPage, setTicketPage] = useState(1)
+  const [sosPage, setSosPage] = useState(1)
+  const load = useCallback(() => {
+    zoneFetch(`/api/zone-admin/support?ticketPage=${ticketPage}&sosPage=${sosPage}`).then(r => r.json()).then(setD).catch(() => {})
+  }, [ticketPage, sosPage])
   useEffect(() => { load() }, [load])
 
   const patch = async (body: any, ok: string) => {
@@ -26,7 +30,17 @@ export default function ZoneSupport() {
     setToast({ msg: ok, type: 'success' }); load(); return x
   }
 
-  const activeSos = (d?.sos || []).filter((s: any) => s.status === 'active').length
+  // Unresolved across every page (server count), not just this one.
+  const activeSos = d?.sosActive ?? (d?.sos || []).filter((s: any) => s.status !== 'resolved').length
+  const pages = (total: number) => Math.max(1, Math.ceil((total || 0) / (d?.limit || 100)))
+  const pager = (page: number, total: number, set: (n: number) => void) => (
+    <div className="p-3 flex items-center justify-end gap-2 text-[13px] border-t">
+      <span className="text-gray-500 mr-auto">{total || 0} total</span>
+      <button type="button" disabled={page <= 1} onClick={() => set(page - 1)} className="px-3 py-1.5 border rounded disabled:opacity-40">Prev</button>
+      <span>Page {page} of {pages(total)}</span>
+      <button type="button" disabled={page >= pages(total)} onClick={() => set(page + 1)} className="px-3 py-1.5 border rounded disabled:opacity-40">Next</button>
+    </div>
+  )
 
   return (
     <div>
@@ -41,7 +55,7 @@ export default function ZoneSupport() {
           {(['sos', 'tickets'] as const).map(t => (
             <button key={t} type="button" onClick={() => setTab(t)}
               className={`px-4 py-2 rounded text-[13px] ${tab === t ? 'bg-primary text-white' : 'bg-white text-[#495057] shadow-sm'}`}>
-              {t === 'sos' ? `SOS alerts (${d?.sos?.length ?? '…'})` : `Tickets (${d?.tickets?.length ?? '…'})`}
+              {t === 'sos' ? `SOS alerts (${d?.sosTotal ?? d?.sos?.length ?? '…'})` : `Tickets (${d?.ticketTotal ?? d?.tickets?.length ?? '…'})`}
             </button>
           ))}
         </div>
@@ -52,16 +66,16 @@ export default function ZoneSupport() {
               <tbody className="divide-y">
                 {!d ? <tr><td colSpan={6} className="text-center py-8 text-gray-400">Loading…</td></tr> : d.sos.length === 0 ? <tr><td colSpan={6} className="text-center py-8 text-gray-400">No SOS alerts</td></tr> :
                   d.sos.map((s: any) => (
-                    <tr key={s._id} className={s.status === 'active' ? 'bg-red-50/50' : ''}>
+                    <tr key={s._id} className={s.status === 'active' ? 'bg-red-50/50' : s.status === 'acknowledged' ? 'bg-amber-50/50' : ''}>
                       <td className="px-4 py-3 whitespace-nowrap">{new Date(s.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
                       <td className="px-4 py-3">{s.name || '—'} <span className="text-gray-400">({s.triggeredBy})</span></td>
                       <td className="px-4 py-3"><a href={`tel:${s.phone}`} className="text-primary">{s.phone}</a></td>
                       <td className="px-4 py-3 max-w-[260px] truncate">
                         {s.lat != null ? <a className="text-primary" target="_blank" rel="noreferrer" href={`https://maps.google.com/?q=${s.lat},${s.lng}`}>{s.address || 'Open map'}</a> : (s.address || '—')}
                       </td>
-                      <td className="px-4 py-3"><Badge status={s.status === 'active' ? 'high' : 'resolved'} /></td>
+                      <td className="px-4 py-3"><Badge status={s.status === 'active' ? 'high' : s.status === 'acknowledged' ? 'processing' : 'resolved'} /></td>
                       <td className="px-4 py-3 text-right">
-                        {canAct && s.status === 'active' && <button type="button" onClick={() => patch({ kind: 'sos', id: s._id, status: 'resolved' }, 'SOS resolved')} className="px-3 py-1.5 rounded bg-green-600 text-white text-[12.5px]">Mark resolved</button>}
+                        {canAct && s.status !== 'resolved' && <button type="button" onClick={() => patch({ kind: 'sos', id: s._id, status: 'resolved' }, 'SOS resolved')} className="px-3 py-1.5 rounded bg-green-600 text-white text-[12.5px]">Mark resolved</button>}
                       </td>
                     </tr>
                   ))}
@@ -85,6 +99,7 @@ export default function ZoneSupport() {
               </tbody>
             </table>
           )}
+          {d && !d.error && (tab === 'sos' ? pager(sosPage, d.sosTotal, setSosPage) : pager(ticketPage, d.ticketTotal, setTicketPage))}
         </div>
       </div>
 

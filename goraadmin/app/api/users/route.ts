@@ -6,6 +6,7 @@ import { parsePaging, escapeRegex } from '@/lib/list-params'
 import { pick, validateAccountEdit } from '@/lib/admin-account'
 import { requireAdmin } from '@/lib/auth'
 import { auditAdmin } from '@/lib/admin-audit'
+import { istMidnight } from '@/lib/finance'
 
 // Fields an admin may set when creating a rider by hand; walletBalance,
 // referral counters, tokenVersion etc. in the body are ignored.
@@ -32,14 +33,23 @@ export async function GET(req: NextRequest) {
       ]
     }
 
-    const total = await User.countDocuments(query)
-    const users = await User.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .lean()
+    // Status counts over every rider (cards), and new today (India time).
+    const istToday = istMidnight()
+    const [total, users, byStatus, newToday] = await Promise.all([
+      User.countDocuments(query),
+      User.find(query)
+        .select('-walletRechargeRefs -fcmToken')
+        .sort({ createdAt: -1, _id: 1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      User.aggregate([{ $match: { status: { $ne: 'deleted' } } }, { $group: { _id: '$status', n: { $sum: 1 } } }]),
+      User.countDocuments({ status: { $ne: 'deleted' }, createdAt: { $gte: istToday } }),
+    ])
+    const counts: Record<string, number> = { all: 0, newToday }
+    for (const b of byStatus) { counts[b._id || 'active'] = (counts[b._id || 'active'] || 0) + b.n; counts.all += b.n }
 
-    return NextResponse.json({ users, total, page, limit })
+    return NextResponse.json({ users, total, page, limit, counts })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

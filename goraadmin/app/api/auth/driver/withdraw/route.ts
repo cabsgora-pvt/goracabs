@@ -18,8 +18,15 @@ export async function GET(req: NextRequest) {
     const payload = requireDriverAuth(req)
     if (!payload) return withCors({ error: 'Unauthorized' }, 401)
     await connectDB()
-    const withdrawals = await Withdrawal.find({ driverId: payload.id }).sort({ createdAt: -1 }).limit(50).lean()
-    return withCors({ withdrawals })
+    const withdrawals = await Withdrawal.find({ driverId: payload.id }).sort({ createdAt: -1 }).limit(50).lean() as any[]
+    // Additive (driver app 1.5.1): the minimum POST accepts (same rule as
+    // below), and the money currently held by pending requests.
+    const s: any = await Settings.findOne({ key: 'global' }).select('driverApp.minWithdrawal').lean()
+    const minWithdrawal = Math.round(Number(s?.driverApp?.minWithdrawal) || 100)
+    const pendingHeld = withdrawals
+      .filter((w: any) => w.status === 'pending' && w.holdPlaced && !w.holdReleased)
+      .reduce((sum: number, w: any) => sum + (Number(w.amount) || 0), 0)
+    return withCors({ withdrawals, minWithdrawal, pendingHeld })
   } catch (e: any) {
     return withCors({ error: e.message || 'Failed' }, 500)
   }

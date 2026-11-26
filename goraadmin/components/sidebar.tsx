@@ -1,8 +1,9 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useFranchiseMode } from './franchise-mode'
+import { useAdminAlerts, type AlertCounts } from './admin-alerts'
 import {
   LayoutDashboard, Users, Car, Settings, Map, CreditCard, BarChart2,
   MessageSquare, Bell, Image, Gift, ChevronRight,
@@ -122,7 +123,7 @@ const navSections: { title: string; items: NavItem[] }[] = [
           { label: 'Tickets', href: '/support/tickets', icon: FileText },
           { label: 'Support Chat', href: '/support/chats', icon: MessageSquare },
           { label: 'FAQ', href: '/support/faq', icon: HelpCircle },
-          { label: 'SOS Contacts', href: '/support/sos', icon: AlertCircle },
+          { label: 'SOS Alerts & Contacts', href: '/support/sos', icon: AlertCircle },
         ]
       },
       {
@@ -142,6 +143,16 @@ const navSections: { title: string; items: NavItem[] }[] = [
     ],
   },
 ]
+
+// Menu badges: what is waiting behind each link (GET /api/admin/alerts).
+const BADGES: Record<string, (c: AlertCounts) => number> = {
+  '/account-requests': c => c.accountRequests,
+  '/review': c => c.needsReview,
+  '/drivers/pending': c => c.driversPending,
+  '/finance/withdrawals': c => c.withdrawalsPending,
+  '/support/tickets': c => c.ticketsOpen,
+  '/support/sos': c => c.sosActive + c.sosAcknowledged,
+}
 
 /** Brand colour of the previous panel's side menu. */
 export const SIDE_MENU = '#405189'
@@ -177,14 +188,12 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
   const [hovered, setHovered] = useState(false)
   const rail = collapsed && !hovered
 
-  // Pending account requests (deletions, zone changes) — badge on the menu.
-  const [pendingRequests, setPendingRequests] = useState(0)
-  useEffect(() => {
-    const load = () => fetch('/api/account-requests?status=pending').then(r => r.json()).then(d => setPendingRequests(d.pending || 0)).catch(() => {})
-    load()
-    const t = setInterval(load, 60000)
-    return () => clearInterval(t)
-  }, [pathname])
+  // Badges from the one alerts poll (components/admin-alerts, every 10 s).
+  const { counts } = useAdminAlerts()
+  const badge = (href: string) => (counts ? BADGES[href]?.(counts) || 0 : 0)
+  const badgeEl = (n: number, rail: boolean, red = true) => n > 0 && (
+    <span className={`${rail ? 'absolute ml-6 -mt-4' : 'ml-1'} min-w-[18px] h-[18px] px-1 rounded-full ${red ? 'bg-red-500' : 'bg-amber-500'} text-white text-[10px] font-bold flex items-center justify-center`}>{n > 99 ? '99+' : n}</span>
+  )
 
   const content = (rail: boolean) => (
     <div className="flex flex-col h-full">
@@ -213,9 +222,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
                     style={active ? { backgroundColor: SIDE_MENU } : undefined}>
                     <item.icon className={`w-[18px] h-[18px] flex-shrink-0 ${rail ? '' : 'mr-[10px]'}`} />
                     {!rail && <span className="truncate flex-1">{item.label}</span>}
-                    {item.href === '/account-requests' && pendingRequests > 0 && (
-                      <span className={`${rail ? 'absolute ml-6 -mt-4' : ''} min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center`}>{pendingRequests}</span>
-                    )}
+                    {badgeEl(badge(item.href), rail)}
                   </Link>
                 )
               }
@@ -226,6 +233,7 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
                     style={{ color: active ? SIDE_MENU : '#6d7080' }}>
                     <item.icon className={`w-[18px] h-[18px] flex-shrink-0 ${rail ? '' : 'mr-[10px]'}`} />
                     {!rail && <span className="flex-1 truncate">{item.label}</span>}
+                    {!expanded && badgeEl((item.children || []).reduce((t, c) => t + badge(c.href), 0), rail)}
                     {!rail && <ChevronRight className={`w-4 h-4 transition-transform ${expanded ? 'rotate-90' : ''}`} />}
                   </button>
                   {expanded && !rail && item.children && (
@@ -238,7 +246,8 @@ export function Sidebar({ collapsed, mobileOpen, onCloseMobile }: SidebarProps) 
                             style={{ color: on ? SIDE_MENU : '#6d7080' }}>
                             <span className="absolute left-[30px] top-1/2 -translate-y-1/2 w-[6px] h-[6px] rounded-full border"
                               style={{ borderColor: on ? SIDE_MENU : '#adb5bd', backgroundColor: on ? SIDE_MENU : 'transparent' }} />
-                            <span className="truncate">{child.label}</span>
+                            <span className="truncate flex-1">{child.label}</span>
+                            {badgeEl(badge(child.href), false, child.href !== '/support/sos' || !!counts?.sosActive)}
                           </Link>
                         )
                       })}

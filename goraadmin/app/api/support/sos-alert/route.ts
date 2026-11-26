@@ -4,6 +4,11 @@ import { connectDB } from '@/lib/mongodb'
 import SOSAlert from '@/models/SOSAlert'
 import mongoose from 'mongoose'
 import { requireAdmin, requireDriverAuth, requireRider } from '@/lib/auth'
+import { NextResponse } from 'next/server'
+import { guardAdmin } from '@/lib/admin-guard'
+import { auditAdmin } from '@/lib/admin-audit'
+import { parsePaging } from '@/lib/list-params'
+import { SOS_OPEN_STATUSES } from '@/models/SOSAlert'
 import Driver from '@/models/Driver'
 import User from '@/models/User'
 import Ride from '@/models/Ride'
@@ -46,7 +51,7 @@ export async function POST(req: NextRequest) {
     // A repeat tap of the same SOS (same account, same ride) within 2 min is
     // the same emergency: answer with the alert already raised.
     const dup: any = await SOSAlert.findOne({
-      triggeredBy, phone: person.phone || '', rideId: rideId ?? null, status: 'active',
+      triggeredBy, phone: person.phone || '', rideId: rideId ?? null, status: { $in: SOS_OPEN_STATUSES },
       createdAt: { $gte: new Date(Date.now() - SOS_DEDUPE_MS) },
     }).sort({ createdAt: -1 }).select('_id').lean()
     if (dup) return withCors({ success: true, id: dup._id, deduped: true })
@@ -74,17 +79,92 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// GET ?status=active|acknowledged|resolved|open (open = not resolved)&page&limit
+// Admin list. Unresolved first (active, then acknowledged), newest first within
+// each; then resolved, newest first. Carries the ride's rider/driver phones so
+// the page can call either. Counts per status for the filter chips.
+const RANK = { $switch: { branches: [
+  { case: { $eq: ['$status', 'active'] }, then: 0 },
+  { case: { $eq: ['$status', 'acknowledged'] }, then: 1 },
+], default: 2 } }
+
 export async function GET(req: NextRequest) {
   try {
-    if (!requireAdmin(req)) return withCors({ error: 'Unauthorized' }, 401)
+    const denied = await guardAdmin(req); if (denied) return denied
     await connectDB()
-    const alerts = await SOSAlert.find()
-      .sort({ createdAt: -1 })
-      .limit(200)
-      .populate('rideId', 'service pickupAddress dropAddress status driverName riderName')
-      .lean()
-    return withCors({ alerts })
+    const sp = req.nextUrl.searchParams
+    const { page, limit, skip } = parsePaging(sp, 50)
+    const st = sp.get('status') || ''
+    const match: any = {}
+    if (st === 'open') match.status = { $in: SOS_OPEN_STATUSES }
+    else if (['active', 'acknowledged', 'resolved'].includes(st)) match.status = st
+    const [rows, total, byStatus] = await Promise.all([
+      SOSAlert.aggregate([
+        { $match: match },
+        { $addFields: { _rank: RANK } },
+        { $sort: { _rank: 1, createdAt: -1 } },
+        { $skip: skip }, { $limit: limit },
+        { $project: { _rank: 0 } },
+      ]),
+      SOSAlert.countDocuments(match),
+      SOSAlert.aggregate([{ $group: { _id: '$status', n: { $sum: 1 } } }]),
+    ])
+    const counts: Record<string, number> = { active: 0, acknowledged: 0, resolved: 0 }
+    for (const b of byStatus) counts[b._id] = b.n
+    const rideIds = rows.map((a: any) => a.rideId).filter(Boolean)
+    const rides: any[] = rideIds.length
+      ? await Ride.find({ _id: { $in: rideIds } }).select('service pickupAddress dropAddress status driverName riderName riderPhone driverPhone').lean()
+      : []
+    const byId = new Map(rides.map(r => [String(r._id), r]))
+    // rideId stays the populated ride, as the page always read it.
+    const alerts = rows.map((a: any) => ({ ...a, rideId: (a.rideId && byId.get(String(a.rideId))) || a.rideId || null }))
+    return NextResponse.json({ alerts, total, page, limit, counts })
   } catch (error: any) {
-    return withCors({ error: error.message || 'Server error' }, 500)
+    return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 })
+  }
+}
+
+// PATCH { id, action: 'acknowledge' | 'resolve', note? }
+// acknowledge: active → acknowledged. resolve (note required): active or
+// acknowledged → resolved. Records who and when. Idempotent: repeating an
+// action that already happened changes nothing and answers 200 unchanged
+// (the first admin's name and time are kept); acknowledging a resolved alert
+// is a no-op too.
+export async function PATCH(req: NextRequest) {
+  try {
+    const denied = await guardAdmin(req); if (denied) return denied
+    const admin: any = requireAdmin(req)
+    const by = String(admin?.email || 'admin')
+    const b = await req.json().catch(() => ({}))
+    if (!mongoose.isValidObjectId(String(b.id || ''))) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    const action = String(b.action || '')
+    if (action !== 'acknowledge' && action !== 'resolve') return NextResponse.json({ error: 'action must be acknowledge or resolve' }, { status: 400 })
+    const note = typeof b.note === 'string' ? b.note.trim().slice(0, 1000) : ''
+    if (action === 'resolve' && note.length < 3) return NextResponse.json({ error: 'Write a short note on how it was resolved' }, { status: 400 })
+    await connectDB()
+    const now = new Date()
+    const updated: any = action === 'acknowledge'
+      ? await SOSAlert.findOneAndUpdate({ _id: b.id, status: 'active' },
+          { $set: { status: 'acknowledged', acknowledgedAt: now, acknowledgedBy: by } }, { new: true }).lean()
+      : await SOSAlert.findOneAndUpdate({ _id: b.id, status: { $in: SOS_OPEN_STATUSES } },
+          { $set: { status: 'resolved', resolvedAt: now, resolvedBy: by, resolutionNote: note } }, { new: true }).lean()
+    if (!updated) {
+      const cur: any = await SOSAlert.findById(b.id).lean()
+      if (!cur) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      return NextResponse.json({ success: true, unchanged: true, alert: cur })
+    }
+    // An alert resolved straight from active was seen at the same moment.
+    if (action === 'resolve' && !updated.acknowledgedAt) {
+      await SOSAlert.updateOne({ _id: updated._id, acknowledgedAt: { $exists: false } }, { $set: { acknowledgedAt: now, acknowledgedBy: by } })
+      updated.acknowledgedAt = now; updated.acknowledgedBy = by
+    }
+    await auditAdmin(req, admin, `sos.${action}`, {
+      target: `sos:${updated._id}`,
+      summary: `SOS ${action === 'resolve' ? 'resolved' : 'acknowledged'} — ${updated.name || ''} ${String(updated.phone || '').slice(-4)}`,
+      details: action === 'resolve' ? { note } : undefined,
+    })
+    return NextResponse.json({ success: true, alert: updated })
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message || 'Server error' }, { status: 500 })
   }
 }

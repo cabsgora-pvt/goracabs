@@ -15,6 +15,8 @@
 import PushNotification from '@/models/PushNotification'
 import User from '@/models/User'
 import Driver from '@/models/Driver'
+import Ride from '@/models/Ride'
+import mongoose from 'mongoose'
 import { sendPushAsync } from './push'
 
 /** Feed filter: only notifications that have actually gone out. */
@@ -27,18 +29,57 @@ export const SCHEDULE_MAX_AHEAD_MS = 60 * 24 * 60 * 60 * 1000
 const SWEEP_EVERY_MS = 30 * 1000
 let lastSweep = 0
 
+/** How far back a ride counts for "riders in a zone". */
+export const ZONE_RIDER_DAYS = 90
+
+/**
+ * Who a notification goes to, as rider / driver queries (null = none).
+ * zone_drivers: drivers whose zone is n.zoneId. zone_riders: riders with a
+ * ride in that zone in the last ZONE_RIDER_DAYS days. Deleted accounts never.
+ */
+export async function recipientQueries(n: { target?: string; targetUserId?: string; zoneId?: string }): Promise<{ riderQ: any; driverQ: any }> {
+  const t = n.target
+  const live = { status: { $ne: 'deleted' } }
+  if (t === 'zone_drivers' || t === 'zone_riders') {
+    const zid = String(n.zoneId || '')
+    if (!mongoose.isValidObjectId(zid)) return { riderQ: null, driverQ: null }
+    if (t === 'zone_drivers') return { riderQ: null, driverQ: { ...live, zoneId: zid } }
+    const since = new Date(Date.now() - ZONE_RIDER_DAYS * 864e5)
+    const ids = await Ride.distinct('riderId', { zoneId: new mongoose.Types.ObjectId(zid), createdAt: { $gte: since } })
+    return { riderQ: { ...live, _id: { $in: ids.filter(Boolean) } }, driverQ: null }
+  }
+  const riderQ: any = t === 'all' || t === 'riders' ? live : t === 'specific' ? { _id: n.targetUserId } : null
+  const driverQ: any = t === 'all' || t === 'drivers' ? live : t === 'specific' ? { _id: n.targetUserId } : null
+  return { riderQ, driverQ }
+}
+
+/** Recipient count for the admin's confirmation, without sending anything. */
+export async function countRecipients(n: { target?: string; targetUserId?: string; zoneId?: string }) {
+  const { riderQ, driverQ } = await recipientQueries(n)
+  const withToken = { fcmToken: { $nin: [null, ''] } }
+  const [riders, drivers, ridersPush, driversPush] = await Promise.all([
+    riderQ ? User.countDocuments(riderQ) : 0,
+    driverQ ? Driver.countDocuments(driverQ) : 0,
+    riderQ ? User.countDocuments({ ...riderQ, ...withToken }) : 0,
+    driverQ ? Driver.countDocuments({ ...driverQ, ...withToken }) : 0,
+  ])
+  return { riders, drivers, total: riders + drivers, withPush: ridersPush + driversPush }
+}
+
 /**
  * Pushes `n` to every phone it targets and returns how many accounts it
- * reached. Deleted accounts are skipped.
+ * reached. Deleted accounts are skipped. A zone notification also records
+ * the accounts it went to (targetUserIds) for the app feeds.
  */
 export async function pushToTargets(n: any): Promise<number> {
-  const t = n.target
-  const riderQ: any = t === 'all' || t === 'riders' ? { status: { $ne: 'deleted' } } : t === 'specific' ? { _id: n.targetUserId } : null
-  const driverQ: any = t === 'all' || t === 'drivers' ? { status: { $ne: 'deleted' } } : t === 'specific' ? { _id: n.targetUserId } : null
+  const { riderQ, driverQ } = await recipientQueries(n)
   const [riders, drivers]: any[] = await Promise.all([
     riderQ ? User.find(riderQ).select('fcmToken').lean() : [],
     driverQ ? Driver.find(driverQ).select('fcmToken').lean() : [],
   ])
+  if ((n.target === 'zone_riders' || n.target === 'zone_drivers') && n._id) {
+    await PushNotification.updateOne({ _id: n._id }, { $set: { targetUserIds: [...riders, ...drivers].map((x: any) => String(x._id)) } })
+  }
   const base = (process.env.PUBLIC_BASE_URL || 'https://goracabs.com').replace(/\/$/, '')
   const image = n.imageUrl ? (String(n.imageUrl).startsWith('/') ? base + n.imageUrl : n.imageUrl) : undefined
   for (const d of [...riders, ...drivers]) {

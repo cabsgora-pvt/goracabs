@@ -32,6 +32,8 @@ export async function GET(req: NextRequest) {
         { target: 'all' },
         { target: 'drivers' },
         { target: 'specific', targetUserId: driverId },
+        // Sent to the drivers of a zone (lib/notifications): the ids it went to.
+        { target: 'zone_drivers', targetUserIds: driverId },
       ],
     })
       .sort({ sentAt: -1 })

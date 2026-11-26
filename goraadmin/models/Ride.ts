@@ -403,6 +403,10 @@ const RideSchema = new Schema({
     type: new Schema({ by: String, adminId: String, note: String, at: Date }, { _id: false }),
     default: undefined,
   },
+  // Admin "Refund this ride" (lib/ride-admin-refund.ts): a short lease so two
+  // refunds of one ride never run at once, and the running total credited.
+  adminRefundLeaseAt: Date,
+  adminRefundTotal: { type: Number, default: undefined },
   // In-ride chat between rider and driver
   messages: [{
     sender: { type: String, enum: ['user', 'driver'] },

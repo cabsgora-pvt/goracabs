@@ -5,7 +5,7 @@ import Driver from '@/models/Driver'
 import Ride from '@/models/Ride'
 import SupportTicket from '@/models/SupportTicket'
 import Withdrawal from '@/models/Withdrawal'
-import SOSAlert from '@/models/SOSAlert'
+import SOSAlert, { SOS_OPEN_STATUSES } from '@/models/SOSAlert'
 import AccountRequest from '@/models/AccountRequest'
 import { guardAdmin } from '@/lib/admin-guard'
 import { istMidnight, istMonthStart, FARE_EXPR } from '@/lib/finance'
@@ -64,7 +64,8 @@ export async function GET(req: NextRequest) {
       User.countDocuments({ 'accountHold.active': true }),
       Driver.countDocuments({ walletBalance: { $lt: 0 }, status: { $ne: 'deleted' } }),
       Driver.aggregate([{ $match: { walletBalance: { $lt: 0 } } }, { $group: { _id: null, total: { $sum: '$walletBalance' } } }]),
-      SOSAlert.countDocuments({ status: 'active' }),
+      // Unresolved: raised and not yet closed (acknowledged ones still need help).
+      SOSAlert.countDocuments({ status: { $in: SOS_OPEN_STATUSES } }),
       AccountRequest.countDocuments({ status: 'pending' }),
     ])
 

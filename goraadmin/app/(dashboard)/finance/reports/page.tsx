@@ -3,13 +3,30 @@ import { useState, useEffect } from 'react'
 import { Header } from '@/components/header'
 import { PageHeader } from '@/components/ui/page-header'
 import { StatsCard } from '@/components/ui/stats-card'
-import { TrendingUp, DollarSign, Wallet, BarChart2 } from 'lucide-react'
+import { TrendingUp, DollarSign, Wallet, BarChart2, Download } from 'lucide-react'
+import { toCsv, downloadText } from '@/lib/csv'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, ResponsiveContainer
 } from 'recharts'
 
 const PIE_COLORS = ['#405189', '#43A047', '#FB8C00', '#E53935', '#8E24AA']
+const inr = (n: any) => `₹${(Math.round((Number(n) || 0) * 100) / 100).toLocaleString('en-IN')}`
+
+// The period figures, each with what it means (api/finance/reports, lib/finance).
+const FIGURES: { key: string; label: string; help: string; tone?: string }[] = [
+  { key: 'platformNet', label: 'Platform net (Gora keeps)', tone: 'text-green-700', help: 'Commission + subscriptions + cancellation fees kept − franchise shares − refunds on completed rides − coupon cost.' },
+  { key: 'grossRevenue', label: 'Gross revenue (collected)', help: 'Fares of completed rides whose payment was collected.' },
+  { key: 'commission', label: 'Ride commission', help: 'Commission on collected rides, before the franchise share.' },
+  { key: 'driverPayout', label: 'Driver payout', help: 'Driver earnings on collected rides.' },
+  { key: 'pendingRevenue', label: 'Pending (completed, unpaid)', tone: 'text-amber-700', help: 'Completed rides still waiting for payment — not yet in revenue.' },
+  { key: 'subscriptionRevenue', label: 'Subscription revenue', help: 'Driver passes bought in the period (by purchase time).' },
+  { key: 'cancellationFeesCollected', label: 'Cancellation fees kept', help: 'The part of a prepaid booking kept when the rider cancelled.' },
+  { key: 'refunds', label: 'Refunds', tone: 'text-red-600', help: 'Wallet refunds credited. Only refunds of completed-ride money reduce platform net.' },
+  { key: 'couponCost', label: 'Coupon cost', tone: 'text-red-600', help: 'Gora-funded coupon discounts on collected rides.' },
+  { key: 'franchiseShare', label: 'Franchise share (rides)', help: "Zone admins' part of ride commission." },
+  { key: 'netRevenue', label: 'Commission net of franchise', help: 'Ride commission − franchise share (the old “net revenue”).' },
+]
 
 export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useState('')
@@ -17,12 +34,16 @@ export default function ReportsPage() {
   const [data, setData] = useState<any>(null)
   const [summary, setSummary] = useState<any>(null)
   const [loading, setLoading] = useState(false)
+  const [zoneId, setZoneId] = useState('')
+  const [zones, setZones] = useState<any[]>([])
+  useEffect(() => { fetch('/api/zones').then(r => r.json()).then(d => setZones(d.zones || [])).catch(() => {}) }, [])
 
   const fetchReport = () => {
     setLoading(true)
     const params = new URLSearchParams()
     if (dateFrom) params.set('dateFrom', dateFrom)
     if (dateTo) params.set('dateTo', dateTo)
+    if (zoneId) params.set('zoneId', zoneId)
     fetch(`/api/finance/reports?${params}`)
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false) })
@@ -38,10 +59,19 @@ export default function ReportsPage() {
 
   useEffect(() => { fetchReport(); fetchSummary() }, [])
 
-  const grossRevenue = data?.grossRevenue || 0
-  const commission = data?.commission || 0
-  const driverPayout = data?.driverPayout || 0
-  const netRevenue = data?.netRevenue || 0
+  const zoneName = zones.find(z => z._id === (data?.zoneId || ''))?.name || ''
+  const exportCsv = () => {
+    if (!data) return
+    const period = `${dateFrom || 'start'} to ${dateTo || 'today'}`
+    const rows: unknown[][] = [
+      ['Period (IST)', period, ''], ['Zone', zoneName || 'All zones', ''],
+      ['Completed rides', data.completedRides ?? '', ''], ['Collected rides', data.totalRides ?? '', ''], ['Pending rides', data.pendingRides ?? '', ''],
+      ...FIGURES.map(f => [f.label, data[f.key] ?? 0, f.help]),
+      ...(data.byService || []).map((x: any) => [`Revenue · ${x.service || 'taxi'}`, x.revenue, `${x.count} rides`]),
+      ...(data.byPayment || []).map((x: any) => [`Revenue · ${x.mode || 'unknown'} payments`, x.revenue, `${x.count} rides`]),
+    ]
+    downloadText(`gora-finance-${dateFrom || 'all'}-${dateTo || 'today'}${zoneName ? '-' + zoneName.replace(/\W+/g, '_') : ''}.csv`, toCsv(['Figure', 'Value (INR)', 'Meaning'], rows))
+  }
   const byService = (data?.byService || []).map((s: any) => ({ service: s.service || s._id, revenue: s.revenue }))
   const byPayment = (data?.byPayment || []).map((p: any) => ({ name: p.mode || p._id, value: p.count || 0 }))
   const topDrivers = data?.topDrivers || []
@@ -70,19 +100,43 @@ export default function ReportsPage() {
             <input id="dateTo" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
-          <div className="self-end">
+          <div>
+            <label htmlFor="zoneSel" className="block text-xs text-gray-500 mb-1">Zone</label>
+            <select id="zoneSel" value={zoneId} onChange={e => setZoneId(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">All zones</option>
+              {zones.map(z => <option key={z._id} value={z._id}>{z.name}</option>)}
+            </select>
+          </div>
+          <div className="self-end flex gap-2">
             <button type="button" onClick={fetchReport} disabled={loading}
               className="px-5 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-dark disabled:opacity-60">
               {loading ? 'Loading...' : 'Generate Report'}
             </button>
+            <button type="button" onClick={exportCsv} disabled={!data || loading}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50 flex items-center gap-2">
+              <Download className="w-4 h-4" /> Export CSV
+            </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          <StatsCard icon={TrendingUp} label="Gross Revenue" value={`₹${grossRevenue.toLocaleString()}`} iconColor="text-blue-600" iconBg="bg-blue-50" />
-          <StatsCard icon={DollarSign} label="Commission" value={`₹${commission.toLocaleString()}`} iconColor="text-green-600" iconBg="bg-green-50" />
-          <StatsCard icon={Wallet} label="Driver Payout" value={`₹${driverPayout.toLocaleString()}`} iconColor="text-purple-600" iconBg="bg-purple-50" />
-          <StatsCard icon={BarChart2} label="Net Revenue" value={`₹${netRevenue.toLocaleString()}`} iconColor="text-orange-600" iconBg="bg-orange-50" />
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+          <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center gap-2">
+            <h3 className="font-semibold text-gray-800">Period figures</h3>
+            <span className="text-xs text-gray-500">
+              {dateFrom || dateTo ? `${dateFrom || 'start'} → ${dateTo || 'today'} (IST)` : 'All time'}{zoneName ? ` · ${zoneName}` : ' · all zones'}
+              {data ? ` · ${data.completedRides ?? 0} completed rides (${data.totalRides ?? 0} paid, ${data.pendingRides ?? 0} unpaid)` : ''}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 divide-y sm:divide-y-0 gap-px bg-gray-100">
+            {FIGURES.map(f => (
+              <div key={f.key} className="bg-white p-4" data-figure={f.key}>
+                <p className="text-xs text-gray-500">{f.label}</p>
+                <p className={`text-xl font-bold mt-1 ${f.tone || 'text-gray-900'}`}>{data ? inr(data[f.key]) : '…'}</p>
+                <p className="text-[11px] text-gray-400 mt-1 leading-snug">{f.help}</p>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

@@ -4,6 +4,24 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { Bell, ChevronDown, LogOut, Settings, Home, Users, FileText, Menu, Maximize, Moon, Sun } from 'lucide-react'
 import { SIDE_MENU } from './sidebar'
+import { useAdminAlerts } from './admin-alerts'
+
+const ALERT_ROWS = [
+  { key: 'sosActive', label: 'SOS waiting', href: '/support/sos' },
+  { key: 'ticketsOpen', label: 'Open tickets', href: '/support/tickets' },
+  { key: 'driversPending', label: 'Driver approvals', href: '/drivers/pending' },
+  { key: 'withdrawalsPending', label: 'Withdrawals', href: '/finance/withdrawals' },
+  { key: 'accountRequests', label: 'Account requests', href: '/account-requests' },
+  { key: 'needsReview', label: 'Needs review', href: '/review' },
+]
+const KIND_DOT: Record<string, string> = { sos: 'bg-red-600', ticket: 'bg-orange-500', driver: 'bg-yellow-500', withdrawal: 'bg-blue-500', request: 'bg-purple-500' }
+function ago(at: string) {
+  const s = Math.max(0, Math.round((Date.now() - new Date(at).getTime()) / 1000))
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+  return `${Math.floor(s / 86400)}d ago`
+}
 
 // Module tabs across the top, as on the previous panel (Home · Users ·
 // Settings · Masters). Each opens a page that already exists.
@@ -34,6 +52,8 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
   const pathname = usePathname()
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
+  const { counts, items, error } = useAdminAlerts()
+  const alertTotal = counts ? ALERT_ROWS.reduce((t, r) => t + ((counts as any)[r.key] || 0), 0) : 0
 
   // Sign out: clear the httpOnly admin_token cookie server-side (JS cannot),
   // drop any token an older build left in localStorage, then go to /login.
@@ -86,39 +106,51 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
         <Maximize className="w-[19px] h-[19px]" />
       </button>
 
-      {/* Notifications */}
+      {/* Alerts — live counts from /api/admin/alerts (components/admin-alerts) */}
       <div className="relative">
         <button
+          type="button"
+          aria-label="Alerts"
           onClick={() => { setNotifOpen(!notifOpen); setDropdownOpen(false) }}
           className="relative w-10 h-10 flex items-center justify-center rounded-full text-[#878a99] hover:bg-[#f3f3f9]"
         >
-          <Bell className="w-[19px] h-[19px]" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
+          <Bell className={`w-[19px] h-[19px] ${counts?.sosActive ? 'text-red-600 animate-pulse' : ''}`} />
+          {alertTotal > 0 && (
+            <span className={`absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center ${counts?.sosActive ? 'bg-red-600' : 'bg-red-500'}`}>
+              {alertTotal > 99 ? '99+' : alertTotal}
+            </span>
+          )}
         </button>
         {notifOpen && (
           <div className="absolute right-0 mt-2 w-80 bg-white rounded shadow-xl border border-[#e9ebec] z-50">
             <div className="px-4 py-3 text-white rounded-t" style={{ backgroundColor: SIDE_MENU }}>
-              <p className="font-semibold">Notifications</p>
+              <p className="font-semibold">Needs attention</p>
             </div>
-            <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
-              {[
-                { text: '3 new driver approvals pending', time: '5m ago', color: 'bg-yellow-100' },
-                { text: 'New support ticket: App crash on booking', time: '12m ago', color: 'bg-red-100' },
-                { text: '5 withdrawal requests awaiting', time: '1h ago', color: 'bg-blue-100' },
-                { text: 'Promo GORA25 has expired', time: '2h ago', color: 'bg-gray-100' },
-              ].map((n, i) => (
-                <div key={i} className="px-4 py-3 hover:bg-gray-50 flex items-start gap-3">
-                  <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${n.color.replace('100', '500')}`} />
-                  <div>
-                    <p className="text-sm text-gray-700">{n.text}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{n.time}</p>
-                  </div>
-                </div>
+            <div className="grid grid-cols-2 gap-px bg-gray-100 border-b border-gray-100">
+              {ALERT_ROWS.map(r => (
+                <Link key={r.key} href={r.href} onClick={() => setNotifOpen(false)}
+                  className={`bg-white px-3 py-2 text-xs flex items-center justify-between hover:bg-gray-50 ${r.key === 'sosActive' && counts?.sosActive ? 'text-red-700 font-semibold' : 'text-gray-600'}`}>
+                  <span>{r.label}</span>
+                  <span className="font-bold">{counts ? (counts as any)[r.key] : '…'}</span>
+                </Link>
               ))}
             </div>
+            <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
+              {items.map(n => (
+                <Link key={n.kind + n.id} href={n.href} onClick={() => setNotifOpen(false)} className="px-4 py-3 hover:bg-gray-50 flex items-start gap-3">
+                  <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${KIND_DOT[n.kind] || 'bg-gray-400'}`} />
+                  <div>
+                    <p className="text-sm text-gray-700">{n.text}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{ago(n.at)}</p>
+                  </div>
+                </Link>
+              ))}
+              {counts && items.length === 0 && <p className="px-4 py-6 text-sm text-gray-400 text-center">Nothing waiting. All clear.</p>}
+              {error && <p className="px-4 py-2 text-xs text-red-500">Could not refresh alerts.</p>}
+            </div>
             <div className="px-4 py-3 border-t border-gray-100">
-              <Link href="/notifications" className="text-sm text-blue-600 font-medium" onClick={() => setNotifOpen(false)}>
-                View all notifications
+              <Link href="/review" className="text-sm text-blue-600 font-medium" onClick={() => setNotifOpen(false)}>
+                Open the review queue
               </Link>
             </div>
           </div>

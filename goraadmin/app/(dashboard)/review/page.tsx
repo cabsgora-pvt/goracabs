@@ -5,6 +5,7 @@ import { Header } from '@/components/header'
 import { Badge } from '@/components/ui/badge'
 import { Modal } from '@/components/ui/modal'
 import { Toast } from '@/components/ui/toast'
+import { RideActions } from '@/components/rides/ride-actions'
 
 // Everything that waits for an admin, in one place (GET /api/review):
 // flagged rides, COD a driver still owes, refunds that could not run on their
@@ -28,7 +29,7 @@ const th = 'text-left text-xs font-semibold text-gray-500 uppercase tracking-wid
 const td = 'px-4 py-3 align-top'
 
 function RideLink({ id }: { id: string }) {
-  return <Link href={`/rides?search=${id}`} className="text-blue-600 hover:underline font-mono text-xs">{String(id).slice(-8)}</Link>
+  return <Link href={`/rides/${id}`} className="text-blue-600 hover:underline font-mono text-xs">{String(id).slice(-8)}</Link>
 }
 
 function Prepaid({ r }: { r: any }) {
@@ -127,9 +128,12 @@ export default function ReviewPage() {
                     ))}</td>
                     <td className={`${td} text-xs`}>{r.refundReview ? <span className="text-red-600 font-semibold">{label(r.refundReview)}</span> : r.refundPending ? 'pending' : '—'}{r.refundedAmount > 0 && <div>refunded {rupees(r.refundedAmount)}</div>}</td>
                     <td className={td}><Prepaid r={r} /></td>
-                    <td className={td}>
+                    <td className={`${td} space-y-1.5`}>
                       <button type="button" className={`${btn} bg-green-600 text-white hover:bg-green-700`}
                         onClick={() => { setNote(''); setAct({ kind: 'resolve', id: r._id, title: 'Resolve review', detail: `Clears the flag "${label(r.reviewReason)}" on this ride. It does not move any money.` }) }}>Resolve</button>
+                      {/* Force-complete / cancel / OTP unlock / confirm delivery, each with its own confirm dialog. */}
+                      <RideActions ride={r} only={['force_complete', 'cancel', 'otp_unlock', 'verbal_confirm']} size="sm"
+                        onDone={m => { setToast({ msg: m, type: 'success' }); load() }} />
                     </td>
                   </tr>
                 ))}

@@ -52,7 +52,7 @@ const orphanFilter = (nowMs = Date.now()) => ({
 })
 const withdrawalsFilter = () => ({ status: 'pending', bankChangedRecently: true })
 
-const RIDE_FIELDS = '_id status service paymentMode riderId riderName riderPhone driverId driverName driverPhone pickupAddress dropAddress fare totalFare createdAt cancelledAt needsReview needsReviewAt reviewReason stuckSince issueReports refundReview refundPending refundAttempts refundedAmount cancelledFromStatus prepaidAmount prepaidVia prepaidRef prepaidUnlinked codAmount codCollected codSenderCredited codPendingRemittance codSettledAt deliveredAt senderName senderPhone receiverName receiverPhone'
+const RIDE_FIELDS = '_id status service paymentMode riderId riderName riderPhone driverId driverName driverPhone pickupAddress dropAddress fare totalFare createdAt cancelledAt needsReview needsReviewAt reviewReason stuckSince issueReports refundReview refundPending refundAttempts refundedAmount cancelledFromStatus prepaidAmount prepaidVia prepaidRef prepaidUnlinked codAmount codCollected codSenderCredited codPendingRemittance codSettledAt deliveredAt senderName senderPhone receiverName receiverPhone otpLocked dropOtpLocked deliveryPhase'
 
 const mask = (s: any) => { const v = String(s || ''); return v.length > 4 ? `••••${v.slice(-4)}` : v }
 

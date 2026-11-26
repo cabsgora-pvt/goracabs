@@ -10,6 +10,8 @@ import { driverIsBusy, driverEligibleFor, cachedGlobalSettings, kickDispatchSwee
 import { holdOf } from '@/lib/account-hold'
 import { withCors, corsOptions } from '@/lib/cors'
 import { sweepDueNotifications } from '@/lib/notifications'
+import { commissionPercentFor } from '@/lib/commission'
+import { figuresFor } from '@/lib/settlement'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -23,7 +25,7 @@ const FEED_FIELDS = [
   'numPassengers', 'packageHours', 'packageKm', 'hireTotalHours', 'transmission', 'hireStartAt', 'hireEndAt',
   'senderName', 'receiverName', 'itemType', 'weightKg', 'packageSize', 'isFragile', 'codAmount', 'parcelPhotos',
   'offeredTo', 'offerExpiresAt', 'rejectedBy', 'zoneId', 'preferFemaleDriver', 'preferences', 'status',
-  'offerRound', 'dispatchActivatedAt', 'offeredHistory',
+  'offerRound', 'dispatchActivatedAt', 'offeredHistory', 'commissionPercent',
 ].join(' ')
 
 // GET → pending ride requests this driver may accept (same zone + vehicle type, recent, not rejected)
@@ -36,7 +38,7 @@ export async function GET(req: NextRequest) {
     await connectDB()
     sweepDueNotifications()   // scheduled admin notifications that are due
     const driver: any = await Driver.findById(payload.id)
-      .select('status isOnline accountHold faceVerificationRequired faceVerificationReason walletBalance selectedVehicleTypeName zoneId gender currentLat currentLng allowTaxi allowRental allowOutstation allowHireDriver allowDelivery acceptsRental acceptsOutstation acceptsHireDriver acceptsDelivery offerCooldownUntil')
+      .select('status isOnline accountHold faceVerificationRequired faceVerificationReason walletBalance selectedVehicleTypeName zoneId gender currentLat currentLng allowTaxi allowRental allowOutstation allowHireDriver allowDelivery acceptsRental acceptsOutstation acceptsHireDriver acceptsDelivery offerCooldownUntil subscriptionActive subscriptionExpiresAt subscriptionStartedAt subscriptionCommissionPercent')
       .lean()
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
 
@@ -154,6 +156,25 @@ export async function GET(req: NextRequest) {
       : []
     const userMap = new Map<string, any>(users.map((u: any) => [String(u._id), u]))
 
+    // What the driver would keep if they accepted now — an ESTIMATE on the
+    // booked fare (+ tip): settlement (lib/settlement) applies the same
+    // commission rule (lib/commission commissionPercentFor) at /complete, to
+    // the final bill. Accepting now means a subscription active now covers it
+    // (subscriptionCoversRide with acceptedAt = now). The franchise share is
+    // a split of Gora's commission, so it never changes the driver's part.
+    // One zone lookup per zone / vehicle / service, not per ride.
+    const pctMemo = new Map<string, Promise<number>>()
+    const estEarning = new Map<string, number>()
+    for (const r of rides) {
+      try {
+        const probe = { ...r, acceptedAt: now }
+        const key = r.commissionPercent != null ? `fixed:${r.commissionPercent}` : `${r.zoneId || ''}|${r.vehicleType || ''}|${r.service || ''}`
+        if (!pctMemo.has(key)) pctMemo.set(key, commissionPercentFor(driver, probe))
+        const pct = await pctMemo.get(key)!
+        estEarning.set(String(r._id), Math.max(0, Math.round(figuresFor(probe, pct).driverEarning)))
+      } catch { /* no estimate for this one: the app shows none */ }
+    }
+
     const result = rides.map((r: any) => {
       const u = r.riderId ? userMap.get(String(r.riderId)) : null
       return {
@@ -207,6 +228,8 @@ export async function GET(req: NextRequest) {
         itemType: r.itemType, weightKg: r.weightKg,
         packageSize: r.packageSize, isFragile: r.isFragile,
         codAmount: r.codAmount, parcelPhotos: r.parcelPhotos,
+        // Additive (driver app 1.5.1): fare + tip − commission, an estimate.
+        estDriverEarning: estEarning.get(String(r._id)) ?? null,
       }
     })
 
