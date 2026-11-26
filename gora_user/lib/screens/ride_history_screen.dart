@@ -7,6 +7,7 @@ import '../services/api_service.dart';
 import '../utils/map_markers.dart';
 import '../utils/receipt.dart';
 import '../utils/trip_map.dart';
+import '../widgets/premium.dart';
 import '../widgets/ride_ui/ride_ui.dart';
 import 'invoice_screen.dart';
 import 'hire_driver_booking_details_screen.dart';
@@ -321,7 +322,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     // As a home tab there is nothing to go back to; as a pushed page there is.
     final canPop = Navigator.of(context).canPop();
     return Scaffold(
-      backgroundColor: RideUi.surface(context),
+      backgroundColor: Premium.page(context),
       body: Column(children: [
         if (canPop) const ServiceBackBar() else const SafeArea(bottom: false, child: SizedBox(height: 12)),
         Expanded(
@@ -341,6 +342,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
               children: [
                 const ServiceTitle(title: 'Your trips'),
+                if (!_loadingRides && _myRides.isNotEmpty) _summaryStrip(),
                 if (!_loadingRides && chips.length > 2) ...[
                   SizedBox(
                     height: 40,
@@ -359,16 +361,41 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                 else if (rides.isEmpty)
                   _empty()
                 else
-                  for (var i = 0; i < rides.length; i++) ...[
-                    if (i > 0) const RideDivider(indent: 70),
-                    _buildRideCard(rides[i]),
-                  ],
+                  for (final r in rides)
+                    PremiumCard(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                      child: _buildRideCard(r),
+                    ),
                 if (!_loadingRides && _hasMore) _moreFooter(),
               ],
             ),
             ),
           ),
         ),
+      ]),
+    );
+  }
+
+  /// "12 trips · 9 completed" over the loaded rides — a quiet overview.
+  Widget _summaryStrip() {
+    final done = _myRides.where((r) => (r['status'] ?? '').toString() == 'Completed').length;
+    Widget stat(String value, String label) => Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(value, style: Premium.figure(context, size: 24)),
+            const SizedBox(height: 2),
+            Text(label.toUpperCase(), style: Premium.overline(context)),
+          ]),
+        );
+    return PremiumCard(
+      key: const ValueKey('history-summary'),
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
+      child: Row(children: [
+        stat('${_myRides.length}${_hasMore ? '+' : ''}', 'Trips'),
+        Container(width: 1, height: 34, color: Premium.hairline(context)),
+        const SizedBox(width: 18),
+        stat('$done', 'Completed'),
       ]),
     );
   }

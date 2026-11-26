@@ -27,7 +27,7 @@ class _EarningsPageState extends State<EarningsPage> {
       create: (_) => EarningsBloc()..add(LoadEarningsEvent()),
       child: Scaffold(
         appBar: blueAppBar('Earnings'),
-        backgroundColor: Cap.surface,
+        backgroundColor: Cap.bg,
         body: BlocBuilder<EarningsBloc, EarningsState>(
           builder: (context, state) {
             if (state is EarningsError) {
@@ -144,8 +144,12 @@ class _EarningsPageState extends State<EarningsPage> {
         duration: const Duration(milliseconds: 180),
         width: 68,
         decoration: BoxDecoration(
-          color: sel ? const Color(0xFF111111) : Cap.tile,
-          borderRadius: BorderRadius.circular(14),
+          color: sel ? null : Cap.tile,
+          gradient: sel ? Cap.heroGradient : null,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: sel
+              ? [BoxShadow(color: AppColors.primary.withValues(alpha: 0.30), blurRadius: 10, offset: const Offset(0, 4))]
+              : null,
         ),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Text(p.label, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: sel ? Colors.white70 : Cap.muted)),
@@ -167,25 +171,28 @@ class _EarningsPageState extends State<EarningsPage> {
   }
 
   Widget _heroCard(String title, PeriodStat p) {
-    return Container(
+    return SizedBox(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Cap.tile,
-        borderRadius: BorderRadius.circular(Cap.radius),
+      child: CapHeroCard(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 22),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: Cap.overline(size: 12, color: Colors.white70).copyWith(letterSpacing: 0.8)),
+          const SizedBox(height: 8),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text('₹${p.amount.toStringAsFixed(0)}',
+                style: Cap.display(size: 44, color: Colors.white).copyWith(letterSpacing: -1.4)),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(20)),
+            child: Text('${p.rides} ${p.rides == 1 ? "trip" : "trips"} completed',
+                style: const TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w700)),
+          ),
+        ]),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: Cap.caption(size: 13.5).copyWith(fontWeight: FontWeight.w700)),
-        const SizedBox(height: 6),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Text('₹${p.amount.toStringAsFixed(0)}',
-              style: TextStyle(color: Cap.ink, fontSize: 40, fontWeight: FontWeight.w900, letterSpacing: -0.8)),
-        ),
-        const SizedBox(height: 4),
-        Text('${p.rides} ${p.rides == 1 ? "trip" : "trips"} completed', style: Cap.caption(size: 13)),
-      ]),
     );
   }
 
@@ -205,10 +212,15 @@ class _EarningsPageState extends State<EarningsPage> {
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
       decoration: BoxDecoration(
         color: Cap.surface,
-        borderRadius: BorderRadius.circular(Cap.radius),
-        border: Border.all(color: Cap.divider),
+        borderRadius: BorderRadius.circular(Cap.radius + 2),
+        border: Border.all(color: Cap.divider.withValues(alpha: 0.7)),
+        boxShadow: Cap.softShadow,
       ),
-      child: Column(children: [
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 4),
+          child: Text('BREAKDOWN', style: Cap.overline(size: 10.5)),
+        ),
         row('From cash trips', rs(p.cash), key: const ValueKey('earn_cash')),
         row('From online / wallet trips', rs(p.online), key: const ValueKey('earn_online')),
         row('Tips', rs(p.tips), color: p.tips > 0 ? AppColors.green : null),
@@ -254,8 +266,9 @@ class _EarningsPageState extends State<EarningsPage> {
       Container(
         decoration: BoxDecoration(
           color: Cap.surface,
-          borderRadius: BorderRadius.circular(Cap.radius),
-          border: Border.all(color: Cap.divider),
+          borderRadius: BorderRadius.circular(Cap.radius + 2),
+          border: Border.all(color: Cap.divider.withValues(alpha: 0.7)),
+          boxShadow: Cap.softShadow,
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(children: [
@@ -290,7 +303,7 @@ class _EarningsPageState extends State<EarningsPage> {
           Text('${p.durationMin} min on trips', style: Cap.caption(size: 11.5)),
         ])),
         const SizedBox(width: 8),
-        Text('₹${p.amount.toStringAsFixed(0)}', style: Cap.body(size: 15.5, weight: FontWeight.w900)),
+        Text('₹${p.amount.toStringAsFixed(0)}', style: Cap.display(size: 17)),
       ]),
     );
   }

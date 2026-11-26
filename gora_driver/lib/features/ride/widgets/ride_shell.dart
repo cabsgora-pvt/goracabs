@@ -7,6 +7,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../services/device_channel.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../utils/call_util.dart';
+import '../../../models/models.dart';
 import '../pages/emergency_actions_page.dart';
 import '../pages/ride_chat_page.dart';
 import 'nav_engine.dart';
@@ -55,7 +56,18 @@ class RideContact {
   /// What they are to this job: "Rider", "Sender", "Receiver".
   final String role;
   final String picUrl;
-  const RideContact({required this.name, this.phone = '', this.role = '', this.picUrl = ''});
+  /// Set when the rider booked this trip for someone else: the rider's name,
+  /// shown as a small "Booked by …" line under the passenger.
+  final String bookedBy;
+  const RideContact({required this.name, this.phone = '', this.role = '', this.picUrl = '', this.bookedBy = ''});
+
+  /// The person the driver meets on [r]. For a trip booked for someone else
+  /// that is the passenger: their name, their phone (falling back to the
+  /// rider's), role "Passenger" and the booker on a line below. Otherwise the
+  /// rider, as before.
+  factory RideContact.forRide(RideRequestModel r, {String role = 'Rider'}) => r.isForOther
+      ? RideContact(name: r.travellerName, phone: r.callPhone, role: 'Passenger', bookedBy: r.userName)
+      : RideContact(name: r.userName, phone: r.userPhone, role: role, picUrl: r.userProfilePicUrl);
 }
 
 class RideShell extends StatefulWidget {
@@ -372,6 +384,11 @@ class _RideShellState extends State<RideShell> with WidgetsBindingObserver {
             Text(c.role,
               maxLines: 1, overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: AppColors.textGrey)),
+          if (c.bookedBy.trim().isNotEmpty)
+            Text('Booked by ${c.bookedBy.trim()}',
+              key: const Key('contact-booked-by'),
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppColors.primary)),
         ]),
       ),
       if (widget.contactTrailing != null) ...[

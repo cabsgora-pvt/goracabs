@@ -12,8 +12,10 @@ import '../providers/user_provider.dart';
 import '../services/api_service.dart';
 import '../services/route_observer.dart';
 import '../utils/active_ride.dart';
+import '../utils/book_again.dart';
 import '../utils/vehicle_marker.dart';
 import '../widgets/popular_places.dart';
+import '../widgets/premium.dart';
 import '../widgets/ride_ui/ride_ui.dart';
 import 'active_ride_screen.dart';
 import 'welcome_screen.dart';
@@ -1200,27 +1202,36 @@ class _HomeScreenState extends State<HomeScreen>
   // moved since that ride), only the destination and vehicle are pre-filled;
   // fare, driver matching and payment all run through the same booking screen
   // as a fresh booking, so nothing here bypasses the real fare estimate.
+  //
+  // Standing within ~1.5 km of that ride's drop, the card offers the way back
+  // instead (last ride Gondal → Rajkot, rider now in Rajkot: "Return to
+  // Gondal", drop = the old pickup). See utils/book_again.dart.
   Widget _buildBookAgainCard() {
     final r = _lastRide!;
-    final pickup = (r['pickupAddress'] ?? '').toString();
-    final drop = (r['dropAddress'] ?? '').toString();
+    final here = _currentLatLng;
+    final plan = bookAgainPlan(r, hereLat: here?.latitude, hereLng: here?.longitude);
+    if (plan == null) return const SizedBox.shrink();
     final vt = (r['vehicleType'] ?? '').toString();
-    final dropLat = (r['dropLat'] as num?)?.toDouble();
-    final dropLng = (r['dropLng'] as num?)?.toDouble();
     final vtLower = vt.toLowerCase();
     final vehIcon = vtLower.contains('bike')
         ? Icons.two_wheeler_rounded
         : vtLower.contains('auto')
             ? Icons.electric_rickshaw_rounded
             : Icons.directions_car_rounded;
-    void go() => Navigator.push(context, MaterialPageRoute(builder: (_) => TaxiBookingScreen(
-          fromLocation: 'Current Location',
-          toLocation: drop,
-          initialDropLat: dropLat,
-          initialDropLng: dropLng,
-          preselectedVehicle: vt.isNotEmpty ? vt : null,
-          hideLocationInputs: false,
-        )));
+    // A trip back to another city (Rajkot → Gondal, ~38 km) is an outstation
+    // ride: open Outstation with the destination filled in, instead of the
+    // taxi screen's "Out of City" stop.
+    final farAway = here != null && haversineKm(here.latitude, here.longitude, plan.dropLat, plan.dropLng) > kOutstationReturnKm;
+    void go() => Navigator.push(context, MaterialPageRoute(builder: (_) => farAway
+        ? OutstationScreen(initialTo: plan.dropAddress, initialToLat: plan.dropLat, initialToLng: plan.dropLng)
+        : TaxiBookingScreen(
+            fromLocation: 'Current Location',
+            toLocation: plan.dropAddress,
+            initialDropLat: plan.dropLat,
+            initialDropLng: plan.dropLng,
+            preselectedVehicle: vt.isNotEmpty ? vt : null,
+            hideLocationInputs: false,
+          )));
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
       decoration: BoxDecoration(
@@ -1231,9 +1242,10 @@ class _HomeScreenState extends State<HomeScreen>
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Icon(Icons.replay_rounded, color: RideUi.ink(context), size: 20),
+          Icon(plan.isReturn ? Icons.u_turn_left_rounded : Icons.replay_rounded, color: RideUi.ink(context), size: 20),
           const SizedBox(width: 8),
-          Expanded(child: Text('Book Again', style: RideUi.title(context, size: 16))),
+          Expanded(child: Text(plan.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: RideUi.title(context, size: 16))),
           if (vt.isNotEmpty)
             Flexible(
               child: Container(
@@ -1249,9 +1261,9 @@ class _HomeScreenState extends State<HomeScreen>
             ),
         ]),
         const SizedBox(height: 12),
-        TripRouteSummary(pickup: pickup.isNotEmpty ? pickup : 'Current location', drop: drop, fontSize: 13),
+        TripRouteSummary(pickup: plan.fromLabel, drop: plan.dropAddress, fontSize: 13),
         const SizedBox(height: 14),
-        PrimaryRideButton(label: 'Book This Ride Again', onPressed: go, height: 46),
+        PrimaryRideButton(label: plan.cta, onPressed: go, height: 46),
       ]),
     );
   }
@@ -1720,62 +1732,57 @@ class _HomeScreenState extends State<HomeScreen>
         child: SingleChildScrollView(
           child: Column(
             children: [
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.all(16),
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withAlpha(13),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
+              // Premium header: gradient card, ringed photo, overline + big name.
+              PremiumHeaderCard(
+                margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Column(children: [
+                  Row(children: [
+                    Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2.5)),
+                      child: CircleAvatar(
+                        radius: 38,
+                        backgroundColor: Colors.white,
+                        backgroundImage: picUrl.isNotEmpty ? NetworkImage(AppConfig.imageUrl(picUrl)) : null,
+                        child: picUrl.isEmpty
+                            ? Text(displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                                style: Premium.figure(context, size: 30, color: AppTheme.primaryBlue))
+                            : null,
+                      ),
                     ),
-                  ],
-                ),
-                child: Column(
-                  children: [
-                    CircleAvatar(
-                      radius: 50,
-                      backgroundColor: AppTheme.primaryBlue.withAlpha(25),
-                      backgroundImage: picUrl.isNotEmpty
-                          ? NetworkImage(AppConfig.imageUrl(picUrl))
-                          : null,
-                      child: picUrl.isEmpty
-                          ? Text(
-                              displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-                              style: const TextStyle(fontSize: 38, fontWeight: FontWeight.bold, color: AppTheme.primaryBlue),
-                            )
-                          : null,
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('MY ACCOUNT', style: Premium.overline(context, color: Colors.white70)),
+                        const SizedBox(height: 4),
+                        Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: Premium.title(context, size: 24, color: Colors.white)),
+                        const SizedBox(height: 3),
+                        Text(u.email.isNotEmpty ? u.email : (u.phone.isNotEmpty ? '+91 ${u.phone}' : ''),
+                            style: Premium.label(context, size: 13.5, color: Colors.white.withValues(alpha: 0.85))),
+                      ]),
                     ),
-                    const SizedBox(height: 16),
-                    Text(displayName, style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.bold, fontSize: 22)),
-                    const SizedBox(height: 4),
-                    Text(
-                      u.email.isNotEmpty ? u.email : (u.phone.isNotEmpty ? '+91 ${u.phone}' : ''),
-                      style: const TextStyle(color: Colors.grey, fontSize: 14),
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
+                  ]),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
                       onPressed: () {
                         Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
                       },
-                      icon: const Icon(Icons.edit, size: 18),
+                      icon: const Icon(Icons.edit_rounded, size: 18),
                       label: const Text('Edit Profile'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Theme.of(context).cardColor,
+                        backgroundColor: Colors.white,
                         foregroundColor: AppTheme.primaryBlue,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: BorderSide(color: AppTheme.primaryBlue.withOpacity(0.2)),
-                        ),
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ]),
               ),
               const SizedBox(height: 16),
               _buildProfileMenuItem(Icons.account_balance_wallet_outlined, 'Wallet', () {

@@ -6,6 +6,7 @@ import '../services/api_service.dart';
 import '../services/payment_service.dart';
 import '../providers/user_provider.dart';
 import '../utils/net_errors.dart';
+import '../widgets/premium.dart';
 
 /// "₹1,234.50"-style amount with two decimals (no grouping, as elsewhere).
 String walletMoney(num v) => '₹${v.toStringAsFixed(2)}';
@@ -141,7 +142,13 @@ class _WalletScreenState extends State<WalletScreen> {
     final sources = <String>[for (final t in _txns) (t['source'] ?? '').toString()].where((s) => s.isNotEmpty).toSet().toList();
     final shown = _source == null ? _txns : _txns.where((t) => t['source'] == _source).toList();
     return Scaffold(
-      appBar: AppBar(title: const Text('My Wallet'), elevation: 0, centerTitle: false),
+      backgroundColor: Premium.page(context),
+      appBar: AppBar(
+        title: Text('My Wallet', style: Premium.title(context, size: 20)),
+        elevation: 0, centerTitle: false,
+        backgroundColor: Premium.page(context),
+        surfaceTintColor: Colors.transparent,
+      ),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(physics: const AlwaysScrollableScrollPhysics(), children: [
@@ -152,11 +159,15 @@ class _WalletScreenState extends State<WalletScreen> {
             if (_error != null) _staleBanner(_error!),
           ],
           if (!failedFirst) ...[
-            const Padding(padding: EdgeInsets.fromLTRB(16, 4, 16, 8),
-              child: Text('Transactions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
+            Padding(padding: const EdgeInsets.fromLTRB(20, 6, 20, 10),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                Expanded(child: Text('Transactions', style: Premium.title(context, size: 18))),
+                if (_txns.isNotEmpty)
+                  Text('${_txns.length} ${_txns.length == 1 ? 'entry' : 'entries'}', style: Premium.label(context, size: 12)),
+              ])),
             if (sources.length > 1)
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
+                padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
                 child: Wrap(
                   runSpacing: 4,
                   children: [
@@ -168,14 +179,28 @@ class _WalletScreenState extends State<WalletScreen> {
             if (_loading && _balance == null)
               const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()))
             else if (shown.isEmpty)
-              Padding(padding: const EdgeInsets.all(40), child: Center(child: Column(children: [
-                Icon(Icons.receipt_long, size: 56, color: Colors.grey[400]),
-                const SizedBox(height: 12),
-                Text(_source == null ? 'No transactions yet' : 'No transactions of this kind',
-                    style: TextStyle(color: Colors.grey[600])),
-              ])))
+              PremiumCard(
+                padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 20),
+                child: Center(child: Column(children: [
+                  const PremiumIcon(Icons.receipt_long_rounded, size: 56),
+                  const SizedBox(height: 14),
+                  Text(_source == null ? 'No transactions yet' : 'No transactions of this kind',
+                      style: Premium.body(context, size: 15, weight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text('Money added, ride payments and refunds show here', textAlign: TextAlign.center,
+                      style: Premium.label(context)),
+                ])),
+              )
             else
-              ...shown.map(_txnTile),
+              PremiumCard(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Column(children: [
+                  for (var i = 0; i < shown.length; i++) ...[
+                    if (i > 0) Divider(height: 1, indent: 72, endIndent: 16, color: Premium.hairline(context)),
+                    _txnTile(shown[i]),
+                  ],
+                ]),
+              ),
           ],
           const SizedBox(height: 20),
         ]),
@@ -193,32 +218,41 @@ class _WalletScreenState extends State<WalletScreen> {
     ),
   );
 
-  Widget _balanceCard() => Container(
-    width: double.infinity,
-    margin: const EdgeInsets.all(16),
-    padding: const EdgeInsets.all(24),
-    decoration: BoxDecoration(
-      gradient: const LinearGradient(colors: [Color(0xFF0A3CC8), Color(0xFF3B6BF0)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-      borderRadius: BorderRadius.circular(16),
-      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 12, offset: const Offset(0, 6))],
-    ),
-    child: Column(children: [
-      const Text('Available Balance', style: TextStyle(color: Colors.white70, fontSize: 14)),
-      const SizedBox(height: 8),
+  Widget _balanceCard() => PremiumHeaderCard(
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.16), borderRadius: BorderRadius.circular(12)),
+          child: const Icon(Icons.account_balance_wallet_rounded, color: Colors.white, size: 20),
+        ),
+        const SizedBox(width: 10),
+        Text('GORA WALLET', style: Premium.overline(context, color: Colors.white70)),
+      ]),
+      const SizedBox(height: 20),
+      const Text('Available Balance', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
+      const SizedBox(height: 6),
       _balance == null
-          ? const SizedBox(height: 44, child: Center(child: SizedBox(width: 26, height: 26,
+          ? const SizedBox(height: 44, child: Align(alignment: Alignment.centerLeft, child: SizedBox(width: 26, height: 26,
               child: CircularProgressIndicator(strokeWidth: 2.6, valueColor: AlwaysStoppedAnimation(Colors.white)))))
-          : Text(walletMoney(_balance!), key: const ValueKey('wallet-balance'),
-              style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
+          : FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(walletMoney(_balance!), key: const ValueKey('wallet-balance'),
+                  style: Premium.figure(context, size: 40, color: Colors.white)),
+            ),
+      const SizedBox(height: 6),
+      const Text('Use it to pay for rides, rentals and parcels', style: TextStyle(color: Colors.white60, fontSize: 12)),
       const SizedBox(height: 20),
       SizedBox(width: double.infinity, child: ElevatedButton.icon(
         onPressed: _balance == null ? null : _openAddMoney,
-        icon: const Icon(Icons.add, size: 18),
-        label: const Text('Add Money'),
+        icon: const Icon(Icons.add_rounded, size: 20),
+        label: const Text('Add Money', style: TextStyle(fontWeight: FontWeight.w800)),
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.white, foregroundColor: AppTheme.primaryBlue,
-          padding: const EdgeInsets.symmetric(vertical: 13),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)), elevation: 0,
+          disabledBackgroundColor: Colors.white.withValues(alpha: 0.4),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)), elevation: 0,
         ),
       )),
     ]),
@@ -264,22 +298,24 @@ class _WalletScreenState extends State<WalletScreen> {
     final amount = (t['amount'] as num?) ?? 0;
     final after = t['balanceAfter'];
     final label = walletSourceLabel(source);
+    final tone = isCredit ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
     return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(color: (isCredit ? Colors.green : Colors.red).withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
-        child: Icon(isCredit ? Icons.arrow_downward : Icons.arrow_upward, color: isCredit ? Colors.green : Colors.red, size: 20),
-      ),
-      title: Text(note.isNotEmpty ? note : (isCredit ? 'Credited' : 'Debited'), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-      subtitle: Text(
-        [label, _fmtDate(t['createdAt']?.toString())].where((s) => s.isNotEmpty).join(' • '),
-        style: const TextStyle(fontSize: 12, color: AppTheme.textGrey),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: PremiumIcon(isCredit ? Icons.south_west_rounded : Icons.north_east_rounded, color: tone, size: 42),
+      title: Text(note.isNotEmpty ? note : (isCredit ? 'Credited' : 'Debited'),
+          maxLines: 1, overflow: TextOverflow.ellipsis, style: Premium.body(context, size: 14.5, weight: FontWeight.w700)),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 2),
+        child: Text(
+          [label, _fmtDate(t['createdAt']?.toString())].where((s) => s.isNotEmpty).join(' • '),
+          style: Premium.label(context, size: 12),
+        ),
       ),
       trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
         Text('${isCredit ? '+' : '-'}${walletMoney(amount)}',
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: isCredit ? Colors.green : Colors.red)),
+          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5, letterSpacing: -0.2, color: tone)),
         if (after is num)
-          Text('Bal ${walletMoney(after)}', style: const TextStyle(fontSize: 11.5, color: AppTheme.textGrey)),
+          Text('Bal ${walletMoney(after)}', style: Premium.label(context, size: 11.5)),
       ]),
     );
   }
@@ -364,11 +400,11 @@ class _AddMoneySheetState extends State<AddMoneySheet> {
         padding: const EdgeInsets.all(24),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            const Expanded(child: Text('Add Money to Wallet', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+            Expanded(child: Text('Add Money to Wallet', style: Premium.title(context, size: 20))),
             IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
           ]),
           const SizedBox(height: 16),
-          const Text('Select Amount', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+          Text('SELECT AMOUNT', style: Premium.overline(context)),
           const SizedBox(height: 12),
           Wrap(spacing: 10, runSpacing: 10, children: amounts.where((a) {
             final v = int.parse(a);

@@ -22,6 +22,7 @@ import { newRideOtp } from '@/lib/ride-otp'
 import { withCors, corsOptions } from '@/lib/cors'
 import { getSettingsAsync } from '@/lib/settings'
 import { notStaleReviewFilter } from '@/lib/ride-view'
+import { normalizePhone } from '@/lib/phone'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -137,6 +138,22 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
     if (hold.held) return withCors({ error: holdMessage(hold), accountHold: true, holdKind: hold.kind }, 403)
     const riderName = user.name || (typeof b.riderName === 'string' ? b.riderName.slice(0, 80) : undefined)
     const riderPhone = user.phone
+
+    // Booking for someone else (every service): the passenger's name and phone
+    // go to the driver once the ride is accepted. Old apps send nothing (self);
+    // the outstation screen used to send only the label 'Someone else'.
+    const forOther = b.bookingFor === 'other' || b.bookingFor === 'Someone else'
+    let passengerName: string | undefined, passengerPhone: string | undefined
+    if (forOther) {
+      passengerName = typeof b.passengerName === 'string' ? b.passengerName.trim().slice(0, 60) : ''
+      passengerPhone = normalizePhone(b.passengerPhone) || undefined
+      if (!passengerName || passengerName.length < 2 || !passengerPhone) {
+        return withCors({ error: "Add the passenger's name and a valid 10-digit mobile number", code: 'PASSENGER_REQUIRED' }, 400)
+      }
+      if (passengerPhone === normalizePhone(riderPhone)) {
+        return withCors({ error: 'That is your own number — choose "Myself" instead', code: 'PASSENGER_IS_RIDER' }, 400)
+      }
+    }
 
     // Generate ride OTP (collection OTP for delivery)
     const otp = newRideOtp()
@@ -464,6 +481,8 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
     ride = await Ride.create({
       _id: rideObjectId,
       riderId, riderName, riderPhone,
+      bookingFor: forOther ? 'other' : 'self',
+      ...(forOther ? { passengerName, passengerPhone } : {}),
       pickupAddress: b.pickupAddress, dropAddress: b.dropAddress,
       pickupLat: b.pickupLat, pickupLng: b.pickupLng,
       dropLat: b.dropLat, dropLng: b.dropLng,

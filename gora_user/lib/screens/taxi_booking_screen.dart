@@ -10,6 +10,7 @@ import '../utils/vehicle_marker.dart';
 import '../utils/map_markers.dart';
 import '../services/location_service.dart';
 import '../utils/polyline_utils.dart';
+import '../widgets/booking_for.dart';
 import '../widgets/payment_coupon_bar.dart';
 import '../widgets/ride_ui/ride_ui.dart';
 import '../widgets/ride_preferences.dart';
@@ -102,6 +103,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
 
   Timer? _fareRefreshTimer;
 
+  // Who the ride is for (the "Booking for" chip by the book button).
+  BookingFor _bookingFor = const BookingFor.self();
+
   // ── Route ───────────────────────────────────────────────────
   List<LatLng> _routePoints = [];           // decoded pickup → drop polyline
 
@@ -134,14 +138,32 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   // Which field the list under the inputs belongs to.
   bool _listForPickup = false;
 
-  void _searchPlaces(String q, {required bool forMapPicker, bool forPickup = false}) {
+  // Stop search. A stop field used to be plain text: typing showed no
+  // suggestions and the stop was geocoded blind at booking. It now searches
+  // like pickup/drop; [_stopSearchFor] is the stop field the list belongs to
+  // (the controller, not an index, so removing another stop cannot retarget it).
+  TextEditingController? _stopSearchFor;
+  List<Map<String, dynamic>> _stopSuggestions = [];
+  bool _searchingStop = false;
+  bool _stopSearchEmpty = false;
+  String? _stopProblem;
+
+  void _searchPlaces(String q,
+      {required bool forMapPicker, bool forPickup = false, TextEditingController? forStop}) {
     _searchDebounce?.cancel();
     final seq = ++_searchSeq;
-    if (!forMapPicker) _listForPickup = forPickup;
+    if (!forMapPicker) {
+      _listForPickup = forPickup && forStop == null;
+      _stopSearchFor = forStop;
+    }
     if (q.trim().length < 2) {
       setState(() {
         if (forMapPicker) {
           _mapPickerSuggestions = [];
+        } else if (forStop != null) {
+          _stopSuggestions = [];
+          _searchingStop = false;
+          _stopSearchEmpty = false;
         } else if (forPickup) {
           _pickupSuggestions = [];
           _searchingPickup = false;
@@ -156,7 +178,10 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     }
     if (!forMapPicker) {
       setState(() {
-        if (forPickup) {
+        if (forStop != null) {
+          _searchingStop = true;
+          _stopSearchEmpty = false;
+        } else if (forPickup) {
           _searchingPickup = true;
           _pickupSearchEmpty = false;
         } else {
@@ -178,6 +203,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       setState(() {
         if (forMapPicker) {
           _mapPickerSuggestions = results;
+        } else if (forStop != null) {
+          _stopSuggestions = results;
+          _searchingStop = false;
+          _stopSearchEmpty = results.isEmpty;
+          _stopProblem = r.problem;
         } else if (forPickup) {
           _pickupSuggestions = results;
           _searchingPickup = false;
@@ -231,6 +261,47 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     });
     FocusScope.of(context).unfocus();
     _loadRealFares();
+    return true;
+  }
+
+  void _clearStopSearch() {
+    _stopSearchFor = null;
+    _stopSuggestions = [];
+    _searchingStop = false;
+    _stopSearchEmpty = false;
+    _stopProblem = null;
+  }
+
+  /// Sets a stop to a place the rider picked: its address and coordinates,
+  /// resolved through /places/details like pickup and drop.
+  Future<bool> _selectStopSuggestion(Map<String, dynamic> s) async {
+    final ctrl = _stopSearchFor;
+    _searchDebounce?.cancel();
+    _searchSeq++;
+    if (ctrl == null) return false;
+    final placeId = s['placeId'] as String? ?? '';
+    final desc = s['description'] as String? ?? '';
+    final details = await ApiService.placeDetails(placeId, sessionToken: _places.token);
+    _places.renew(); // the pick ends this search session
+    if (!mounted) return false;
+    if (details == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load that place. Please try again.')),
+      );
+      return false;
+    }
+    final i = _stopControllers.indexOf(ctrl);
+    if (i < 0) return false; // the stop was removed meanwhile
+    final ll = LatLng((details['lat'] as num).toDouble(), (details['lng'] as num).toDouble());
+    setState(() {
+      ctrl.text = details['address'] as String? ?? desc;
+      while (_stopLatLng.length <= i) {
+        _stopLatLng.add(null);
+      }
+      _stopLatLng[i] = ll;
+      _clearStopSearch();
+    });
+    FocusScope.of(context).unfocus();
     return true;
   }
 
@@ -564,7 +635,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
           // Build the vehicle list straight from backend (real admin VehicleType names,
           // so the booked vehicleType matches what the driver registered with).
           if (apiVehicles.isNotEmpty) {
-            _vehicles = apiVehicles.map<Map<String, dynamic>>((a) {
+            // A type priced 0 for this trip (no pricing set up) is not offered.
+            _vehicles = apiVehicles.where((a) => a is! Map || a['fare'] is! num || (a['fare'] as num) > 0).map<Map<String, dynamic>>((a) {
               final name = (a['name'] as String?) ?? 'Vehicle';
               final eta = a['etaMin'];
               final raw = (a['imageUrl'] as String?) ?? '';
@@ -821,6 +893,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       if (_couponCode.isNotEmpty) 'couponCode': _couponCode,
       'quoteToken': selectedVehicleData['quoteToken'],
       'preferFemaleDriver': _preferFemaleDriver,
+      ..._bookingFor.toBody(),
       // Only keys still on offer: the list may have changed since the pick.
       if (_selectedPrefs.isNotEmpty)
         'preferences': _ridePrefs.map((p) => p.key).where(_selectedPrefs.contains).toList(),
@@ -1052,6 +1125,13 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
               // The method and coupon are picked on the confirm step (where the
               // vehicle, and so the fare, is fixed); this chip shows the choice.
               leading: _showPickupConfirmation ? null : _paymentChip(),
+              top: Align(
+                alignment: Alignment.centerLeft,
+                child: BookingForChip(
+                  value: _bookingFor,
+                  onChanged: (v) => setState(() => _bookingFor = v),
+                ),
+              ),
               label: _selectedVehicle == null
                   ? 'Select a vehicle'
                   : _showPickupConfirmation ? 'Confirm Pickup' : 'Choose $_selectedVehicle',
@@ -1213,7 +1293,22 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
               children: [
-                if (_listForPickup) ...[
+                if (_stopSearchFor != null) ...[
+                  // Stop search: the same Google places as pickup / drop.
+                  if (_stopSuggestions.isNotEmpty)
+                    for (var i = 0; i < _stopSuggestions.length; i++) ...[
+                      if (i > 0) const RideDivider(indent: 54),
+                      _buildSuggestionTile(_stopSuggestions[i], forMapPicker: false, forStop: true),
+                    ]
+                  else if (_searchingStop || _stopSearchEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Center(
+                        child: Text(_searchingStop ? 'Searching…' : (_stopProblem ?? 'No places found — try another name'),
+                            style: RideUi.caption(context, size: 13)),
+                      ),
+                    ),
+                ] else if (_listForPickup) ...[
                   // Pickup search: GPS first, then Google's places.
                   _buildCurrentLocationTile(),
                   if (_pickupSuggestions.isNotEmpty)
@@ -1602,7 +1697,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
           Expanded(
             child: TextField(
               controller: controller,
-              onChanged: (_) { if (index < _stopLatLng.length) _stopLatLng[index] = null; }, // typed → re-geocode at booking
+              onChanged: (q) {
+                // Typed → the old coordinates no longer match the text.
+                if (index < _stopLatLng.length) _stopLatLng[index] = null;
+                _searchPlaces(q, forMapPicker: false, forStop: controller);
+              },
               decoration: InputDecoration(
                 hintText: 'Add stop ${index + 1} (address)',
                 border: InputBorder.none,
@@ -1620,6 +1719,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
             tooltip: 'Remove stop',
             onPressed: () {
               setState(() {
+                if (identical(_stopSearchFor, controller)) {
+                  _searchDebounce?.cancel();
+                  _searchSeq++;
+                  _clearStopSearch();
+                }
                 controller.dispose();
                 _stopControllers.removeAt(index);
                 if (index < _stopLatLng.length) _stopLatLng.removeAt(index);
@@ -1656,11 +1760,14 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     );
   }
 
-  Widget _buildSuggestionTile(Map<String, dynamic> s, {required bool forMapPicker, bool forPickup = false}) {
+  Widget _buildSuggestionTile(Map<String, dynamic> s,
+      {required bool forMapPicker, bool forPickup = false, bool forStop = false}) {
     final main = s['mainText'] as String? ?? s['description'] as String? ?? '';
     final sub = s['secondaryText'] as String? ?? '';
     return InkWell(
-      onTap: () => forPickup ? _selectPickupSuggestion(s) : _selectSuggestion(s, forMapPicker: forMapPicker),
+      onTap: () => forStop
+          ? _selectStopSuggestion(s)
+          : forPickup ? _selectPickupSuggestion(s) : _selectSuggestion(s, forMapPicker: forMapPicker),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Row(

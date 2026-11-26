@@ -1,3 +1,4 @@
+import '../widgets/premium.dart';
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
@@ -50,14 +51,25 @@ class _SupportScreenState extends State<SupportScreen> {
     final whatsapp = _str(support?['whatsapp']);
     final address = _str(support?['address']);
     return Scaffold(
+      backgroundColor: Premium.page(context),
       appBar: AppBar(
-        title: const Text('Help & Support'),
+        title: Text('Help & Support', style: Premium.title(context, size: 20)),
         elevation: 0,
         centerTitle: false,
+        backgroundColor: Premium.page(context),
+        surfaceTintColor: Colors.transparent,
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('WE ARE HERE TO HELP', style: Premium.overline(context)),
+              const SizedBox(height: 4),
+              Text('How can we help you today?', style: Premium.title(context, size: 22)),
+            ]),
+          ),
           _buildQuickActionCard(
             context,
             'Create Support Ticket',
@@ -85,12 +97,18 @@ class _SupportScreenState extends State<SupportScreen> {
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EnquiryScreen())),
           ),
           const SizedBox(height: 24),
-          const Text('Frequently Asked Questions', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
-          ..._buildFAQs(),
+          const PremiumSection('Frequently Asked Questions', padding: EdgeInsets.fromLTRB(4, 0, 4, 10)),
+          PremiumCard(
+            margin: EdgeInsets.zero,
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Theme(
+              // No ExpansionTile borders inside the card.
+              data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+              child: Column(children: _buildFAQs()),
+            ),
+          ),
           const SizedBox(height: 24),
-          const Text('Contact Us', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 12),
+          const PremiumSection('Contact Us', padding: EdgeInsets.fromLTRB(4, 0, 4, 10)),
           // Every row used to be plain text: tapping Call / Email / WhatsApp
           // did nothing, and "Live Chat · Available 24/7" did not exist.
           if (phone != null) ...[
@@ -119,38 +137,33 @@ class _SupportScreenState extends State<SupportScreen> {
   }
 
   Widget _buildQuickActionCard(BuildContext context, String title, String subtitle, IconData icon, Color color, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: color.withAlpha(20),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withAlpha(60)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, color: Colors.white, size: 24),
+    return Container(
+      decoration: Premium.cardBox(context, r: 18),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                PremiumIcon(icon, color: color, size: 48),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: Premium.body(context, size: 15.5, weight: FontWeight.w800)),
+                      const SizedBox(height: 3),
+                      Text(subtitle, style: Premium.label(context, size: 12.5)),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, size: 24, color: Premium.muted(context)),
+              ],
             ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  const SizedBox(height: 4),
-                  Text(subtitle, style: const TextStyle(fontSize: 12, color: AppTheme.textGrey)),
-                ],
-              ),
-            ),
-            const Icon(Icons.arrow_forward_ios, size: 16, color: AppTheme.textGrey),
-          ],
+          ),
         ),
       ),
     );
@@ -183,11 +196,12 @@ class _SupportScreenState extends State<SupportScreen> {
 
     return faqs.map((faq) {
       return ExpansionTile(
-        title: Text(faq['q']!, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+        title: Text(faq['q']!, style: Premium.body(context, size: 14.5, weight: FontWeight.w700)),
+        iconColor: AppTheme.primaryBlue,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: Text(faq['a']!, style: const TextStyle(fontSize: 13, color: AppTheme.textGrey)),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+            child: Text(faq['a']!, style: Premium.label(context, size: 13.5)),
           ),
         ],
       );
@@ -203,31 +217,33 @@ class _SupportScreenState extends State<SupportScreen> {
   }
 
   Widget _buildContactCard(BuildContext context, IconData icon, String title, String value, {VoidCallback? onTap}) {
-    return Material(
-      color: Theme.of(context).cardColor,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        key: ValueKey('contact-$title'),
-        borderRadius: BorderRadius.circular(10),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            children: [
-              Icon(icon, color: AppTheme.primaryBlue, size: 22),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: const TextStyle(fontSize: 12, color: AppTheme.textGrey)),
-                    const SizedBox(height: 2),
-                    Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                  ],
+    return Container(
+      decoration: Premium.cardBox(context, r: 16),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: ValueKey('contact-$title'),
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                PremiumIcon(icon, size: 40),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: Premium.label(context, size: 12)),
+                      const SizedBox(height: 2),
+                      Text(value, style: Premium.body(context, size: 14.5, weight: FontWeight.w700)),
+                    ],
+                  ),
                 ),
-              ),
-              if (onTap != null) const Icon(Icons.chevron_right, color: AppTheme.textGrey),
-            ],
+                if (onTap != null) Icon(Icons.chevron_right_rounded, color: Premium.muted(context)),
+              ],
+            ),
           ),
         ),
       ),
@@ -438,29 +454,34 @@ class _MyTicketsScreenState extends State<MyTicketsScreen> {
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardColor,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.withValues(alpha: 0.25)),
-        ),
+        decoration: Premium.cardBox(context, r: 18),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            PremiumIcon(Icons.confirmation_number_rounded, color: color, size: 40),
+            const SizedBox(width: 12),
             Expanded(
               child: Text((t['subject'] ?? '').toString(),
-                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700), maxLines: 2, overflow: TextOverflow.ellipsis),
+                  style: Premium.body(context, size: 15.5, weight: FontWeight.w800), maxLines: 2, overflow: TextOverflow.ellipsis),
             ),
+            const SizedBox(width: 8),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(8)),
-              child: Text(ticketStatusLabel(status), style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w700)),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
+              child: Text(ticketStatusLabel(status), style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 0.2)),
             ),
           ]),
-          const SizedBox(height: 6),
-          Text(_ticketDate(t['updatedAt'] ?? t['createdAt']), style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.only(left: 52),
+            child: Text(_ticketDate(t['updatedAt'] ?? t['createdAt']), style: Premium.label(context, size: 12)),
+          ),
           if (adminReplied) ...[
             const SizedBox(height: 6),
-            const Text('Support replied — tap to read',
-                style: TextStyle(fontSize: 12.5, color: AppTheme.primaryBlue, fontWeight: FontWeight.w600)),
+            const Padding(
+              padding: EdgeInsets.only(left: 52),
+              child: Text('Support replied — tap to read',
+                  style: TextStyle(fontSize: 12.5, color: AppTheme.primaryBlue, fontWeight: FontWeight.w700)),
+            ),
           ],
         ]),
       ),
@@ -485,9 +506,9 @@ class _MyTicketsScreenState extends State<MyTicketsScreen> {
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.support_agent, size: 56, color: Colors.grey[400]),
-            const SizedBox(height: 12),
-            const Text('No tickets yet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const PremiumIcon(Icons.support_agent_rounded, size: 64),
+            const SizedBox(height: 14),
+            Text('No tickets yet', style: Premium.title(context, size: 18)),
             const SizedBox(height: 6),
             Text('Raise a ticket and our team will reply here.',
                 style: TextStyle(color: Colors.grey[600]), textAlign: TextAlign.center),
@@ -503,9 +524,12 @@ class _MyTicketsScreenState extends State<MyTicketsScreen> {
       );
     }
     return Scaffold(
+      backgroundColor: Premium.page(context),
       appBar: AppBar(
-        title: const Text('My Tickets'),
+        title: Text('My Tickets', style: Premium.title(context, size: 20)),
         elevation: 0,
+        backgroundColor: Premium.page(context),
+        surfaceTintColor: Colors.transparent,
         actions: [IconButton(icon: const Icon(Icons.add), tooltip: 'New ticket', onPressed: _newTicket)],
       ),
       body: body,

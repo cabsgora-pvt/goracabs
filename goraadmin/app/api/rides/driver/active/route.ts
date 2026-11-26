@@ -29,6 +29,10 @@ export async function GET(req: NextRequest) {
     const ride = {
       id: r._id,
       riderName: r.riderName, riderPhone: r.riderPhone,
+      // Booked for someone else: the driver greets and calls the passenger.
+      bookingFor: r.bookingFor === 'other' ? 'other' : 'self',
+      passengerName: r.bookingFor === 'other' ? (r.passengerName || '') : '',
+      passengerPhone: r.bookingFor === 'other' ? (r.passengerPhone || '') : '',
       pickupAddress: r.pickupAddress, dropAddress: r.dropAddress,
       pickupLat: r.pickupLat, pickupLng: r.pickupLng, dropLat: r.dropLat, dropLng: r.dropLng,
       fare: r.fare, tip: r.tip, totalFare: r.totalFare, distance: r.distance, duration: r.duration,

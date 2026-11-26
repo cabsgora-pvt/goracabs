@@ -7,6 +7,7 @@ import '../utils/net_errors.dart';
 import '../services/location_service.dart';
 import '../utils/ride_booking.dart';
 import '../utils/service_fleet.dart';
+import '../widgets/booking_for.dart';
 import '../widgets/payment_coupon_bar.dart';
 import '../widgets/ride_preferences.dart';
 import '../widgets/ride_ui/ride_ui.dart';
@@ -68,6 +69,8 @@ class _RentalScreenState extends State<RentalScreen>
   // Admin-defined ride preferences for rentals, and the keys the rider picked.
   List<RidePreference> _ridePrefs = const [];
   Set<String> _selectedPrefs = {};
+  // Who the rental is for (the "Booking for" chip by the book button).
+  BookingFor _bookingFor = const BookingFor.self();
 
   // The booked rental is tracked on ActiveRideScreen (see _confirmRental), so
   // this screen holds no live ride state.
@@ -237,10 +240,11 @@ class _RentalScreenState extends State<RentalScreen>
     return ApiService.bookRide({
         'clientRequestId': clientRequestId,
         'pickupAddress': _pickupController.text,
-        'dropAddress': _dropController.text,
+        // A rental has no destination: no drop address, and the pickup point
+        // as the drop coordinates (the server then skips the route lookup).
+        'dropAddress': '',
         'pickupLat': _pickupLat, 'pickupLng': _pickupLng,
-        // Use real drop if the user picked one, else fall back to pickup
-        'dropLat': _dropLat ?? _pickupLat, 'dropLng': _dropLng ?? _pickupLng,
+        'dropLat': _pickupLat, 'dropLng': _pickupLng,
         'service': 'rental',
         'vehicleType': _selectedVehicle,
         'fare': fare, // display only: the server prices the package and applies the coupon
@@ -251,6 +255,7 @@ class _RentalScreenState extends State<RentalScreen>
         'departureAt': startAt?.toUtc().toIso8601String(),
         'paymentMode': _paymentMode,
         if (_couponCode.isNotEmpty) 'couponCode': _couponCode,
+        ..._bookingFor.toBody(),
         if (_selectedPrefs.isNotEmpty)
           'preferences': _ridePrefs.map((p) => p.key).where(_selectedPrefs.contains).toList(),
       });
@@ -346,21 +351,21 @@ class _RentalScreenState extends State<RentalScreen>
                       style: RideUi.body(context, size: 14.5, weight: FontWeight.w600),
                     ),
                   ),
-                  RouteFieldRow(
-                    marker: RouteMarkerKind.drop,
-                    trailing: MapPickAction(onTap: () => _openMapPicker(forPickup: false)),
-                    child: TextField(
-                      controller: _dropController,
-                      onChanged: (q) => _searchPlaces(q, isPickup: false),
-                      textAlignVertical: TextAlignVertical.center,
-                      decoration: RideUi.bareInput(context, 'Drop location (optional)'),
-                      style: RideUi.body(context, size: 14.5, weight: FontWeight.w600),
-                    ),
-                  ),
+                  // No drop field: a rental has no fixed destination — the
+                  // rider tells the driver where to go as the day goes on
+                  // (and can add destinations on the live ride screen).
                 ]),
                 ..._pickupSuggestions.map((s) => _suggestionTile(s, isPickup: true)),
-                ..._dropSuggestions.map((s) => _suggestionTile(s, isPickup: false)),
                 _searchStatus(),
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Row(children: [
+                    Icon(Icons.alt_route_rounded, size: 16, color: RideUi.muted(context)),
+                    const SizedBox(width: 6),
+                    Expanded(child: Text('No destination needed — go anywhere within your package',
+                        style: RideUi.caption(context, size: 12.5))),
+                  ]),
+                ),
 
                 const ServiceSection('Pickup date & time'),
                 LayoutBuilder(builder: (context, box) {
@@ -466,7 +471,10 @@ class _RentalScreenState extends State<RentalScreen>
             ),
           ),
           PrimaryCtaBar(
-            top: PaymentCouponBar(
+            top: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              BookingForChip(value: _bookingFor, onChanged: (v) => setState(() => _bookingFor = v)),
+              const SizedBox(height: 10),
+              PaymentCouponBar(
               baseFare: selPrice ?? 0,
               // The discount shown is the server's preview (/promos/preview)
               // for this trip; the booking applies the same rules.
@@ -477,6 +485,7 @@ class _RentalScreenState extends State<RentalScreen>
                 _couponCode = cc;
               }),
             ),
+            ]),
             label: _selectedVehicle == null
                 ? 'Select Vehicle'
                 : (selPrice != null ? 'Book Package · ₹$selPrice' : 'Book Package'),
@@ -625,7 +634,7 @@ class _RentalScreenState extends State<RentalScreen>
                         const SizedBox(height: 16),
                         TripRouteSummary(
                           pickup: _pickupController.text.isEmpty ? 'Current Location' : _pickupController.text,
-                          drop: _dropController.text.isEmpty ? 'Add destination (optional)' : _dropController.text,
+                          drop: 'No fixed destination · tell your driver as you go',
                           maxLines: 2,
                           fontSize: 14,
                         ),

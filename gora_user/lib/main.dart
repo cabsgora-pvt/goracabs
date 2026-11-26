@@ -12,6 +12,8 @@ import 'theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Headings in the display font (see AppTheme.useDisplayFont).
+  AppTheme.useDisplayFont = true;
   runApp(
     MultiProvider(
       providers: [

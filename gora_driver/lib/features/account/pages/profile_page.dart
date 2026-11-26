@@ -4,6 +4,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../providers/driver_provider.dart';
 import '../../../services/token_store.dart';
+import '../../../widgets/captain_ui/captain_ui.dart';
 
 class ProfilePage extends StatefulWidget {
   static const route = '/profile';
@@ -32,62 +33,85 @@ class _ProfilePageState extends State<ProfilePage> {
 
     return Scaffold(
       appBar: blueAppBar('My Profile'),
+      backgroundColor: Cap.bg,
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
         child: Column(children: [
           // The photo is the face captured at registration. Drivers cannot
           // change it — riders must see the person who actually drives.
-          Center(
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                CircleAvatar(
-                  key: const ValueKey('driver_profile_photo'),
-                  radius: 52,
-                  backgroundColor: AppColors.cardBg,
-                  // The photo is the private face capture: sent with the token.
-                  backgroundImage: picUrl.isNotEmpty ? NetworkImage(picUrl, headers: imageHeadersFor(picUrl)) : null,
-                  child: picUrl.isEmpty
-                      ? Text(name[0].toUpperCase(),
-                          style: TextStyle(fontSize: 42, color: AppColors.textDark, fontWeight: FontWeight.w800))
-                      : null,
-                ),
-                Positioned(
-                  bottom: 0,
-                  right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(
-                      color: AppColors.green,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.white, width: 3),
+          CapHeroCard(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
+            child: SizedBox(
+              width: double.infinity,
+              child: Column(children: [
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.9), width: 2.5),
+                      ),
+                      child: CircleAvatar(
+                        key: const ValueKey('driver_profile_photo'),
+                        radius: 50,
+                        backgroundColor: Colors.white24,
+                        // The photo is the private face capture: sent with the token.
+                        backgroundImage: picUrl.isNotEmpty ? NetworkImage(picUrl, headers: imageHeadersFor(picUrl)) : null,
+                        child: picUrl.isEmpty
+                            ? Text(name[0].toUpperCase(),
+                                style: const TextStyle(fontSize: 42, color: Colors.white, fontWeight: FontWeight.w900))
+                            : null,
+                      ),
                     ),
-                    child: Icon(Icons.verified_user_rounded, color: AppColors.white, size: 16),
-                  ),
+                    Positioned(
+                      bottom: 2,
+                      right: 2,
+                      child: Container(
+                        padding: const EdgeInsets.all(5),
+                        decoration: BoxDecoration(
+                          color: AppColors.green,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 3),
+                        ),
+                        child: const Icon(Icons.verified_user_rounded, color: Colors.white, size: 16),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+                const SizedBox(height: 14),
+                Text(name, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: Cap.display(size: 26, color: Colors.white)),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.verified_rounded, size: 14, color: Color(0xFF7CF0A6)),
+                    SizedBox(width: 4),
+                    Flexible(
+                      child: Text('Face verified photo', maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.white)),
+                    ),
+                  ]),
+                ),
+                const SizedBox(height: 16),
+                Row(children: [
+                  Expanded(child: _HeroStat(value: dp.rating, label: 'RATING', icon: Icons.star_rounded)),
+                  Container(width: 1, height: 34, color: Colors.white24),
+                  Expanded(child: _HeroStat(value: dp.totalRides, label: 'TRIPS', icon: Icons.route_rounded)),
+                ]),
+              ]),
             ),
           ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppColors.green.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text('Face verified photo',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.green)),
-          ),
-          const SizedBox(height: 14),
-          Text(name, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: AppColors.textDark)),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            const Icon(Icons.star_rounded, color: Color(0xFFFFB300), size: 17),
-            Text(' ${dp.rating}  •  ${dp.totalRides} trips',
-                style: TextStyle(color: AppColors.textGrey)),
-          ]),
           const SizedBox(height: 24),
 
           // Personal info
+          const _SectionLabel('PERSONAL'),
           _InfoCard(items: [
             _Item(Icons.phone, 'Mobile', dp.phone.isNotEmpty ? '+91 ${dp.phone}' : '—'),
             _Item(Icons.email, 'Email', dp.email.isNotEmpty ? dp.email : '—'),
@@ -96,6 +120,7 @@ class _ProfilePageState extends State<ProfilePage> {
           const SizedBox(height: 16),
 
           // Vehicle info
+          const _SectionLabel('VEHICLE'),
           _InfoCard(items: [
             _Item(Icons.directions_car, 'Vehicle', dp.vehicleModel.isNotEmpty ? dp.vehicleModel : '—'),
             _Item(Icons.pin, 'Plate Number', dp.vehicleNumber.isNotEmpty ? dp.vehicleNumber : '—'),
@@ -127,26 +152,57 @@ class _InfoCard extends StatelessWidget {
     padding: const EdgeInsets.all(16),
     decoration: BoxDecoration(
       color: AppColors.white,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: AppColors.divider),
+      borderRadius: BorderRadius.circular(18),
+      border: Border.all(color: AppColors.divider.withValues(alpha: 0.7)),
+      boxShadow: Cap.softShadow,
     ),
     child: Column(children: items.asMap().entries.map((e) => Column(children: [
       if (e.key > 0) Divider(color: AppColors.divider, height: 20),
       Row(children: [
         Container(
           width: 34, height: 34,
-          decoration: BoxDecoration(color: AppColors.cardBg, borderRadius: BorderRadius.circular(10)),
-          child: Icon(e.value.icon, color: AppColors.textDark, size: 18),
+          decoration: BoxDecoration(color: Cap.accent.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(10)),
+          child: Icon(e.value.icon, color: Cap.accent, size: 18),
         ),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(e.value.label, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: AppColors.textGrey)),
+          Text(e.value.label.toUpperCase(), style: Cap.overline(size: 10)),
+          const SizedBox(height: 2),
           Text(e.value.value, maxLines: 2, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w700, color: AppColors.textDark)),
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textDark)),
         ])),
       ]),
     ])).toList()),
   );
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String text;
+  const _SectionLabel(this.text);
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.centerLeft,
+    child: Padding(padding: const EdgeInsets.fromLTRB(4, 0, 4, 8), child: Text(text, style: Cap.overline(size: 11.5))),
+  );
+}
+
+class _HeroStat extends StatelessWidget {
+  final String value, label;
+  final IconData icon;
+  const _HeroStat({required this.value, required this.label, required this.icon});
+  @override
+  Widget build(BuildContext context) => Column(children: [
+    Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(icon, size: 18, color: icon == Icons.star_rounded ? const Color(0xFFFFC94D) : Colors.white),
+      const SizedBox(width: 4),
+      Flexible(
+        child: FittedBox(fit: BoxFit.scaleDown,
+            child: Text(value, maxLines: 1, style: Cap.display(size: 22, color: Colors.white))),
+      ),
+    ]),
+    const SizedBox(height: 2),
+    Text(label, style: Cap.overline(size: 10, color: Colors.white70)),
+  ]);
 }
 
 class _Item {

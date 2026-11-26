@@ -1870,4 +1870,36 @@ void main() {
       await teardown(tester);
     });
   });
+
+  // Driver distance + time, and a ride booked for someone else.
+  group('driver distance and passenger', () {
+    testWidgets('approaching: "Driver is … km · … min away"', (tester) async {
+      await pumpRide(tester, rideJson(status: 'accepted', uiPhase: 'assigned'), kCommon,
+          settle: const Duration(milliseconds: 6600));
+      final line = find.descendant(of: find.byKey(const ValueKey('driver-away')), matching: find.byType(Text));
+      expect(line, findsOneWidget);
+      final text = tester.widget<Text>(line).data!;
+      expect(text, startsWith('Driver is '));
+      expect(text, contains('km'));
+      expect(text, endsWith('min away'));
+      await teardown(tester);
+    });
+
+    testWidgets('on the trip: distance and time to the drop', (tester) async {
+      await pumpRide(tester, rideJson(status: 'ongoing', uiPhase: 'ongoing'), kCommon,
+          settle: const Duration(milliseconds: 6600));
+      final line = find.descendant(of: find.byKey(const ValueKey('driver-away')), matching: find.byType(Text));
+      expect(line, findsOneWidget);
+      expect(tester.widget<Text>(line).data!, endsWith('to drop'));
+      await teardown(tester);
+    });
+
+    testWidgets('a ride for someone else names them', (tester) async {
+      final ride = rideJson(status: 'accepted', uiPhase: 'assigned')
+        ..addAll({'bookingFor': 'other', 'passengerName': 'Asha', 'passengerPhone': '9825012345'});
+      await pumpRide(tester, ride, kCommon, scrollSheet: true);
+      expect(find.text('Ride for Asha · +91 98250 12345', skipOffstage: false), findsOneWidget);
+      await teardown(tester);
+    });
+  });
 }

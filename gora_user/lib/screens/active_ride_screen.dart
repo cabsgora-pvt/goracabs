@@ -22,6 +22,9 @@ import '../widgets/driver_waiting_timer.dart';
 import '../widgets/ride_service_panels.dart';
 import '../utils/ride_payable.dart';
 import '../utils/active_ride.dart';
+import '../utils/book_again.dart' show haversineMeters;
+import '../utils/driver_distance.dart';
+import '../widgets/booking_for.dart' show passengerLine;
 import '../widgets/rental_stops_panel.dart';
 import '../widgets/cancel_reasons_sheet.dart';
 import '../widgets/no_driver_found.dart';
@@ -121,6 +124,11 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
   // its length only ever shrinks and `remaining/total` would read 0% forever.
   double? _legTotalM;
   double? _legRemainingM;
+  // At the last ETA call: road ÷ straight-line distance, and the straight-line
+  // distance itself — so "1.2 km · 4 min away" can move on every 5 s location
+  // poll between the 30 s (billed) Directions calls.
+  double? _roadFactor;
+  double? _etaAtM;
   // Which leg the totals belong to, so switching pickup→drop resets them.
   String? _legKey;
 
@@ -342,6 +350,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
         // the pickup leg's length and progress jumps or sticks.
         _legTotalM = null;
         _legRemainingM = null;
+        _roadFactor = null;
+        _etaAtM = null;
         _legKey = null;
         _fitted = false;
         _eta();
@@ -1004,8 +1014,11 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       final enc = (dir['polyline'] ?? '').toString();
       final pts = enc.isEmpty ? const <LatLng>[] : decodePolyline(enc);
       final lenM = pts.isEmpty ? null : polylineLengthMeters(pts);
+      final straight = haversineMeters(from.latitude, from.longitude, destLat.toDouble(), destLng.toDouble());
       setState(() {
         if (mins != null) _etaMin = mins;
+        _etaAtM = straight;
+        _roadFactor = (lenM != null && lenM > 0 && straight > 50) ? lenM / straight : null;
         if (pts.isNotEmpty) _leg = pts;
         if (lenM != null && lenM > 0) {
           if (_legKey != key) { _legKey = key; _legTotalM = null; }
@@ -1721,6 +1734,37 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
     return polylineLengthMeters([d, LatLng(la, ln)]) / 1000 < _arrivingKm;
   }
 
+  /// "Driver is 1.2 km · 4 min away" while the driver comes to the pickup,
+  /// "1.2 km · 4 min to drop" on the trip. Recomputed from every location
+  /// poll; null without a driver fix or a destination.
+  Widget? _awayLine(Map<String, dynamic> r, {required bool toPickup}) {
+    final d = _driverLatLng;
+    final key = toPickup ? 'pickup' : _target;
+    if (d == null || key == null) return null;
+    final la = ApiService.toDoubleOrNull(r['${key}Lat']), ln = ApiService.toDoubleOrNull(r['${key}Lng']);
+    if (la == null || ln == null) return null;
+    final (m, mins) = liveDistanceAndEta(
+      driverLat: d.latitude, driverLng: d.longitude, destLat: la, destLng: ln,
+      roadFactor: _roadFactor, etaMin: _etaMin, etaAtM: _etaAtM,
+    );
+    final text = driverAwayLine(meters: m, mins: mins, toPickup: toPickup);
+    if (text == null) return null;
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Container(
+        key: const ValueKey('driver-away'),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(color: RideUi.tile(context), borderRadius: BorderRadius.circular(12)),
+        child: Row(children: [
+          Icon(toPickup ? Icons.near_me_rounded : Icons.flag_rounded, size: 16, color: AppTheme.primaryBlue),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: RideUi.body(context, size: 13.5, weight: FontWeight.w800))),
+        ]),
+      ),
+    );
+  }
+
   /// The ETA badge, only for a real number of minutes — never "0 min".
   Widget? _etaTrailing() => (_etaMin == null || _etaMin! <= 0) ? null : _etaBadge();
 
@@ -1960,6 +2004,21 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
   // Pickup → drop with the dot–line–square connector. A rental or hire booked
   // without a destination has no drop to show.
   List<Widget> _addresses(Map<String, dynamic> r) => [
+    if (passengerLine(r) case final who?)
+      Padding(
+        padding: const EdgeInsets.only(top: 6, bottom: 2),
+        child: Container(
+          key: const ValueKey('ride-passenger'),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(color: RideUi.tile(context), borderRadius: BorderRadius.circular(12)),
+          child: Row(children: [
+            Icon(Icons.people_alt_rounded, size: 17, color: RideUi.ink(context)),
+            const SizedBox(width: 8),
+            Expanded(child: Text(who, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: RideUi.body(context, size: 13.5, weight: FontWeight.w800))),
+          ]),
+        ),
+      ),
     Padding(
       padding: const EdgeInsets.only(top: 6, bottom: 4),
       child: TripRouteSummary(
@@ -2157,6 +2216,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
                     if (dropShort.isNotEmpty) 'Heading to $dropShort',
                     arrive,
                   ].join(' · ')),
+          if (!metered)
+            if (_awayLine(r, toPickup: false) case final w?) w,
           const SizedBox(height: 14),
           // What a metered trip's rider watches is the package being used up and
           // what it will cost, not distance to a drop they may not have.
@@ -2296,6 +2357,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
             _title('Arriving now', subtitle: 'Meet at the pickup point')
           else
             _title(heading, trailing: _etaTrailing(), subtitle: 'Meet at the pickup point'),
+          if (status == 'accepted')
+            if (_awayLine(r, toPickup: true) case final w?) w,
           const SizedBox(height: 14),
           if (r['otpLocked'] == true) _otpLocked()
           else if (otp.isNotEmpty) parcel

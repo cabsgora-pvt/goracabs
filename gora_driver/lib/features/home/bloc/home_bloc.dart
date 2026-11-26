@@ -129,6 +129,9 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         'week': '₹${r['week'] ?? 0}',
         'totalRides': '${r['totalRides'] ?? 0}',
         'totalDistance': '${r['todayDistance'] ?? 0} km',
+        // Trips completed today (totalRides above is the all-time count).
+        if (r['todayRides'] != null) 'todayRides': '${r['todayRides']}',
+        if (r['error'] == null) 'loaded': '1',
       };
     } catch (_) {
       s = {'today': '₹ 0', 'week': '₹0', 'totalRides': '0', 'totalDistance': '0 km'};

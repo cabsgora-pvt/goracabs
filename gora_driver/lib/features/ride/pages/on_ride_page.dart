@@ -293,7 +293,7 @@ class _OnRideViewState extends State<_OnRideView> {
                 accruing: _tollTotal,
                 accruingLabel: 'toll',
               ),
-              contact: RideContact(name: r.userName, phone: r.userPhone, role: _isParcel ? 'Sender' : 'Rider', picUrl: r.userProfilePicUrl),
+              contact: RideContact.forRide(r, role: _isParcel ? 'Sender' : 'Rider'),
               chatWith: r.userName,
               contactTrailing: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -394,7 +394,7 @@ class _OnRideViewState extends State<_OnRideView> {
           child: WaitingTimer(
             // Fresh arrival: 0. Resumed mid-wait: the server's count.
             seedSeconds: state is ArrivedAtPickupState ? state.waitingSec : (r.waitingSec ?? 0),
-            onCallRider: () => dialPhone(r.userPhone, context: context),
+            onCallRider: () => dialPhone(r.callPhone, context: context),
             // A parcel is collected from its sender, who has the pickup PIN.
             who: _isParcel ? 'sender' : 'rider',
           ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   // Brand colours, taken from the Gora logo: royal blue and orange on a
@@ -48,8 +49,39 @@ class AppTheme {
     end: Alignment.bottomRight,
   );
 
+  /// Headings (display / headline / title styles) in Poppins, body text in
+  /// the platform font. Off by default — tests and previews must not fetch
+  /// fonts over the network — and switched on in main(). google_fonts caches
+  /// the font after the first download; until then (or offline) headings
+  /// simply render in the platform font.
+  static bool useDisplayFont = false;
+
+  /// [base] in the display font when it is on.
+  static TextStyle display(TextStyle base) {
+    if (!useDisplayFont) return base;
+    try {
+      return GoogleFonts.poppins(textStyle: base);
+    } catch (_) {
+      return base;
+    }
+  }
+
+  static ThemeData _finish(ThemeData t) {
+    if (!useDisplayFont) return t;
+    final tt = t.textTheme;
+    TextStyle? d(TextStyle? s) => s == null ? null : display(s);
+    return t.copyWith(
+      textTheme: tt.copyWith(
+        displayLarge: d(tt.displayLarge), displayMedium: d(tt.displayMedium), displaySmall: d(tt.displaySmall),
+        headlineLarge: d(tt.headlineLarge), headlineMedium: d(tt.headlineMedium), headlineSmall: d(tt.headlineSmall),
+        titleLarge: d(tt.titleLarge),
+      ),
+      appBarTheme: t.appBarTheme.copyWith(titleTextStyle: d(t.appBarTheme.titleTextStyle)),
+    );
+  }
+
   static ThemeData get lightTheme {
-    return ThemeData(
+    return _finish(ThemeData(
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(
         seedColor: primaryBlue,
@@ -181,7 +213,7 @@ class AppTheme {
           borderRadius: BorderRadius.circular(16),
         ),
       ),
-    );
+    ));
   }
 
   // ── Dark theme ──────────────────────────────────────────────────
@@ -190,7 +222,7 @@ class AppTheme {
   static const Color darkPrimary = Color(0xFF5B86F5); // logo blue lightened for contrast on dark
 
   static ThemeData get darkTheme {
-    return ThemeData(
+    return _finish(ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
       colorScheme: const ColorScheme.dark(
@@ -245,7 +277,7 @@ class AppTheme {
       ),
       dialogTheme: const DialogThemeData(backgroundColor: darkSurface),
       bottomSheetTheme: const BottomSheetThemeData(backgroundColor: darkSurface),
-    );
+    ));
   }
 
   // Helper methods for gradients

@@ -150,7 +150,9 @@ void main() {
         await tester.pumpWidget(_app(const RentalScreen()));
         await wait(tester, 800);
       }, () => _api);
-      for (final h in const ['Enter pickup location', 'Drop location (optional)']) {
+      // A rental has no destination field (task: no drop needed for rentals).
+      expect(_fieldWithHint('Drop location (optional)'), findsNothing);
+      for (final h in const ['Enter pickup location']) {
         _expectSingleField(tester, h);
         final field = _fieldWithHint(h);
         final box = tester.getRect(field);
@@ -183,15 +185,10 @@ void main() {
       await wait(tester, 600);
       await tester.ensureVisible(find.text('Select Vehicle'));
       await wait(tester, 300);
-      // One tap on the EMPTY middle of the header row, between title and chevron.
-      final title = tester.getRect(find.text('Select Vehicle'));
-      final row = find.ancestor(of: find.text('Select Vehicle'), matching: find.byType(Row)).first;
-      final chevron = tester.getRect(find.descendant(of: row, matching: find.byType(Icon)));
-      await tester.tapAt(Offset((title.right + chevron.left) / 2, title.center.dy));
-      await wait(tester, 500);
+      // The vehicle list is open by default now — no tap needed.
     }
 
-    testWidgets('the header opens on the first tap, anywhere on the row', (tester) async {
+    testWidgets('the vehicle cards are visible without opening anything', (tester) async {
       await http.runWithClient(() async {
         await openList(tester);
         await openVehicles(tester);

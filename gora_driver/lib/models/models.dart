@@ -104,6 +104,24 @@ class RideRequestModel {
   /// worked out by the server's own commission rule (feed estDriverEarning).
   /// An estimate — the bill is settled at the end. Null on an older server.
   final num? estDriverEarning;
+  /// 'self' (the rider travels) or 'other' (the rider booked for someone
+  /// else — feed/active field bookingFor).
+  final String bookingFor;
+  /// Who the driver picks up when [bookingFor] is 'other'; '' otherwise.
+  final String passengerName;
+  /// The passenger's phone (only from /rides/driver/active, only for 'other').
+  final String passengerPhone;
+
+  /// The rider booked this trip for someone else and named them.
+  bool get isForOther => bookingFor == 'other' && passengerName.trim().isNotEmpty;
+
+  /// The name to greet at pickup: the passenger when booked for someone else.
+  String get travellerName => isForOther ? passengerName.trim() : userName;
+
+  /// The number the Call button rings: the passenger's when booked for someone
+  /// else and the server sent it, else the rider's.
+  String get callPhone =>
+      (bookingFor == 'other' && passengerPhone.trim().isNotEmpty) ? passengerPhone.trim() : userPhone;
 
   const RideRequestModel({
     required this.id, required this.userName, required this.userPhone, required this.userRating,
@@ -146,6 +164,9 @@ class RideRequestModel {
     this.progress = const RideProgress(),
     this.riderRating = 0,
     this.estDriverEarning,
+    this.bookingFor = 'self',
+    this.passengerName = '',
+    this.passengerPhone = '',
   });
 
   // Build a request model from a pending-request JSON row (backend /rides/driver/pending)
@@ -214,6 +235,9 @@ class RideRequestModel {
       progress: RideProgress.fromJson(r),
       riderRating: ratingNum is num && ratingNum > 0 ? ratingNum.toDouble() : 0,
       estDriverEarning: r['estDriverEarning'] is num ? r['estDriverEarning'] as num : null,
+      bookingFor: r['bookingFor'] == 'other' ? 'other' : 'self',
+      passengerName: r['bookingFor'] == 'other' ? (r['passengerName'] ?? '').toString() : '',
+      passengerPhone: r['bookingFor'] == 'other' ? (r['passengerPhone'] ?? '').toString() : '',
     );
   }
 

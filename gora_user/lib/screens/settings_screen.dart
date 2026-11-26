@@ -7,6 +7,7 @@ import '../providers/theme_provider.dart';
 import '../utils/emergency_contacts_store.dart';
 import '../utils/phone_input_formatter.dart';
 import 'delete_account_screen.dart';
+import '../widgets/premium.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -20,109 +21,115 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) {
     final themeProv = context.watch<ThemeProvider>();
     return Scaffold(
+      backgroundColor: Premium.page(context),
       appBar: AppBar(
-        title: const Text('Settings'),
+        title: Text('Settings', style: Premium.title(context, size: 20)),
         elevation: 0,
         centerTitle: false,
+        backgroundColor: Premium.page(context),
+        surfaceTintColor: Colors.transparent,
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.only(bottom: 24),
         children: [
-          const Text('App Preferences', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textGrey)),
+          const PremiumSection('App Preferences', padding: EdgeInsets.fromLTRB(20, 8, 20, 10)),
+          _group([
+            // Quick dark mode switch
+            _buildSwitchTile(
+              themeProv.isDark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+              'Dark Mode',
+              themeProv.isDark ? 'Dark theme is on' : 'Light theme is on',
+              themeProv.isDark,
+              (val) => context.read<ThemeProvider>().toggleDark(val),
+            ),
+            _buildSettingTile(
+              Icons.contacts_rounded,
+              'Emergency Contacts',
+              'Manage SOS contacts',
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmergencyContactsScreen())),
+            ),
+          ]),
+          const PremiumSection('Legal'),
+          _group([
+            _buildSettingTile(
+              Icons.shield_rounded,
+              'Privacy Policy',
+              'Read our privacy policy',
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RiderPrivacyScreen())),
+            ),
+            _buildSettingTile(
+              Icons.description_rounded,
+              'Terms & Conditions',
+              'Read terms of service',
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RiderTermsScreen())),
+            ),
+          ]),
+          const PremiumSection('About'),
+          _group([
+            _buildSettingTile(
+              Icons.info_rounded,
+              'About Gora Cabs',
+              'Version $kAppVersion',
+              () => showAboutGora(context),
+            ),
+            _buildSettingTile(
+              Icons.star_rounded,
+              'Rate Us',
+              'Rate us on Play Store',
+              () => openRiderStorePage(context),
+            ),
+            _buildSettingTile(
+              Icons.ios_share_rounded,
+              'Share App',
+              'Invite friends to Gora Cabs',
+              () => shareRiderApp(),
+            ),
+          ]),
           const SizedBox(height: 12),
-          // Quick dark mode switch
-          _buildSwitchTile(
-            themeProv.isDark ? Icons.dark_mode : Icons.light_mode,
-            'Dark Mode',
-            themeProv.isDark ? 'Dark theme is on' : 'Light theme is on',
-            themeProv.isDark,
-            (val) => context.read<ThemeProvider>().toggleDark(val),
-          ),
-          _buildSettingTile(
-            Icons.contacts_outlined,
-            'Emergency Contacts',
-            'Manage SOS contacts',
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EmergencyContactsScreen())),
-          ),
-          const SizedBox(height: 24),
-          const Text('Legal', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textGrey)),
-          const SizedBox(height: 12),
-          _buildSettingTile(
-            Icons.shield_outlined,
-            'Privacy Policy',
-            'Read our privacy policy',
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RiderPrivacyScreen())),
-          ),
-          _buildSettingTile(
-            Icons.description_outlined,
-            'Terms & Conditions',
-            'Read terms of service',
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RiderTermsScreen())),
-          ),
-          const SizedBox(height: 24),
-          const Text('About', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textGrey)),
-          const SizedBox(height: 12),
-          _buildSettingTile(
-            Icons.info_outline,
-            'About Gora Cabs',
-            'Version $kAppVersion',
-            () => showAboutGora(context),
-          ),
-          _buildSettingTile(
-            Icons.rate_review_outlined,
-            'Rate Us',
-            'Rate us on Play Store',
-            () => openRiderStorePage(context),
-          ),
-          _buildSettingTile(
-            Icons.share_outlined,
-            'Share App',
-            'Invite friends to Gora Cabs',
-            () => shareRiderApp(),
-          ),
-          const SizedBox(height: 24),
-          _buildSettingTile(
-            Icons.delete_outline,
-            'Delete Account',
-            'Ask us to close your account',
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DeleteAccountScreen())),
-            color: Colors.red,
-          ),
-          const SizedBox(height: 20),
+          _group([
+            _buildSettingTile(
+              Icons.delete_outline_rounded,
+              'Delete Account',
+              'Ask us to close your account',
+              () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DeleteAccountScreen())),
+              color: Colors.red,
+            ),
+          ]),
+          const SizedBox(height: 16),
+          Center(child: Text('Gora Cabs · v$kAppVersion', style: Premium.label(context, size: 11.5))),
         ],
       ),
     );
   }
 
+  /// One rounded card holding a group of rows, with hairlines between them.
+  Widget _group(List<Widget> rows) => PremiumCard(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(children: [
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) Divider(height: 1, indent: 70, endIndent: 16, color: Premium.hairline(context)),
+            rows[i],
+          ],
+        ]),
+      );
+
   Widget _buildSettingTile(IconData icon, String title, String subtitle, VoidCallback onTap, {Color? color}) {
     return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: (color ?? AppTheme.primaryBlue).withAlpha(20),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(icon, color: color ?? AppTheme.primaryBlue, size: 22),
-      ),
-      title: Text(title, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: color)),
-      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12, color: AppTheme.textGrey)),
-      trailing: Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey[400]),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      leading: PremiumIcon(icon, color: color, size: 40),
+      title: Text(title, style: Premium.body(context, size: 15, weight: FontWeight.w700, color: color)),
+      subtitle: Text(subtitle, style: Premium.label(context, size: 12)),
+      trailing: Icon(Icons.chevron_right_rounded, size: 22, color: Premium.muted(context)),
       onTap: onTap,
     );
   }
 
   Widget _buildSwitchTile(IconData icon, String title, String subtitle, bool value, Function(bool) onChanged) {
     return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: AppTheme.primaryBlue.withAlpha(20),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(icon, color: AppTheme.primaryBlue, size: 22),
-      ),
-      title: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-      subtitle: Text(subtitle, style: const TextStyle(fontSize: 12, color: AppTheme.textGrey)),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      leading: PremiumIcon(icon, size: 40),
+      title: Text(title, style: Premium.body(context, size: 15, weight: FontWeight.w700)),
+      subtitle: Text(subtitle, style: Premium.label(context, size: 12)),
       trailing: Switch(
         value: value,
         onChanged: onChanged,

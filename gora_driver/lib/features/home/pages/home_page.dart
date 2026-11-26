@@ -20,7 +20,8 @@ import '../../ride/pages/delivery_progress_page.dart';
 import '../../ride/widgets/ride_shell.dart';
 import '../../../models/models.dart';
 import '../../wallet/pages/wallet_page.dart';
-import '../../account/service_prefs.dart';
+import '../../wallet/widgets/add_balance_sheet.dart';
+import '../widgets/driver_island.dart';
 import '../../account/pages/face_reverify_page.dart';
 import '../../../services/location_ping.dart';
 import '../bloc/home_bloc.dart';
@@ -134,6 +135,20 @@ class _HomeTabState extends State<_HomeTab> {
     bloc.add(ToggleOnlineEvent(online));
   }
 
+  /// The wallet's own top-up flow (Razorpay sheet), straight from home.
+  Future<void> _topUp(BuildContext context) async {
+    setState(() => _statsOpen = false);
+    final dp = context.read<DriverProvider>();
+    final messenger = ScaffoldMessenger.of(context);
+    final newBalance = await showAddBalanceSheet(context, phone: dp.phone);
+    if (newBalance == null || !mounted) return;
+    await dp.loadProfile();
+    messenger.showSnackBar(SnackBar(
+      content: Text('Money added. Wallet balance ₹${newBalance.toStringAsFixed(2)}'),
+      backgroundColor: Cap.green,
+    ));
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<HomeBloc, HomeState>(
@@ -156,33 +171,68 @@ class _HomeTabState extends State<_HomeTab> {
             Positioned.fill(child: MapPlaceholder(padding: EdgeInsets.only(top: safeTop + 70, bottom: 230))),
             // Background poller for incoming ride requests (no visual change)
             if (isOnline) const _RidePoller(),
-            // Top bar: avatar · today's earnings · notifications
+            // Bottom: resume banner · GO button · status sheet
+            Positioned(
+              left: 0, right: 0, bottom: 0,
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                // Resume an in-progress ride (auto on reopen + tappable banner)
+                const _ActiveRideResumer(),
+                if (!isOnline) ...[
+                  Center(child: _GoButton(onTap: () => _toggleOnline(true))),
+                  const SizedBox(height: 14),
+                ],
+                _StatusSheet(
+                  online: isOnline,
+                  onGoOffline: () => _toggleOnline(false),
+                  onPrefs: () => Navigator.pushNamed(context, '/preferences'),
+                ),
+              ]),
+            ),
+            // Tap outside the open island closes it.
+            if (_statsOpen)
+              Positioned.fill(
+                child: GestureDetector(
+                  key: const ValueKey('island_barrier'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => setState(() => _statsOpen = false),
+                  child: const ColoredBox(color: Color(0x33000000)),
+                ),
+              ),
+            // Top bar: avatar · today's earnings island · notifications
             Positioned(
               top: safeTop + 10, left: 14, right: 14,
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Row(children: [
-                  _AvatarButton(name: dp.name, url: dp.profilePicUrl, onTap: () => widget.onOpenTab(2)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Center(
-                      child: _EarningsPill(
-                        amount: loaded ? (summary['today'] ?? '₹ 0') : '…',
-                        open: _statsOpen,
-                        onTap: loaded ? () => setState(() => _statsOpen = !_statsOpen) : null,
+                LayoutBuilder(builder: (context, box) {
+                  final full = box.maxWidth;
+                  return Stack(alignment: Alignment.topCenter, children: [
+                    Row(children: [
+                      _AvatarButton(name: dp.name, url: dp.profilePicUrl, onTap: () => widget.onOpenTab(2)),
+                      const Spacer(),
+                      MapCircleButton(
+                        icon: Icons.notifications_none_rounded,
+                        tooltip: 'Notifications',
+                        onTap: () => Navigator.pushNamed(context, '/notifications'),
                       ),
+                    ]),
+                    DriverIsland(
+                      summary: summary,
+                      loaded: loaded,
+                      open: _statsOpen && loaded,
+                      fullWidth: full,
+                      // Leaves room for the avatar and the bell either side.
+                      collapsedWidth: (full - 2 * 62).clamp(96.0, 190.0),
+                      onToggle: loaded ? () => setState(() => _statsOpen = !_statsOpen) : null,
+                      onTopUp: () => _topUp(context),
+                      onSeeEarnings: () {
+                        setState(() => _statsOpen = false);
+                        widget.onOpenTab(1);
+                      },
+                      walletBalance: dp.balanceLoaded ? dp.walletBalance : null,
+                      dispatchStats: dp.data?['dispatchStats'],
+                      rating: dp.rating,
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  MapCircleButton(
-                    icon: Icons.notifications_none_rounded,
-                    tooltip: 'Notifications',
-                    onTap: () => Navigator.pushNamed(context, '/notifications'),
-                  ),
-                ]),
-                if (_statsOpen && loaded) ...[
-                  const SizedBox(height: 10),
-                  _TodayStats(summary: summary, onMore: () => widget.onOpenTab(1)),
-                ],
+                  ]);
+                }),
                 if (dp.hold != null) ...[
                   const SizedBox(height: 10),
                   _HoldBanner(
@@ -205,28 +255,12 @@ class _HomeTabState extends State<_HomeTab> {
                   ),
                 if (dp.isLowBalance) ...[
                   const SizedBox(height: 10),
-                  _LowBalanceBanner(
+                  TopUpBanner(
                     negative: dp.isWalletNegative,
                     onTap: () => Navigator.pushNamed(context, WalletPage.route),
+                    onTopUp: () => _topUp(context),
                   ),
                 ],
-              ]),
-            ),
-            // Bottom: resume banner · GO button · status sheet
-            Positioned(
-              left: 0, right: 0, bottom: 0,
-              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                // Resume an in-progress ride (auto on reopen + tappable banner)
-                const _ActiveRideResumer(),
-                if (!isOnline) ...[
-                  Center(child: _GoButton(onTap: () => _toggleOnline(true))),
-                  const SizedBox(height: 14),
-                ],
-                _StatusSheet(
-                  online: isOnline,
-                  onGoOffline: () => _toggleOnline(false),
-                  onPrefs: () => showServicePrefsTopSheet(context),
-                ),
               ]),
             ),
           ]),
@@ -259,80 +293,6 @@ class _AvatarButton extends StatelessWidget {
       ),
     ),
   );
-}
-
-/// "₹ 1,240 · Today" pill centred in the top bar.
-class _EarningsPill extends StatelessWidget {
-  final String amount;
-  final bool open;
-  final VoidCallback? onTap;
-  const _EarningsPill({required this.amount, required this.open, this.onTap});
-  @override
-  Widget build(BuildContext context) => Material(
-    color: const Color(0xFF111111),
-    elevation: 3,
-    shadowColor: Colors.black38,
-    borderRadius: BorderRadius.circular(26),
-    child: InkWell(
-      borderRadius: BorderRadius.circular(26),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Flexible(
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(amount, maxLines: 1,
-                    style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900)),
-              ),
-              const Text('Today', style: TextStyle(color: Colors.white60, fontSize: 10.5, fontWeight: FontWeight.w700)),
-            ]),
-          ),
-          const SizedBox(width: 4),
-          Icon(open ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded, color: Colors.white70, size: 18),
-        ]),
-      ),
-    ),
-  );
-}
-
-/// Today's real summary, dropped down from the earnings pill.
-class _TodayStats extends StatelessWidget {
-  final Map<String, String> summary;
-  final VoidCallback onMore;
-  const _TodayStats({required this.summary, required this.onMore});
-
-  @override
-  Widget build(BuildContext context) {
-    Widget stat(String label, String value) => Expanded(
-      child: Column(children: [
-        FittedBox(fit: BoxFit.scaleDown,
-            child: Text(value, maxLines: 1, style: Cap.body(size: 15.5, weight: FontWeight.w900))),
-        const SizedBox(height: 2),
-        Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 11.5)),
-      ]),
-    );
-    return Material(
-      color: Cap.surface,
-      elevation: 4,
-      shadowColor: Colors.black26,
-      borderRadius: BorderRadius.circular(Cap.radius),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 14, 12, 4),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Row(children: [
-            stat('Trips', summary['totalRides'] ?? '0'),
-            Container(width: 1, height: 30, color: Cap.divider),
-            stat('Distance', summary['totalDistance'] ?? '0 km'),
-            Container(width: 1, height: 30, color: Cap.divider),
-            stat('This week', summary['week'] ?? '₹0'),
-          ]),
-          TextButton(onPressed: onMore, child: const Text('See earnings')),
-        ]),
-      ),
-    );
-  }
 }
 
 /// Big round "GO" button — the one thing to do while offline.
@@ -614,52 +574,6 @@ class _HoldBanner extends StatelessWidget {
       ),
     ),
   );
-}
-
-// Red alert shown on the home map when the driver's wallet balance is 0 or
-// negative. Tapping it opens the wallet so the driver can recharge. Below zero
-// the server pauses cash rides, so the text says that instead.
-class _LowBalanceBanner extends StatelessWidget {
-  final bool negative;
-  final VoidCallback onTap;
-  const _LowBalanceBanner({required this.onTap, this.negative = false});
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Cap.surface,
-      elevation: 4,
-      shadowColor: Colors.black26,
-      borderRadius: BorderRadius.circular(Cap.radius),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(Cap.radius),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
-          child: Row(children: [
-            Container(
-              width: 36, height: 36,
-              decoration: BoxDecoration(color: Cap.red.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(10)),
-              child: Icon(Icons.account_balance_wallet_rounded, color: Cap.red, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(negative ? 'Cash rides paused' : 'Low wallet balance',
-                    style: Cap.body(size: 14, weight: FontWeight.w800)),
-                Text(negative
-                        ? 'Wallet negative — cash rides are paused. Recharge to get cash rides again; '
-                            'online and wallet rides still come.'
-                        : 'Your wallet balance is low. Please recharge to continue',
-                    maxLines: 3, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12)),
-              ]),
-            ),
-            const SizedBox(width: 6),
-            Icon(Icons.chevron_right_rounded, color: Cap.red, size: 22),
-          ]),
-        ),
-      ),
-    );
-  }
 }
 
 /// The wait before the next request-feed poll after [failures] failed ones in

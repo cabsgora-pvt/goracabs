@@ -304,14 +304,17 @@ class CapCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Material(
-        color: color ?? Cap.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(Cap.radius),
-          side: BorderSide(color: borderColor ?? Cap.divider, width: borderWidth),
+  Widget build(BuildContext context) => DecoratedBox(
+        decoration: BoxDecoration(borderRadius: BorderRadius.circular(Cap.radius), boxShadow: Cap.softShadow),
+        child: Material(
+          color: color ?? Cap.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Cap.radius),
+            side: BorderSide(color: borderColor ?? Cap.divider.withValues(alpha: 0.7), width: borderWidth),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(onTap: onTap, child: Padding(padding: padding, child: child)),
         ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(onTap: onTap, child: Padding(padding: padding, child: child)),
       );
 }
 
@@ -367,6 +370,76 @@ class CapSectionTitle extends StatelessWidget {
         child: Row(children: [
           Expanded(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.title(size: 16.5))),
           if (trailing != null) trailing!,
+        ]),
+      );
+}
+
+/// Gradient header card (profile, account, wallet, earnings): brand blue
+/// gradient, large radius, coloured soft shadow. Content should be white.
+class CapHeroCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final VoidCallback? onTap;
+  final Gradient? gradient;
+  const CapHeroCard({super.key, required this.child, this.padding = const EdgeInsets.all(20), this.onTap, this.gradient});
+
+  @override
+  Widget build(BuildContext context) => Container(
+        decoration: BoxDecoration(
+          gradient: gradient ?? Cap.heroGradient,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(color: const Color(0xFF0A3CC8).withValues(alpha: 0.28), blurRadius: 22, offset: const Offset(0, 10)),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(children: [
+          // Soft light circles: depth without an image asset.
+          const Positioned(right: -40, top: -50,
+              child: _Glow(size: 160, alpha: 0.10)),
+          const Positioned(left: -30, bottom: -60,
+              child: _Glow(size: 140, alpha: 0.07)),
+          Material(
+            type: MaterialType.transparency,
+            child: InkWell(onTap: onTap, child: Padding(padding: padding, child: child)),
+          ),
+        ]),
+      );
+}
+
+class _Glow extends StatelessWidget {
+  final double size, alpha;
+  const _Glow({required this.size, required this.alpha});
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+        child: Container(
+          width: size, height: size,
+          decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withValues(alpha: alpha)),
+        ),
+      );
+}
+
+/// White translucent pill used on a [CapHeroCard] (rating, trips).
+class CapHeroPill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color? iconColor;
+  const CapHeroPill({super.key, required this.icon, required this.label, this.iconColor});
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 14, color: iconColor ?? Colors.white),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800)),
+          ),
         ]),
       );
 }

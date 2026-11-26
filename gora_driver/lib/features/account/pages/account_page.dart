@@ -37,7 +37,7 @@ class AccountPage extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
           children: [
             Row(children: [
-              Expanded(child: Text('Account', style: Cap.title(size: 26))),
+              Expanded(child: Text('Account', style: Cap.display(size: 30))),
               CapRoundAction(
                 icon: Icons.edit_outlined,
                 size: 40,
@@ -48,57 +48,74 @@ class AccountPage extends StatelessWidget {
             ]),
             const SizedBox(height: 14),
 
-            // ── Profile header card ──
-            CapCard(
+            // ── Profile header: gradient hero card ──
+            CapHeroCard(
               onTap: () => go('/profile'),
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(18),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Row(children: [
-                  CapAvatar(name: displayName, url: picUrl, radius: 32),
+                  Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.85), width: 2),
+                    ),
+                    child: CapAvatar(name: displayName, url: picUrl, radius: 32),
+                  ),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.title(size: 20)),
+                      Text('CAPTAIN', style: Cap.overline(size: 10.5, color: Colors.white70)),
+                      const SizedBox(height: 2),
+                      Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: Cap.display(size: 23, color: Colors.white)),
                       if (dp.phone.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text('+91 ${dp.phone}', maxLines: 1, style: Cap.caption(size: 13)),
+                        const SizedBox(height: 3),
+                        Text('+91 ${dp.phone}', maxLines: 1,
+                            style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
                       ],
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
                       Wrap(spacing: 6, runSpacing: 6, children: [
-                        _Pill(icon: Icons.star_rounded, iconColor: Cap.amber, label: ratingLabel),
-                        _Pill(icon: Icons.route_rounded, label: '${dp.totalRides} trips'),
+                        CapHeroPill(icon: Icons.star_rounded, iconColor: Cap.amber, label: ratingLabel),
+                        CapHeroPill(icon: Icons.route_rounded, label: '${dp.totalRides} trips'),
                       ]),
                     ]),
                   ),
                 ]),
                 if (vehicleLine.isNotEmpty || dp.vehicleNumber.isNotEmpty) ...[
-                  const SizedBox(height: 14),
-                  Container(height: 1, color: Cap.divider),
-                  const SizedBox(height: 12),
-                  Row(children: [
-                    Icon(Icons.directions_car_rounded, size: 20, color: Cap.ink),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(vehicleLine.isNotEmpty ? vehicleLine : 'Your vehicle',
-                          maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.body(size: 13.5)),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                    if (dp.vehicleNumber.isNotEmpty) ...[
-                      const SizedBox(width: 8),
-                      _Plate(dp.vehicleNumber),
-                    ],
-                  ]),
+                    child: Row(children: [
+                      const Icon(Icons.directions_car_rounded, size: 20, color: Colors.white),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(vehicleLine.isNotEmpty ? vehicleLine : 'Your vehicle',
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
+                      ),
+                      if (dp.vehicleNumber.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        _Plate(dp.vehicleNumber),
+                      ],
+                    ]),
+                  ),
                 ],
               ]),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
 
             // ── Quick stats ──
             Row(children: [
-              Expanded(child: _QuickStat(label: 'Wallet', value: balanceLabel, onTap: () => push(const WalletPage()))),
+              Expanded(child: _QuickStat(label: 'Wallet', icon: Icons.account_balance_wallet_rounded, value: balanceLabel, onTap: () => push(const WalletPage()))),
               const SizedBox(width: 10),
-              Expanded(child: _QuickStat(label: 'Rating', value: ratingLabel)),
+              Expanded(child: _QuickStat(label: 'Rating', icon: Icons.star_rounded, value: ratingLabel)),
               const SizedBox(width: 10),
-              Expanded(child: _QuickStat(label: 'Trips', value: dp.totalRides, onTap: () => push(const HistoryPage()))),
+              Expanded(child: _QuickStat(label: 'Trips', icon: Icons.route_rounded, value: dp.totalRides, onTap: () => push(const HistoryPage()))),
             ]),
 
             CapMenuGroup(title: 'Earnings & money', children: [
@@ -171,24 +188,6 @@ class AccountPage extends StatelessWidget {
   }
 }
 
-class _Pill extends StatelessWidget {
-  final IconData icon;
-  final Color? iconColor;
-  final String label;
-  const _Pill({required this.icon, required this.label, this.iconColor});
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-    decoration: BoxDecoration(color: Cap.tile, borderRadius: BorderRadius.circular(14)),
-    child: Row(mainAxisSize: MainAxisSize.min, children: [
-      Icon(icon, color: iconColor ?? Cap.ink, size: 14),
-      const SizedBox(width: 4),
-      Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: Cap.body(size: 12, weight: FontWeight.w800))),
-    ]),
-  );
-}
-
 /// Number-plate styled box.
 class _Plate extends StatelessWidget {
   final String number;
@@ -199,33 +198,40 @@ class _Plate extends StatelessWidget {
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: AppColors.dark ? Colors.white10 : const Color(0xFFFFFDF2),
+        color: const Color(0xFFFFFDF2),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Cap.ink, width: 1.4),
+        border: Border.all(color: const Color(0xFF111111), width: 1.4),
       ),
       child: Text(number.toUpperCase(),
           maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: Cap.body(size: 12.5, weight: FontWeight.w900).copyWith(letterSpacing: 1)),
+          style: const TextStyle(color: Color(0xFF111111), fontSize: 12.5, fontWeight: FontWeight.w900, letterSpacing: 1)),
     ),
   );
 }
 
 class _QuickStat extends StatelessWidget {
   final String label, value;
+  final IconData icon;
   final VoidCallback? onTap;
-  const _QuickStat({required this.label, required this.value, this.onTap});
+  const _QuickStat({required this.label, required this.value, required this.icon, this.onTap});
   @override
   Widget build(BuildContext context) => CapCard(
     onTap: onTap,
-    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+    padding: const EdgeInsets.fromLTRB(12, 12, 10, 14),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Container(
+        width: 30, height: 30,
+        decoration: BoxDecoration(color: Cap.accent.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(9)),
+        child: Icon(icon, size: 17, color: Cap.accent),
+      ),
+      const SizedBox(height: 10),
       FittedBox(
         fit: BoxFit.scaleDown,
         alignment: Alignment.centerLeft,
-        child: Text(value, maxLines: 1, style: Cap.title(size: 17)),
+        child: Text(value, maxLines: 1, style: Cap.display(size: 19)),
       ),
-      const SizedBox(height: 2),
-      Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12)),
+      const SizedBox(height: 3),
+      Text(label.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.overline(size: 10)),
     ]),
   );
 }

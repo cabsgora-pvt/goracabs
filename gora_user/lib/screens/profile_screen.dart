@@ -7,6 +7,7 @@ import '../providers/user_provider.dart';
 import '../services/api_service.dart';
 import '../config/app_config.dart';
 import '../widgets/ride_ui/ride_ui.dart';
+import '../widgets/premium.dart';
 
 /// Rider profile: photo, name and contact details, in the same tile style as
 /// the booking screens. Viewing is read-only; "Edit profile" turns the rows
@@ -136,11 +137,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (!didPop && _isEditing) _cancelEditing();
       },
       child: Scaffold(
-        backgroundColor: RideUi.surface(context),
+        backgroundColor: Premium.page(context),
         appBar: AppBar(
           elevation: 0,
-          backgroundColor: RideUi.surface(context),
-          title: Text(_isEditing ? 'Edit profile' : 'Profile', style: RideUi.title(context, size: 18)),
+          backgroundColor: Premium.page(context),
+          surfaceTintColor: Colors.transparent,
+          title: Text(_isEditing ? 'Edit profile' : 'Profile', style: Premium.title(context, size: 20)),
           centerTitle: false,
           actions: [
             if (u.loading && !_isEditing)
@@ -161,9 +163,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             padding: const EdgeInsets.fromLTRB(RideUi.gutter, 4, RideUi.gutter, 24),
             children: [
               _header(u, displayName),
-              const SizedBox(height: 24),
-              RideSectionTitle('Personal information', size: 17),
-              const SizedBox(height: 10),
+              const SizedBox(height: 26),
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 4),
+                child: Text('ACCOUNT', style: Premium.overline(context)),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Text('Personal information', style: Premium.title(context, size: 18)),
+              ),
+              const SizedBox(height: 12),
               if (_isEditing) ..._editFields() else _detailsCard(u),
             ],
           ),
@@ -186,16 +195,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // ── Header: photo, name, phone, Edit ─────────────────────────────────────
   Widget _header(UserProvider u, String displayName) {
     final picUrl = u.profilePicUrl;
-    return Container(
+    return PremiumHeaderCard(
+      margin: const EdgeInsets.only(top: 4),
       padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [RideUi.navy, RideUi.navy.withValues(alpha: 0.82)],
-        ),
-      ),
       child: Column(children: [
         Row(children: [
           GestureDetector(
@@ -247,7 +249,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 u.name.isNotEmpty ? u.name : (u.loading ? 'Loading…' : 'Add your name'),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white, fontSize: 21, fontWeight: FontWeight.w800, letterSpacing: -0.2),
+                style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900, letterSpacing: -0.4, height: 1.15),
               ),
               if (u.phone.isNotEmpty) ...[
                 const SizedBox(height: 4),
@@ -288,9 +290,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               label: const Text('Edit profile',
                   style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14)),
               style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 11),
-                side: BorderSide(color: Colors.white.withValues(alpha: 0.6)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                backgroundColor: Colors.white.withValues(alpha: 0.12),
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.35)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
             ),
           ),
@@ -321,11 +324,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _detailRow(Icons.location_city_outlined, 'City', u.city),
       _detailRow(Icons.badge_outlined, 'ID number', u.idNumber),
     ];
-    return RideTile(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+    return PremiumCard(
+      margin: EdgeInsets.zero,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Column(children: [
         for (var i = 0; i < rows.length; i++) ...[
-          if (i > 0) const RideDivider(indent: 52),
+          if (i > 0) Divider(height: 1, indent: 54, color: Premium.hairline(context)),
           rows[i],
         ],
       ]),
@@ -337,23 +341,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(children: [
-        Container(
-          width: 38, height: 38,
-          decoration: BoxDecoration(color: RideUi.surface(context), shape: BoxShape.circle),
-          child: Icon(icon, size: 19, color: RideUi.accent(context)),
-        ),
+        PremiumIcon(icon, size: 40),
         const SizedBox(width: 14),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label, style: RideUi.caption(context, size: 12)),
+            Text(label, style: Premium.label(context, size: 12)),
             const SizedBox(height: 2),
             Text(
               empty ? 'Not added' : value,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: empty
-                  ? RideUi.caption(context, size: 14.5)
-                  : RideUi.body(context, size: 14.5, weight: FontWeight.w700),
+                  ? Premium.label(context, size: 14.5)
+                  : Premium.body(context, size: 15, weight: FontWeight.w700),
             ),
           ]),
         ),

@@ -15,7 +15,7 @@ const DRIVER_HIDDEN = [
 ] as const
 
 /** Phone fields on a ride, shown only while the trip is live (accepted/arrived/ongoing). */
-export const RIDE_PHONE_FIELDS = ['riderPhone', 'senderPhone', 'receiverPhone', 'driverPhone'] as const
+export const RIDE_PHONE_FIELDS = ['riderPhone', 'senderPhone', 'receiverPhone', 'driverPhone', 'passengerPhone'] as const
 
 export function driverSafeRide<T extends Record<string, any>>(ride: T): T {
   if (!ride) return ride

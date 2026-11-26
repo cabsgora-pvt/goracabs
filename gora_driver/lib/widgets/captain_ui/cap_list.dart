@@ -75,14 +75,14 @@ class CapMenuGroup extends StatelessWidget {
       if (title != null)
         Padding(
           padding: const EdgeInsets.fromLTRB(4, 18, 4, 8),
-          child: Text(title!.toUpperCase(),
-              style: Cap.caption(size: 11.5).copyWith(fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+          child: Text(title!.toUpperCase(), style: Cap.overline(size: 11.5)),
         ),
       Container(
         decoration: BoxDecoration(
           color: Cap.surface,
-          borderRadius: BorderRadius.circular(Cap.radius),
-          border: Border.all(color: Cap.divider),
+          borderRadius: BorderRadius.circular(Cap.radius + 2),
+          border: Border.all(color: Cap.divider.withValues(alpha: 0.7)),
+          boxShadow: Cap.softShadow,
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(children: rows),
@@ -163,21 +163,27 @@ class CapStatCard extends StatelessWidget {
       padding: EdgeInsets.all(compact ? 12 : 14),
       decoration: BoxDecoration(
         color: Cap.surface,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Cap.divider),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Cap.divider.withValues(alpha: 0.7)),
+        boxShadow: Cap.softShadow,
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
         if (icon != null) ...[
-          Icon(icon, size: 18, color: c),
-          const SizedBox(height: 8),
+          Container(
+            width: 30, height: 30,
+            decoration: BoxDecoration(color: c.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(9)),
+            child: Icon(icon, size: 17, color: c),
+          ),
+          const SizedBox(height: 10),
         ],
         FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,
-          child: Text(value, maxLines: 1, style: Cap.title(size: compact ? 17 : 20)),
+          child: Text(value, maxLines: 1, style: Cap.display(size: compact ? 19 : 22)),
         ),
-        const SizedBox(height: 2),
-        Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12)),
+        const SizedBox(height: 3),
+        Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: Cap.caption(size: 12).copyWith(fontWeight: FontWeight.w700, letterSpacing: 0.3)),
       ]),
     );
   }

@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server'
 import { withCors, corsOptions } from '@/lib/cors'
 import { getSettingsAsync } from '@/lib/settings'
 import { rateLimit } from '@/lib/rate-limit'
+import { autocompleteNew, legacyUnusable } from '@/lib/places-new'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -50,6 +51,21 @@ export async function GET(req: NextRequest) {
 
     // Log + surface Google's error so we can see why suggestions are empty
     if (data.status && data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      // The legacy Places API is often not enabled on newer keys: answer
+      // through Places API (New) in the same shape instead of "no places".
+      if (legacyUnusable(data.status)) {
+        const la = Number(sp.get('lat')), ln = Number(sp.get('lng'))
+        const alt = await autocompleteNew(q, key, {
+          lat: Number.isFinite(la) && sp.get('lat') ? la : undefined,
+          lng: Number.isFinite(ln) && sp.get('lng') ? ln : undefined,
+          sessionToken: SESSION_RE.test(token) ? token : undefined,
+        })
+        if (alt.ok) {
+          const plus = /^[A-Z0-9]{4,8}\+[A-Z0-9]{2,4}\b/i
+          return withCors({ predictions: alt.predictions.filter(p => !plus.test((p.mainText || '').trim())) })
+        }
+        console.error('[Places Autocomplete] (New) fallback failed:', alt.error)
+      }
       console.error('[Places Autocomplete] Google error:', data.status, data.error_message)
       return withCors({ predictions: [], googleStatus: data.status, googleError: data.error_message || 'Places API error' })
     }

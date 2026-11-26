@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../screens/active_ride_screen.dart';
 import '../services/api_service.dart';
 import '../widgets/account_hold.dart';
+import '../widgets/booking_for.dart' show passengerErrorMessage;
 
 /// Books one ride: sends the booking with [clientRequestId] and returns the
 /// server's answer. With [freshQuote] it first asks /fare/estimate again for
@@ -150,9 +151,14 @@ Future<String?> bookAndTrack(
     // because the booking was refused: tell the rider where the money is,
     // instead of "contact support, do not pay again".
     final refunded = res['refunded'];
+    // Booking for someone else: the server checks the passenger (missing or
+    // invalid details, or the rider's own number) — say exactly what to fix.
+    final passenger = passengerErrorMessage(res);
     final message = refunded is num && refunded > 0
         ? refundedMessage(error, refunded)
-        : res['code'] == 'prepaymentRequired'
+        : passenger != null
+            ? passenger
+            : res['code'] == 'prepaymentRequired'
             ? error
             : (failureMessage?.call(error) ?? 'Booking failed: $error');
     // A held account is not a failure worth retrying: say so plainly.

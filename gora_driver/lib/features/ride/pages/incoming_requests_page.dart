@@ -291,7 +291,8 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   }
 
   static Map<String, dynamic> _contactsOf(Map<String, dynamic> ride) => {
-    for (final k in const ['riderPhone', 'senderPhone', 'receiverPhone', 'senderName', 'receiverName', 'status'])
+    for (final k in const ['riderPhone', 'senderPhone', 'receiverPhone', 'senderName', 'receiverName', 'status',
+        'bookingFor', 'passengerName', 'passengerPhone'])
       if (ride[k] != null) k: ride[k],
   };
 
@@ -697,6 +698,29 @@ class _RequestCardState extends State<_RequestCard> with SingleTickerProviderSta
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: _paymentLine(r),
           ),
+          // Booked for someone else: who to look for at pickup, and who booked.
+          if (bookedForLabel(r) != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Container(
+                key: ValueKey('booked_for_${r.id}'),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppColors.primary.withValues(alpha: 0.35)),
+                ),
+                child: Row(children: [
+                  const Icon(Icons.person_pin_circle_rounded, size: 20, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(bookedForLabel(r)!,
+                        maxLines: 2, overflow: TextOverflow.ellipsis,
+                        style: Cap.body(size: 13.5, weight: FontWeight.w900, color: AppColors.primary)),
+                  ),
+                ]),
+              ),
+            ),
           // What the feed knows about the job beyond the fare: the rider's
           // rating, stops, a round trip and its return, passengers, the rental
           // package, the hire's hours and gearbox, the outstation cities.
@@ -963,6 +987,16 @@ final requestRingContext = AudioContext(
 String youGetText(num est) => 'You get ≈ ₹${est.round()}';
 
 /// One fact on a request card.
+/// "For: Asha (booked by Rahul)" when the rider booked this request for
+/// someone else; null for a rider travelling themselves.
+String? bookedForLabel(RideRequestModel r) {
+  if (!r.isForOther) return null;
+  final booker = r.userName.trim();
+  return booker.isEmpty || booker == 'Rider'
+      ? 'For: ${r.passengerName.trim()}'
+      : 'For: ${r.passengerName.trim()} (booked by $booker)';
+}
+
 class RequestFact {
   final IconData icon;
   final String text;

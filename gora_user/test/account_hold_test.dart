@@ -239,7 +239,7 @@ void main() {
       await wait(tester, 600);
       final list = find.descendant(of: find.byType(DraggableScrollableSheet), matching: find.byType(Scrollable)).first;
       await tester.ensureVisible(find.text('Select Vehicle'));
-      await tester.tap(find.text('Select Vehicle'));
+      // The vehicle list is open by default now (it used to start collapsed).
       await wait(tester, 500);
       await tester.scrollUntilVisible(find.text('₹5400'), 150, scrollable: list);
       await tester.tap(find.text('₹5400').first);

@@ -19,7 +19,7 @@ export async function OPTIONS() { return corsOptions() }
 const FEED_SCAN_LIMIT = 60
 const FEED_MAX = 20
 const FEED_FIELDS = [
-  'riderId', 'riderName', 'pickupAddress', 'dropAddress', 'pickupLat', 'pickupLng', 'dropLat', 'dropLng',
+  'riderId', 'riderName', 'bookingFor', 'passengerName', 'pickupAddress', 'dropAddress', 'pickupLat', 'pickupLng', 'dropLat', 'dropLng',
   'fare', 'tip', 'totalFare', 'distance', 'duration', 'vehicleType', 'paymentMode',
   'createdAt', 'stops', 'service', 'tripType', 'cityFrom', 'cityTo', 'departureAt', 'returnAt', 'scheduledAt',
   'numPassengers', 'packageHours', 'packageKm', 'hireTotalHours', 'transmission', 'hireStartAt', 'hireEndAt',
@@ -182,6 +182,9 @@ export async function GET(req: NextRequest) {
         // Names only before accept — no phone numbers (riderPhone /
         // senderPhone / receiverPhone come with /active once accepted).
         riderName: r.riderName,
+        // Booked for someone else: who the driver picks up (name only here).
+        bookingFor: r.bookingFor === 'other' ? 'other' : 'self',
+        passengerName: r.bookingFor === 'other' ? (r.passengerName || '') : '',
         riderProfilePicUrl: u?.profilePicUrl || '',
         riderRating: u?.rating ?? null,
         pickupAddress: r.pickupAddress,

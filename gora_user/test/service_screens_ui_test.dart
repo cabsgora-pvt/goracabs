@@ -284,7 +284,7 @@ void main() {
           await wait(tester, 600);
           await tester.ensureVisible(find.text('Select Vehicle'));
           await wait(tester, 300);
-          await tester.tap(find.text('Select Vehicle'));
+          // The vehicle list is open by default now (it used to start collapsed).
           await wait(tester, 500);
           await tester.scrollUntilVisible(find.text('Prime SUV'), 150, scrollable: sheet);
           await tester.drag(sheet, const Offset(0, -120), warnIfMissed: false);

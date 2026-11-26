@@ -3,6 +3,11 @@ const RideSchema = new Schema({
   riderId: { type: Schema.Types.ObjectId, ref: 'User' },
   riderName: String,
   riderPhone: String,
+  // Booked for someone else: the person who will travel. The rider (account
+  // holder) still pays and tracks; the driver calls / greets the passenger.
+  bookingFor: { type: String, enum: ['self', 'other'], default: 'self' },
+  passengerName: String,
+  passengerPhone: String,
   driverId: { type: Schema.Types.ObjectId, ref: 'Driver' },
   driverName: String,
   driverPhone: String,

@@ -213,7 +213,7 @@ void main() {
         await tester.drag(sheet, const Offset(0, -500), warnIfMissed: false);
         await wait(tester, 500);
         await tester.ensureVisible(find.text('Select Vehicle'));
-        await tester.tap(find.text('Select Vehicle'));
+        // The vehicle list is open by default now (it used to start collapsed).
         await wait(tester, 400);
         await tester.scrollUntilVisible(find.text('Cab'), 150, scrollable: sheet);
         await tester.drag(sheet, const Offset(0, -150), warnIfMissed: false);
@@ -321,7 +321,7 @@ void main() {
   });
 
   // ── 4. Rental confirm ──
-  testWidgets('rental confirm: starts now, drop is optional', (tester) async {
+  testWidgets('rental confirm: starts now, no destination needed', (tester) async {
     _size(tester, const Size(392, 850));
     await http.runWithClient(() async {
       await tester.pumpWidget(_app(const RentalScreen()));
@@ -332,7 +332,8 @@ void main() {
     }, () => _api);
     expect(find.text('Starting now'), findsOneWidget);
     expect(find.textContaining('Today at Now'), findsNothing);
-    expect(find.text('Add destination (optional)'), findsOneWidget);
+    expect(find.text('No fixed destination · tell your driver as you go'), findsOneWidget);
+    expect(find.text('Add destination (optional)'), findsNothing);
     expect(find.text('Select destination'), findsNothing);
     await _teardown(tester);
   });

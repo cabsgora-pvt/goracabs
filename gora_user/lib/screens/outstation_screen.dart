@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
+import '../widgets/booking_for.dart';
 import '../widgets/ride_ui/ride_ui.dart';
 import '../services/location_service.dart';
 import '../utils/map_markers.dart';
@@ -18,7 +19,11 @@ import '../providers/user_provider.dart';
 import 'package:provider/provider.dart';
 
 class OutstationScreen extends StatefulWidget {
-  const OutstationScreen({super.key});
+  /// A destination to start with — "Book return to Gondal" from home when the
+  /// return trip leaves the city.
+  final String? initialTo;
+  final double? initialToLat, initialToLng;
+  const OutstationScreen({super.key, this.initialTo, this.initialToLat, this.initialToLng});
 
   @override
   State<OutstationScreen> createState() => _OutstationScreenState();
@@ -41,7 +46,9 @@ class _OutstationScreenState extends State<OutstationScreen>
   final _returnTimeController = TextEditingController();
   String _tripType = 'One Way';
   bool _showTripDetails = false;
-  bool _showVehicleSelection = false;
+  // Open by default: the vehicles are cards the rider sees straight away (it
+  // used to start collapsed, so Intercity looked like a dropdown).
+  bool _showVehicleSelection = true;
   bool _locationConfirmed = false;
 
   // ── Backend-wired state ──
@@ -80,7 +87,8 @@ class _OutstationScreenState extends State<OutstationScreen>
   bool _onlinePayEnabled = false;
   String _couponCode = '';
   int _couponDiscount = 0;
-  String _bookingFor = 'Myself'; // Myself | Someone else
+  // Who travels: sent as bookingFor / passengerName / passengerPhone.
+  BookingFor _bookingFor = const BookingFor.self();
   // Map-picker state (for choosing From/To by dragging a pin)
   bool _showMapPicker = false;
   bool _pickingFrom = true; // which field the picker is currently filling
@@ -104,6 +112,10 @@ class _OutstationScreenState extends State<OutstationScreen>
     _fromController.text = '';
     startServiceFleet();
     _toController.text = '';
+    if (widget.initialTo != null && widget.initialToLat != null && widget.initialToLng != null) {
+      _toController.text = widget.initialTo!;
+      _toLat = widget.initialToLat; _toLng = widget.initialToLng;
+    }
     _initCurrentLocation();
     _loadPaymentConfig();
     loadRidePreferences('outstation').then((p) {
@@ -132,6 +144,8 @@ class _OutstationScreenState extends State<OutstationScreen>
       _fromController.text = addr.isNotEmpty ? addr : 'Current location';
     });
     _mapController?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 11));
+    // Opened with a destination (return trip): price it straight away.
+    if (_toLat != null && _toLng != null) _loadOutstationFares();
   }
 
   @override
@@ -223,25 +237,6 @@ class _OutstationScreenState extends State<OutstationScreen>
         tile('cash', Icons.payments_outlined, 'Cash', 'Pay the driver directly'),
         if (_walletPayEnabled) tile('wallet', Icons.account_balance_wallet_outlined, 'Gora Wallet', 'Pay from your wallet balance'),
         if (_onlinePayEnabled) tile('online', Icons.credit_card, 'Online', 'UPI / card / net banking'),
-      ])),
-    );
-  }
-
-  // "Who's travelling" chooser
-  Future<String?> _pickBookingFor() {
-    Widget tile(String who, IconData ic) => ListTile(
-      leading: Icon(ic, color: const Color(0xFF0A3CC8)),
-      title: Text(who, style: const TextStyle(fontWeight: FontWeight.w700)),
-      trailing: _bookingFor == who ? const Icon(Icons.check_circle, color: Color(0xFF0A3CC8)) : null,
-      onTap: () => Navigator.pop(context, who),
-    );
-    return showModalBottomSheet<String>(
-      context: context, backgroundColor: Theme.of(context).cardColor,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => Padding(padding: const EdgeInsets.symmetric(vertical: 12), child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Padding(padding: EdgeInsets.all(8), child: Text('Who\'s travelling?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800))),
-        tile('Myself', Icons.person),
-        tile('Someone else', Icons.people_alt_outlined),
       ])),
     );
   }
@@ -510,7 +505,11 @@ class _OutstationScreenState extends State<OutstationScreen>
 
         // Build the vehicle list straight from backend — this picks up exactly what
         // admin has configured (Bike / Auto / Cab Economy / SUV / Premium / etc.)
-        final oneWayVehicles = (oneWay['vehicles'] as List?) ?? [];
+        // A type with no price for this route (fare 0 / missing — no pricing set
+        // up for it) is not offered: booking it is refused anyway (invalidFare).
+        final oneWayVehicles = ((oneWay['vehicles'] as List?) ?? [])
+            .where((v) => v is Map && (v['fare'] is! num || (v['fare'] as num) > 0))
+            .toList();
         final roundVehicles = (round['vehicles'] as List?) ?? [];
         final rtByName = {for (final v in roundVehicles) (v['name'] as String? ?? '').toLowerCase(): v};
 
@@ -619,7 +618,7 @@ class _OutstationScreenState extends State<OutstationScreen>
         'emptyReturnCharge': (selVehicle['breakdown'] as Map?)?['emptyReturn'] ?? 0,
         'paymentMode': _paymentMode,
         if (_couponCode.isNotEmpty) 'couponCode': _couponCode,
-        'bookingFor': _bookingFor,
+        ..._bookingFor.toBody(),
         if (_selectedPrefs.isNotEmpty)
           'preferences': _ridePrefs.map((p) => p.key).where(_selectedPrefs.contains).toList(),
         if (_prepaidProof != null) 'prepaid': _prepaidProof,
@@ -1382,8 +1381,10 @@ class _OutstationScreenState extends State<OutstationScreen>
                               },
                             )),
                             const SizedBox(width: 8),
-                            Expanded(child: RidePillChip(icon: Icons.person_outline, label: _bookingFor, onTap: () async {
-                              final who = await _pickBookingFor();
+                            Expanded(child: RidePillChip(icon: _bookingFor.isOther ? Icons.people_alt_outlined : Icons.person_outline,
+                                label: _bookingFor.isOther ? 'For ${_bookingFor.label}' : 'Myself', onTap: () async {
+                              final who = await showBookingForSheet(context, current: _bookingFor,
+                                  riderPhone: riderPhoneOf(context));
                               if (who != null) setSheet(() => _bookingFor = who);
                             })),
                           ]);

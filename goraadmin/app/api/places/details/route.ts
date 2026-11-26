@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server'
 import { withCors, corsOptions } from '@/lib/cors'
 import { getSettingsAsync } from '@/lib/settings'
 import { rateLimit } from '@/lib/rate-limit'
+import { detailsNew, legacyUnusable } from '@/lib/places-new'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -29,7 +30,14 @@ export async function GET(req: NextRequest) {
     const data = await r.json()
     const result = data.result
 
-    if (!result) return withCors({ error: 'Place not found' }, 404)
+    if (!result) {
+      // Legacy Places not enabled on this key (or a Places (New) id): ask (New).
+      if (legacyUnusable(data.status) || data.status === 'NOT_FOUND') {
+        const alt = await detailsNew(placeId, key, /^[A-Za-z0-9_-]{8,64}$/.test(token) ? token : undefined)
+        if (alt) return withCors(alt)
+      }
+      return withCors({ error: 'Place not found' }, 404)
+    }
 
     return withCors({
       address: result.formatted_address || result.name || '',

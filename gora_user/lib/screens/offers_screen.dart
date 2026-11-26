@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
+import '../widgets/premium.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
 import '../utils/pending_coupon.dart';
@@ -108,22 +109,34 @@ class _OffersScreenState extends State<OffersScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Premium.page(context),
       appBar: AppBar(
-        title: const Text('Offers & Promos'),
+        title: Text('Offers & Promos', style: Premium.title(context, size: 20)),
         elevation: 0,
         centerTitle: false,
+        backgroundColor: Premium.page(context),
+        surfaceTintColor: Colors.transparent,
       ),
       body: DefaultTabController(
         length: 3,
         child: Column(
           children: [
             Container(
-              color: Theme.of(context).cardColor,
-              child: const TabBar(
-                labelColor: AppTheme.primaryBlue,
-                unselectedLabelColor: AppTheme.textGrey,
-                indicatorColor: AppTheme.primaryBlue,
-                tabs: [
+              margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+              padding: const EdgeInsets.all(4),
+              decoration: Premium.cardBox(context, r: 16),
+              child: TabBar(
+                labelColor: Colors.white,
+                unselectedLabelColor: Premium.muted(context),
+                labelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                indicatorSize: TabBarIndicatorSize.tab,
+                dividerColor: Colors.transparent,
+                indicator: BoxDecoration(
+                  gradient: Premium.headerGradient,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                tabs: const [
                   Tab(text: 'Active Offers'),
                   Tab(text: 'Promo Codes'),
                   Tab(text: 'Referral'),
@@ -197,9 +210,9 @@ class _OffersScreenState extends State<OffersScreen> {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(22),
             boxShadow: [
-              BoxShadow(color: color.withAlpha(60), blurRadius: 8, offset: const Offset(0, 4)),
+              BoxShadow(color: color.withAlpha(70), blurRadius: 18, offset: const Offset(0, 8)),
             ],
           ),
           child: Stack(
@@ -228,7 +241,7 @@ class _OffersScreenState extends State<OffersScreen> {
                         Expanded(
                           child: Text(
                             offer['title'] as String,
-                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                            style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w900, letterSpacing: -0.3),
                           ),
                         ),
                       ],
@@ -369,21 +382,10 @@ class _OffersScreenState extends State<OffersScreen> {
               final promo = promoCodes[i];
               return Container(
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardColor,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey[300]!),
-                ),
+                decoration: Premium.cardBox(context, r: 18),
                 child: Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppTheme.primaryBlue.withAlpha(20),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(Icons.local_offer, color: AppTheme.primaryBlue, size: 24),
-                    ),
+                    const PremiumIcon(Icons.local_offer_rounded, size: 48),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Column(
@@ -395,7 +397,7 @@ class _OffersScreenState extends State<OffersScreen> {
                                 child: Text(
                                   promo['code']!,
                                   maxLines: 1, overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.primaryBlue),
+                                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16.5, letterSpacing: 0.8, color: AppTheme.primaryBlue),
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -413,7 +415,7 @@ class _OffersScreenState extends State<OffersScreen> {
                             ],
                           ),
                           const SizedBox(height: 4),
-                          Text(promo['desc']!, style: const TextStyle(fontSize: 13, color: AppTheme.textGrey)),
+                          Text(promo['desc']!, style: Premium.label(context, size: 13)),
                         ],
                       ),
                     ),

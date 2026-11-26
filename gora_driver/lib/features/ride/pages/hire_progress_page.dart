@@ -256,7 +256,7 @@ class _HireProgressPageState extends State<HireProgressPage> {
             RideStatusMetric(Icons.trending_up, '+${_liveExtraHours}h', warn: true),
         ],
       ),
-      contact: RideContact(name: r.userName, phone: r.userPhone, role: 'Customer', picUrl: r.userProfilePicUrl),
+      contact: RideContact.forRide(r, role: 'Customer'),
       chatWith: r.userName,
       details: [
         _card(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

@@ -6,6 +6,7 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import '../utils/net_errors.dart';
 import '../utils/ride_booking.dart';
+import '../widgets/booking_for.dart';
 import '../widgets/payment_coupon_bar.dart';
 import '../widgets/ride_ui/ride_ui.dart';
 
@@ -27,6 +28,8 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   String _transmission = 'manual';
   String _tripType = 'one_way';   // one_way | round_trip
   String _paymentMode = 'cash';
+  // Who the driver is hired for (the "Booking for" chip).
+  BookingFor _bookingFor = const BookingFor.self();
   String _couponCode = '';
   String? _selectedVehicle;
   List<Map<String, dynamic>> _vehicles = [];
@@ -154,7 +157,8 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
         return;
       }
       setState(() {
-        _vehicles = ((res['vehicles'] as List?) ?? []).map((v) => Map<String, dynamic>.from(v as Map)).toList();
+        _vehicles = ((res['vehicles'] as List?) ?? []).map((v) => Map<String, dynamic>.from(v as Map))
+            .where((v) => v['fare'] is! num || (v['fare'] as num) > 0).toList();
         _loading = false;
         _errorRetry = false;
         _error = _vehicles.isEmpty ? 'No hire pricing configured for this zone' : null;
@@ -203,6 +207,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
         'hireStartAt': _startAt?.toUtc().toIso8601String(), 'hireEndAt': _endAt?.toUtc().toIso8601String(),
         'paymentMode': _paymentMode,
         if (_couponCode.isNotEmpty) 'couponCode': _couponCode,
+        ..._bookingFor.toBody(),
       });
   }
 
@@ -317,14 +322,20 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     final ready = _selectedVehicle != null && _totalHours > 0 && _pickupLat != null;
     final v = _vehicles.firstWhere((x) => x['name'] == _selectedVehicle, orElse: () => {});
     return PrimaryCtaBar(
-      top: PaymentCouponBar(
-        baseFare: (v['fare'] as num?) ?? 0,
-        // The discount shown is the server's preview (/promos/preview) for
-        // this trip; the booking applies the same rules.
-        service: 'hire_driver',
-        pickupLat: _pickupLat, pickupLng: _pickupLng,
-        onChanged: (pm, cc, _) => setState(() { _paymentMode = pm; _couponCode = cc; }),
-      ),
+      top: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Hiring a driver for someone else (a parent, say): the driver gets
+        // their name and number.
+        BookingForChip(value: _bookingFor, onChanged: (b) => setState(() => _bookingFor = b)),
+        const SizedBox(height: 10),
+        PaymentCouponBar(
+          baseFare: (v['fare'] as num?) ?? 0,
+          // The discount shown is the server's preview (/promos/preview) for
+          // this trip; the booking applies the same rules.
+          service: 'hire_driver',
+          pickupLat: _pickupLat, pickupLng: _pickupLng,
+          onChanged: (pm, cc, _) => setState(() { _paymentMode = pm; _couponCode = cc; }),
+        ),
+      ]),
       label: ready ? 'Book Driver · ₹${v['fare'] ?? ''}' : 'Select time & vehicle',
       onPressed: ready ? _showConfirm : null,
     );

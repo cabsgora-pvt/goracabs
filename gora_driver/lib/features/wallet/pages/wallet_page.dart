@@ -20,7 +20,7 @@ class WalletPage extends StatelessWidget {
       create: (_) => WalletBloc()..add(LoadWalletEvent()),
       child: Scaffold(
         appBar: blueAppBar('Wallet'),
-        backgroundColor: Cap.surface,
+        backgroundColor: Cap.bg,
         body: BlocBuilder<WalletBloc, WalletState>(
           builder: (context, state) {
             if (state is WalletLoading) return const AppLoader();
@@ -93,29 +93,39 @@ class _Body extends StatelessWidget {
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
-        // Balance summary
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(color: Cap.tile, borderRadius: BorderRadius.circular(Cap.radius)),
+        // Balance summary: gradient hero (red below zero)
+        CapHeroCard(
+          gradient: negative
+              ? const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
+                  colors: [Color(0xFFE53935), Color(0xFFB71C1C)])
+              : null,
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 22),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Icon(Icons.account_balance_wallet_outlined, size: 18, color: Cap.muted),
+              const Icon(Icons.account_balance_wallet_rounded, size: 18, color: Colors.white70),
               const SizedBox(width: 6),
               Flexible(child: Text('Available balance', maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: Cap.caption(size: 13.5).copyWith(fontWeight: FontWeight.w700))),
+                  style: Cap.overline(size: 11.5, color: Colors.white70).copyWith(letterSpacing: 1.0))),
             ]),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
               child: Text('₹ ${balance.toStringAsFixed(2)}',
-                  style: TextStyle(fontSize: 38, fontWeight: FontWeight.w900, letterSpacing: -0.8,
-                      color: negative ? AppColors.red : Cap.ink)),
+                  style: Cap.display(size: 42, color: Colors.white).copyWith(letterSpacing: -1.2)),
             ),
             if (balance <= 0) ...[
-              const SizedBox(height: 4),
-              Text('Recharge to keep receiving trips', style: Cap.caption(size: 12.5, color: AppColors.red)),
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.18), borderRadius: BorderRadius.circular(20)),
+                child: const Text('Recharge to keep receiving trips',
+                    style: TextStyle(color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w700)),
+              ),
             ],
+          ]),
+        ),
+        Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const SizedBox(height: 16),
             Row(children: [
               Expanded(
@@ -144,9 +154,13 @@ class _Body extends StatelessWidget {
               ),
             ]),
           ]),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 24, 4, 10),
+          child: Row(children: [
+            Expanded(child: Text('TRANSACTIONS', style: Cap.overline(size: 11.5))),
+            if (transactions.isNotEmpty) Text('${transactions.length}', style: Cap.caption(size: 13)),
+          ]),
         ),
-        CapSectionTitle('Transactions',
-            trailing: transactions.isEmpty ? null : Text('${transactions.length}', style: Cap.caption(size: 13))),
         if (transactions.isEmpty)
           Container(
             padding: const EdgeInsets.symmetric(vertical: 28),
@@ -164,8 +178,9 @@ class _Body extends StatelessWidget {
           Container(
             decoration: BoxDecoration(
               color: Cap.surface,
-              borderRadius: BorderRadius.circular(Cap.radius),
-              border: Border.all(color: Cap.divider),
+              borderRadius: BorderRadius.circular(Cap.radius + 2),
+              border: Border.all(color: Cap.divider.withValues(alpha: 0.7)),
+              boxShadow: Cap.softShadow,
             ),
             clipBehavior: Clip.antiAlias,
             child: Column(children: [
@@ -203,7 +218,8 @@ class _TxnRow extends StatelessWidget {
             Text(txn.date, style: Cap.caption(size: 11)),
         ])),
         const SizedBox(width: 8),
-        Text(txn.amount, style: Cap.body(size: 14.5, weight: FontWeight.w900, color: txn.isCredit ? AppColors.green : null)),
+        Text(txn.amount, style: Cap.body(size: 15.5, weight: FontWeight.w900, color: txn.isCredit ? AppColors.green : null)
+            .copyWith(letterSpacing: -0.2)),
       ]),
     );
   }

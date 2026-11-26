@@ -47,6 +47,29 @@ class Cap {
   static TextStyle body({double size = 14, FontWeight weight = FontWeight.w600, Color? color}) =>
       TextStyle(fontSize: size, fontWeight: weight, color: color ?? ink);
 
+  /// Big bold figure or name: balances, today's earning, the driver's name.
+  static TextStyle display({double size = 30, Color? color}) =>
+      TextStyle(fontSize: size, fontWeight: FontWeight.w900, color: color ?? ink, letterSpacing: -0.8, height: 1.1);
+
+  /// Small upper-case label above a figure or a section ("AVAILABLE BALANCE").
+  static TextStyle overline({double size = 11, Color? color}) =>
+      TextStyle(fontSize: size, fontWeight: FontWeight.w800, color: color ?? muted, letterSpacing: 1.5, height: 1.2);
+
+  /// Soft card shadow; deeper on dark surfaces so cards still lift.
+  static List<BoxShadow> get softShadow => [
+        BoxShadow(
+            color: Colors.black.withValues(alpha: AppColors.dark ? 0.32 : 0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 6)),
+      ];
+
+  /// Brand gradient for header cards (profile, account, wallet, earnings).
+  static const LinearGradient heroGradient = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF2B62F5), Color(0xFF0A3CC8), Color(0xFF06217A)],
+  );
+
   static TextStyle caption({double size = 12.5, Color? color}) =>
       TextStyle(fontSize: size, fontWeight: FontWeight.w500, color: color ?? muted, height: 1.35);
 

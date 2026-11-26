@@ -381,7 +381,7 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
                 RideStatusMetric(Icons.route, '${_actualKm.toStringAsFixed(1)} / $_pkgKm km', warn: _liveExtraKm > 0),
               ],
       ),
-      contact: RideContact(name: r.userName, phone: r.userPhone, role: 'Rider', picUrl: r.userProfilePicUrl),
+      contact: RideContact.forRide(r, role: 'Rider'),
       chatWith: r.userName,
       details: [
         Container(
