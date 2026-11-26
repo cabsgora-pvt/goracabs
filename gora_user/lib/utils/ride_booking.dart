@@ -81,6 +81,7 @@ Future<String?> bookAndTrack(
   bool canRebook = true,
   String Function(String error)? failureMessage,
   void Function(Map<String, dynamic> response)? onBooked,
+  void Function(Map<String, dynamic> response)? onFailed,
 }) async {
   final navigator = Navigator.of(context);
   final dialogs = Navigator.of(context, rootNavigator: true);
@@ -143,6 +144,7 @@ Future<String?> bookAndTrack(
       return activeId;
     }
 
+    onFailed?.call(res);
     final error = (res['error'] ?? 'Please try again.').toString();
     // A payment taken before booking (outstation) that the server gave back
     // because the booking was refused: tell the rider where the money is,
@@ -169,6 +171,7 @@ Future<String?> bookAndTrack(
   }
 
   _announceCoupon(messenger, res);
+  _announceExcessRefund(messenger, res);
   onBooked?.call(res);
   navigator.pushReplacement(MaterialPageRoute(
       builder: (_) => ActiveRideScreen(rideId: id, rebook: canRebook ? book : null)));
@@ -194,6 +197,28 @@ void _announceCoupon(ScaffoldMessengerState messenger, Map<String, dynamic> res)
       backgroundColor: Colors.orange,
     ));
   }
+}
+
+/// A trip prepaid for more than the booking needed (a coupon the server took
+/// off after the payment, say): the server put the difference straight back in
+/// the wallet (ride.prepaidExcessRefunded). Say so.
+void _announceExcessRefund(ScaffoldMessengerState messenger, Map<String, dynamic> res) {
+  final ride = res['ride'] is Map ? res['ride'] as Map : const {};
+  final text = excessRefundMessage(ride['prepaidExcessRefunded']);
+  if (text == null) return;
+  messenger.showSnackBar(SnackBar(
+    key: const ValueKey('excess-refunded'),
+    content: Text(text),
+    backgroundColor: Colors.green[700],
+    duration: const Duration(seconds: 6),
+  ));
+}
+
+/// "₹X extra refunded to wallet", or null when nothing was refunded.
+String? excessRefundMessage(dynamic amount) {
+  if (amount is! num || amount <= 0) return null;
+  final rupees = amount == amount.roundToDouble() ? amount.toInt().toString() : amount.toStringAsFixed(2);
+  return '₹$rupees extra refunded to wallet';
 }
 
 Future<bool?> _askRetry(BuildContext context) => showDialog<bool>(

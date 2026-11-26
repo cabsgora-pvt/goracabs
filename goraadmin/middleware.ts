@@ -5,7 +5,7 @@ const DASHBOARD_PATHS = [
   '/dashboard', '/users', '/drivers', '/vehicles', '/services',
   '/zones', '/rides', '/finance', '/fleet', '/promos',
   '/support', '/notifications', '/banners', '/settings', '/zone-admins', '/zone-plans', '/zone-invoice',
-  '/account-requests', '/document-types', '/ride-preferences', '/audit-log',
+  '/account-requests', '/document-types', '/ride-preferences', '/audit-log', '/review',
 ]
 
 // CORS allow-list. The rider/driver apps are native (no Origin header) and the

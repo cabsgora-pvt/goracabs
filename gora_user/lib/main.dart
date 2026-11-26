@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import 'providers/user_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/splash_screen.dart';
+import 'services/app_foreground.dart';
 import 'services/session_guard.dart';
+import 'services/update_gate.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
@@ -20,8 +22,34 @@ void main() async {
   );
 }
 
-class GoraCabsApp extends StatelessWidget {
+class GoraCabsApp extends StatefulWidget {
   const GoraCabsApp({super.key});
+
+  @override
+  State<GoraCabsApp> createState() => _GoraCabsAppState();
+}
+
+class _GoraCabsAppState extends State<GoraCabsApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // At start: the update check, a due session refresh, and any payment
+    // whose confirmation never reached Gora (see AppForeground).
+    WidgetsBinding.instance.addPostFrameCallback((_) => AppForeground.run());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // And again every time the rider comes back to the app.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) AppForeground.run();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +77,9 @@ class GoraCabsApp extends StatelessWidget {
                 SystemNavigator.pop();
               }
             },
-            child: child!,
+            // A required update covers every screen; an optional one shows a
+            // banner (UpdateGate).
+            child: UpdateOverlay(child: child!),
           );
         });
       },

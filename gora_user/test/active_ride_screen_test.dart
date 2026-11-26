@@ -854,8 +854,72 @@ void main() {
         });
         final sent = log.where((c) => c.method == 'POST' && c.url.path.endsWith('/rides/ext-1/rental')).toList();
         expect(sent, hasLength(1));
-        expect(jsonDecode(sent.single.body), {'action': 'confirm_extend'});
+        // The request the rider saw: its requestedAt and amount, as the ride carried them.
+        expect(jsonDecode(sent.single.body),
+            {'action': 'confirm_extend', 'requestedAt': '2026-11-24T09:00:00.000Z', 'amount': 400});
         expect(find.text('Extension confirmed.'), findsOneWidget);
+        await teardown(tester);
+      });
+
+      testWidgets('409 EXTENSION_CHANGED shows the new price, and the next Confirm names it', (tester) async {
+        final log = <ApiCall>[];
+        final ride = withRequest(rentalOngoing());
+        final changed = {
+          'kind': 'rental', 'hours': 3, 'amount': 650, 'addKm': 30,
+          'requestedAt': '2026-11-24T09:05:00.000Z',
+          'expiresAt': DateTime.now().add(const Duration(minutes: 10)).toUtc().toIso8601String(),
+        };
+        var calls = 0;
+        await pumpRide(tester, ride, kCommon, rideId: 'ext-chg', log: log,
+            override: (req) async {
+              if (req.method != 'POST' || !req.url.path.endsWith('/rental')) return null;
+              calls++;
+              if (calls == 1) {
+                // The driver swapped the request: the server now holds `changed`.
+                ride['pendingExtension'] = changed;
+                return http.Response(jsonEncode({
+                  'error': 'The extension changed. Please check the new price and confirm again.',
+                  'code': 'EXTENSION_CHANGED', 'pendingExtension': changed,
+                }), 409);
+              }
+              ride.remove('pendingExtension');
+              return http.Response(jsonEncode({'success': true}), 200);
+            });
+        await act(() async {
+          await tester.tap(find.descendant(of: find.byType(BottomSheet), matching: find.text('Confirm')));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+        });
+        // Nothing applied; the new request is in front of the rider with its own price.
+        expect(find.byKey(const ValueKey('extension-changed')), findsOneWidget);
+        expect(find.descendant(of: find.byType(BottomSheet), matching: find.text('Driver asked to extend by 3 h for ₹650')),
+            findsOneWidget);
+        await act(() async {
+          await tester.tap(find.descendant(of: find.byType(BottomSheet), matching: find.text('Confirm')));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+        });
+        final sent = log.where((c) => c.method == 'POST' && c.url.path.endsWith('/rides/ext-chg/rental')).toList();
+        expect(sent, hasLength(2));
+        expect(jsonDecode(sent.first.body)['amount'], 400);
+        expect(jsonDecode(sent.last.body),
+            {'action': 'confirm_extend', 'requestedAt': '2026-11-24T09:05:00.000Z', 'amount': 650});
+        expect(find.text('Extension confirmed.'), findsOneWidget);
+        await teardown(tester);
+      });
+
+      testWidgets('400 EXTENSION_DETAILS_REQUIRED without a request is explained, not applied', (tester) async {
+        final ride = withRequest(rentalOngoing());
+        await pumpRide(tester, ride, kCommon, rideId: 'ext-det',
+            override: (req) async => req.method == 'POST' && req.url.path.endsWith('/rental')
+                ? http.Response(jsonEncode({'error': 'Send the requestedAt', 'code': 'EXTENSION_DETAILS_REQUIRED'}), 400)
+                : null);
+        await act(() async {
+          await tester.tap(find.descendant(of: find.byType(BottomSheet), matching: find.text('Confirm')));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 500));
+        });
+        expect(find.textContaining('no longer open'), findsOneWidget);
         await teardown(tester);
       });
 
@@ -1617,5 +1681,193 @@ void main() {
     expect(ActiveRideScreen.open, contains('ride123'));
     await teardown(tester);
     expect(ActiveRideScreen.open, isNot(contains('ride123')));
+  });
+
+  // ── v1.6.0: the backend contracts of the re-audit ──
+  group('v1.6 live ride contracts', () {
+    Iterable<ApiCall> rideGets(List<ApiCall> log, String id) =>
+        log.where((c) => c.method == 'GET' && c.url.path.endsWith('/rides/$id'));
+
+    testWidgets('the first read is in full, every poll after it asks for ?lite=1', (tester) async {
+      final log = <ApiCall>[];
+      await pumpRide(tester, Map<String, dynamic>.from(phases['assigned']!), kCommon,
+          rideId: 'lite-1', log: log, settle: const Duration(milliseconds: 7000));
+      final gets = rideGets(log, 'lite-1').toList();
+      expect(gets.length, greaterThanOrEqualTo(2));
+      expect(gets.first.url.queryParameters['lite'], isNull);
+      for (final g in gets.skip(1)) {
+        expect(g.url.queryParameters['lite'], '1');
+      }
+      await teardown(tester);
+    });
+
+    testWidgets('in the background the polls stop; back in front they resume', (tester) async {
+      final log = <ApiCall>[];
+      await pumpRide(tester, Map<String, dynamic>.from(phases['assigned']!), kCommon, rideId: 'bg-1', log: log);
+      final binding = tester.binding;
+      for (final st in [AppLifecycleState.inactive, AppLifecycleState.hidden, AppLifecycleState.paused]) {
+        binding.handleAppLifecycleStateChanged(st);
+      }
+      log.clear();
+      await act(() async {
+        for (var i = 0; i < 50; i++) {
+          await tester.pump(const Duration(milliseconds: 200));
+        }
+      });
+      expect(log.where((c) => c.url.path.contains('/rides/')), isEmpty, reason: '10 s in the background, no call');
+      await act(() async {
+        for (final st in [AppLifecycleState.hidden, AppLifecycleState.inactive, AppLifecycleState.resumed]) {
+          binding.handleAppLifecycleStateChanged(st);
+        }
+        await tester.pump(const Duration(milliseconds: 500));
+      });
+      expect(rideGets(log, 'bg-1'), isNotEmpty);
+      await teardown(tester);
+    });
+
+    testWidgets('needsReview: "Our team is checking this ride"', (tester) async {
+      final ride = Map<String, dynamic>.from(phases['assigned']!)..['needsReview'] = true;
+      await pumpRide(tester, ride, kCommon, rideId: 'rev-1');
+      expect(find.text('Our team is checking this ride'), findsOneWidget);
+      await teardown(tester);
+      await pumpRide(tester, Map<String, dynamic>.from(phases['assigned']!), kCommon, rideId: 'rev-2');
+      expect(find.text('Our team is checking this ride'), findsNothing);
+      await teardown(tester);
+    });
+
+    Future<void> openReport(WidgetTester tester) async {
+      await act(() async {
+        await tester.ensureVisible(find.byKey(const ValueKey('report-driver-issue')));
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.tap(find.byKey(const ValueKey('report-driver-issue')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+      });
+    }
+
+    testWidgets('driver unreachable: Gora cancels with no fee and the rider goes home', (tester) async {
+      final log = <ApiCall>[];
+      await pumpRide(tester, Map<String, dynamic>.from(phases['assigned']!), kCommon,
+          rideId: 'unr-1', log: log, pushed: true, scrollSheet: true,
+          override: (req) async => req.method == 'POST' && req.url.path.endsWith('/report-issue')
+              ? http.Response(jsonEncode({'success': true, 'needsReview': true, 'cancelled': true,
+                  'cancellationFee': 0, 'status': 'cancelled'}), 200)
+              : null);
+      await openReport(tester);
+      expect(find.text("I can't reach my driver"), findsOneWidget);
+      await act(() async {
+        await tester.tap(find.byKey(const ValueKey('issue-send')));
+        await tester.pump();
+        for (var i = 0; i < 6; i++) {
+          await tester.pump(const Duration(milliseconds: 200));
+        }
+      });
+      final sent = log.where((c) => c.method == 'POST' && c.url.path.endsWith('/rides/unr-1/report-issue')).toList();
+      expect(sent, hasLength(1));
+      expect(jsonDecode(sent.single.body), {'kind': 'driver_unreachable'});
+      expect(find.text('HOME'), findsOneWidget);
+      expect(find.textContaining('no cancellation fee'), findsOneWidget);
+      await teardown(tester);
+    });
+
+    testWidgets('driver not arrived: flagged for the team, the ride stays; 429 explained', (tester) async {
+      var calls = 0;
+      final log = <ApiCall>[];
+      await pumpRide(tester, Map<String, dynamic>.from(phases['arrived']!), kCommon,
+          rideId: 'unr-2', log: log, scrollSheet: true,
+          override: (req) async {
+            if (req.method != 'POST' || !req.url.path.endsWith('/report-issue')) return null;
+            calls++;
+            return calls == 1
+                ? http.Response(jsonEncode({'success': true, 'needsReview': true, 'status': 'arrived'}), 200)
+                : http.Response(jsonEncode({'error': 'Too many reports. Please wait a few minutes or call support.',
+                    'code': 'RATE_LIMITED'}), 429);
+          });
+      await openReport(tester);
+      await act(() async {
+        await tester.tap(find.byKey(const ValueKey('issue-driver_not_arrived')));
+        await tester.pump();
+        await tester.tap(find.byKey(const ValueKey('issue-send')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+      });
+      expect(jsonDecode(log.lastWhere((c) => c.url.path.endsWith('/report-issue')).body), {'kind': 'driver_not_arrived'});
+      expect(find.textContaining('Our team is checking this ride'), findsOneWidget);
+      expect(find.byType(ActiveRideScreen), findsOneWidget);
+      await act(() async {
+        ScaffoldMessenger.of(tester.element(find.byType(ActiveRideScreen))).removeCurrentSnackBar();
+        await tester.pump(const Duration(milliseconds: 300));
+      });
+      // The sheet rebuilt under the snack bar; bring the row back into view.
+      await scrollSheetToEnd(tester);
+      await openReport(tester);
+      await act(() async {
+        await tester.tap(find.byKey(const ValueKey('issue-send')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+      });
+      expect(find.textContaining('Too many reports'), findsOneWidget);
+      expect(find.byType(ActiveRideScreen), findsOneWidget);
+      await teardown(tester);
+    });
+
+    Map<String, dynamic> shortfall(String mode) => outstation(status: 'completed', uiPhase: 'payment')
+      ..addAll({'paymentMode': mode, 'paymentStatus': 'pending', 'awaitingPayment': true,
+        'prepaidShortfall': true, 'prepaidAmount': 5400, 'amountDue': 350, 'uiPhaseLabel': 'Payment due'});
+
+    testWidgets('a prepaid trip with a shortfall: "₹350 still due", paid from the wallet by ride id', (tester) async {
+      final log = <ApiCall>[];
+      await pumpRide(tester, shortfall('wallet'), kCommon, rideId: 'short-1', log: log);
+      expect(find.text('STILL DUE'), findsOneWidget);
+      expect(find.textContaining('₹350 still due'), findsOneWidget);
+      expect(find.byType(RatingScreen), findsNothing, reason: 'not closed while money is due');
+      await act(() async {
+        await tester.ensureVisible(find.byKey(const ValueKey('pay-shortfall')));
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.tap(find.byKey(const ValueKey('pay-shortfall')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+      });
+      final pay = log.where((c) => c.method == 'POST' && c.url.path.endsWith('/wallet/pay')).toList();
+      expect(pay, hasLength(1));
+      expect(jsonDecode(pay.single.body), {'rideId': 'short-1'});
+      expect(find.text('Paid from your Gora wallet. Thank you!'), findsOneWidget);
+      await teardown(tester);
+    });
+
+    testWidgets('wallet/pay 409 notPayableYet: "Pay after the trip ends."', (tester) async {
+      await pumpRide(tester, shortfall('wallet'), kCommon, rideId: 'short-2',
+          override: (req) async => req.url.path.endsWith('/wallet/pay')
+              ? http.Response(jsonEncode({'error': 'This ride can be paid once it has ended', 'code': 'notPayableYet'}), 409)
+              : null);
+      await act(() async {
+        await tester.ensureVisible(find.byKey(const ValueKey('pay-shortfall')));
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.tap(find.byKey(const ValueKey('pay-shortfall')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+      });
+      expect(find.text('Pay after the trip ends.'), findsWidgets);
+      await teardown(tester);
+    });
+
+    testWidgets('prepaidExcessRefunded on the ride: "₹150 extra refunded to wallet"', (tester) async {
+      final ride = outstation(status: 'accepted', uiPhase: 'assigned')
+        ..addAll({'prepaidAmount': 5400, 'prepaidExcessRefunded': 150});
+      await pumpRide(tester, ride, kCommon, rideId: 'excess-1');
+      expect(find.text('₹150 extra refunded to wallet'), findsOneWidget);
+      await teardown(tester);
+      await pumpRide(tester, outstation(status: 'accepted', uiPhase: 'assigned'), kCommon, rideId: 'excess-2');
+      expect(find.byKey(const ValueKey('excess-refund-note')), findsNothing);
+      await teardown(tester);
+    });
+
+    testWidgets('a prepaid trip paid in full is not held on the payment panel', (tester) async {
+      final ride = outstation(status: 'completed', uiPhase: 'completed')
+        ..addAll({'paymentMode': 'online', 'paymentStatus': 'paid', 'prepaidAmount': 5400, 'amountDue': 0});
+      await pumpRide(tester, ride, kCommon, rideId: 'short-3');
+      expect(find.text('STILL DUE'), findsNothing);
+      await teardown(tester);
+    });
   });
 }

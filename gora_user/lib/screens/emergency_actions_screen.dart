@@ -36,6 +36,9 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
   Duration _recordElapsed = Duration.zero;
   Timer? _recordTimer;
   String? _lastRecordingPath;
+  // What happened to the alert to the safety team: null while it is being
+  // sent, then the line shown at the top of the screen.
+  SosAlertStatus? _alert;
 
   @override
   void initState() {
@@ -61,8 +64,9 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
       lat = pos.latitude; lng = pos.longitude;
       address = await ApiService.reverseGeocode(lat, lng);
     } catch (_) {}
+    Map<String, dynamic> res;
     try {
-      await ApiService.sendSosAlert({
+      res = await ApiService.sendSosAlert({
         'rideId': widget.rideId,
         'triggeredBy': 'user',
         'name': user.name,
@@ -71,7 +75,10 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
         if (lng != null) 'lng': lng,
         'address': address,
       });
-    } catch (_) {}
+    } catch (_) {
+      res = const {'error': 'no connection'};
+    }
+    if (mounted) setState(() => _alert = sosAlertStatusOf(res));
   }
 
   // Loads the same contacts list Settings manages — previously this screen
@@ -162,6 +169,8 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
       body: ListView(padding: const EdgeInsets.all(16), children: [
         Text('emergency', style: TextStyle(color: Colors.grey[500], fontSize: 14)),
         const SizedBox(height: 12),
+        _alertBanner(),
+        const SizedBox(height: 12),
         // Emergency contacts — same list Settings manages.
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -228,6 +237,31 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
             child: const Text('Done', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
           ),
         ),
+      ]),
+    );
+  }
+
+  /// Whether the safety team has the alert. A repeat SOS within a minute is
+  /// the same alert (deduped) — it was sent; 429 means one already went.
+  Widget _alertBanner() {
+    final a = _alert;
+    final sent = a?.sent;
+    final color = sent == false ? Colors.red : (sent == true ? Colors.green[700]! : Colors.grey[700]!);
+    final text = a == null ? 'Alerting our safety team…' : a.message;
+    return Container(
+      key: const ValueKey('sos-alert-status'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(children: [
+        Icon(sent == false ? Icons.error_outline : (sent == true ? Icons.check_circle : Icons.sos),
+            color: color, size: 20),
+        const SizedBox(width: 10),
+        Expanded(child: Text(text, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: color))),
+        if (sent == false) TextButton(onPressed: () { setState(() => _alert = null); _raiseAlert(); }, child: const Text('Retry')),
       ]),
     );
   }
@@ -309,4 +343,25 @@ class _SirenScreenState extends State<_SirenScreen> {
       ),
     );
   }
+}
+
+/// What the SOS alert call came back with, in the rider's words.
+class SosAlertStatus {
+  /// True: the safety team has it. False: it did not go (retry).
+  final bool sent;
+  final String message;
+  const SosAlertStatus(this.sent, this.message);
+}
+
+/// POST /support/sos-alert → {success, id, deduped?} or 429 RATE_LIMITED.
+/// deduped (the same alert within the minute) and 429 (one was just sent)
+/// both mean the team already has it.
+SosAlertStatus sosAlertStatusOf(Map<String, dynamic> res) {
+  if (res['success'] == true) {
+    return const SosAlertStatus(true, 'Our safety team has been alerted with your ride and location.');
+  }
+  if (res['code'] == 'RATE_LIMITED' || res['httpStatus'] == 429) {
+    return const SosAlertStatus(true, 'SOS already sent — our safety team has been alerted. If you are in danger, call 112.');
+  }
+  return const SosAlertStatus(false, 'Could not alert our safety team. Call 112 or the safety team below.');
 }

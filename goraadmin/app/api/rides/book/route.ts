@@ -11,7 +11,7 @@ import { distanceKm, pointInPolygon } from '@/lib/geo'
 import { availableDriverFilter, getEtaFactor, rankCandidates, refineCandidatesWithTraffic, MATRIX_REFINE, ETA_CONFIG } from '@/lib/eta'
 import { holdOf, holdMessage } from '@/lib/account-hold'
 import RidePreference from '@/models/RidePreference'
-import { offerNext, withoutBusyDrivers, busyDriverIds } from '@/lib/dispatch'
+import { offerNext, withoutBusyDrivers, busyDriverIds, dispatchBoundsFor, cachedGlobalSettings } from '@/lib/dispatch'
 import mongoose from 'mongoose'
 import { chargedAtBooking, claimPrepayment, refundClaimedPrepayment, refundRefusedPrepayment, refundPrepayExcess, type Linked } from '@/lib/prepay'
 import { quoteRental, type RentalQuote } from '@/lib/rental-pricing'
@@ -589,7 +589,9 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
       const busy = await busyDriverIds((drivers as any[]).map(d => String(d._id)))
       // Same rule as the dispatch ladder: a driver with an active ride is not a
       // candidate at all, so this preview never names one the ladder won't offer.
-      let ranked = rankCandidates(withoutBusyDrivers(drivers, busy), pickup, factor).slice(0, ETA_CONFIG.CANDIDATE_POOL)
+      // Same pickup-ETA cap as the offer ladder for an instant ride.
+      const bounds = dispatchBoundsFor(ride, await cachedGlobalSettings())
+      let ranked = rankCandidates(withoutBusyDrivers(drivers, busy), pickup, factor, new Map(), bounds).slice(0, ETA_CONFIG.CANDIDATE_POOL)
 
       if (ranked.length) {
         // Same traffic refinement the real dispatch ladder uses, via the shared
@@ -597,7 +599,7 @@ async function book(req: NextRequest, b: any, ctx: { rideCreated: boolean; refun
         // cached leg from offerNext() above is almost always reused here, so
         // this costs nothing extra when the flag is on.
         if (MATRIX_REFINE.DISPATCH) {
-          ranked = await refineCandidatesWithTraffic(ranked, pickup)
+          ranked = await refineCandidatesWithTraffic(ranked, pickup, bounds)
         }
 
         const best = ranked[0]

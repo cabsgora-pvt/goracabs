@@ -165,13 +165,21 @@ class ApiService {
   /// callers that branch on a 402 or a 409 rather than on wording.
   ///
   /// A 401 to a request that carried the rider's token means the server no
-  /// longer accepts it: [SessionGuard] signs the rider out, once. The account
-  /// deletion answer (401 {accountDeleted: true}) keeps its own flow.
+  /// longer accepts it: [SessionGuard] signs the rider out, once, saying why
+  /// when the server said (SESSION_REVOKED, ACCOUNT_DELETED). The account
+  /// deletion answer of the profile call (401 {accountDeleted: true}) keeps its
+  /// own flow.
+  ///
+  /// A 403 signs out only when the account itself is refused —
+  /// {code: 'ACCOUNT_BLOCKED' | 'ACCOUNT_DELETED'}. Every other 403 (not this
+  /// rider's ride, an account hold, the driver must end the trip, ...) answers
+  /// that one request and leaves the rider signed in.
   static Map<String, dynamic> _decode(http.Response res, {bool sentToken = false}) {
     final out = _decodeBody(res);
     if (res.statusCode >= 400) out['httpStatus'] = res.statusCode;
-    if (res.statusCode == 401 && sentToken && out['accountDeleted'] != true) {
-      SessionGuard.onUnauthorized();
+    if (sentToken) {
+      final reason = SessionGuard.signOutReasonFor(res.statusCode, out);
+      if (reason != null) SessionGuard.onUnauthorized(reason: reason);
     }
     return out;
   }
@@ -231,14 +239,20 @@ class ApiService {
   static Future<Map<String, dynamic>> getRidePreferences() => get('/ride-preferences');
 
   // ── App config (admin-managed content) ───────────────────
+  // Only a config the server actually sent is kept: a failed fetch (offline,
+  // a 502) used to be cached as {} for the rest of the session, so banners,
+  // coupons and the update check stayed empty until a restart.
   static Map<String, dynamic>? _appConfigCache;
   static Future<Map<String, dynamic>> getAppConfig({bool force = false}) async {
     if (_appConfigCache != null && !force) return _appConfigCache!;
     try {
       final res = await get('/app-config?app=user');
-      _appConfigCache = (res['config'] as Map?)?.cast<String, dynamic>() ?? {};
-    } catch (_) { _appConfigCache = {}; }
-    return _appConfigCache!;
+      final cfg = res['config'];
+      if (cfg is Map && res['error'] == null) {
+        return _appConfigCache = cfg.cast<String, dynamic>();
+      }
+    } catch (_) {}
+    return _appConfigCache ?? {};
   }
 
   // ── Nearby drivers (live vehicles on map) ────────────────
@@ -268,17 +282,36 @@ class ApiService {
   static Future<Map<String, dynamic>> walletPrepay({required num amount, String? note}) =>
       post('/wallet/pay', {'amount': amount, 'note': ?note}, auth: true);
 
+  /// Pays a COMPLETED wallet ride from the wallet - what is still due on a
+  /// prepaid trip (prepaidShortfall). The server debits its own amountDue; no
+  /// amount is sent. 200 {success, amount?, balance, alreadyPaid?}; 402
+  /// {balance, amountDue} when the wallet is short; 409 {code: 'notPayableYet'}
+  /// while the trip has not ended.
+  static Future<Map<String, dynamic>> walletPayRide(String rideId) =>
+      post('/wallet/pay', {'rideId': rideId}, auth: true);
+
   // ── Payment (Razorpay) ────────────────────────────────────
   static Map<String, dynamic>? _paymentConfigCache;
+  static const Map<String, dynamic> _paymentConfigFallback = {
+    'razorpay': {'enabled': false}, 'cashEnabled': true, 'walletEnabled': true,
+  };
   // { razorpay: {enabled, keyId, mode}, cashEnabled, walletEnabled }
+  // Only a real answer is cached. A failure (offline, a timeout, a 502 page)
+  // used to be cached too, turning online payment off for the rest of the
+  // session; now this call gets the safe fallback and the next one asks again.
   static Future<Map<String, dynamic>> getPaymentConfig({bool force = false}) async {
     if (_paymentConfigCache != null && !force) return _paymentConfigCache!;
     try {
-      _paymentConfigCache = await get('/payment/config');
-    } catch (_) {
-      _paymentConfigCache = {'razorpay': {'enabled': false}, 'cashEnabled': true, 'walletEnabled': true};
-    }
-    return _paymentConfigCache!;
+      final res = await get('/payment/config');
+      if (res['error'] == null && res['razorpay'] is Map) return _paymentConfigCache = res;
+    } catch (_) {}
+    return _paymentConfigCache ?? Map<String, dynamic>.from(_paymentConfigFallback);
+  }
+
+  /// Forgets the cached payment and app configs (sign-in change, tests).
+  static void resetConfigCaches() {
+    _paymentConfigCache = null;
+    _appConfigCache = null;
   }
 
   // purpose: 'wallet' (top-up), 'outstation_prepay' (before booking, no ride),
@@ -321,6 +354,11 @@ class ApiService {
 
   static Future<Map<String, dynamic>> getProfile() => get('/auth/user/profile');
 
+  // Sliding session: a token at least a day old is swapped for a fresh 7-day
+  // one. 200 {token, expiresIn, refreshAfter}; 409 {code: 'TOO_EARLY',
+  // refreshAfter}; 401 / 403 {code} when the account is no longer accepted.
+  static Future<Map<String, dynamic>> refreshSession() => post('/auth/refresh', {}, auth: true);
+
   // ── Referral (own code + live stats) ──────────────────────
   static Future<Map<String, dynamic>> getReferral() => get('/auth/user/referral');
 
@@ -350,9 +388,21 @@ class ApiService {
   // The driver asked to extend a rental or a hire (ride.pendingExtension) and
   // the rider answers; only the driver starts, ends or extends a trip. 409
   // NO_PENDING_EXTENSION when the request expired or was already answered.
-  static Future<Map<String, dynamic>> answerExtension(String rideId, String service, {required bool confirm}) =>
-      post('/rides/$rideId/${service == 'hire_driver' ? 'hire' : 'rental'}',
-          {'action': confirm ? 'confirm_extend' : 'decline_extend'}, auth: true);
+  //
+  // A confirm names the request the rider is looking at - its requestedAt and
+  // amount, exactly as the ride's pendingExtension carried them - so a request
+  // the driver swapped just before the tap is never the one applied: 409
+  // EXTENSION_CHANGED {pendingExtension} (the current one, to confirm afresh),
+  // 400 EXTENSION_DETAILS_REQUIRED when they are missing.
+  static Future<Map<String, dynamic>> answerExtension(String rideId, String service,
+          {required bool confirm, Map<String, dynamic>? extension}) =>
+      post('/rides/$rideId/${service == 'hire_driver' ? 'hire' : 'rental'}', {
+        'action': confirm ? 'confirm_extend' : 'decline_extend',
+        if (confirm && extension != null) ...{
+          'requestedAt': extension['requestedAt'],
+          'amount': extension['amount'],
+        },
+      }, auth: true);
 
   // ── Ride engine ───────────────────────────────────────────
   // The quote is signed over its inputs, so each service must send here the
@@ -375,7 +425,39 @@ class ApiService {
   static Future<Map<String, dynamic>> bookRide(Map<String, dynamic> data) =>
       post('/rides/book', data, auth: true);
 
-  static Future<Map<String, dynamic>> getRide(String id) => get('/rides/$id');
+  /// One ride. [lite] leaves out the chat (`messages`): the live ride screen
+  /// polls every 3 s and never shows it - the chat screen reads its own
+  /// endpoint (/rides/{id}/messages).
+  static Future<Map<String, dynamic>> getRide(String id, {bool lite = false}) =>
+      get('/rides/$id${lite ? '?lite=1' : ''}');
+
+  /// The rider's one current ride, small: {ride: {...} | null, blocksBooking}.
+  /// The newest pending / accepted / arrived / ongoing ride, or one still
+  /// awaiting payment. Home polls this instead of the whole history.
+  static Future<Map<String, dynamic>> getActiveRide() => get('/rides/active');
+
+  /// The public live-tracking link's token, for sharing this ride:
+  /// {shareToken, path: '/track/{token}'}. The tracker answers only to it.
+  static Future<Map<String, dynamic>> getShareToken(String rideId) => get('/rides/$rideId/share-token');
+
+  /// Tells Gora something is wrong with the driver of a live ride.
+  /// kind: 'driver_unreachable' | 'driver_not_arrived' | 'other'.
+  /// -> {success, needsReview, cancelled?, cancellationFee?, status}. A
+  /// driver_unreachable report on an accepted / arrived ride also cancels it,
+  /// with no fee. 429 RATE_LIMITED, 409 NOT_ACTIVE.
+  static Future<Map<String, dynamic>> reportRideIssue(String rideId, String kind, {String note = ''}) =>
+      post('/rides/$rideId/report-issue', {'kind': kind, if (note.trim().isNotEmpty) 'note': note.trim()}, auth: true);
+
+  /// What the server WILL take off for [code] on this trip - nothing redeemed.
+  /// -> {valid, discount, reason?, code, fare, tip, payable}. For an outstation
+  /// trip paid upfront, `payable` is exactly what the booking requires.
+  static Future<Map<String, dynamic>> previewPromo({
+    required String code, required String service, required num fare, num tip = 0,
+    double? pickupLat, double? pickupLng,
+  }) => post('/promos/preview', {
+        'code': code, 'service': service, 'fare': fare, 'tip': tip,
+        'pickupLat': ?pickupLat, 'pickupLng': ?pickupLng,
+      }, auth: true);
 
   // Returns { polyline, distanceKm, durationMin } — used to draw route + show road ETA
   static Future<Map<String, dynamic>> getDirections({
@@ -412,7 +494,10 @@ class ApiService {
   static Future<Map<String, dynamic>> rateRide(String id, int rating, String review) =>
       post('/rides/$id/rate', {'rating': rating, 'review': review}, auth: true);
 
-  static Future<Map<String, dynamic>> getMyRides() => get('/rides/user');
+  /// The rider's ride history, newest first, a page at a time:
+  /// {rides, page, limit, hasMore}. (It used to send everything, chat and all.)
+  static Future<Map<String, dynamic>> getMyRides({int limit = 20, int page = 1}) =>
+      get('/rides/user?limit=$limit&page=$page');
   // Parcels addressed TO me (I'm the receiver) — matched by phone. Needs the
   // rider's token (sent by get) and returns only the fields a receiver needs.
   static Future<Map<String, dynamic>> getIncomingParcels() => get('/rides/delivery/incoming');

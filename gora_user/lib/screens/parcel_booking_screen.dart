@@ -266,8 +266,10 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   Future<void> _loadMyParcels() async {
     setState(() => _loadingParcels = true);
     try {
-      final sent = await ApiService.getMyRides();
-      final inc = await ApiService.getIncomingParcels();
+      // The newest 50 of the rider's own rides (the history is paged now) and
+      // the parcels addressed to them; the two calls go out together.
+      final both = await Future.wait([ApiService.getMyRides(limit: 50), ApiService.getIncomingParcels()]);
+      final sent = both[0], inc = both[1];
       if (!mounted) return;
       setState(() {
         _myParcels = ((sent['rides'] as List?) ?? []).where((r) => (r['service'] ?? '') == 'delivery').map<Map<String, dynamic>>((r) => Map<String, dynamic>.from(r as Map)).toList();
@@ -378,7 +380,10 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         ])));
   }
 
-  // Live tracking sheet for any parcel (works for receiver's incoming too — by rideId)
+  // Live tracking sheet for a parcel coming TO the rider. The receiver is not
+  // the ride's rider, but /rides/{id}/driver-location answers them too (a
+  // rider whose phone is the parcel's receiver phone), for the same window as
+  // the sender: accepted / arrived / ongoing.
   void _trackLive(Map<String, dynamic> p) {
     final id = (p['_id'] ?? p['id'] ?? '').toString();
     if (id.isEmpty) return;
@@ -393,18 +398,26 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (ctx) => StatefulBuilder(builder: (ctx, setS) {
-        lt ??= Timer.periodic(const Duration(seconds: 5), (t) async {
+        Future<void> fix() async {
           try {
             final res = await ApiService.getDriverLocation(id);
-            final dd = res['driver'] as Map<String, dynamic>?;
-            if (dd == null || dd['lat'] == null) return;
-            final la = (dd['lat'] as num).toDouble(), ln = (dd['lng'] as num).toDouble();
-            final toDrop = (p['deliveryPhase'] ?? '') == 'in_transit';
+            final dd = res['driver'];
+            if (dd is! Map) return;
+            final la = ApiService.toDoubleOrNull(dd['lat']), ln = ApiService.toDoubleOrNull(dd['lng']);
+            if (la == null || ln == null) return;
+            // Collected and on its way to the receiver, as the ride screen reads it.
+            final ph = (p['deliveryPhase'] ?? '').toString();
+            final toDrop = ph == 'in_transit' || ph == 'collected';
             final dir = await ApiService.getDirections(originLat: la, originLng: ln, destLat: toDrop ? dLat : pLat, destLng: toDrop ? dLng : pLng);
             drv = LatLng(la, ln); hd = (dd['heading'] as num?)?.toDouble() ?? 0; eta = (dir['durationMin'] as num?)?.toInt();
-            setS(() {});
+            if (ctx.mounted) setS(() {});
           } catch (_) {}
-        });
+        }
+        if (lt == null) {
+          // The first fix now, not 5 s after the sheet opens.
+          fix();
+          lt = Timer.periodic(const Duration(seconds: 5), (_) => fix());
+        }
         return Padding(padding: EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 16 + MediaQuery.of(ctx).viewPadding.bottom),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Row(children: [const Text('Live Tracking', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)), const Spacer(),
@@ -583,7 +596,10 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         PrimaryCtaBar(
           top: PaymentCouponBar(
             baseFare: (selFare as num?) ?? 0,
-            // The discount shown is a preview: the server decides it at booking.
+            // The discount shown is the server's preview (/promos/preview) for
+            // this trip; the booking applies the same rules.
+            service: 'delivery',
+            pickupLat: _pLat, pickupLng: _pLng,
             onChanged: (pm, cc, _) => setState(() { _paymentMode = pm; _couponCode = cc; }),
           ),
           label: cta,

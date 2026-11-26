@@ -20,7 +20,7 @@ const GUARDED: [RegExp, string[]][] = [
     'surge(/[^/]+)?', 'promos(/[^/]+)?', 'subscription-plans(/[^/]+)?', 'zone-plans(/[^/]+)?',
     'incentives(/[^/]+)?', 'drivers/[^/]+/wallet', 'wallet/admin', 'finance/withdrawals/[^/]+',
     'zone-admins/[^/]+/(payouts|subscription)', 'rides/[^/]+/(force-complete|otp-unlock)',
-    'document-types(/[^/]+)?', 'ride-preferences(/[^/]+)?',
+    'document-types(/[^/]+)?', 'ride-preferences(/[^/]+)?', 'review',
   ].map(p => [new RegExp(`^/api/(${p})/?$`), ALL] as [RegExp, string[]]),
   [/^\/api\/notifications\/?$/, ['POST']],
   // Deleting an account. A driver PUT that changes bank details is guarded

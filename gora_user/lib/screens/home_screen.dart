@@ -10,6 +10,7 @@ import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 import '../providers/user_provider.dart';
 import '../services/api_service.dart';
+import '../utils/active_ride.dart';
 import '../utils/vehicle_marker.dart';
 import '../widgets/ride_ui/ride_ui.dart';
 import 'active_ride_screen.dart';
@@ -39,18 +40,23 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _currentIndex = 0;
   late PageController _promoController;
   Timer? _promoTimer;
   int _currentPromoPage = 0;
   // Active ride guard — user can't book a new ride while one is in progress
+  // (GET /rides/active). The banner shows [_activeRide]; [_blocksBooking] is
+  // the server's say on whether a new booking must wait (a ride under review
+  // for half an hour no longer blocks one).
   Map<String, dynamic>? _activeRide;
-  // Most recent completed taxi ride — for "Book Again". Pulled from the same
-  // fetch _checkActiveRide already makes, so this costs nothing extra.
+  bool _blocksBooking = false;
+  // Most recent completed taxi ride — for "Book Again", from the first page of
+  // the ride history (/rides/user?limit=20), read at start and when a ride
+  // ends — not on every 8 s active-ride poll any more.
   Map<String, dynamic>? _lastRide;
   // The rider's own recent drop-offs (newest first, de-duplicated), from that
-  // same ride-history fetch. Replaces a hardcoded Pune/Delhi list; the section
+  // same ride-history page. Replaces a hardcoded Pune/Delhi list; the section
   // is hidden when the rider has none.
   List<Map<String, dynamic>> _recentDrops = const [];
   static bool _autoResumed = false; // auto-open the active ride once per app launch
@@ -103,9 +109,11 @@ class _HomeScreenState extends State<HomeScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<UserProvider>().loadProfile();
     });
+    WidgetsBinding.instance.addObserver(this);
     _checkActiveRide();
+    _loadRecentHistory();
     // Re-check periodically so the banner clears when the ride completes/cancels
-    _activeTimer = Timer.periodic(const Duration(seconds: 8), (_) => _checkActiveRide());
+    _startActiveTimer();
     _fetchCurrentLocation();
     // Live vehicles on the map — first load shortly after location is known,
     // then refresh every few seconds so they appear to move.
@@ -115,7 +123,7 @@ class _HomeScreenState extends State<HomeScreen>
       onUpdate: () { if (mounted) setState(() {}); },
     );
     _loadNearbyVehicles();
-    _vehiclesTimer = Timer.periodic(const Duration(seconds: 4), (_) => _loadNearbyVehicles());
+    _startVehiclesTimer();
     _loadFavourites();
     ApiService.getAppConfig().then((c) {
       if (mounted) setState(() => _cfg = c);
@@ -194,6 +202,38 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  void _startActiveTimer() {
+    _activeTimer?.cancel();
+    _activeTimer = Timer.periodic(const Duration(seconds: 8), (_) => _checkActiveRide());
+  }
+
+  void _startVehiclesTimer() {
+    _vehiclesTimer?.cancel();
+    _vehiclesTimer = Timer.periodic(const Duration(seconds: 4), (_) => _loadNearbyVehicles());
+  }
+
+  // Nothing on this screen is worth polling for while the app is in the
+  // background; both polls stop there and catch up the moment it returns.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _activeTimer?.cancel();
+      _vehiclesTimer?.cancel();
+      _activeTimer = null;
+      _vehiclesTimer = null;
+    } else if (state == AppLifecycleState.resumed && mounted) {
+      if (_activeTimer == null) {
+        _checkActiveRide();
+        _startActiveTimer();
+      }
+      if (_vehiclesTimer == null) {
+        _loadNearbyVehicles();
+        _startVehiclesTimer();
+      }
+    }
+  }
+
   // Finds any in-progress ride (pending/accepted/arrived/ongoing) for the user
   Future<void> _checkActiveRide() async {
     if (_activeInFlight) return;
@@ -207,38 +247,21 @@ class _HomeScreenState extends State<HomeScreen>
 
   Future<void> _checkActiveRideOnce() async {
     try {
-      final res = await ApiService.getMyRides();
-      final list = (res['rides'] as List?) ?? [];
-      const activeStatuses = ['pending', 'accepted', 'arrived', 'ongoing'];
-      // An online ride the driver has ended but the rider has not paid is
-      // still open: the ride screen is where it is paid.
-      bool unpaidOnline(dynamic r) =>
-          (r['status'] ?? '').toString() == 'completed' &&
-          r['awaitingPayment'] == true &&
-          (r['paymentMode'] ?? '').toString() == 'online' &&
-          (r['paymentStatus'] ?? '').toString() != 'paid';
-      final active = list.firstWhere(
-        (r) => activeStatuses.contains((r['status'] ?? '').toString()) || unpaidOnline(r),
-        orElse: () => null,
-      );
-      // Same list, already sorted newest-first by the server — the first
-      // completed taxi ride with a real drop pin is what "Book Again" repeats.
-      // Rental/outstation/parcel/hire aren't offered here: re-running those
-      // means re-picking a package or a delivery, not a one-tap repeat.
-      final lastTaxi = list.firstWhere(
-        (r) => (r['status'] ?? '').toString() == 'completed'
-            && ((r['service'] ?? 'taxi').toString() == 'taxi')
-            && r['dropLat'] != null && r['dropLng'] != null
-            && (r['dropAddress'] ?? '').toString().isNotEmpty,
-        orElse: () => null,
-      );
-      final recent = _recentDropsFrom(list);
-      if (!mounted) return;
+      // The one current ride, from the server — pending / accepted / arrived /
+      // ongoing, or a completed one the rider still has to pay (online, or
+      // the rest of a prepaid trip): the ride screen is where it is paid.
+      final res = await ApiService.getActiveRide();
+      final st = ActiveRideState.fromResponse(res);
+      // An error answer keeps what is on screen rather than dropping a live
+      // ride's banner over one failed poll.
+      if (st == null || !mounted) return;
+      final hadRide = _activeRide != null;
       setState(() {
-        _activeRide = active == null ? null : Map<String, dynamic>.from(active as Map);
-        _lastRide = lastTaxi == null ? null : Map<String, dynamic>.from(lastTaxi as Map);
-        _recentDrops = recent;
+        _activeRide = st.ride;
+        _blocksBooking = st.blocksBooking;
       });
+      // The ride just ended: "Book again" and the recent drops move on.
+      if (hadRide && st.ride == null) _loadRecentHistory();
       // Auto-resume a ride that was already active when the app was opened —
       // only on this first check. Later checks used to fire too, pushing a
       // duplicate screen over a ride the rider had just booked.
@@ -254,9 +277,34 @@ class _HomeScreenState extends State<HomeScreen>
     } catch (_) {}
   }
 
+  /// "Book again" and the recent drop-offs, from the first page of the ride
+  /// history. The server sorts it newest-first: the first completed taxi ride
+  /// with a real drop pin is what "Book Again" repeats. Rental / outstation /
+  /// parcel / hire aren't offered here: re-running those means re-picking a
+  /// package or a delivery, not a one-tap repeat.
+  Future<void> _loadRecentHistory() async {
+    try {
+      final res = await ApiService.getMyRides(limit: 20);
+      final list = res['rides'];
+      if (list is! List || !mounted) return;
+      final lastTaxi = list.firstWhere(
+        (r) => r is Map && (r['status'] ?? '').toString() == 'completed'
+            && ((r['service'] ?? 'taxi').toString() == 'taxi')
+            && r['dropLat'] != null && r['dropLng'] != null
+            && (r['dropAddress'] ?? '').toString().isNotEmpty,
+        orElse: () => null,
+      );
+      final recent = _recentDropsFrom(list);
+      setState(() {
+        _lastRide = lastTaxi == null ? null : Map<String, dynamic>.from(lastTaxi as Map);
+        _recentDrops = recent;
+      });
+    } catch (_) {}
+  }
+
   // Returns true if a new booking is allowed; otherwise shows a blocker dialog
   bool _canBook() {
-    if (_activeRide == null) return true;
+    if (_activeRide == null || !_blocksBooking) return true;
     showDialog(context: context, builder: (dctx) => AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: const Text('Ride in progress', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -305,6 +353,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _userProv?.removeListener(_onUserChanged);
     _promoTimer?.cancel();
     _activeTimer?.cancel();

@@ -397,7 +397,10 @@ class _RentalScreenState extends State<RentalScreen> {
           PrimaryCtaBar(
             top: PaymentCouponBar(
               baseFare: selPrice ?? 0,
-              // The discount shown is a preview: the server decides it.
+              // The discount shown is the server's preview (/promos/preview)
+              // for this trip; the booking applies the same rules.
+              service: 'rental',
+              pickupLat: _pickupLat, pickupLng: _pickupLng,
               onChanged: (pm, cc, _) => setState(() {
                 _paymentMode = pm;
                 _couponCode = cc;

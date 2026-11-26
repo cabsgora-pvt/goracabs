@@ -245,7 +245,10 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     return PrimaryCtaBar(
       top: PaymentCouponBar(
         baseFare: (v['fare'] as num?) ?? 0,
-        // The discount shown here is a preview: the server decides it at booking.
+        // The discount shown is the server's preview (/promos/preview) for
+        // this trip; the booking applies the same rules.
+        service: 'hire_driver',
+        pickupLat: _pickupLat, pickupLng: _pickupLng,
         onChanged: (pm, cc, _) => setState(() { _paymentMode = pm; _couponCode = cc; }),
       ),
       label: ready ? 'Book Driver · ₹${v['fare'] ?? ''}' : 'Select time & vehicle',

@@ -18,9 +18,9 @@ import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
 import SupportTicket from '@/models/SupportTicket'
 import {
-  availableDriverFilter, getEtaFactor, rankCandidates,
+  availableDriverFilter, getEtaFactor, rankCandidates, predictEtaMin,
   refineCandidatesWithTraffic, MATRIX_REFINE, crowKm, ETA_CONFIG,
-  type DriverCandidate,
+  type DriverCandidate, type EtaBounds,
 } from './eta'
 import { sendPushAsync, pushToUserAsync } from './push'
 import { settleCancelRefunds, REFUND_LEASE_MS } from './refunds'
@@ -103,6 +103,31 @@ export async function cachedGlobalSettings(): Promise<any> {
   const value: any = await Settings.findOne({ key: 'global' }).lean().catch(() => null)
   settingsCache = { at: now, value }
   return value
+}
+
+// ── Max pickup ETA (instant rides) ───────────────────────────────────────────
+// The pickup radius (ETA_CONFIG.MAX_PICKUP_RADIUS_KM, crow-flies) alone let a
+// driver 14 km across a slow city take an instant ride and arrive 50 min
+// later. Instant rides (not booked for later, see isScheduledRide) also need
+// the driver's MODELLED pickup ETA within this cap. The ETA is the in-process
+// model of lib/eta (learned minutes-per-km, cached 10 min per cell) — never a
+// paid Distance Matrix call per request. Settings.driverApp.maxPickupEtaMin
+// overrides the default; 0 turns the cap off (the radius still applies).
+// Default OFF: until ETA profiles are learned, 25 min ≈ 6 km, which would
+// silently shrink today's 15 km pickup range. Admins opt in via the setting.
+export const DEFAULT_MAX_PICKUP_ETA_MIN = 0
+export function maxPickupEtaMin(settings: any): number {
+  const raw = settings?.driverApp?.maxPickupEtaMin
+  if (raw === 0 || raw === '0') return 0
+  const v = Number(raw)
+  if (raw == null || raw === '' || !Number.isFinite(v) || v <= 0) return DEFAULT_MAX_PICKUP_ETA_MIN
+  return Math.min(ETA_CONFIG.MAX_ETA_MIN, Math.max(5, Math.round(v)))
+}
+
+/** The ranking bounds for a ride: instant rides use the pickup-ETA cap. */
+export function dispatchBoundsFor(ride: any, settings: any): EtaBounds {
+  const cap = maxPickupEtaMin(settings)
+  return cap > 0 && !isScheduledRide(ride) ? { maxEtaMin: cap } : {}
 }
 
 // ── Throttled sweeps for hot paths ───────────────────────────────────────────
@@ -334,6 +359,18 @@ export async function driverEligibleFor(
     // within dispatch range of it — never the whole country.
     if (pickupKm == null || pickupKm > ETA_CONFIG.MAX_PICKUP_RADIUS_KM) return { status: 403, code: 'OUT_OF_RANGE', error: 'This ride is too far from you' }
   }
+  // Instant rides: modelled pickup ETA within the cap (see maxPickupEtaMin).
+  // Same model and bound as the offer ladder (candidatesFor), so a driver who
+  // is offered a ride can always accept it.
+  if (pickupKm != null && !isScheduledRide(ride)) {
+    const cap = maxPickupEtaMin(ctx.settings ?? await cachedGlobalSettings())
+    if (cap > 0) {
+      const factor = await getEtaFactor({ lat: ride.pickupLat, lng: ride.pickupLng })
+      if (predictEtaMin(pickupKm, factor, { maxMin: cap }) == null) {
+        return { status: 403, code: 'OUT_OF_RANGE', error: `This ride is too far from you (more than ${cap} min away)`, maxPickupEtaMin: cap }
+      }
+    }
+  }
   if ((driver.walletBalance || 0) < 0 && ride.paymentMode === 'cash') {
     return { status: 403, code: 'CASH_PAUSED', error: 'Your wallet is negative, so cash rides are paused. Recharge your wallet to take cash rides again.', cashPaused: true }
   }
@@ -433,6 +470,9 @@ export async function candidatesFor(ride: any): Promise<DriverCandidate[]> {
   // cool-down, which only stops OFFERS.
   const filter = { ...driverFilterFor(ride), offerCooldownUntil: { $not: { $gt: now } } }
 
+  // Instant rides: the same pickup-ETA cap accept applies (driverEligibleFor).
+  const bounds = dispatchBoundsFor(ride, await cachedGlobalSettings())
+
   const rank = async (f: Record<string, any>): Promise<DriverCandidate[]> => {
     const [factor, drivers] = await Promise.all([
       getEtaFactor(pickup),
@@ -447,13 +487,13 @@ export async function candidatesFor(ride: any): Promise<DriverCandidate[]> {
     // rankCandidates, which would keep one finishing a trip nearby as a chained
     // candidate.
     const busy = await busyDriverIds(eligible.map(d => String(d._id)))
-    let ranked = rankCandidates(withoutBusyDrivers(eligible, busy), pickup, factor)
+    let ranked = rankCandidates(withoutBusyDrivers(eligible, busy), pickup, factor, new Map(), bounds)
 
     // This is the ranking that decides who is actually offered the ride, so it is
     // where a traffic-aware estimate is worth paying for: one batched call per
     // offer round, against a shortlist.
     if (MATRIX_REFINE.DISPATCH) {
-      ranked = await refineCandidatesWithTraffic(ranked, pickup)
+      ranked = await refineCandidatesWithTraffic(ranked, pickup, bounds)
     }
 
     // Carry the token through so offering does not need a second lookup.

@@ -82,7 +82,10 @@ class _RideChatScreenState extends State<RideChatScreen> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(
           res['code'] == 'CHAT_CLOSED'
               ? 'Chat is closed — it is open only while your ride is live.'
-              : 'Message not sent: ${res['error']}')));
+              // 429: a burst of messages. Not a fault — wait and send again.
+              : res['code'] == 'RATE_LIMITED' || res['httpStatus'] == 429
+                  ? 'You are sending messages too fast. Please wait a moment and try again.'
+                  : 'Message not sent: ${res['error']}')));
       }
     } catch (_) {}
     if (mounted) setState(() => _sending = false);

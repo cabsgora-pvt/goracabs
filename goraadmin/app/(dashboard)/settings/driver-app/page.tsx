@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { DocumentTypesManager } from '@/components/document-types-manager'
 import { AppVersionEditor } from '@/components/app-version-editor'
 
-const TABS = ['Subscription Plans', 'Registration Documents', 'Ringtones', 'Referral', 'Wallet Rules', 'App Version'] as const
+const TABS = ['Subscription Plans', 'Registration Documents', 'Ringtones', 'Referral', 'Wallet Rules', 'Dispatch', 'App Version'] as const
 const SERVICES = ['taxi', 'rental', 'outstation', 'delivery', 'hire_driver']
 const SERVICE_LABEL: Record<string, string> = {
   taxi: 'Taxi', rental: 'Rental', outstation: 'Outstation', delivery: 'Parcel', hire_driver: 'Hire Driver',
@@ -282,6 +282,20 @@ export default function DriverAppSettings() {
               </div>
               <div className="flex justify-end pt-2 border-t">
                 <button type="button" onClick={() => saveDriverApp('Wallet rules saved ✓')} disabled={busy}
+                  className="bg-[#405189] text-white px-6 py-2 rounded-lg text-sm font-semibold disabled:opacity-50">Save</button>
+              </div>
+            </div>
+          )}
+          {tab === 'Dispatch' && (
+            <div className="bg-white border rounded-xl p-5 space-y-4 max-w-md">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Max pickup time for instant rides (minutes)</label>
+                <input className={inp} type="number" min={0} max={45} title="Max pickup ETA" placeholder="25"
+                  value={da.maxPickupEtaMin ?? 0} onChange={e => setDriverApp('maxPickupEtaMin', +e.target.value)} />
+                <p className="text-xs text-gray-500 mt-1">A driver further away than this (estimated drive time to the pickup) is not offered and cannot accept an instant ride. 5–45; 0 turns it off (the 15 km radius still applies).</p>
+              </div>
+              <div className="flex justify-end pt-2 border-t">
+                <button type="button" onClick={() => saveDriverApp('Dispatch rules saved ✓')} disabled={busy}
                   className="bg-[#405189] text-white px-6 py-2 rounded-lg text-sm font-semibold disabled:opacity-50">Save</button>
               </div>
             </div>

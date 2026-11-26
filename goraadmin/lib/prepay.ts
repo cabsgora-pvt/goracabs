@@ -311,6 +311,51 @@ export async function notePrepayCaptured(p: { paymentId: string; orderId: string
   ).catch((e: any) => { if (e?.code !== 11000) throw e })
 }
 
+/** Orphan refs an admin may still refund by hand (see refundOrphanWalletDebit). */
+export const ADMIN_ORPHAN_REFS = ['', 'orphan-review', 'orphan-refund']
+
+export type OrphanAdminRefund =
+  | { ok: true; amount: number; balance: number; userId: string }
+  | { ok: false; code: 'NOT_FOUND' | 'NOT_ORPHAN' | 'TOO_RECENT' | 'ALREADY_REFUNDED' | 'BAD_AMOUNT'; error: string }
+
+/**
+ * Admin refund of one orphan wallet prepayment (a debit source 'ride' that no
+ * booking ever claimed): the ones the automatic sweep leaves alone — older than
+ * ORPHAN_HORIZON_MS, or parked as 'orphan-review' because an unlinked ride was
+ * near — and a sweep claim ('orphan-refund') whose credit never landed.
+ *
+ * The same two claims as sweepOrphanPrepayments, so the two can never both pay:
+ *   1. the row flips ref ('' | 'orphan-review') → 'orphan-refund' atomically —
+ *      linkWallet flips ref '' → rideId on the same row, so a debit is linked
+ *      or refunded, never both;
+ *   2. the credit claims `refund:orphan:<txId>` on the rider in the same
+ *      update that adds the money — the token the sweep uses — so a retry, a
+ *      double click or a sweep racing this refunds nothing more.
+ * A ref '' debit younger than the sweep's own window is refused (TOO_RECENT):
+ * it may still be linked to a booking being made.
+ */
+export async function refundOrphanWalletDebit(txId: string, nowMs = Date.now()): Promise<OrphanAdminRefund> {
+  const tx: any = await WalletTransaction.findById(txId).lean()
+  if (!tx) return { ok: false, code: 'NOT_FOUND', error: 'Transaction not found' }
+  if (tx.type !== 'debit' || tx.source !== 'ride' || !ADMIN_ORPHAN_REFS.includes(String(tx.ref ?? ''))) {
+    return { ok: false, code: 'NOT_ORPHAN', error: 'This debit is tied to a ride or was already handled' }
+  }
+  if (String(tx.ref ?? '') === '' && new Date(tx.createdAt).getTime() > nowMs - ORPHAN_WALLET_MS) {
+    return { ok: false, code: 'TOO_RECENT', error: 'Too recent: it may still be linked to a booking' }
+  }
+  const row: any = await WalletTransaction.findOneAndUpdate(
+    { _id: tx._id, type: 'debit', source: 'ride', ref: { $in: ADMIN_ORPHAN_REFS } },
+    { $set: { ref: 'orphan-refund' } }, { new: true },
+  ).lean()
+  if (!row || !row.userId) return { ok: false, code: 'NOT_ORPHAN', error: 'This debit is tied to a ride or was already handled' }
+  const amount = Math.round((Number(row.amount) || 0) * 100) / 100
+  if (amount <= 0) return { ok: false, code: 'BAD_AMOUNT', error: 'Nothing to refund' }
+  const c = await credit(String(row.userId), amount, `refund:orphan:${row._id}`, `refund:orphan:${row._id}`, 'wallet',
+    'Refund: an outstation prepayment that was not used for a booking')
+  if (!c) return { ok: false, code: 'ALREADY_REFUNDED', error: 'Already refunded' }
+  return { ok: true, amount: c.amount, balance: c.balance, userId: String(row.userId) }
+}
+
 export type OrphanSweep = { walletRefunded: number; onlineRefunded: number; linked: number; amount: number }
 
 /**

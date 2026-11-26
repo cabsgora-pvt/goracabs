@@ -1757,6 +1757,12 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                           baseFare: int.tryParse(
                                   (selectedVehicleData['price'] as String).replaceAll('₹', '')) ??
                               0,
+                          // The server's preview (/promos/preview) for this
+                          // trip, tip included, as the booking will see it.
+                          service: 'taxi',
+                          tip: (_selectedTip ?? 0).clamp(0, kMaxTip),
+                          pickupLat: _myLocation.latitude,
+                          pickupLng: _myLocation.longitude,
                           // Show what the booking already holds (display only).
                           initialPaymentMode: _paymentMode,
                           initialCouponCode: _couponCode,

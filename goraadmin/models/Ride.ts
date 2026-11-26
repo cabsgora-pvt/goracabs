@@ -128,6 +128,12 @@ const RideSchema = new Schema({
   // codPendingRemittance: still owed by the driver, for an admin to follow up.
   codSenderCredited: Number,
   codPendingRemittance: Number,
+  // An admin collected the pending COD from the driver and paid the sender
+  // outside the app, and recorded it (POST /api/review 'cod_settled'). Only a
+  // record: no wallet moves. Stamped once.
+  codRemittedAt: Date,
+  codRemittedBy: String,
+  codRemittedNote: String,
   // Final delivery fare at handover. Mirrors finalFare / hireFinalFare so the
   // settlement path can bill delivery the same way it bills the other services.
   deliveryFinalFare: Number,
@@ -247,6 +253,11 @@ const RideSchema = new Schema({
   // Set when a cancelled ride's upfront payment must be refunded by an admin
   // rather than automatically: 'prepay_unlinked' | 'cancelled_mid_trip'.
   refundReview: String,
+  // An admin handled the refundReview by hand and marked it done (POST
+  // /api/review 'refund_handled'). Only a record: no wallet moves.
+  refundReviewResolvedAt: Date,
+  refundReviewResolvedBy: String,
+  refundReviewNote: String,
   driverRating: Number,
   riderRating: Number,
   riderReview: String,

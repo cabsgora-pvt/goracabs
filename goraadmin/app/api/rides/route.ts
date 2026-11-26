@@ -34,6 +34,8 @@ export async function GET(req: NextRequest) {
       query.$or = [
         { riderName: { $regex: search, $options: 'i' } },
         { driverName: { $regex: search, $options: 'i' } },
+        // A pasted ride id (links from the Needs Review page) finds that ride.
+        ...(/^[a-f0-9]{24}$/i.test(search) ? [{ _id: search }] : []),
       ]
     }
 

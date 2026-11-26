@@ -34,10 +34,19 @@ const _filters = <String, List<String>?>{
   'Hire driver': ['hire_driver'],
 };
 
+/// How many trips one page of the history asks for.
+const kHistoryPageSize = 20;
+
 class _RideHistoryScreenState extends State<RideHistoryScreen> {
   List<Map<String, dynamic>> _myRides = [];
   bool _loadingRides = true;
   String _filter = 'All';
+  // Paging (/rides/user?limit=20&page=N → hasMore): the next page loads as the
+  // rider nears the end of the list, or from the "Load more" button.
+  int _page = 0;
+  bool _hasMore = false;
+  bool _loadingMore = false;
+  bool _moreFailed = false;
 
   @override
   void initState() {
@@ -45,15 +54,49 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
     _loadMyRides();
   }
 
-  Future<void> _loadMyRides() async {
+  /// The first page again (open, pull to refresh).
+  Future<void> _loadMyRides() => _loadPage(1);
+
+  /// The page after the last one loaded, once at a time.
+  Future<void> _loadMore() async {
+    if (!_hasMore || _loadingMore || _loadingRides) return;
+    await _loadPage(_page + 1);
+  }
+
+  Future<void> _loadPage(int page) async {
+    if (page > 1) setState(() { _loadingMore = true; _moreFailed = false; });
     try {
-      final res = await ApiService.getMyRides();
-      final list = (res['rides'] as List?) ?? [];
+      final res = await ApiService.getMyRides(limit: kHistoryPageSize, page: page);
+      final list = res['rides'];
       if (!mounted) return;
+      if (list is! List) {
+        // An error answer: keep what is listed; a later page can be retried.
+        setState(() { _loadingRides = false; _loadingMore = false; _moreFailed = page > 1; });
+        return;
+      }
+      final parsed = _parseRides(list);
       setState(() {
+        if (page == 1) {
+          _myRides = parsed;
+        } else {
+          // A ride booked meanwhile shifts the pages by one; never list it twice.
+          final ids = {for (final r in _myRides) r['id']};
+          _myRides = [..._myRides, ...parsed.where((r) => !ids.contains(r['id']))];
+        }
+        _page = page;
+        _hasMore = res['hasMore'] == true;
+        _loadingRides = false;
+        _loadingMore = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() { _loadingRides = false; _loadingMore = false; _moreFailed = page > 1; });
+    }
+  }
+
+  List<Map<String, dynamic>> _parseRides(List list) {
         // Parsed ride by ride: one record with an unexpected field must not
         // take every other trip off the screen with it.
-        _myRides = list.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).map<Map<String, dynamic>?>((r) {
+        return list.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).map<Map<String, dynamic>?>((r) {
           try {
           final svc = _strOf(r['service']) ?? 'taxi';
           final num fare = (r['fare'] is num) ? r['fare'] as num : (num.tryParse('${r['fare'] ?? ''}') ?? 0);
@@ -135,11 +178,6 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
             return null;
           }
         }).whereType<Map<String, dynamic>>().toList();
-        _loadingRides = false;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _loadingRides = false);
-    }
   }
 
   static num? _numOf(dynamic v) => v is num ? v : num.tryParse('${v ?? ''}');
@@ -251,7 +289,16 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
         Expanded(
           child: RefreshIndicator(
             onRefresh: _loadMyRides,
-            child: ListView(
+            // Near the end of the list: the next page.
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (n) {
+                if (n.metrics.axis == Axis.vertical && n.metrics.extentAfter < 400 && _hasMore && !_loadingMore) {
+                  // After the frame: a notification can arrive mid-layout.
+                  WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _loadMore(); });
+                }
+                return false;
+              },
+              child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
               children: [
@@ -278,13 +325,31 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                     if (i > 0) const RideDivider(indent: 70),
                     _buildRideCard(rides[i]),
                   ],
+                if (!_loadingRides && _hasMore) _moreFooter(),
               ],
+            ),
             ),
           ),
         ),
       ]),
     );
   }
+
+  /// The end of what is loaded: a spinner while the next page comes, else a
+  /// button (also the retry after a failed page).
+  Widget _moreFooter() => Padding(
+    key: const ValueKey('history-more'),
+    padding: const EdgeInsets.only(top: 12),
+    child: Center(
+      child: _loadingMore
+          ? const SizedBox(width: 26, height: 26, child: CircularProgressIndicator(strokeWidth: 2.4))
+          : TextButton(
+              onPressed: _loadMore,
+              child: Text(_moreFailed ? 'Could not load more — try again' : 'Load more trips',
+                  style: const TextStyle(fontWeight: FontWeight.w700)),
+            ),
+    ),
+  );
 
   Widget _empty() => Padding(
     padding: const EdgeInsets.only(top: 48),

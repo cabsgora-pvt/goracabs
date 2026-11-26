@@ -27,12 +27,20 @@ export default function RidesPage() {
       .catch(() => setLoading(false))
   }
 
-  useEffect(() => { fetchRides() }, [statusFilter, serviceFilter])
+  // /rides?search=<ride id or name> (links from the Needs Review page). Read
+  // from window.location so the page needs no Suspense boundary.
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('search')
+    if (q) setSearch(q.trim().slice(0, 100))
+    setReady(true)
+  }, [])
+  useEffect(() => { if (ready) fetchRides() }, [statusFilter, serviceFilter, ready])
 
   const filtered = rides.filter(r => {
     if (!search) return true
     const s = search.toLowerCase()
-    return r.riderName?.toLowerCase().includes(s) || r.driverName?.toLowerCase().includes(s)
+    return String(r._id) === s || r.riderName?.toLowerCase().includes(s) || r.driverName?.toLowerCase().includes(s)
   })
 
   return (

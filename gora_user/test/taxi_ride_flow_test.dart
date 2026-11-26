@@ -219,7 +219,8 @@ void main() {
     await act(() => advance(tester, const Duration(seconds: 8)));
     expect(server.requests.where((r) => r.url.path.endsWith('/wallet/pay')), isEmpty);
     expect(server.requests.where((r) => r.url.path.endsWith('/complete')), isEmpty);
-    expect(server.requests.where((r) => r.url.path.contains('/payment/')), isEmpty);
+    // No order, no verify. (Reading /payment/config is not a charge.)
+    expect(server.requests.where((r) => r.url.path.contains('/payment/razorpay')), isEmpty);
     await teardown(tester);
   });
 

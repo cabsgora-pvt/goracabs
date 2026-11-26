@@ -35,6 +35,7 @@ const navSections: { title: string; items: NavItem[] }[] = [
       },
       { label: 'Fleet Owners', href: '/fleet', icon: Truck },
       { label: 'Account Requests', href: '/account-requests', icon: Inbox },
+      { label: 'Needs Review', href: '/review', icon: AlertCircle },
     ],
   },
   {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/session_refresh.dart';
 
 class UserProvider extends ChangeNotifier {
   Map<String, dynamic>? _user;
@@ -47,6 +48,9 @@ class UserProvider extends ChangeNotifier {
         _accountDeleted = true;
       } else if (res['user'] != null) {
         _user = Map<String, dynamic>.from(res['user']);
+        // When the token may be swapped for a fresh one (sliding session).
+        SessionRefresher.noteRefreshAfter(res['refreshAfter']);
+        SessionRefresher.maybeRefresh();
       }
     } catch (_) {}
     _loading = false;

@@ -31,16 +31,19 @@ const nextConfig = {
   poweredByHeader: false,
   async headers() {
     return [
+      // Framing is controlled by CSP frame-ancestors only. No X-Frame-Options
+      // here: nginx in production already adds `X-Frame-Options: SAMEORIGIN`,
+      // and a second, different value makes browsers drop or misread it.
       // Everything except the public tracking page: no framing at all.
       {
         source: '/((?!track/).*)',
-        headers: [...common, { key: 'X-Frame-Options', value: 'DENY' }, { key: 'Content-Security-Policy', value: csp }],
+        headers: [...common, { key: 'Content-Security-Policy', value: csp }],
       },
       // /track/<id> is shared with riders' contacts and may be embedded by our
       // own site only.
       {
         source: '/track/:path*',
-        headers: [...common, { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        headers: [...common,
           { key: 'Content-Security-Policy', value: csp.replace("frame-ancestors 'none'", "frame-ancestors 'self'") }],
       },
       {

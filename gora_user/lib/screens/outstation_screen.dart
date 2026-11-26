@@ -219,12 +219,30 @@ class _OutstationScreenState extends State<OutstationScreen> {
         ElevatedButton(
           style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0A3CC8)),
           onPressed: () async {
-            _couponCode = ctrl.text.trim().toUpperCase();
+            final code = ctrl.text.trim().toUpperCase();
             final f = (_tripType == 'One Way' ? selectedVehicleData['oneWayFare'] : selectedVehicleData['roundTripFare']) as num? ?? 0;
-            final d = await _validateOutstationCoupon(_couponCode, f);
-            _couponDiscount = d;
+            // The server's own verdict on this code for this trip — the rules
+            // /rides/book applies. The app no longer works a discount out.
+            final p = await _previewCoupon(code, f);
             if (dctx.mounted) Navigator.pop(dctx);
-            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(d > 0 ? 'Coupon applied: −₹$d' : 'Invalid coupon')));
+            if (!mounted) return;
+            final String msg;
+            if (p == null) {
+              _couponCode = code;
+              _couponDiscount = 0;
+              msg = 'Could not check the coupon right now. It is checked again when you book.';
+            } else if (p['valid'] == true) {
+              _couponCode = code;
+              _couponDiscount = ((p['discount'] as num?) ?? 0).round();
+              msg = 'Coupon applied: −₹$_couponDiscount · you pay ₹${((p['payable'] as num?) ?? 0).round()}';
+            } else {
+              _couponCode = '';
+              _couponDiscount = 0;
+              final why = (p['reason'] ?? '').toString();
+              msg = why.isNotEmpty ? 'Coupon not applied: $why' : 'Coupon not valid for this trip';
+            }
+            setState(() {});
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
           },
           child: const Text('Apply', style: TextStyle(color: Colors.white)),
         ),
@@ -232,24 +250,21 @@ class _OutstationScreenState extends State<OutstationScreen> {
     ));
   }
 
-  // Validate against admin-managed coupons (returns ₹ discount, 0 if invalid)
-  Future<int> _validateOutstationCoupon(String code, num fare) async {
-    if (code.isEmpty) return 0;
-    final cfg = await ApiService.getAppConfig();
-    for (final c in (cfg['coupons'] as List?) ?? []) {
-      if ((c['code'] ?? '').toString().toUpperCase() != code) continue;
-      if (c['isActive'] == false) return 0;
-      if ((c['minFare'] ?? 0) is num && fare < (c['minFare'] as num)) return 0;
-      final val = (c['value'] as num?) ?? 0;
-      if ((c['discountType'] ?? 'flat') == 'percent') {
-        var d = (fare * val / 100).round();
-        final cap = (c['maxDiscount'] as num?)?.toInt() ?? 0;
-        if (cap > 0 && d > cap) d = cap;
-        return d;
-      }
-      return val.round();
+  /// POST /promos/preview for [code] on [fare] from this pickup:
+  /// {valid, discount, reason?, payable}, or null when the server could not be
+  /// asked. Nothing is redeemed.
+  Future<Map<String, dynamic>?> _previewCoupon(String code, num fare) async {
+    if (code.isEmpty || fare <= 0) return null;
+    try {
+      final res = await ApiService.previewPromo(
+        code: code, service: 'outstation', fare: fare, tip: 0,
+        pickupLat: _fromLat, pickupLng: _fromLng,
+      );
+      if (res['error'] != null || res['valid'] is! bool || res['payable'] is! num) return null;
+      return res;
+    } catch (_) {
+      return null;
     }
-    return 0;
   }
 
   String _fmtDateShort(DateTime d) {
@@ -1324,6 +1339,9 @@ class _OutstationScreenState extends State<OutstationScreen> {
   Future<void> _confirmOutstation() async {
     var paidUpfront = false;
     _prepaidProof = null;
+    // Set when the booking answers 402 prepaymentRequired: the exact
+    // amountDue (fare + tip − coupon) the server needs paid.
+    Map<String, dynamic>? needPrepay;
     // Outstation is paid before it is booked: never take the money of a rider
     // the server will refuse to book. (The server checks again at booking.)
     Map<String, dynamic>? hold;
@@ -1334,34 +1352,106 @@ class _OutstationScreenState extends State<OutstationScreen> {
       await showAccountHoldDialog(context, (hold['message'] ?? '').toString());
       return;
     }
+    num? payable;
     if (_selectedVehicle != null) {
       final selV = _vehicles.firstWhere((v) => v['name'] == _selectedVehicle, orElse: () => <String, dynamic>{});
       final rawFare = ((_tripType == 'Round Trip' ? selV['roundTripFare'] : selV['oneWayFare']) as num?) ?? 0;
-      final payable = (rawFare - _couponDiscount).clamp(0, rawFare);
-      // Wallet: debited now, no ride id (the booking links it). Online: a
-      // Razorpay order with purpose 'outstation_prepay', whose proof goes with
-      // the booking. The server checks it covers the fare after ITS coupon, and
-      // answers 402 prepaymentRequired (refunding a short payment) if not.
-      final paid = await PaymentService.prepayOutstation(context, method: _paymentMode, amount: payable);
-      if (!mounted || !paid.success) return;
-      paidUpfront = _paymentMode != 'cash' && payable > 0;
-      // Sent with the booking so the server can tie this payment to the ride
-      // (and refund it if no driver is ever found). Wallet needs nothing: the
-      // server finds the rider's own debit itself.
-      _prepaidProof = paid.bookingProof;
+      payable = rawFare;
+      if (_paymentMode != 'cash' && _couponCode.isNotEmpty) {
+        // What is paid now must be exactly what the booking will require
+        // (fare + tip − the SERVER's coupon), so ask the server first.
+        final p = await _previewCoupon(_couponCode, rawFare);
+        if (!mounted) return;
+        if (p == null) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Could not check your coupon. Try again, or remove the coupon.')));
+          return;
+        }
+        final serverPayable = (p['payable'] as num).round();
+        final shown = (rawFare - _couponDiscount).clamp(0, rawFare).round();
+        if (serverPayable != shown) {
+          // The coupon's value changed since it was applied: show the server's
+          // figure and let the rider confirm again — never charge a price
+          // they did not see.
+          setState(() {
+            _couponDiscount = p['valid'] == true ? ((p['discount'] as num?) ?? 0).round() : 0;
+            if (p['valid'] != true) _couponCode = '';
+          });
+          final why = (p['reason'] ?? '').toString();
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(p['valid'] == true
+                ? 'Your coupon now takes ₹$_couponDiscount off — you pay ₹$serverPayable. Tap confirm again.'
+                : 'Coupon not applied${why.isNotEmpty ? ': $why' : ''}. You pay ₹$serverPayable. Tap confirm again.'),
+            duration: const Duration(seconds: 6),
+          ));
+          return;
+        }
+        payable = serverPayable;
+      }
     }
-    await bookAndTrack(
-      context,
-      book: _bookOutstationRide,
-      // A trip paid before booking is not re-booked by "Try again" (that would
-      // need a new payment); the money comes back when no driver is found.
-      canRebook: !paidUpfront,
-      failureMessage: paidUpfront
-          ? (error) => 'Your payment went through, but the trip could not be booked ($error). '
-              'Please contact support with this message. Do not pay again.'
-          : null,
-    );
+    // At most one more try, at the server's exact amountDue.
+    for (var attempt = 0; attempt < 2; attempt++) {
+      if (payable != null) {
+        // Wallet: debited now, no ride id (the booking links it). Online: a
+        // Razorpay order with purpose 'outstation_prepay', whose proof goes
+        // with the booking. The server checks it covers fare + tip − ITS
+        // coupon, and answers 402 prepaymentRequired {amountDue} (refunding a
+        // short payment) if not.
+        final paid = await PaymentService.prepayOutstation(context, method: _paymentMode, amount: payable);
+        if (!mounted || !paid.success) return;
+        paidUpfront = _paymentMode != 'cash' && payable > 0;
+        // Sent with the booking so the server can tie this payment to the ride
+        // (and refund it if no driver is ever found). Wallet needs nothing: the
+        // server finds the rider's own debit itself.
+        _prepaidProof = paid.bookingProof;
+      }
+      needPrepay = null;
+      final id = await bookAndTrack(
+        context,
+        book: _bookOutstationRide,
+        // A trip paid before booking is not re-booked by "Try again" (that would
+        // need a new payment); the money comes back when no driver is found.
+        canRebook: !paidUpfront,
+        failureMessage: paidUpfront
+            ? (error) => 'Your payment went through, but the trip could not be booked ($error). '
+                'Please contact support with this message. Do not pay again.'
+            : null,
+        onFailed: (res) {
+          if (res['code'] == 'prepaymentRequired') needPrepay = res;
+        },
+      );
+      if (id != null || !mounted) return;
+      final due = needPrepay?['amountDue'];
+      if (attempt > 0 || due is! num || due <= 0 || _paymentMode == 'cash') return;
+      final again = await _askPayAmountDue(due, needPrepay?['refunded']);
+      if (again != true || !mounted) return;
+      payable = due.round();
+      _prepaidProof = null;
+      paidUpfront = false;
+    }
   }
+
+  /// The booking needs [due] paid upfront (402 prepaymentRequired): offer to
+  /// pay exactly that. [refunded]: an earlier payment the server put back in
+  /// the wallet.
+  Future<bool?> _askPayAmountDue(num due, dynamic refunded) => showDialog<bool>(
+    context: context,
+    builder: (dctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('Payment needed', style: TextStyle(fontWeight: FontWeight.w800)),
+      content: Text('This trip needs ₹${due.round()} paid upfront (fare + tip − coupon).'
+          '${refunded is num && refunded > 0 ? '\n\nYour earlier payment of ₹${refunded.round()} is back in your Gora wallet.' : ''}'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('Not now')),
+        ElevatedButton(
+          key: const ValueKey('pay-amount-due'),
+          onPressed: () => Navigator.pop(dctx, true),
+          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0A3CC8), foregroundColor: Colors.white),
+          child: Text('Pay ₹${due.round()}'),
+        ),
+      ],
+    ),
+  );
 }
 
 /// The one-line description under a vehicle's name, from the vehicle type

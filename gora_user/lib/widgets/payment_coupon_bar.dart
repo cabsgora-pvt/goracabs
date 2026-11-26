@@ -1,11 +1,56 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+
+/// How long the trip (fare, tip, pickup) must stay unchanged before an
+/// applied code is checked again.
+const kCouponRecheckDelay = Duration(milliseconds: 600);
+
+/// What the server said about a coupon on one trip (POST /promos/preview).
+class CouponCheck {
+  /// valid: the server will give [discount]. null: it could not be asked
+  /// (offline, an error) — the code is checked at booking instead.
+  final bool? valid;
+  final int discount;
+  final int? payable;
+  final String reason;
+  const CouponCheck({this.valid, this.discount = 0, this.payable, this.reason = ''});
+
+  static const unchecked = CouponCheck();
+
+  static CouponCheck fromResponse(Map<String, dynamic> res) {
+    if (res['error'] != null || res['valid'] is! bool) return unchecked;
+    final valid = res['valid'] == true;
+    return CouponCheck(
+      valid: valid,
+      discount: valid ? ((res['discount'] as num?) ?? 0).round() : 0,
+      payable: (res['payable'] as num?)?.round(),
+      reason: (res['reason'] ?? '').toString(),
+    );
+  }
+
+  /// The rider's line for it.
+  String message() {
+    if (valid == null) return 'Could not check the coupon right now — it is checked at booking.';
+    if (valid == true) return 'Coupon applied: −₹$discount${payable != null ? ' · you pay ₹$payable' : ''}';
+    return reason.isNotEmpty ? 'Coupon not applied: $reason' : 'Coupon not valid for this trip';
+  }
+}
 
 // Reusable Ola-style "Cash · Coupon" bottom row used across all booking screens.
 // Picks a payment mode (cash/online/advance) and applies an admin-managed coupon,
 // reporting back via [onChanged].
 class PaymentCouponBar extends StatefulWidget {
-  final num baseFare; // used to compute percentage coupons
+  /// The fare the coupon is previewed on (and the wallet balance compared to).
+  final num baseFare;
+  /// The trip the coupon is for, as /rides/book will see it: the server's
+  /// preview (POST /promos/preview) applies the same rules — zone (from the
+  /// pickup), service, minimum fare, per-rider use. The phone no longer works
+  /// a discount out from the admin's coupon list.
+  final String service;
+  final num tip;
+  final double? pickupLat;
+  final double? pickupLng;
   final void Function(String paymentMode, String couponCode, int couponDiscount) onChanged;
   final Color accent;
   /// What the bar shows when it opens. Display only — nothing is reported via
@@ -19,6 +64,10 @@ class PaymentCouponBar extends StatefulWidget {
     super.key,
     required this.baseFare,
     required this.onChanged,
+    this.service = 'taxi',
+    this.tip = 0,
+    this.pickupLat,
+    this.pickupLng,
     this.accent = const Color(0xFF0A3CC8),
     this.initialPaymentMode = 'cash',
     this.initialCouponCode = '',
@@ -36,6 +85,12 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
   bool _walletEnabled = true;
   bool _onlineEnabled = false;
   num? _walletBalance;
+  // The server's last word on _couponCode for this trip.
+  CouponCheck _check = CouponCheck.unchecked;
+  // Re-checks the code when the fare / tip / pickup change, once they settle.
+  Timer? _recheck;
+  // Answers to an older check are dropped.
+  int _seq = 0;
 
   @override
   void initState() {
@@ -45,6 +100,65 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
     _couponDiscount = widget.initialCouponDiscount;
     _loadPaymentConfig();
     _loadWalletBalance();
+    // A code the booking already holds: check it against this trip.
+    if (_couponCode.isNotEmpty) _scheduleRecheck();
+  }
+
+  @override
+  void didUpdateWidget(covariant PaymentCouponBar old) {
+    super.didUpdateWidget(old);
+    if (_couponCode.isEmpty) return;
+    if (old.baseFare != widget.baseFare || old.tip != widget.tip || old.service != widget.service ||
+        old.pickupLat != widget.pickupLat || old.pickupLng != widget.pickupLng) {
+      _scheduleRecheck();
+    }
+  }
+
+  @override
+  void dispose() {
+    _recheck?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleRecheck() {
+    _recheck?.cancel();
+    _recheck = Timer(kCouponRecheckDelay, () async {
+      final code = _couponCode;
+      if (code.isEmpty || !mounted) return;
+      final c = await _preview(code);
+      if (c == null || !mounted || code != _couponCode) return;
+      _applyCheck(code, c);
+    });
+  }
+
+  /// POST /promos/preview for [code] on this trip; null when superseded.
+  Future<CouponCheck?> _preview(String code) async {
+    final mine = ++_seq;
+    CouponCheck c;
+    if (widget.baseFare <= 0) {
+      c = CouponCheck.unchecked;
+    } else {
+      try {
+        c = CouponCheck.fromResponse(await ApiService.previewPromo(
+          code: code, service: widget.service, fare: widget.baseFare, tip: widget.tip,
+          pickupLat: widget.pickupLat, pickupLng: widget.pickupLng,
+        ));
+      } catch (_) {
+        c = CouponCheck.unchecked;
+      }
+    }
+    return mine == _seq ? c : null;
+  }
+
+  /// Keeps the server's verdict. A code it refused is dropped (with its
+  /// reason shown); one it could not check is kept, to be checked at booking.
+  void _applyCheck(String code, CouponCheck c) {
+    setState(() {
+      _check = c;
+      _couponCode = c.valid == false ? '' : code;
+      _couponDiscount = c.discount;
+    });
+    _notify();
   }
 
   Future<void> _loadPaymentConfig() async {
@@ -67,27 +181,6 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
   }
 
   void _notify() => widget.onChanged(_paymentMode, _couponCode, _couponDiscount);
-
-  // Validate a code against admin-managed coupons; returns discount (₹), 0 if invalid.
-  static Future<int> _validateCoupon(String code, num fare) async {
-    if (code.isEmpty) return 0;
-    final cfg = await ApiService.getAppConfig();
-    final coupons = (cfg['coupons'] as List?) ?? [];
-    for (final c in coupons) {
-      if ((c['code'] ?? '').toString().toUpperCase() != code) continue;
-      if (c['isActive'] == false) return 0;
-      if ((c['minFare'] ?? 0) is num && fare < (c['minFare'] as num)) return 0;
-      final val = (c['value'] as num?) ?? 0;
-      if ((c['discountType'] ?? 'flat') == 'percent') {
-        var d = (fare * val / 100).round();
-        final cap = (c['maxDiscount'] as num?)?.toInt() ?? 0;
-        if (cap > 0 && d > cap) d = cap;
-        return d;
-      }
-      return val.round();
-    }
-    return 0;
-  }
 
   Future<void> _pickPayment() async {
     final balance = _walletBalance;
@@ -126,16 +219,25 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
         decoration: InputDecoration(hintText: 'e.g. FLAT100, GORA10', prefixIcon: const Icon(Icons.local_offer_outlined),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)))),
       actions: [
-        TextButton(onPressed: () { setState(() { _couponCode = ''; _couponDiscount = 0; }); _notify(); Navigator.pop(dctx); }, child: const Text('Remove')),
+        TextButton(onPressed: () {
+          _recheck?.cancel();
+          _seq++;
+          setState(() { _couponCode = ''; _couponDiscount = 0; _check = CouponCheck.unchecked; });
+          _notify();
+          Navigator.pop(dctx);
+        }, child: const Text('Remove')),
         ElevatedButton(
+          key: const ValueKey('coupon-apply'),
           style: ElevatedButton.styleFrom(backgroundColor: widget.accent),
           onPressed: () async {
             final code = ctrl.text.trim().toUpperCase();
-            final d = await _validateCoupon(code, widget.baseFare);
-            setState(() { _couponCode = code; _couponDiscount = d; });
-            _notify();
+            if (code.isEmpty) return;
+            _recheck?.cancel();
+            final c = await _preview(code);
             if (dctx.mounted) Navigator.pop(dctx);
-            if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(d > 0 ? 'Coupon applied: −₹$d' : 'Invalid coupon')));
+            if (c == null || !mounted) return;
+            _applyCheck(code, c);
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(c.message())));
           },
           child: const Text('Apply', style: TextStyle(color: Colors.white)),
         ),
@@ -172,7 +274,12 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
     return Row(children: [
       item(payIcon, payLabel, _pickPayment),
       const SizedBox(width: 8),
-      item(Icons.local_offer_outlined, _couponDiscount > 0 ? '−₹$_couponDiscount' : 'Coupon', _pickCoupon,
+      // The server's discount; a code it could not check yet says so.
+      item(Icons.local_offer_outlined,
+          _couponDiscount > 0
+              ? '−₹$_couponDiscount'
+              : (_couponCode.isNotEmpty && _check.valid == null ? '$_couponCode · checked at booking' : 'Coupon'),
+          _pickCoupon,
           c: _couponDiscount > 0 ? Colors.green[700] : null),
     ]);
   }
