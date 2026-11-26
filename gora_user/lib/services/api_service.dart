@@ -528,6 +528,23 @@ class ApiService {
   static Future<Map<String, dynamic>> deleteSosContact(String id) =>
       delete('/user/sos-contacts/${Uri.encodeComponent(id)}');
 
+  // ── Support tickets (rider) ───────────────────────────────
+  // GET → {tickets:[{id, subject, category, status, rideId, createdAt, updatedAt, messages}]}
+  static Future<Map<String, dynamic>> getSupportTickets() => get('/user/support/tickets');
+  // POST → 201 {success, ticket}; 429 RATE_LIMITED; 400 when subject/message empty.
+  static Future<Map<String, dynamic>> createSupportTicket(
+          {required String subject, required String message, String category = 'general', String? rideId}) =>
+      post('/user/support/tickets', {
+        'subject': subject,
+        'message': message,
+        'category': category,
+        if (rideId != null && rideId.isNotEmpty) 'rideId': rideId,
+      }, auth: true);
+  static Future<Map<String, dynamic>> getSupportTicket(String id) =>
+      get('/user/support/tickets/${Uri.encodeComponent(id)}');
+  static Future<Map<String, dynamic>> replySupportTicket(String id, String message) =>
+      post('/user/support/tickets/${Uri.encodeComponent(id)}', {'message': message}, auth: true);
+
   // ── In-ride chat (rider ↔ driver) ─────────────────────────
   static Future<Map<String, dynamic>> getRideMessages(String rideId) =>
       get('/rides/$rideId/messages');

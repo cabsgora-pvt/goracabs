@@ -583,9 +583,15 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                 'quoteToken': a['quoteToken'],
               };
             }).toList();
-            // Keep selection valid
+            // Keep selection valid. A home tile preselects by a loose name
+            // ("Cab Economy" while the admin's type is "Cab"): instead of
+            // leaving nothing selected (Book disabled until the rider taps
+            // one), pick the first vehicle of that tile's group.
             if (_selectedVehicle != null && !_vehicles.any((v) => v['name'] == _selectedVehicle)) {
-              _selectedVehicle = null;
+              final group = _displayVehicles;
+              _selectedVehicle = widget.preselectedVehicle != null && group.isNotEmpty
+                  ? group.first['name'] as String?
+                  : null;
             }
           }
         });

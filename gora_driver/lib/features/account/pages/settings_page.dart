@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../config/app_version.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../providers/theme_provider.dart';
@@ -53,11 +55,29 @@ class SettingsPage extends StatelessWidget {
           ]),
 
           CapMenuGroup(title: 'About', children: [
-            CapMenuRow(icon: Icons.info_outline_rounded, label: 'App Version 1.0.0', onTap: () {}),
-            CapMenuRow(icon: Icons.star_outline_rounded, label: 'Rate the App', onTap: () {}),
+            // Showed a hard-coded "1.0.0" and both rows did nothing.
+            CapMenuRow(icon: Icons.info_outline_rounded, label: 'App Version $appVersion', onTap: () => openStorePage(context)),
+            CapMenuRow(icon: Icons.star_outline_rounded, label: 'Rate the App', onTap: () => openStorePage(context)),
           ]),
         ],
       ),
     );
+  }
+}
+
+/// Gora Captain's Play Store page (the Play Store app, else the browser).
+const kPlayStoreId = 'com.gora.gora_driver';
+
+Future<void> openStorePage(BuildContext context) async {
+  final market = Uri.parse('market://details?id=$kPlayStoreId');
+  final web = Uri.parse('https://play.google.com/store/apps/details?id=$kPlayStoreId');
+  try {
+    if (await launchUrl(market, mode: LaunchMode.externalApplication)) return;
+  } catch (_) {}
+  try {
+    if (await launchUrl(web, mode: LaunchMode.externalApplication)) return;
+  } catch (_) {}
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open the Play Store')));
   }
 }

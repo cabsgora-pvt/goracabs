@@ -31,9 +31,11 @@ class EmergencyActionsScreen extends StatefulWidget {
 }
 
 class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
-  // Change to your real safety-team / control-room number.
-  static const _safetyTeamNumber = '18001234567';
   static const _policeNumber = '112'; // India single emergency number
+  // The safety team is the admin's support number (App Config → support, or
+  // the rider's zone). It used to be a made-up "18001234567"; with no number
+  // configured the call goes to 112 rather than to nowhere.
+  String? _safetyNumber;
 
   List<Map<String, String>> _contacts = [];
   bool _autoCall = false;
@@ -58,6 +60,7 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
   void initState() {
     super.initState();
     _shareRideId = widget.rideId;
+    _loadSafetyNumber();
     _where = _locate();
     _load();
     _startCountdown();
@@ -187,7 +190,20 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
   }
 
   void _callPolice() => dialPhone(_policeNumber);
-  void _callSafety() => dialPhone(_safetyTeamNumber);
+  void _callSafety() => dialPhone(safetyNumberOr112(_safetyNumber));
+
+  Future<void> _loadSafetyNumber() async {
+    try {
+      final cfg = await ApiService.getAppConfig();
+      final p = ((cfg['support'] as Map?)?['phone'] ?? '').toString().trim();
+      if (p.isNotEmpty && mounted) setState(() => _safetyNumber = p);
+      final pos = await Geolocator.getLastKnownPosition();
+      if (pos == null) return;
+      final r = await ApiService.get('/zones/support?lat=${pos.latitude}&lng=${pos.longitude}');
+      final z = (r['supportPhone'] ?? '').toString().trim();
+      if (z.isNotEmpty && mounted) setState(() => _safetyNumber = z);
+    } catch (_) {/* 112 stays */}
+  }
 
   void _siren() => Navigator.push(context, MaterialPageRoute(builder: (_) => const _SirenScreen()));
 
@@ -615,4 +631,11 @@ SosAlertStatus sosAlertStatusOf(Map<String, dynamic> res) {
     return const SosAlertStatus(true, 'SOS already sent — our safety team has been alerted. If you are in danger, call 112.');
   }
   return const SosAlertStatus(false, 'Could not alert our safety team. Call 112 or the safety team below.');
+}
+
+/// The number "Call safety team" dials: the configured support number, or
+/// 112 (India's emergency number) when none is set — never a placeholder.
+String safetyNumberOr112(String? configured) {
+  final c = (configured ?? '').trim();
+  return c.replaceAll(RegExp(r'[^0-9+]'), '').length >= 3 ? c : '112';
 }

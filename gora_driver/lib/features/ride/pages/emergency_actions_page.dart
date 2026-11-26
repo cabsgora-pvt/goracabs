@@ -18,7 +18,9 @@ class EmergencyActionsPage extends StatefulWidget {
 }
 
 class _EmergencyActionsPageState extends State<EmergencyActionsPage> {
-  static const _safetyTeamNumber = '18001234567';
+  // The admin's support number (App Config → support.phone). It used to be a
+  // made-up "18001234567"; with none configured the call goes to 112.
+  String? _safetyNumber;
   static const _policeNumber = '112';
 
   bool _callDefault = false;
@@ -28,7 +30,16 @@ class _EmergencyActionsPageState extends State<EmergencyActionsPage> {
   void initState() {
     super.initState();
     _load();
+    _loadSafetyNumber();
     _raiseAlert();
+  }
+
+  Future<void> _loadSafetyNumber() async {
+    try {
+      final res = await DriverApiService.getAppConfig();
+      final p = (((res['config'] as Map?)?['support'] as Map?)?['phone'] ?? '').toString().trim();
+      if (p.isNotEmpty && mounted) setState(() => _safetyNumber = p);
+    } catch (_) {/* 112 stays */}
   }
 
   // Notify admin + safety team the moment SOS is opened (with ride + location).
@@ -130,7 +141,7 @@ class _EmergencyActionsPageState extends State<EmergencyActionsPage> {
           children: [
             _actionCard(Icons.notifications_active, 'Call Police', () => _dial(_policeNumber)),
             _actionCard(Icons.volume_up, 'Siren', _siren),
-            _actionCard(Icons.headset_mic, 'Call Safety Team', () => _dial(_safetyTeamNumber)),
+            _actionCard(Icons.headset_mic, 'Call Safety Team', () => _dial(safetyNumberOr112(_safetyNumber))),
           ],
         ),
         const SizedBox(height: 20),
@@ -138,7 +149,7 @@ class _EmergencyActionsPageState extends State<EmergencyActionsPage> {
         const SizedBox(height: 12),
         _moreCard(Icons.notifications_active, 'Call Police', () => _dial(_policeNumber)),
         const SizedBox(height: 12),
-        _moreCard(Icons.headset_mic, 'Call Safety Team', () => _dial(_safetyTeamNumber)),
+        _moreCard(Icons.headset_mic, 'Call Safety Team', () => _dial(safetyNumberOr112(_safetyNumber))),
         const SizedBox(height: 20),
         SizedBox(
           width: double.infinity,
@@ -228,4 +239,11 @@ class _SirenPageState extends State<_SirenPage> {
       ),
     );
   }
+}
+
+/// The number "Call Safety Team" dials: the configured support number, or
+/// 112 (India's emergency number) when none is set — never a placeholder.
+String safetyNumberOr112(String? configured) {
+  final c = (configured ?? '').trim();
+  return c.replaceAll(RegExp(r'[^0-9+]'), '').length >= 3 ? c : '112';
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../config/app_version.dart';
 import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/theme_provider.dart';
@@ -63,7 +64,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _buildSettingTile(
             Icons.info_outline,
             'About Gora Cabs',
-            'Version 1.0.0',
+            'Version $kAppVersion',
             () {},
           ),
           _buildSettingTile(

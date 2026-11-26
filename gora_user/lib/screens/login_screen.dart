@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/phone.dart';
 import '../utils/phone_input_formatter.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:animated_text_kit/animated_text_kit.dart';
 import '../services/api_service.dart';
@@ -141,21 +140,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                   : const Text('Send OTP'),
                             ),
                           ),
-                          const SizedBox(height: 24),
-                          Row(children: [
-                            Expanded(child: Divider(color: Colors.grey[300])),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              child: Text('OR', style: TextStyle(color: Colors.grey[500])),
-                            ),
-                            Expanded(child: Divider(color: Colors.grey[300])),
-                          ]),
-                          const SizedBox(height: 24),
-                          Row(children: [
-                            Expanded(child: _buildSocialButton(icon: FontAwesomeIcons.google, color: Colors.white, textColor: Colors.black87, borderColor: Colors.grey[300])),
-                            const SizedBox(width: 16),
-                            Expanded(child: _buildSocialButton(icon: FontAwesomeIcons.apple, color: Colors.black, textColor: Colors.white)),
-                          ]),
+                          // Google / Apple buttons removed: they did nothing (no
+                          // social sign-in exists) — sign-in is by phone OTP only.
                         ]),
                       ),
                     ]),
@@ -166,19 +152,6 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildSocialButton({required IconData icon, required Color color, required Color textColor, Color? borderColor}) {
-    return OutlinedButton(
-      onPressed: () {},
-      style: OutlinedButton.styleFrom(
-        backgroundColor: color,
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        side: borderColor != null ? BorderSide(color: borderColor) : BorderSide.none,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      child: FaIcon(icon, size: 24, color: textColor),
     );
   }
 }

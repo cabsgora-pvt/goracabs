@@ -21,7 +21,7 @@ class PrivacyPolicyPage extends StatelessWidget {
           ['Your Rights',
               'You may request access, correction, or deletion of your data by contacting support from within the app.'],
           ['Contact',
-              'For any privacy questions, reach us via Support in the app or email support@goracaptain.com.'],
+              'For any privacy questions, reach us via Support in the app or email support@goracabs.com.'],
         ],
       );
 }
@@ -48,7 +48,7 @@ class TermsPage extends StatelessWidget {
           ['Changes',
               'We may update these terms and the applicable fares/commission from time to time. Continued use of the app means you accept the changes.'],
           ['Contact',
-              'Questions? Reach us via Support in the app or email support@goracaptain.com.'],
+              'Questions? Reach us via Support in the app or email support@goracabs.com.'],
         ],
       );
 }

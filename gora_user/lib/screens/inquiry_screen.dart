@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../providers/user_provider.dart';
+import '../services/api_service.dart';
 import '../widgets/ride_ui/ride_ui.dart';
 import 'home_screen.dart';
 
@@ -77,7 +78,7 @@ class _InquiryScreenState extends State<InquiryScreen> {
       context: context,
       initialDate: _selectedDate ?? DateTime.now(),
       firstDate: DateTime.now(),
-      lastDate: DateTime(2027),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -165,12 +166,8 @@ class _InquiryScreenState extends State<InquiryScreen> {
           ),
         ),
         PrimaryCtaBar(
-          label: 'Request Inquiry',
-          onPressed: () {
-            if (_formKey.currentState!.validate()) {
-              _showSuccessDialog();
-            }
-          },
+          label: _sending ? 'Sending…' : 'Request Inquiry',
+          onPressed: _sending ? null : _submit,
         ),
       ]),
     );
@@ -230,12 +227,46 @@ class _InquiryScreenState extends State<InquiryScreen> {
     );
   }
 
+  bool _sending = false;
+
+  // Used to show "Inquiry Submitted" without sending anything. It now reaches
+  // the admin as a support ticket with every field the rider filled in.
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    final lines = <String>[
+      _descriptionController.text.trim(),
+      '',
+      'Purpose: ${_selectedPurpose ?? '-'}',
+      'Event type: ${_selectedEventType ?? '-'}',
+      if (_selectedDate != null) 'Date: ${DateFormat('d MMM yyyy').format(_selectedDate!)}',
+      if (_selectedTime != null) 'Time: ${_selectedTime!.format(context)}',
+      if (_durationController.text.trim().isNotEmpty) 'Duration: ${_durationController.text.trim()}',
+      'Name: ${_nameController.text.trim()}',
+      'Mobile: ${_mobileController.text.trim()}',
+      if (_emailController.text.trim().isNotEmpty) 'Email: ${_emailController.text.trim()}',
+    ];
+    setState(() => _sending = true);
+    final res = await ApiService.createSupportTicket(
+      subject: 'Inquiry: ${_selectedPurpose ?? 'General'}',
+      message: lines.join('\n'),
+      category: 'general',
+    );
+    if (!mounted) return;
+    setState(() => _sending = false);
+    if (res['success'] == true) {
+      _showSuccessDialog();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text((res['error'] ?? 'Could not send. Please try again.').toString())));
+    }
+  }
+
   void _showSuccessDialog() {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Inquiry Submitted'),
-        content: const Text('Your inquiry has been sent successfully. We will contact you soon.'),
+        content: const Text('Your inquiry has been sent. Our team will contact you, and you can follow it in Support → My Tickets.'),
         actions: [
           TextButton(
             onPressed: () {
