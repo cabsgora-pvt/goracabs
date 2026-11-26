@@ -76,7 +76,7 @@ class _RideChatPageState extends State<RideChatPage> {
         // Not sent: take the optimistic bubble back off and say why.
         setState(() => _messages = _messages.where((m) => !(m['createdAt'] == '' && m['text'] == t)).toList());
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(res['code'] == 'CHAT_CLOSED' ? 'Chat is closed for this trip.' : res['error'].toString()),
+          content: Text(chatSendError(res)),
           backgroundColor: AppColors.red,
         ));
       }
@@ -184,4 +184,14 @@ class _RideChatPageState extends State<RideChatPage> {
       ),
     );
   }
+}
+
+/// Why a chat message was not sent. 429: the server allows 20 messages a
+/// minute per sender.
+String chatSendError(Map<String, dynamic> res) {
+  if (res['code'] == 'CHAT_CLOSED') return 'Chat is closed for this trip.';
+  if (res['_status'] == 429 || res['code'] == 'RATE_LIMITED') {
+    return 'You are sending messages too fast. Wait a moment and try again.';
+  }
+  return (res['error'] ?? 'Message not sent').toString();
 }

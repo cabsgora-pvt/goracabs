@@ -8,6 +8,7 @@ import '../features/splash/splash_page.dart';
 import '../providers/driver_provider.dart';
 import '../providers/theme_provider.dart';
 import '../services/session.dart';
+import '../widgets/update_gate.dart';
 import 'app_routes.dart';
 
 class GoraDriverApp extends StatelessWidget {
@@ -54,7 +55,9 @@ class GoraDriverApp extends StatelessWidget {
                     SystemNavigator.pop();
                   }
                 },
-                child: child!,
+                // Force update: blocks every screen below minVersion; offers a
+                // dismissible banner when a newer version is out.
+                child: UpdateGate(child: child!),
               );
             });
           },

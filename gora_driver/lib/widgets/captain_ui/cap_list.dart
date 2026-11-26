@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'cap_tokens.dart';
+import '../../services/token_store.dart';
 
 /// Small coloured pill — "PARCEL", "Fragile", "Paid online".
 class CapChip extends StatelessWidget {
@@ -236,7 +237,8 @@ class CapAvatar extends StatelessWidget {
     return CircleAvatar(
       radius: radius,
       backgroundColor: background ?? Cap.tile,
-      backgroundImage: url.isNotEmpty ? NetworkImage(url) : null,
+      // A private upload (the driver's own face photo) needs the token.
+      backgroundImage: url.isNotEmpty ? NetworkImage(url, headers: imageHeadersFor(url)) : null,
       child: url.isEmpty
           ? Text(initial, style: TextStyle(fontSize: radius * 0.8, fontWeight: FontWeight.w800, color: Cap.accent))
           : null,

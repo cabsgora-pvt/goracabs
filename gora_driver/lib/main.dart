@@ -15,10 +15,9 @@ void main() {
   // Foreground-service setup so ride requests keep coming while minimized.
   FlutterForegroundTask.initCommunicationPort();
   RideAlertService.init();
-  // A 401 anywhere — here or in the background service — ends the session.
+  // A 401 (or a blocked / deleted account) anywhere — here or in the
+  // background service — ends the session.
   Session.install();
-  FlutterForegroundTask.addTaskDataCallback((data) {
-    if (data == unauthorizedMessage) Session.expired();
-  });
+  FlutterForegroundTask.addTaskDataCallback(Session.onTaskData);
   runApp(const GoraDriverApp());
 }

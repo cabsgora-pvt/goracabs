@@ -4,6 +4,7 @@ import '../../core/constants/app_colors.dart';
 import '../../widgets/captain_ui/captain_ui.dart';
 import '../../core/widgets/date_field.dart';
 import '../../services/driver_api_service.dart';
+import '../../services/token_store.dart';
 import 'widgets/reg_motion.dart';
 import 'widgets/reg_step_scaffold.dart';
 import 'widgets/reg_ui.dart';
@@ -131,7 +132,8 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
     if (file == null) return;
     setState(() => front ? _frontBusy = true : _backBusy = true);
     try {
-      final url = await DriverApiService.uploadFile(file);
+      // KYC documents are private uploads (/api/files/…, shown with the token).
+      final url = await DriverApiService.uploadFile(file, private: true, purpose: 'kyc');
       if (!mounted) return;
       if (url == null) {
         // Keep the photo that was there; say why this one did not go up.
@@ -176,6 +178,7 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
               child: InteractiveViewer(
                 child: Image.network(
                   url,
+                  headers: imageHeadersFor(url),
                   fit: BoxFit.contain,
                   errorBuilder: (_, __, ___) => const Padding(padding: EdgeInsets.all(40), child: Text('Could not load image')),
                   loadingBuilder: (_, child, progress) =>
@@ -380,7 +383,7 @@ class _DocumentDetailPageState extends State<DocumentDetailPage> {
             border: Border.all(color: Cap.green, width: 2),
           ),
           child: Stack(fit: StackFit.expand, children: [
-            Image.network(src, fit: BoxFit.cover,
+            Image.network(src, headers: imageHeadersFor(src), fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => Center(child: Icon(Icons.broken_image_rounded, color: Cap.muted, size: 36))),
             const Positioned(
               top: 10, left: 10,

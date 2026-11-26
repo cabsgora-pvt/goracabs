@@ -19,9 +19,23 @@ import 'location_ping.dart';
 const _incomingChannelId = 'incoming_ride';
 const _fgBeat = 'app-foreground';
 
-/// Sent from the background task to the app when the server answered 401:
-/// the app then signs out (see Session).
+/// Sent from the background task to the app when the server ended the
+/// session (401, or a blocked / deleted account), as
+/// `session-unauthorized:<reason>`: the app then signs out (see Session).
 const unauthorizedMessage = 'session-unauthorized';
+
+/// The reason in a background-task message, or null when [data] is not a
+/// session-ended message. A bare [unauthorizedMessage] (older format) reads as
+/// an expired session.
+String? unauthorizedReasonOf(Object? data) {
+  if (data is! String || !data.startsWith(unauthorizedMessage)) return null;
+  final rest = data.substring(unauthorizedMessage.length);
+  return rest.startsWith(':') && rest.length > 1 ? rest.substring(1) : sessionExpiredText;
+}
+
+/// The payload on the full-screen "New ride request" notification. The app's
+/// activity reads it to show over the lock screen for that launch only.
+const rideRequestPayload = 'ride_request';
 
 /// How often the background task sends the driver's position, in 4 s ticks
 /// (every 16 s) — the same rate as the on-screen app's own ping.
@@ -198,12 +212,14 @@ class RideAlertTaskHandler extends TaskHandler {
   Future<void> _unauthorized() async {
     if (_signedOut) return;
     _signedOut = true;
+    try { await DriverApiService.clearToken(); } catch (_) {}
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('driver_token');
       await prefs.remove('driver_online');
     } catch (_) {}
-    try { FlutterForegroundTask.sendDataToMain(unauthorizedMessage); } catch (_) {}
+    try {
+      FlutterForegroundTask.sendDataToMain('$unauthorizedMessage:${DriverApiService.signOutReason}');
+    } catch (_) {}
     try { await FlutterForegroundTask.stopService(); } catch (_) {}
   }
 
@@ -270,6 +286,9 @@ class RideAlertTaskHandler extends TaskHandler {
           ongoing: false,
         ),
       ),
+      // MainActivity shows over the lock screen and turns the screen on only
+      // for a launch carrying this payload (see MainActivity.kt).
+      payload: rideRequestPayload,
     );
   }
 

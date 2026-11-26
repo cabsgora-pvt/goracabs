@@ -69,6 +69,13 @@ class EndFailedState extends RideState {
   @override List<Object?> get props => [ride, message, _nonce];
 }
 class RideRejectedState extends RideState {}
+/// /start answered 409 RIDE_CANCELLED: the rider cancelled while the driver
+/// was entering the OTP. The trip screen closes.
+class RideCancelledState extends RideState {
+  final String message;
+  RideCancelledState([this.message = rideCancelledText]);
+  @override List<Object?> get props => [message];
+}
 // Another driver already took the ride (HTTP 409)
 class RideTakenState extends RideState {}
 // The trip did not start: wrong OTP, or the server could not be reached.
@@ -135,6 +142,8 @@ class RideBloc extends Bloc<RideEvent, RideState> {
       final res = await DriverApiService.startRide(currentRide!.id, e.otp);
       if (res['success'] == true) {
         emit(RideStartedState(currentRide!));
+      } else if (res['code'] == 'RIDE_CANCELLED') {
+        emit(RideCancelledState());
       } else {
         // Attempts left / locked / rate-limited, as the server counts them.
         emit(OtpErrorState(currentRide!, otpErrorMessage(res), res['code'] == 'OTP_LOCKED'));

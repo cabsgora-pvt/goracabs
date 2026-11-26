@@ -569,10 +569,15 @@ void main() {
       'driverEarning': 200, 'driverWalletBalance': 900, 'codSettled': 0, ...extra,
     };
 
-    testWidgets('cash: straight to the invoice', (tester) async {
-      api = (r) => r.url.path.endsWith('/complete') ? _json(done('cash')) : null;
+    // v1.5.0 (D1): a cash ride is ended FIRST, then the driver is shown the
+    // server's figure to collect (cashToCollect, else amountDue) — no longer
+    // the app's own fare before ending.
+    testWidgets('cash: collect the server figure, then the invoice', (tester) async {
+      api = (r) => r.url.path.endsWith('/complete') ? _json(done('cash', extra: {'cashToCollect': 270})) : null;
       await settle(tester, shell.ride(status: 'ongoing'));
-      expect(find.text('INVOICE ₹200'), findsOneWidget);
+      expect(find.byType(CollectFarePage), findsOneWidget);
+      expect(find.text('₹270'), findsWidgets);
+      expect(find.text('₹250'), findsNothing);
     });
 
     testWidgets("wallet short: collect the cash the server switched it to", (tester) async {
@@ -891,10 +896,13 @@ void main() {
 
     test('only a fresh fix is pushed; INVALID_LOCATION / LOCATION_JUMP do not stop pinging', () async {
       api = (r) => _json({'error': 'Location jump ignored', 'code': 'LOCATION_JUMP', 'ignored': true}, 422);
+      resetLocationThrottle();
       await withApi(() async {
         expect(await pushFreshLocation(fix(at: now.subtract(const Duration(minutes: 5))), now: now), isFalse);
         expect(_sent('POST', '/auth/driver/location'), isEmpty);
         expect(await pushFreshLocation(fix(at: now.subtract(const Duration(seconds: 5))), now: now), isTrue);
+        // (The next ping would be inside minPingGap: let the throttle go.)
+        resetLocationThrottle();
         expect(await pushFreshLocation(fix(at: now.subtract(const Duration(seconds: 2))), now: now), isTrue);
       });
       expect(_sent('POST', '/auth/driver/location'), hasLength(2));

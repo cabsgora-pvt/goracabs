@@ -308,10 +308,10 @@ void main() {
       ],
     };
 
-    testWidgets('shows the zone and history; the switch saves zoneAuto with PUT', (tester) async {
+    testWidgets('shows the zone and history; automatic zone (admin-only) can only be turned off', (tester) async {
       phone(tester);
       api = (r) {
-        if (_is(r, 'GET', '/auth/driver/zone')) return _json(zone());
+        if (_is(r, 'GET', '/auth/driver/zone')) return _json(zone(auto: true));
         if (_is(r, 'PUT', '/auth/driver/zone')) return _json({'success': true, 'zoneAuto': _bodyOf(r)['zoneAuto']});
         return null;
       };
@@ -324,15 +324,19 @@ void main() {
         expect(find.text('Changed automatically by your location · 18 Nov 2026'), findsOneWidget);
         expect(find.text('No zone → Ahmedabad East'), findsOneWidget);
         expect(find.textContaining('ops@example.com'), findsNothing, reason: "the admin's email is not shown");
-        expect(switchFor(tester, 'Change zone automatically by my location').value, isFalse);
-        await tester.tap(switchFinder('Change zone automatically by my location'));
+        // Turning it ON is for an admin (403 ZONE_AUTO_ADMIN_ONLY): no switch.
+        expect(find.byType(Switch), findsNothing);
+        expect(find.textContaining('Managed by admin'), findsOneWidget);
+        await tester.tap(find.text('Turn off'));
+        await pumpFor(tester, 300);
+        await tester.tap(find.widgetWithText(ElevatedButton, 'Turn off'));
         await pumpFor(tester);
       });
       final put = _sent('PUT', '/auth/driver/zone');
       expect(put, hasLength(1));
-      expect(_bodyOf(put.single), {'zoneAuto': true});
-      expect(switchFor(tester, 'Change zone automatically by my location').value, isTrue);
-      expect(find.text('Your zone will follow your location'), findsOneWidget);
+      expect(_bodyOf(put.single), {'zoneAuto': false});
+      expect(find.textContaining('Managed by admin'), findsNothing);
+      expect(find.text('Automatic zone change turned off'), findsOneWidget);
     });
 
     testWidgets('request a zone change: pick a zone, add a note, send', (tester) async {

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'driver_api_service.dart';
 
@@ -18,11 +19,26 @@ bool isFreshFix(Position? pos, {DateTime? now}) {
 
 const maxFixSkewSeconds = 30;
 
-/// Sends [pos] as the driver's location only when it is fresh. Returns whether
-/// it was sent. A refused point (400 INVALID_LOCATION / 422 LOCATION_JUMP) is
+/// The least time between two location pings from this isolate. The server
+/// stores at most one fix per few seconds and acknowledges the rest with
+/// {throttled: true} (a success — nothing to retry); sending faster only
+/// costs battery and data. The timers ping every 15–16 s; this guards against
+/// two callers (a resume, a timer) firing together.
+const minPingGap = Duration(seconds: 4);
+DateTime? _lastPingAt;
+
+@visibleForTesting
+void resetLocationThrottle() => _lastPingAt = null;
+
+/// Sends [pos] as the driver's location only when it is fresh, and not within
+/// [minPingGap] of the last ping. Returns whether it was sent. A refused point
+/// (400 INVALID_LOCATION / 422 LOCATION_JUMP) or a {throttled: true} reply is
 /// simply not stored by the server; the caller keeps pinging either way.
 Future<bool> pushFreshLocation(Position? pos, {DateTime? now}) async {
   if (!isFreshFix(pos, now: now)) return false;
+  final wall = DateTime.now();
+  if (_lastPingAt != null && wall.difference(_lastPingAt!).abs() < minPingGap) return false;
+  _lastPingAt = wall;
   try {
     await DriverApiService.updateLocation(pos!.latitude, pos.longitude);
   } catch (_) {/* network blip: the next ping retries */}

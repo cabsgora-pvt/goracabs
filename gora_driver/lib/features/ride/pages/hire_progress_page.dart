@@ -132,6 +132,9 @@ class _HireProgressPageState extends State<HireProgressPage> {
     }
     if (!mounted) return;
     if (res['error'] != null) {
+      // EXTENSION_PENDING carries the request that is still waiting.
+      final waiting = PendingExtension.tryParse(res['pendingExtension']);
+      if (waiting != null) setState(() => _pendingExt = waiting);
       // Used to add the hours on screen whether or not the server accepted them.
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('Could not extend: ${rideActionError(res)}'), backgroundColor: AppColors.red));
@@ -172,7 +175,9 @@ class _HireProgressPageState extends State<HireProgressPage> {
     }
 
     final res = _endResponse!;
-    final due = (res['amountDue'] as num?)?.toDouble() ?? 0;
+    // The server's cashToCollect (fare + overtime + tip − coupon − split). A
+    // repeated 'end' answers alreadyEnded with the same bill.
+    final due = hireCashToCollect(res, cash: widget.ride.paymentMode == 'cash').toDouble();
     // Once confirmed, a retry after a failed settlement goes straight to
     // settling — the driver is not asked to collect the same cash twice.
     if (due > 0 && !_cashInHand) {
@@ -182,7 +187,8 @@ class _HireProgressPageState extends State<HireProgressPage> {
       _cashInHand = true;
     }
     setState(() => _ending = true);
-    final invoice = await settleForInvoice(context, widget.ride);
+    // The cash (if any) was taken from the server's bill above.
+    final invoice = await settleForInvoice(context, widget.ride, cashCollected: true);
     if (!mounted) return;
     setState(() => _ending = false);
     _invoice = invoice;

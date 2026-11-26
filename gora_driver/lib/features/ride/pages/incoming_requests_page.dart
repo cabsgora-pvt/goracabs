@@ -5,13 +5,16 @@ import 'package:geolocator/geolocator.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../config/app_config.dart';
 import '../../../models/models.dart';
+import '../../../services/device_channel.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
 import '../../../services/ride_alert_service.dart';
+import '../../home/logic/feed_status.dart';
 import '../logic/accept_outcome.dart';
 import '../logic/dismissed_requests.dart';
 import '../widgets/swipe_to_confirm.dart';
 import '../../../widgets/captain_ui/captain_ui.dart';
+import '../../../services/session.dart';
 import 'on_ride_page.dart';
 
 // Shows up to 5 pending ride requests at once (taxi / rental / outstation / etc.).
@@ -45,6 +48,10 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   // Driver's current location — used to compute the driver → pickup distance
   // shown on each card. Fetched once when the screen opens.
   double? _driverLat, _driverLng;
+
+  /// Offers to this driver are paused until then (too many rejections). The
+  /// open pool is still listed.
+  DateTime? _cooldownUntil;
 
   @override
   void initState() {
@@ -81,6 +88,10 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     try {
       final res = await DriverApiService.getPendingRequests();
       final rides = (res['rides'] as List?) ?? [];
+      if (res['error'] == null) {
+        final until = offerCooldownUntilOf(res);
+        if (mounted && until != _cooldownUntil) setState(() => _cooldownUntil = until);
+      }
       for (final e in rides) {
         if (e is Map && e['id'] != null) _raw[e['id'].toString()] = Map<String, dynamic>.from(e);
       }
@@ -118,15 +129,24 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     try {
       await _player.stop();
       await _player.setReleaseMode(ReleaseMode.loop);
-      // No admin ringtone for this service: the bundled one. Nothing used to
-      // play at all, so a request on screen could go unnoticed.
-      await _player.play(ringtoneSource(rel));
     } catch (_) {}
+    // The admin's ringtone for the service, else the bundled one, else the
+    // phone's own notification sound: a request must never arrive silently
+    // because one file would not load (a bad upload, a 404, a codec).
+    for (final src in ringtoneSources(rel)) {
+      if (_playingService != svc) return; // handled meanwhile
+      try {
+        await _player.play(src);
+        return;
+      } catch (_) {}
+    }
+    if (_playingService == svc) await DeviceChannel.playSystemAlert();
   }
 
   Future<void> _stopRing() async {
     _playingService = null;
     try { await _player.stop(); } catch (_) {}
+    unawaited(DeviceChannel.stopSystemAlert());
   }
 
   // Close the screen exactly once (timer's _refresh and button handlers could
@@ -138,6 +158,7 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
     _stopRing();
     // Nothing left on this page (taken by someone else, no longer pending…).
     unawaited(RideAlertService.clearIncomingAlert());
+    unawaited(DeviceChannel.releaseLockScreen());
     if (!mounted) return;
     // Remove THIS page, wherever it is in the stack. Navigator.pop removes the
     // top route — and when something had been pushed above this page (the
@@ -213,10 +234,26 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   void _open(RideRequestModel m, Map<String, dynamic> extra) {
     // Nothing may close or refresh this page any more: it is being replaced.
     _closed = true;
+    unawaited(DeviceChannel.releaseLockScreen());
     final raw = _raw[m.id];
     final model = raw == null && extra.isEmpty
         ? m
         : RideRequestModel.fromJson({...?raw, ...extra, 'id': m.id});
+    // An advance booking (outstation / rental / hire up to 48 h ahead) is not
+    // a trip to drive to now: the server keeps offering this driver other
+    // requests until an hour before it. Confirm it and go back home, where it
+    // is listed as an upcoming trip; the trip screen opens once it is due.
+    final due = model.dueAt;
+    if (isUpcomingTrip(due)) {
+      final nav = Navigator.of(context);
+      final messenger = ScaffoldMessenger.of(context);
+      nav.popUntil((r) => r.isFirst);
+      messenger.showSnackBar(SnackBar(
+        content: Text(upcomingAcceptedText(due!)),
+        duration: const Duration(seconds: 8),
+      ));
+      return;
+    }
     // A clean stack under the new trip: only home below it. This page could
     // open over the last trip's Order Complete (or any other screen), and a
     // plain replace left that screen underneath — Back from the new trip
@@ -253,7 +290,19 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
   // this ride is not offered to this driver again.
   void _reject(RideRequestModel m) {
     _rejectedIds.add(m.id);
-    DriverApiService.rejectRide(m.id); // fire-and-forget; server records rejectedBy
+    // Not waited for; the server records rejectedBy. Too many rejections pause
+    // this driver's offers (offerCooldownUntil): say so, wherever they are.
+    final here = ScaffoldMessenger.maybeOf(context);
+    DriverApiService.rejectRide(m.id).then((res) {
+      final until = offerCooldownUntilOf(res);
+      if (until == null) return;
+      _cooldownUntil = until;
+      if (mounted) setState(() {});
+      final root = Session.navigatorKey.currentState?.overlay?.context;
+      final messenger = (root != null && root.mounted ? ScaffoldMessenger.maybeOf(root) : null) ?? here;
+      messenger?.showSnackBar(SnackBar(
+        content: Text(cooldownText(until)), duration: const Duration(seconds: 6)));
+    }).catchError((_) {});
     unawaited(RideAlertService.clearIncomingAlert());
     setState(() => _requests.removeWhere((x) => x.id == m.id));
     if (_requests.isEmpty) { _close(); } else { _updateRing(); }
@@ -288,6 +337,15 @@ class _IncomingRequestsPageState extends State<IncomingRequestsPage> {
               const SizedBox(height: 4),
               Text('Slide to accept · swipe left to decline',
                   style: Cap.caption(size: 13)),
+              if (_cooldownUntil != null && _cooldownUntil!.isAfter(DateTime.now())) ...[
+                const SizedBox(height: 8),
+                Row(children: [
+                  const Icon(Icons.pause_circle_outline_rounded, size: 16, color: AppColors.orange),
+                  const SizedBox(width: 6),
+                  Expanded(child: Text(cooldownText(_cooldownUntil!),
+                      style: Cap.body(size: 12.5, weight: FontWeight.w700, color: AppColors.orange))),
+                ]),
+              ],
             ]),
           ),
           Expanded(
@@ -568,18 +626,28 @@ class _RequestCardState extends State<_RequestCard> with SingleTickerProviderSta
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: _paymentLine(r),
           ),
-          if (r.scheduledAt != null)
+          // A booking for later (a scheduled taxi, or outstation / rental /
+          // hire listed up to 48 h ahead): when it is due, plainly.
+          if (showsScheduledTime(r))
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Row(children: [
-                const Icon(Icons.event_outlined, size: 16, color: AppColors.orange),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(scheduledLabel(r.scheduledAt!),
-                      maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: Cap.body(size: 13, weight: FontWeight.w800, color: AppColors.orange)),
+              child: Container(
+                key: ValueKey('scheduled_${r.id}'),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.orange.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-              ]),
+                child: Row(children: [
+                  const Icon(Icons.event_outlined, size: 18, color: AppColors.orange),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(scheduledLabel(r.dueAt!),
+                        maxLines: 2, overflow: TextOverflow.ellipsis,
+                        style: Cap.body(size: 13.5, weight: FontWeight.w900, color: AppColors.orange)),
+                  ),
+                ]),
+              ),
             ),
           if (r.service == 'delivery')
             Padding(
@@ -783,6 +851,28 @@ Source ringtoneSource(String adminPath) => adminPath.trim().isEmpty
 
 /// Bundled request ringtone, played when no admin ringtone is set.
 const defaultRingtoneAsset = 'sounds/ride_request.mp3';
+
+/// What to try, in order: the admin's file (if any), then the bundled one.
+/// The phone's own notification sound comes after both (DeviceChannel).
+List<Source> ringtoneSources(String adminPath) => [
+  if (adminPath.trim().isNotEmpty) UrlSource(AppConfig.imageUrl(adminPath)),
+  AssetSource(defaultRingtoneAsset),
+];
+
+/// A card shows its due time when the job is booked for later: a scheduledAt,
+/// or a departure / hire start more than 10 minutes ahead (the server's
+/// SCHEDULED_AFTER_MS).
+bool showsScheduledTime(RideRequestModel r, {DateTime? now}) {
+  final due = r.dueAt;
+  if (due == null) return false;
+  if (r.scheduledAt != null) return true;
+  return due.isAfter((now ?? DateTime.now()).add(const Duration(minutes: 10)));
+}
+
+/// After accepting an advance booking.
+String upcomingAcceptedText(DateTime due, {DateTime? now}) =>
+    'Trip accepted for ${scheduledLabel(due, now: now).replaceFirst('Scheduled for ', '')}. '
+    'It is listed on Home as your upcoming trip; you keep getting other requests until an hour before.';
 
 /// "Scheduled for Today, 6:30 PM" / "Scheduled for 28 Nov, 9:05 AM".
 String scheduledLabel(DateTime at, {DateTime? now}) {

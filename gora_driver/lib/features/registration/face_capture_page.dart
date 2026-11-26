@@ -100,7 +100,8 @@ class _FaceCapturePageState extends State<FaceCapturePage> {
     if (photo == null || vector == null) return;
     setState(() => _saving = true);
     try {
-      final url = await DriverApiService.uploadFile(photo);
+      // Private: the face photo is served only to the driver and admins.
+      final url = await DriverApiService.uploadFile(photo, private: true, purpose: 'face');
       if (!mounted) return;
       if (url == null) {
         setState(() { _saving = false; _error = DriverApiService.lastUploadError ?? 'Upload failed — check your connection and try again.'; });

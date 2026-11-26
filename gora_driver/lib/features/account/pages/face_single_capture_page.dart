@@ -72,9 +72,13 @@ class _FaceSingleCapturePageState extends State<FaceSingleCapturePage> {
       return;
     }
     try {
-      final url = await DriverApiService.uploadFile(photo);
+      // Face photos are private uploads (served only with the driver's token).
+      final url = await DriverApiService.uploadFile(photo, private: true, purpose: 'face');
       if (url == null) {
-        setState(() { _busy = false; _error = 'Upload failed — check your connection and try again.'; });
+        setState(() {
+          _busy = false;
+          _error = DriverApiService.lastUploadError ?? 'Upload failed — check your connection and try again.';
+        });
         return;
       }
       final res = await widget.submit(vec, url);

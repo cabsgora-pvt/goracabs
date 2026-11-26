@@ -7,6 +7,7 @@ import 'widgets/reg_motion.dart';
 import 'widgets/reg_step_scaffold.dart';
 import 'widgets/reg_ui.dart';
 import '../../services/driver_api_service.dart';
+import '../../services/token_store.dart';
 import 'document_detail_page.dart';
 import 'kyc_success_page.dart';
 
@@ -340,7 +341,7 @@ class _DocumentUploadPageState extends State<DocumentUploadPage> {
                           borderRadius: BorderRadius.circular(14),
                           child: SizedBox(
                             width: 52, height: 52,
-                            child: Image.network(thumb, fit: BoxFit.cover, errorBuilder: (_, __, ___) => badge),
+                            child: Image.network(thumb, headers: imageHeadersFor(thumb), fit: BoxFit.cover, errorBuilder: (_, __, ___) => badge),
                           ),
                         )
                       else

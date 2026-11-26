@@ -7,6 +7,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:gora_driver/features/ride/logic/job_settlement.dart';
 import 'package:gora_driver/features/ride/pages/collect_fare_page.dart';
 import 'package:gora_driver/features/ride/pages/invoice_page.dart';
 import 'package:gora_driver/features/ride/widgets/nav_engine.dart';
@@ -344,14 +345,21 @@ void main() {
   });
 
   // ── Ending the trip ──
-  testWidgets('cash: the fare and the tolls are collected together', (tester) async {
+  testWidgets("cash: the trip is ended, then the server's figure and the tolls are collected together", (tester) async {
     final log = <shell.ApiCall>[];
-    await shell.openScreen(tester, onRide: outstation(tolls: _two), log: log);
+    // /complete bills less than the booked ₹124999 (a coupon): the driver is
+    // asked for what the server billed, never the app's own sum.
+    await shell.openScreen(tester, onRide: outstation(tolls: _two), log: log, override: (req) async =>
+        req.url.path.endsWith('/complete')
+            ? http.Response(jsonEncode({'success': true, 'paymentMode': 'cash', 'paymentStatus': 'paid',
+                'amountDue': 124899, 'cashToCollect': 124899, 'driverEarning': 100000, 'adminProfit': 24899}), 200)
+            : null);
     await shell.act(() async {
-      await shell.swipe(tester, 'Swipe to collect ₹125169');
+      await shell.swipe(tester, cashEndLabel);
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('Fare + tolls'), findsOneWidget);
-      expect(find.text('₹125169'), findsOneWidget);
+      expect(shell.posts(log, '/complete'), hasLength(1), reason: 'ended first');
+      expect(find.text('Fare + tolls — collect from the rider'), findsOneWidget);
+      expect(find.text('₹125069'), findsOneWidget, reason: '124899 billed + 170 tolls');
       await collectFare(tester);
       await tester.pump(const Duration(milliseconds: 500));
     });
@@ -388,10 +396,10 @@ void main() {
     await shell.teardown(tester);
   });
 
-  testWidgets('backing out of collecting leaves the tolls editable', (tester) async {
-    await shell.openScreen(tester, onRide: outstation(tolls: _two));
+  testWidgets('backing out of collecting the tolls leaves them editable', (tester) async {
+    await shell.openScreen(tester, onRide: outstation(payment: 'online', tolls: _two));
     await shell.act(() async {
-      await shell.swipe(tester, 'Swipe to collect ₹125169');
+      await shell.swipe(tester, 'Swipe to collect toll & request payment');
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pageBack();
       await tester.pump();

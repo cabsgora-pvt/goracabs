@@ -47,7 +47,12 @@ class TripDetailPage extends StatelessWidget {
                   child: Text('₹${_money(trip.driverEarning)}',
                       style: TextStyle(fontSize: 36, fontWeight: FontWeight.w900, color: Cap.ink, letterSpacing: -0.6)),
                 ),
-                Text('You earned', style: Cap.caption(size: 12.5)),
+                if (trip.earningPending)
+                  Text('Pending — added to your wallet once the rider pays',
+                      key: const ValueKey('trip_earning_pending'),
+                      style: Cap.body(size: 12.5, weight: FontWeight.w800, color: AppColors.orange))
+                else
+                  Text('You earned', style: Cap.caption(size: 12.5)),
                 const SizedBox(height: 12),
                 Container(height: 1, color: Cap.divider),
                 const SizedBox(height: 10),

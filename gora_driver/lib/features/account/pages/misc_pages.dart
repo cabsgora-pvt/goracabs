@@ -499,6 +499,17 @@ class _AdminChatPageState extends State<AdminChatPage> {
     try {
       final r = await DriverApiService.sendSupportChat(text);
       if (!mounted) return;
+      if (r['error'] != null) {
+        // Not sent: give the text back and say why (429 = too fast).
+        _ctrl.text = text;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(r['_status'] == 429
+              ? 'You are sending messages too fast. Wait a moment and try again.'
+              : r['error'].toString()),
+          backgroundColor: AppColors.red,
+        ));
+        return;
+      }
       final msgs = r['messages'] as List?;
       if (msgs != null) {
         setState(() {

@@ -12,8 +12,15 @@ class RideCompletionArgs {
   final num adminProfit; // commission taken by admin; 0 when a subscription covers it
   /// Tolls the rider paid the driver back, in hand. Not earnings: no commission.
   final num tollCollected;
-  const RideCompletionArgs(this.ride, {this.driverEarning = 0, this.adminProfit = 0, this.tollCollected = 0});
+  /// The rider has not paid yet (an online ride, or a prepaid trip's rest):
+  /// the earning reaches the wallet only once they do — shown as "Pending".
+  final bool earningPending;
+  const RideCompletionArgs(this.ride,
+      {this.driverEarning = 0, this.adminProfit = 0, this.tollCollected = 0, this.earningPending = false});
 }
+
+/// Under the earning on an unpaid ride.
+const earningPendingText = 'Pending — added to your wallet once the rider pays';
 
 // "Order Complete" screen shown after a ride ends: estimated earning, a
 // customer rating and quick tags. The commission is not shown here. Styled in the app's brand colours.
@@ -101,7 +108,14 @@ class _InvoicePageState extends State<InvoicePage> {
                     Text('Estimated Earning', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.textDark)),
                     const SizedBox(height: 6),
                     Text('₹${earning.toStringAsFixed(0)}',
-                        style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w900, color: AppColors.green)),
+                        style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900,
+                            color: data.earningPending ? AppColors.orange : AppColors.green)),
+                    if (data.earningPending) ...[
+                      const SizedBox(height: 2),
+                      Text(earningPendingText,
+                          key: const ValueKey('earning_pending'),
+                          style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.orange)),
+                    ],
                     if (tripLine.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(tripLine,

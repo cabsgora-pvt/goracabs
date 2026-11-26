@@ -53,24 +53,36 @@ class _ZonePageState extends State<ZonePage> {
   void _snack(String text, {Color? color}) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), backgroundColor: color));
 
-  Future<void> _setAuto(bool on) async {
-    final before = _info?['zoneAuto'] == true;
-    setState(() { _info?['zoneAuto'] = on; _savingAuto = true; });
+  /// Turns automatic zone OFF — the only way a driver may change it. Turning
+  /// it on is for an admin (PUT zoneAuto:true is refused 403
+  /// ZONE_AUTO_ADMIN_ONLY), so the app never offers it.
+  Future<void> _turnAutoOff() async {
+    final ok = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
+      title: const Text('Turn off automatic zone?'),
+      content: const Text('Your zone will stay as it is. Only support can turn automatic zone on again — '
+          'ask for a zone change if you move cities.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Keep it')),
+        ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text('Turn off')),
+      ],
+    ));
+    if (ok != true || !mounted) return;
+    setState(() => _savingAuto = true);
     Map<String, dynamic> res;
     try {
-      res = await DriverApiService.setZoneAuto(on);
+      res = await DriverApiService.setZoneAuto(false);
     } catch (_) {
       res = {'error': 'Could not reach the server'};
     }
     if (!mounted) return;
     setState(() {
       _savingAuto = false;
-      _info?['zoneAuto'] = res['error'] != null ? before : (res['zoneAuto'] ?? on) == true;
+      if (res['error'] == null) _info?['zoneAuto'] = res['zoneAuto'] == true;
     });
     if (res['error'] != null) {
       _snack('Not saved: ${res['error']}', color: AppColors.red);
     } else {
-      _snack(on ? 'Your zone will follow your location' : 'Automatic zone change turned off', color: AppColors.green);
+      _snack('Automatic zone change turned off', color: AppColors.green);
     }
   }
 
@@ -191,27 +203,29 @@ class _ZonePageState extends State<ZonePage> {
         ),
         const SizedBox(height: 12),
 
-        // Auto-follow
-        CapCard(
-          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-          child: Row(children: [
-            Icon(Icons.my_location_rounded, color: Cap.ink, size: 22),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Change zone automatically by my location', style: Cap.body(size: 14, weight: FontWeight.w800)),
-                const SizedBox(height: 2),
-                Text('When you go online inside another zone, you move to that zone',
-                    style: Cap.caption(size: 12)),
-              ]),
-            ),
-            Switch(
-              value: auto,
-              onChanged: _savingAuto ? null : _setAuto,
-              activeTrackColor: AppColors.primary,
-            ),
-          ]),
-        ),
+        // Automatic zone: set by an admin only. Shown when it is on, as
+        // information, with a way to turn it off — never a switch to turn it on.
+        if (auto)
+          CapCard(
+            key: const ValueKey('zone_auto_info'),
+            padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+            child: Row(children: [
+              Icon(Icons.my_location_rounded, color: Cap.ink, size: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('Automatic zone is on', style: Cap.body(size: 14, weight: FontWeight.w800)),
+                  const SizedBox(height: 2),
+                  Text('Managed by admin — when you go online inside another zone, you move to that zone',
+                      style: Cap.caption(size: 12)),
+                ]),
+              ),
+              TextButton(
+                onPressed: _savingAuto ? null : _turnAutoOff,
+                child: const Text('Turn off'),
+              ),
+            ]),
+          ),
 
         // Pending request
         if (pending != null) ...[

@@ -200,6 +200,12 @@ class _OnRideViewState extends State<_OnRideView> {
           if (state is RideStartedState) _startFaceCheckTimer();
           // Done what the nudge asked: it has nothing more to say.
           if (state is ArrivedAtPickupState) _arrivalHint.dismiss();
+          if (state is RideCancelledState) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(state.message), backgroundColor: AppColors.red, duration: const Duration(seconds: 6)));
+            Navigator.popUntil(context, (route) => route.isFirst);
+            return;
+          }
           if (state is ArriveFailedState) {
             ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: Text(state.message), backgroundColor: AppColors.red));
@@ -726,8 +732,10 @@ class _OnRideViewState extends State<_OnRideView> {
     // The label states what ending actually does for this payment mode —
     // including any tolls, which the rider pays the driver in every mode.
     final toll = _tollTotal;
+    // Cash: no figure here — the amount to take is the server's, shown once
+    // the trip is ended (fare + waiting + tip − coupon − split, plus tolls).
     final endLabel = r.paymentMode == 'cash'
-        ? 'Swipe to collect ₹${(_fareOf(r) + toll).round()}'
+        ? cashEndLabel
         : r.paymentMode == 'online'
             ? (toll > 0 ? 'Swipe to collect toll & request payment' : 'Swipe to request payment')
             : (toll > 0 ? 'Swipe to collect toll & end ride' : 'Swipe to end ride');
@@ -817,11 +825,14 @@ class _OnRideViewState extends State<_OnRideView> {
     var done = false;
     try {
       if (r.paymentMode == 'cash') {
-        final collected = await Navigator.push<bool>(
-          context, MaterialPageRoute(builder: (_) => CollectFarePage(
-            amount: _fareOf(r) + toll.toDouble(),
-            title: toll > 0 ? 'Fare + tolls' : 'Estimated Order Fare')));
-        if (collected == true) { done = true; bloc.add(EndRideEvent()); }
+        // End first, then collect what the SERVER billed (cashToCollect: fare
+        // + waiting + tip − coupon − split shares), with the tolls on top. The
+        // app's own fare once disagreed with the settlement, so the driver
+        // asked the rider for the wrong amount.
+        final invoice = await settleForInvoice(context, r, tollCollected: toll, tollsInHand: toll);
+        if (invoice == null || !context.mounted) return;
+        done = true;
+        Navigator.pushReplacementNamed(context, InvoicePage.route, arguments: invoice);
         return;
       }
       if (toll > 0) {

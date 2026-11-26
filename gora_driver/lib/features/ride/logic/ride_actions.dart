@@ -41,6 +41,12 @@ String rideActionError(Map<String, dynamic> res) {
       return 'Choose why the delivery failed.';
     case 'PHOTO_REQUIRED':
       return 'Take a photo to mark the delivery as failed.';
+    case 'EXTENSION_PENDING':
+      return "An extension is already waiting for the rider's answer. Wait for them to accept or decline it.";
+    case 'EXTENSION_LIMIT':
+      return 'You can ask for at most $maxExtensionRequests extensions on one trip.';
+    case 'RIDE_CANCELLED':
+      return rideCancelledText;
   }
   return server.isNotEmpty ? server : 'Something went wrong. Please try again.';
 }
@@ -73,6 +79,12 @@ const otpLockedMessage = 'Too many wrong OTPs — the code is locked. Ask the ri
 
 /// The server accepts 1..12 whole hours.
 const maxExtendHours = 12;
+
+/// Extension requests allowed per trip (lib/ride-extension MAX_EXTENSION_REQUESTS).
+const maxExtensionRequests = 3;
+
+/// /start answered 409 RIDE_CANCELLED: the rider cancelled meanwhile.
+const rideCancelledText = 'This ride was cancelled by the rider.';
 const extendOptions = [1, 2, 4, 6];
 bool validExtraHours(int h) => h >= 1 && h <= maxExtendHours;
 

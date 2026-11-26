@@ -502,17 +502,23 @@ void main() {
             return http.Response(jsonEncode({'status': 'ongoing', 'service': 'rental', 'paymentMode': 'cash',
               'finalFare': 1479, 'totalFare': 1479}), 200);
           }
+          // A repeated 'end' answers the same bill: alreadyEnded + cashToCollect.
+          if (req.url.path.endsWith('/rental') && req.body.contains('"end"')) {
+            return http.Response(jsonEncode({'success': true, 'alreadyEnded': true, 'cashToCollect': 1429,
+              'rental': {'finalFare': 1479, 'totalFare': 1479, 'phase': 'completed'}}), 200);
+          }
           return null;
         });
-    // It used to press End again, which the server refuses for a priced rental.
     expect(find.text('Swipe to end rental'), findsNothing);
     await act(() async {
       await swipe(tester, 'Swipe to finish the rental');
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('₹1479'), findsOneWidget);
+      // The server's cashToCollect, not the ride's finalFare.
+      expect(find.text('₹1429'), findsOneWidget);
       await collectFare(tester);
     });
-    expect(posts(log, '/rental').where((c) => c.body['action'] == 'end'), isEmpty);
+    expect(posts(log, '/rental').where((c) => c.body['action'] == 'end'), hasLength(1),
+        reason: "the bill is read back from the server's repeated end");
     expect(posts(log, '/complete'), hasLength(1));
     expect(find.text('INVOICE'), findsOneWidget);
     await teardown(tester);

@@ -3,20 +3,45 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
+import 'token_store.dart';
+
+const sessionExpiredText = 'Your session has expired. Please log in again.';
+
+/// Whether a reply ends the session, and the line to show the driver.
+///
+/// Only the server saying the SESSION or the ACCOUNT is gone signs the driver
+/// out: any 401, and a 403 whose code is ACCOUNT_BLOCKED / ACCOUNT_DELETED.
+/// Every other 403 is about the request — NOT_PARTICIPANT, OUT_OF_RANGE,
+/// driverMustEnd, notApproved, accountHold, ZONE_AUTO_ADMIN_ONLY … — and the
+/// screen that asked shows it; signing out on those would throw an online
+/// driver out of the app over one refused action.
+String? sessionEndReason(int status, Map<String, dynamic>? body) {
+  final code = (body?['code'] ?? '').toString();
+  if (status == 401) {
+    if (code == 'ACCOUNT_DELETED' || body?['accountDeleted'] == true) return accountDeletedText;
+    if (code == 'SESSION_REVOKED') return 'Your session has ended. Please sign in again.';
+    return sessionExpiredText;
+  }
+  if (status == 403) {
+    if (code == 'ACCOUNT_BLOCKED') return accountBlockedText;
+    if (code == 'ACCOUNT_DELETED') return accountDeletedText;
+  }
+  return null;
+}
+
+const accountBlockedText = 'Your account is blocked. Please contact support.';
+const accountDeletedText = 'This account has been deleted.';
 
 class DriverApiService {
   static String get baseUrl => AppConfig.apiBaseUrl;
 
-  static Future<String?> getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('driver_token');
-  }
+  /// The session token (secure storage; see TokenStore).
+  static Future<String?> getToken() => TokenStore.read();
 
+  /// A new session (login) — or the same session's refreshed token.
   static Future<void> saveToken(String token) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('driver_token', token);
+    await TokenStore.write(token);
     // A new session: the next expired-session reply may sign out again.
     _unauthorizedFired = false;
   }
@@ -31,26 +56,29 @@ class DriverApiService {
   static FutureOr<void> Function()? onUnauthorized;
   static bool _unauthorizedFired = false;
 
+  /// Why the session ended, for the login screen: set just before
+  /// [onUnauthorized] is called.
+  static String signOutReason = sessionExpiredText;
+
   /// Re-arms the one-shot 401 handler (a new login, or a test).
   static void resetUnauthorized() => _unauthorizedFired = false;
 
-  static Future<void> _checkUnauthorized(int status, String? sentToken) async {
-    if (status != 401 || sentToken == null || _unauthorizedFired) return;
+  static Future<void> _checkUnauthorized(int status, String? sentToken, [Map<String, dynamic>? body]) async {
+    final reason = sessionEndReason(status, body);
+    if (reason == null || sentToken == null || _unauthorizedFired) return;
     // Only the token that is still the session counts: a late reply to a
     // request made before a re-login must not sign the new session out.
     if (await getToken() != sentToken) return;
     if (_unauthorizedFired) return;
     _unauthorizedFired = true;
+    signOutReason = reason;
     final cb = onUnauthorized;
     if (cb != null) {
       try { await cb(); } catch (_) {}
     }
   }
 
-  static Future<void> clearToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('driver_token');
-  }
+  static Future<void> clearToken() => TokenStore.clear();
 
   /// Decodes an API response without ever throwing.
   ///
@@ -66,7 +94,6 @@ class DriverApiService {
   /// A non-2xx reply also carries its HTTP code as `_status`, so callers can
   /// tell a refusal (409 RIDE_TAKEN, 423 OTP_LOCKED …) from a network failure.
   static Map<String, dynamic> _decode(http.Response res, {String? sentToken}) {
-    unawaited(_checkUnauthorized(res.statusCode, sentToken));
     final ok = res.statusCode >= 200 && res.statusCode < 300;
     Map<String, dynamic> out;
     final body = res.body;
@@ -85,6 +112,7 @@ class DriverApiService {
       }
     }
     if (!ok) out['_status'] = res.statusCode;
+    unawaited(_checkUnauthorized(res.statusCode, sentToken, out));
     return out;
   }
 
@@ -149,7 +177,11 @@ class DriverApiService {
 
   /// Uploads a picked photo; the full url, or null with [lastUploadError] set.
   /// Never throws and never hangs.
-  static Future<String?> uploadFile(XFile file) async {
+  ///
+  /// [private] stores it outside the public folder (KYC documents, face
+  /// photos): the url is then /api/files/<name>, shown only with the session
+  /// token (see imageHeadersFor). [purpose] tags it for the admin (kyc, face …).
+  static Future<String?> uploadFile(XFile file, {bool private = false, String? purpose}) async {
     Uint8List bytes;
     try {
       bytes = await file.readAsBytes();
@@ -157,15 +189,25 @@ class DriverApiService {
       lastUploadError = 'Could not read the photo. Please try again.';
       return null;
     }
-    return uploadBytes(bytes, file.name.isNotEmpty ? file.name : 'doc.jpg');
+    return uploadBytes(bytes, file.name.isNotEmpty ? file.name : 'doc.jpg', private: private, purpose: purpose);
+  }
+
+  /// The upload endpoint, with ?private=1&purpose=… for a private file.
+  static Uri uploadUri({bool private = false, String? purpose}) {
+    final q = <String, String>{
+      if (private) 'private': '1',
+      if (purpose != null && purpose.isNotEmpty) 'purpose': purpose,
+    };
+    final u = Uri.parse('$baseUrl/upload');
+    return q.isEmpty ? u : u.replace(queryParameters: q);
   }
 
   /// Uploads raw bytes (signature PNG, photos) → the full url, or null with
   /// [lastUploadError] set. Limited by [uploadTimeout]; never throws.
-  static Future<String?> uploadBytes(Uint8List bytes, String filename) async {
+  static Future<String?> uploadBytes(Uint8List bytes, String filename, {bool private = false, String? purpose}) async {
     lastUploadError = null;
     try {
-      final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload'));
+      final request = http.MultipartRequest('POST', uploadUri(private: private, purpose: purpose));
       // /api/upload requires a signed-in caller.
       final token = await getToken();
       if (token != null) request.headers['Authorization'] = 'Bearer $token';
@@ -175,7 +217,9 @@ class DriverApiService {
       final data = _decode(res, sentToken: token);
       final url = data['url'];
       if (url is String && url.isNotEmpty) return AppConfig.imageUrl(url);
-      lastUploadError = (data['error'] ?? 'Upload failed').toString();
+      lastUploadError = res.statusCode == 429
+          ? (data['error'] ?? 'Too many uploads. Please try again in a while.').toString()
+          : (data['error'] ?? 'Upload failed').toString();
       return null;
     } on TimeoutException {
       lastUploadError = 'Upload timed out — check your connection and try again.';
@@ -193,7 +237,27 @@ class DriverApiService {
   static Future<Map<String, dynamic>> verifyOtp(String phone, String otp) =>
       post('/auth/driver/verify-otp', {'phone': phone, 'otp': otp});
 
-  static Future<Map<String, dynamic>> getProfile() => get('/auth/driver/profile');
+  /// {driver, refreshAfter}. refreshAfter (ISO) is when the token may be
+  /// exchanged for a fresh one; [onProfile] passes it to the session.
+  static Future<Map<String, dynamic>> getProfile() async {
+    final res = await get('/auth/driver/profile');
+    final cb = onProfile;
+    if (cb != null && res['error'] == null) {
+      try { cb(res); } catch (_) {}
+    }
+    return res;
+  }
+
+  /// Called with every successful profile reply (Session: sliding refresh).
+  static void Function(Map<String, dynamic> profile)? onProfile;
+
+  /// POST /auth/refresh (Bearer): 200 {token, expiresIn, refreshAfter},
+  /// 409 {code:'TOO_EARLY', refreshAfter}, 401/403 {code} as any request.
+  static Future<Map<String, dynamic>> refreshToken() => post('/auth/refresh', {}, auth: true);
+
+  /// Force-update settings: {config: {version: {latestVersion, minVersion,
+  /// forceUpdate, message, storeUrl}, …}}. Public.
+  static Future<Map<String, dynamic>> getAppConfig() => get('/app-config?app=driver');
 
   // Real notification feed for this driver (broadcasts + anything addressed to
   // them). The notifications screen used to be served by MockNotificationService.
@@ -295,6 +359,8 @@ class DriverApiService {
 
   /// A 400 INVALID_LOCATION / 422 LOCATION_JUMP reply only means this one
   /// point was not stored; callers keep pinging.
+  /// {throttled: true} (a ping inside the server's store interval) is a
+  /// success too: acknowledged, just not stored.
   static Future<Map<String, dynamic>> updateLocation(double lat, double lng) =>
       post('/auth/driver/location', {'lat': lat, 'lng': lng}, auth: true);
 
@@ -465,6 +531,10 @@ class DriverApiService {
   static Future<Map<String, dynamic>> addBank(Map<String, dynamic> bank) =>
       post('/auth/driver/banks', bank, auth: true);
 
+  /// {amount, accountId?}: the payout account is one of the driver's saved
+  /// accounts (the server never takes bank details from here). 400
+  /// bankAccountRequired / bankAccountNotFound, 403 notApproved / accountHold,
+  /// 409 one already pending.
   static Future<Map<String, dynamic>> requestWithdrawal(Map<String, dynamic> data) =>
       post('/auth/driver/withdraw', data, auth: true);
 
@@ -532,7 +602,9 @@ class DriverApiService {
   // { required, reason, hasSignature } — checked before letting the driver go online.
   static Future<Map<String, dynamic>> getFaceVerificationStatus() => get('/auth/driver/face-verification-status');
 
-  // Standalone re-verify to clear a faceVerificationRequired lock.
+  // Standalone re-verify to clear a faceVerificationRequired lock:
+  // {matched, cleared, adminHold?} — no score. photoUrl is required (a private
+  // face upload); 429 RATE_LIMITED after 5 tries an hour.
   static Future<Map<String, dynamic>> reverifyFace(List<double> embedding, String photoUrl) =>
       post('/auth/driver/face-reverify', {'embedding': embedding, 'photoUrl': photoUrl}, auth: true);
 

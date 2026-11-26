@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../providers/driver_provider.dart';
+import '../../../services/token_store.dart';
 
 class ProfilePage extends StatefulWidget {
   static const route = '/profile';
@@ -44,7 +45,8 @@ class _ProfilePageState extends State<ProfilePage> {
                   key: const ValueKey('driver_profile_photo'),
                   radius: 52,
                   backgroundColor: AppColors.cardBg,
-                  backgroundImage: picUrl.isNotEmpty ? NetworkImage(picUrl) : null,
+                  // The photo is the private face capture: sent with the token.
+                  backgroundImage: picUrl.isNotEmpty ? NetworkImage(picUrl, headers: imageHeadersFor(picUrl)) : null,
                   child: picUrl.isEmpty
                       ? Text(name[0].toUpperCase(),
                           style: TextStyle(fontSize: 42, color: AppColors.textDark, fontWeight: FontWeight.w800))

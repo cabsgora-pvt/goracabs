@@ -24,10 +24,16 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Full-screen "incoming ride" alert over the lock screen (Ola/Rapido style) -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- Asked once, with an explanation, when the driver goes online
+         (FlutterForegroundTask.requestIgnoreBatteryOptimization): Doze must not
+         stop the online service from alerting ride requests. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:label="Gora Captain"
         android:name="${applicationName}"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

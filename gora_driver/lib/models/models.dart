@@ -205,7 +205,29 @@ class RideRequestModel {
       progress: RideProgress.fromJson(r),
     );
   }
+
+  /// When this job is due: the latest of scheduledAt, departureAt (outstation
+  /// / rental) and hireStartAt — the server's own rule (lib/dispatch
+  /// rideDueAt). Null when none is set (a ride for now).
+  DateTime? get dueAt {
+    DateTime? best = scheduledAt;
+    for (final s in [departureAt, hireStartAt]) {
+      final t = DateTime.tryParse(s)?.toLocal();
+      if (t != null && (best == null || t.isAfter(best))) best = t;
+    }
+    return best;
+  }
 }
+
+/// How long before its due time an accepted booking makes the driver busy —
+/// the server's BUSY.ACCEPTED_DUE_WITHIN_MIN (lib/dispatch). Until then it is
+/// an upcoming trip: the driver keeps taking other requests, and the trip
+/// screen does not open.
+const upcomingTripLead = Duration(minutes: 60);
+
+/// True while an accepted job is still too far off to start ([upcomingTripLead]).
+bool isUpcomingTrip(DateTime? dueAt, {DateTime? now}) =>
+    dueAt != null && dueAt.isAfter((now ?? DateTime.now()).add(upcomingTripLead));
 
 /// How far an in-progress job had got, from /rides/driver/active.
 ///
@@ -343,6 +365,13 @@ class TripModel {
   /// then only the fare is shown, never presented as earnings.
   final num driverEarning;
   final num commission;
+  /// 'paid' | 'pending' … as the server recorded it.
+  final String paymentStatus;
+
+  /// A completed online ride the rider has not paid yet: the earning is not
+  /// in the wallet — shown as "Pending" until it is.
+  bool get earningPending =>
+      status == 'completed' && paymentMode == 'online' && paymentStatus.isNotEmpty && paymentStatus != 'paid';
 
   const TripModel({
     required this.id, required this.userName, required this.pickupAddress, required this.dropAddress,
@@ -357,6 +386,7 @@ class TripModel {
     this.numPassengers = 0,
     this.driverEarning = 0,
     this.commission = 0,
+    this.paymentStatus = '',
   });
 }
 

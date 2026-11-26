@@ -243,7 +243,9 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
       if (collected != true || !mounted) return;
       _cashInHand = true;
     }
-    await _withBusy(() => collectAndSettle(context, ride: widget.ride, cashDue: 0,
+    // The cash (fare + COD) was taken above from the server's delivery bill:
+    // /complete's cashToCollect must not ask for the fare a second time.
+    await _withBusy(() => collectAndSettle(context, ride: widget.ride, cashDue: 0, cashInHand: true,
       afterSettleNote: cod > 0
           ? 'COD ₹${cod.toStringAsFixed(0)} recorded — deducted from your wallet and paid to the sender'
           : null));

@@ -8,6 +8,7 @@ import '../../../providers/driver_provider.dart';
 import '../../../services/driver_api_service.dart';
 import '../../../services/location_service.dart';
 import '../../../services/ride_alert_service.dart';
+import '../../../services/device_channel.dart';
 import '../../earnings/pages/earnings_page.dart';
 import '../../account/pages/account_page.dart';
 import '../../ride/pages/incoming_requests_page.dart';
@@ -69,6 +70,12 @@ class _HomePageState extends State<HomePage> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Your zone changed to ${state.zoneChangedTo}')),
             );
+          }
+          // Online for the first time on this phone: ask (once, with the
+          // reason) to be left out of battery optimisation, so the online
+          // service keeps alerting requests with the screen off.
+          if (state is OnlineStatusChanged && state.isOnline) {
+            unawaited(BatteryOptimisation.askOnce(context));
           }
         },
         builder: (context, state) {
@@ -482,8 +489,19 @@ class _ActiveRideResumerState extends State<_ActiveRideResumer> {
       final ride = res['ride'];
       if (!mounted) return;
       setState(() => _ride = ride == null ? null : Map<String, dynamic>.from(ride as Map));
-      if (_ride != null && !_autoResumed) { _autoResumed = true; _resume(); }
+      // An advance booking accepted for later (more than an hour away) is not
+      // opened by itself: the driver is free to take other trips until then.
+      if (_ride != null && !_autoResumed && !_upcoming) { _autoResumed = true; _resume(); }
     } catch (_) {}
+  }
+
+  RideRequestModel? get _model => _ride == null ? null : RideRequestModel.fromJson(Map<String, dynamic>.from(_ride!));
+
+  /// Accepted, and not due within the hour.
+  bool get _upcoming {
+    final ride = _ride;
+    if (ride == null || (ride['status'] ?? '') != 'accepted') return false;
+    return isUpcomingTrip(_model?.dueAt);
   }
 
   void _resume() {
@@ -515,15 +533,18 @@ class _ActiveRideResumerState extends State<_ActiveRideResumer> {
         child: InkWell(
           borderRadius: BorderRadius.circular(Cap.radius),
           onTap: _resume,
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Row(children: [
-              Icon(Icons.navigation_rounded, color: Colors.white),
-              SizedBox(width: 12),
-              Expanded(child: Text('Ride in progress — tap to resume',
-                  maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800))),
-              Icon(Icons.chevron_right_rounded, color: Colors.white),
+              Icon(_upcoming ? Icons.event_rounded : Icons.navigation_rounded, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(child: Text(
+                  _upcoming
+                      ? 'Upcoming trip · ${scheduledLabel(_model!.dueAt!).replaceFirst('Scheduled for ', '')}'
+                      : 'Ride in progress — tap to resume',
+                  maxLines: 2, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800))),
+              const Icon(Icons.chevron_right_rounded, color: Colors.white),
             ]),
           ),
         ),

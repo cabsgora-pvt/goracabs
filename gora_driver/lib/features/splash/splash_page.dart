@@ -6,6 +6,7 @@ import '../home/pages/home_page.dart';
 import '../registration/kyc_pending_page.dart';
 import '../registration/rejection_page.dart';
 import '../registration/resume_registration.dart';
+import '../../services/app_update.dart';
 
 class SplashPage extends StatefulWidget {
   static const route = '/splash';
@@ -24,6 +25,8 @@ class _SplashPageState extends State<SplashPage> with SingleTickerProviderStateM
     _fade = Tween<double>(begin: 0, end: 1).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeIn));
     _scale = Tween<double>(begin: 0.7, end: 1).animate(CurvedAnimation(parent: _ctrl, curve: Curves.elasticOut));
     _ctrl.forward();
+    // Force-update settings: a build below the admin's minVersion is blocked.
+    AppUpdate.check();
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) context.read<AuthBloc>().add(CheckAuthEvent());
     });

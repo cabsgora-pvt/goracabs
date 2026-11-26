@@ -99,6 +99,7 @@ class HistoryBloc extends Bloc<HistoryEvent, HistoryState> {
           numPassengers: (r['numPassengers'] as num?)?.toInt() ?? 0,
           driverEarning: (r['driverEarning'] as num?) ?? 0,
           commission: (r['commissionAmount'] as num?) ?? 0,
+          paymentStatus: (r['paymentStatus'] ?? '').toString(),
         );
       }).toList();
   }

@@ -9,6 +9,30 @@ import 'face_single_capture_page.dart';
 /// again until this passes; a failed attempt here just lets them retry (the
 /// lock itself was already set by the ride-ending event, so there is no
 /// further escalation to apply on a second failure here).
+/// What a face-reverify reply means. The server answers {matched, cleared,
+/// adminHold?} — no score. Only `cleared` lets the driver back online: a
+/// match does not clear a lock or hold an admin set.
+({bool cleared, String message}) reverifyOutcome(Map<String, dynamic> r) {
+  if (r['cleared'] == true) return (cleared: true, message: '');
+  if (r['adminHold'] == true) {
+    return (cleared: false, message: 'Your account is on hold. Please contact support.');
+  }
+  final status = r['_status'];
+  if (status == 429 || r['code'] == 'RATE_LIMITED') {
+    return (cleared: false, message: 'Too many attempts. Please try again later or contact support.');
+  }
+  if (r['code'] == 'PHOTO_REQUIRED') {
+    return (cleared: false, message: 'The photo did not upload. Please try again.');
+  }
+  if (r['error'] != null) return (cleared: false, message: r['error'].toString());
+  if (r['matched'] == true) {
+    // Matched, but there was nothing the check could clear.
+    return (cleared: false, message: 'Verified, but your account still needs a check by support. Please contact support.');
+  }
+  return (cleared: false,
+      message: "That didn't match our records. Please try again, or contact support if this keeps happening.");
+}
+
 class FaceReverifyPage extends StatefulWidget {
   static const route = '/account/face-reverify';
   final String reason; // 'mismatch' | 'no_response'
@@ -34,15 +58,12 @@ class _FaceReverifyPageState extends State<FaceReverifyPage> {
     if (!mounted) return;
     setState(() => _checking = false);
     if (result == null) return;
-    if (result['error'] != null) {
-      setState(() => _lastError = result['error'].toString());
+    final outcome = reverifyOutcome(result);
+    if (outcome.cleared) {
+      if (mounted) Navigator.pop(context, true);
       return;
     }
-    if (result['matched'] == true) {
-      if (mounted) Navigator.pop(context, true);
-    } else {
-      setState(() => _lastError = "That didn't match our records. Please try again, or contact support if this keeps happening.");
-    }
+    setState(() => _lastError = outcome.message);
   }
 
   @override

@@ -44,6 +44,8 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
   bool _waiting = false;
   bool _ending = false;
   Map<String, dynamic>? _bill; // set once the server has priced the rental
+  /// The cash to take for this bill — the server's cashToCollect from 'end'.
+  num _cashToCollect = 0;
   bool _cashInHand = false;
   // What the invoice shows once settled here: the earning after commission.
   Object? _invoice;
@@ -203,6 +205,9 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
     }
     if (!mounted) return;
     if (res['error'] != null) {
+      // EXTENSION_PENDING carries the request that is still waiting.
+      final waiting = PendingExtension.tryParse(res['pendingExtension']);
+      if (waiting != null) setState(() => _pendingExt = waiting);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('Could not extend: ${rideActionError(res)}'), backgroundColor: AppColors.red));
       return;
@@ -242,18 +247,24 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
         return;
       }
       _tick?.cancel(); _pingTimer?.cancel(); _bgSub?.cancel(); _clock.stop();
-      setState(() => _bill = (res['rental'] as Map<String, dynamic>?) ?? {});
+      // A repeated 'end' (the first answer was lost) answers alreadyEnded with
+      // the same bill: carry on with it, it is not an error.
+      final bill = (res['rental'] as Map<String, dynamic>?) ?? {};
+      setState(() {
+        _bill = bill;
+        _cashToCollect = rentalCashToCollect(res, cash: widget.ride.paymentMode == 'cash');
+      });
     }
     await _settle();
   }
 
-  double get _amountDue => ((_bill?['finalFare'] as num?) ?? 0).toDouble();
+  double get _amountDue => _cashToCollect.toDouble();
 
   Future<void> _settle() async {
     final bill = _bill;
     if (bill == null) return;
 
-    if (widget.ride.paymentMode == 'cash') {
+    if (widget.ride.paymentMode == 'cash' && _amountDue > 0) {
       if (!_cashInHand) {
         final collected = await Navigator.push<bool>(
           context, MaterialPageRoute(builder: (_) => CollectFarePage(amount: _amountDue)));
@@ -268,7 +279,8 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
     // the earning is credited once they pay).
     if (_invoice == null) {
       setState(() => _ending = true);
-      final invoice = await settleForInvoice(context, widget.ride);
+      // The cash (if any) was taken from the server's bill above.
+      final invoice = await settleForInvoice(context, widget.ride, cashCollected: true);
       if (!mounted) return;
       setState(() => _ending = false);
       if (invoice == null) return;
@@ -296,6 +308,8 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
           if (n(r['nightCharge']) > 0) _billRow('Night charge', '₹${r['nightCharge']}'),
           const Divider(),
           _billRow('Total', '₹${r['finalFare'] ?? 0}', bold: true),
+          if (widget.ride.paymentMode == 'cash')
+            _billRow('Collected in cash', '₹${_cashToCollect.round()}'),
           if (r['awaitingPayment'] == true && widget.ride.paymentMode == 'online')
             Padding(padding: const EdgeInsets.only(top: 8), child: Text(
               'Paid online by the rider — your earning is added once they pay.',

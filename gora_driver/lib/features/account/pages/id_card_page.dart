@@ -9,6 +9,7 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../config/app_config.dart';
 import '../../../services/driver_api_service.dart';
+import '../../../services/token_store.dart';
 
 class IdCardPage extends StatefulWidget {
   static const route = '/id-card';
@@ -119,7 +120,7 @@ class _IdCardPageState extends State<IdCardPage> {
                 child: ClipRRect(borderRadius: BorderRadius.circular(7),
                     child: picUrl.isEmpty
                         ? Icon(Icons.person, size: 40, color: AppColors.textGrey)
-                        : Image.network(picUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Icon(Icons.person, size: 40, color: AppColors.textGrey))),
+                        : Image.network(picUrl, headers: imageHeadersFor(picUrl), fit: BoxFit.cover, errorBuilder: (_, __, ___) => Icon(Icons.person, size: 40, color: AppColors.textGrey))),
               ),
               const SizedBox(width: 10),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

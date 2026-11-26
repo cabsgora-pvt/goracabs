@@ -4,6 +4,41 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../services/driver_api_service.dart';
 
+/// The body of a withdrawal: {amount, accountId?}. The payout account is one
+/// of the driver's SAVED accounts — the server takes the bank details from
+/// its own record, never from here. A saved account (GET /auth/driver/banks)
+/// carries its `_id`; the registration account listed when none was added
+/// has none and is picked by its account number / IFSC instead (the server
+/// matches it against the saved one only).
+Map<String, dynamic> withdrawalBody(num amount, Map<String, dynamic> bank) {
+  final id = (bank['_id'] ?? bank['id'] ?? '').toString();
+  return {
+    'amount': amount == amount.roundToDouble() ? amount.round() : amount,
+    if (id.isNotEmpty) 'accountId': id
+    else ...{
+      if (bank['accountNumber'] != null) 'accountNumber': bank['accountNumber'],
+      if (bank['ifscCode'] != null) 'ifscCode': bank['ifscCode'],
+    },
+  };
+}
+
+/// The line for a refused withdrawal, by the server's code. Null: use the
+/// server's own text.
+String? withdrawalRefusal(Map<String, dynamic> res) {
+  switch ((res['code'] ?? '').toString()) {
+    case 'bankAccountRequired':
+      return 'Add a bank account to withdraw to.';
+    case 'bankAccountNotFound':
+      return 'That bank account is no longer saved. Pick one of your accounts, or add it again.';
+    case 'notApproved':
+      return 'Withdrawals are available once your account is approved.';
+    case 'accountHold':
+      final e = (res['error'] ?? '').toString();
+      return e.isNotEmpty ? e : 'Your account is on hold, so withdrawals are paused. Please contact support.';
+  }
+  return null;
+}
+
 class WithdrawPage extends StatefulWidget {
   final double balance;
   const WithdrawPage({super.key, required this.balance});
@@ -181,13 +216,7 @@ class _WithdrawPageState extends State<WithdrawPage> {
     final bank = _banks[_selectedIndex];
     setState(() => _loading = true);
     try {
-      final res = await DriverApiService.requestWithdrawal({
-        'amount': amt,
-        'accountHolderName': bank['accountHolderName'],
-        'bankName': bank['bankName'],
-        'accountNumber': bank['accountNumber'],
-        'ifscCode': bank['ifscCode'],
-      });
+      final res = await DriverApiService.requestWithdrawal(withdrawalBody(amt, bank));
       if (!mounted) return;
       setState(() => _loading = false);
       if (res['success'] == true) {
@@ -197,6 +226,22 @@ class _WithdrawPageState extends State<WithdrawPage> {
           SnackBar(content: Text(withdrawalHeldText(amt, res['walletBalance'])), backgroundColor: AppColors.green),
         );
         Navigator.pop(context, true);
+      } else if (res['code'] == 'bankAccountRequired' || res['code'] == 'bankAccountNotFound') {
+        // The saved accounts changed: reload them and offer to add one.
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(withdrawalRefusal(res)!),
+          backgroundColor: AppColors.orange,
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(label: 'Add account', onPressed: _openAddBankSheet),
+        ));
+        await _loadBanks();
+      } else if (withdrawalRefusal(res) != null) {
+        // 403 notApproved / accountHold: not something a retry fixes.
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(withdrawalRefusal(res)!),
+          backgroundColor: AppColors.red,
+          duration: const Duration(seconds: 6),
+        ));
       } else if (res['_status'] == 409) {
         // One request at a time: the earlier one still holds its money.
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(

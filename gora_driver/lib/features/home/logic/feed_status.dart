@@ -41,8 +41,27 @@ FeedBlock? feedBlockFrom(Map<String, dynamic> res) {
     return const FeedBlock('busy', 'You have a trip',
         'New requests come once your current or upcoming trip is done.');
   }
+  final until = offerCooldownUntilOf(res);
+  if (until != null) {
+    return FeedBlock('cooldown', 'Requests paused',
+        '${cooldownText(until)}. Open requests are still shown.');
+  }
   return null;
 }
+
+/// offerCooldownUntil in a feed / reject reply, while it is still ahead.
+/// Too many rejections in a short time pause the offers made to this driver
+/// (lib/dispatch REJECT_COOLDOWN); the open pool stays visible.
+DateTime? offerCooldownUntilOf(Map<String, dynamic> res, {DateTime? now}) {
+  final t = DateTime.tryParse((res['offerCooldownUntil'] ?? '').toString())?.toLocal();
+  if (t == null || !t.isAfter(now ?? DateTime.now())) return null;
+  return t;
+}
+
+String _hhmm(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+/// "Too many rejections — new requests paused until 18:40".
+String cooldownText(DateTime until) => 'Too many rejections — new requests paused until ${_hhmm(until.toLocal())}';
 
 /// The latest reason the feed is blocked, for the home banner. Cleared when
 /// the feed answers normally or the driver goes offline.

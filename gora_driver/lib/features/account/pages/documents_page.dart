@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../providers/driver_provider.dart';
+import '../../../services/token_store.dart';
 import '../../../widgets/captain_ui/captain_ui.dart';
 
 class DocumentsPage extends StatefulWidget {
@@ -64,6 +65,8 @@ class _DocumentsPageState extends State<DocumentsPage> {
                     : InteractiveViewer(
                         child: Image.network(
                           url,
+                          // KYC documents are private: sent with the token.
+                          headers: imageHeadersFor(url),
                           fit: BoxFit.contain,
                           errorBuilder: (_, __, ___) => const Padding(
                             padding: EdgeInsets.all(40),
@@ -132,6 +135,7 @@ class _DocumentsPageState extends State<DocumentsPage> {
                           child: url.isNotEmpty
                               ? Image.network(
                                   url,
+                                  headers: imageHeadersFor(url),
                                   width: 52, height: 52, fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) => _docIcon(color),
                                 )
