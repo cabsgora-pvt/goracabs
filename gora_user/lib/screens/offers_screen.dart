@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 import '../theme/app_theme.dart';
 import '../services/api_service.dart';
+import '../utils/pending_coupon.dart';
 
 class OffersScreen extends StatefulWidget {
   const OffersScreen({super.key});
@@ -13,6 +14,9 @@ class OffersScreen extends StatefulWidget {
 
 class _OffersScreenState extends State<OffersScreen> {
   Map<String, dynamic>? _cfg;
+  // null while the admin's offers / coupons are loading; false when the
+  // config could not be fetched (offline) - never a made-up list any more.
+  bool? _cfgLoaded;
   Map<String, dynamic>? _referral;
   bool _referralFailed = false;
   String? get _referralCode => _referral?['code'] as String?;
@@ -20,9 +24,7 @@ class _OffersScreenState extends State<OffersScreen> {
   @override
   void initState() {
     super.initState();
-    ApiService.getAppConfig().then((c) {
-      if (mounted) setState(() => _cfg = c);
-    });
+    _loadConfig();
     ApiService.getReferral().then((r) {
       if (!mounted) return;
       if (r['code'] == null) {
@@ -34,6 +36,74 @@ class _OffersScreenState extends State<OffersScreen> {
       if (mounted) setState(() => _referralFailed = true);
     });
   }
+
+  Future<void> _loadConfig({bool force = false}) async {
+    if (force) setState(() => _cfgLoaded = null);
+    Map<String, dynamic> c;
+    try {
+      c = await ApiService.getAppConfig(force: force);
+    } catch (_) {
+      c = const {};
+    }
+    if (!mounted) return;
+    // getAppConfig answers {} when the server could not be reached.
+    setState(() {
+      _cfg = c;
+      _cfgLoaded = c.isNotEmpty;
+    });
+  }
+
+  /// "Apply": keeps [code] for the next booking. That booking's coupon pill
+  /// (PaymentCouponBar) checks it against the trip with the server and shows
+  /// the real discount - or why it does not apply.
+  Future<void> _applyForNextRide(String code, {String service = ''}) async {
+    final c = code.trim().toUpperCase();
+    if (c.isEmpty) return;
+    await PendingCoupon.save(c, service: service);
+    await Clipboard.setData(ClipboardData(text: c));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('$c will be applied to your next booking - the discount is confirmed on the fare screen.'),
+    ));
+  }
+
+  /// Spinner, or the "couldn't load" / "nothing here" line, or null when
+  /// there is a list to show.
+  Widget? _stateFor(bool empty, {required String emptyTitle, required String emptySub}) {
+    if (_cfgLoaded == null) {
+      return const Center(key: ValueKey('offers-loading'), child: CircularProgressIndicator());
+    }
+    if (_cfgLoaded == false) {
+      return _message(Icons.cloud_off_rounded, "Couldn't load offers",
+          'Check your internet connection and try again.', retry: true);
+    }
+    if (empty) return _message(Icons.local_offer_outlined, emptyTitle, emptySub);
+    return null;
+  }
+
+  Widget _message(IconData icon, String title, String sub, {bool retry = false}) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 56, color: AppTheme.textGrey),
+            const SizedBox(height: 12),
+            Text(title, textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            Text(sub, textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: AppTheme.textGrey)),
+            if (retry) ...[
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                key: const ValueKey('offers-retry'),
+                onPressed: () => _loadConfig(force: true),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ]),
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -76,85 +146,44 @@ class _OffersScreenState extends State<OffersScreen> {
   }
 
   Widget _buildActiveOffers(BuildContext context) {
-    final fallbackOffers = [
-      {
-        'title': '50% OFF on First Ride',
-        'desc': 'Get flat 50% discount on your first ride with Gora Cabs',
-        'code': 'FIRST50',
-        'validity': 'Valid till 31 Dec 2024',
-        'color': '0xFF0052CC',
-        'icon': Icons.local_taxi,
-      },
-      {
-        'title': 'Flat ₹100 Cashback',
-        'desc': 'Add ₹500 or more to wallet and get ₹100 cashback',
-        'code': 'WALLET100',
-        'validity': 'Valid till 28 Feb 2024',
-        'color': '0xFFE65100',
-        'icon': Icons.account_balance_wallet,
-      },
-      {
-        'title': 'Weekend Special',
-        'desc': 'Get 30% off on all rides during weekends',
-        'code': 'WEEKEND30',
-        'validity': 'Valid on Sat & Sun',
-        'color': '0xFF2E7D32',
-        'icon': Icons.celebration,
-      },
-      {
-        'title': 'Outstation Offer',
-        'desc': 'Save ₹500 on outstation trips above ₹2000',
-        'code': 'OUTSTATION500',
-        'validity': 'Valid till 15 Mar 2024',
-        'color': '0xFF6A1B9A',
-        'icon': Icons.route,
-      },
-      {
-        'title': 'Rental Package Deal',
-        'desc': 'Book 8hr rental and get 2hr extra free',
-        'code': 'RENTAL2HR',
-        'validity': 'Valid for 7 days',
-        'color': '0xFFD84315',
-        'icon': Icons.schedule,
-      },
-    ];
-
-    // Build offers from admin config when available, else fall back.
+    // Only what the admin configured. A hard-coded list of codes (FIRST50,
+    // WALLET100 ... "valid till 2024") used to show whenever there was none -
+    // expired codes the server would refuse.
     final cfgOffers = (_cfg?['offers'] as List?)
             ?.where((o) => o is Map && o['isActive'] != false)
             .toList() ??
         const [];
 
-    final List<Map<String, dynamic>> offers;
-    if (cfgOffers.isNotEmpty) {
-      const palette = [
-        '0xFF0052CC',
-        '0xFFE65100',
-        '0xFF2E7D32',
-        '0xFF6A1B9A',
-        '0xFFD84315',
-      ];
-      offers = [];
-      for (var i = 0; i < cfgOffers.length; i++) {
-        final o = cfgOffers[i] as Map;
-        offers.add({
-          'title': (o['title'] ?? '').toString(),
-          'desc': (o['desc'] ?? '').toString(),
-          'imageUrl': (o['imageUrl'] ?? '').toString(),
-          'code': (o['code'] ?? '').toString(),
-          'validity': (o['validity'] ?? '').toString(),
-          'color': palette[i % palette.length],
-          'icon': Icons.local_offer,
-        });
-      }
-    } else {
-      offers = fallbackOffers;
+    const palette = [
+      '0xFF0052CC',
+      '0xFFE65100',
+      '0xFF2E7D32',
+      '0xFF6A1B9A',
+      '0xFFD84315',
+    ];
+    final offers = <Map<String, dynamic>>[];
+    for (var i = 0; i < cfgOffers.length; i++) {
+      final o = cfgOffers[i] as Map;
+      offers.add({
+        'title': (o['title'] ?? '').toString(),
+        'desc': (o['desc'] ?? '').toString(),
+        'imageUrl': (o['imageUrl'] ?? '').toString(),
+        'code': (o['code'] ?? '').toString(),
+        'service': (o['service'] ?? '').toString(),
+        'validity': (o['validity'] ?? '').toString(),
+        'color': palette[i % palette.length],
+        'icon': Icons.local_offer,
+      });
     }
+    final state = _stateFor(offers.isEmpty,
+        emptyTitle: 'No offers right now',
+        emptySub: 'New offers from Gora will show up here.');
+    if (state != null) return state;
 
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: offers.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 16),
+      separatorBuilder: (_, _) => const SizedBox(height: 16),
       itemBuilder: (_, i) {
         final offer = offers[i];
         final color = offerColor(offer['color']);
@@ -268,27 +297,29 @@ class _OffersScreenState extends State<OffersScreen> {
                                 validity,
                                 maxLines: 1, overflow: TextOverflow.ellipsis,
                                 textAlign: TextAlign.right,
-                                style: TextStyle(color: Colors.white.withAlpha(200), fontSize: 11),
+                                style: TextStyle(color: Colors.white.withAlpha(200), fontSize: 11.5),
                               ),
                             ),
                         ],
                       ),
                     ],
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(code.isNotEmpty ? 'Offer $code applied!' : 'Offer applied!')),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: color,
-                        minimumSize: const Size(double.infinity, 44),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    // An offer with a code is applied to the next booking (and
+                    // checked there by the server); one without a code is just
+                    // news - no button pretending to apply it.
+                    if (code.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: () => _applyForNextRide(code,
+                            service: (offer['service'] as String?) ?? ''),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: color,
+                          minimumSize: const Size(double.infinity, 44),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: const Text('Apply to next ride', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
-                      child: const Text('Apply Offer', style: TextStyle(fontWeight: FontWeight.bold)),
-                    ),
+                    ],
                   ],
                 ),
               ),
@@ -300,33 +331,11 @@ class _OffersScreenState extends State<OffersScreen> {
   }
 
   Widget _buildPromoCodes(BuildContext context) {
-    final fallbackPromoCodes = [
-      {'code': 'GORA50', 'desc': '50% off up to ₹100', 'type': 'Ride'},
-      {'code': 'NEWUSER', 'desc': 'Flat ₹150 off on first ride', 'type': 'Ride'},
-      {'code': 'SAVE20', 'desc': '20% off up to ₹50', 'type': 'Ride'},
-      {'code': 'WALLET200', 'desc': '₹200 cashback on wallet recharge', 'type': 'Wallet'},
-      {'code': 'DELIVERY50', 'desc': 'Free delivery on orders above ₹200', 'type': 'Delivery'},
-    ];
-
-    // Build promo codes from admin config when available, else fall back.
-    final cfgCoupons = (_cfg?['coupons'] as List?)
-            ?.where((c) => c is Map && c['isActive'] != false)
-            .toList() ??
-        const [];
-
-    final List<Map<String, String>> promoCodes;
-    if (cfgCoupons.isNotEmpty) {
-      promoCodes = cfgCoupons.map<Map<String, String>>((c) {
-        final m = c as Map;
-        return {
-          'code': (m['code'] ?? '').toString(),
-          'desc': (m['desc'] ?? '').toString(),
-          'type': (m['service'] ?? 'Ride').toString(),
-        };
-      }).toList();
-    } else {
-      promoCodes = fallbackPromoCodes;
-    }
+    final promoCodes = activeCoupons(_cfg?['coupons']);
+    final state = _stateFor(promoCodes.isEmpty,
+        emptyTitle: 'No promo codes right now',
+        emptySub: 'Codes from Gora will show up here.');
+    if (state != null) return state;
 
     return Column(
       children: [
@@ -344,7 +353,7 @@ class _OffersScreenState extends State<OffersScreen> {
               const SizedBox(width: 12),
               const Expanded(
                 child: Text(
-                  'Enter promo code at checkout to avail discount',
+                  'Tap Apply and the code is used on your next booking - the discount is confirmed on the fare screen.',
                   style: TextStyle(fontSize: 13),
                 ),
               ),
@@ -355,7 +364,7 @@ class _OffersScreenState extends State<OffersScreen> {
           child: ListView.separated(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             itemCount: promoCodes.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
             itemBuilder: (_, i) {
               final promo = promoCodes[i];
               return Container(
@@ -382,9 +391,12 @@ class _OffersScreenState extends State<OffersScreen> {
                         children: [
                           Row(
                             children: [
-                              Text(
-                                promo['code']!,
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.primaryBlue),
+                              Flexible(
+                                child: Text(
+                                  promo['code']!,
+                                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: AppTheme.primaryBlue),
+                                ),
                               ),
                               const SizedBox(width: 8),
                               Container(
@@ -395,7 +407,7 @@ class _OffersScreenState extends State<OffersScreen> {
                                 ),
                                 child: Text(
                                   promo['type']!,
-                                  style: const TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold),
+                                  style: TextStyle(fontSize: 11.5, color: Colors.green[800], fontWeight: FontWeight.bold),
                                 ),
                               ),
                             ],
@@ -406,13 +418,9 @@ class _OffersScreenState extends State<OffersScreen> {
                       ),
                     ),
                     TextButton(
-                      onPressed: () {
-                        Clipboard.setData(ClipboardData(text: promo['code']!));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Code ${promo['code']} copied!')),
-                        );
-                      },
-                      child: const Text('Copy', style: TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.bold)),
+                      key: ValueKey('apply-${promo['code']}'),
+                      onPressed: () => _applyForNextRide(promo['code']!, service: promo['service'] ?? ''),
+                      child: const Text('Apply', style: TextStyle(color: AppTheme.primaryBlue, fontWeight: FontWeight.bold)),
                     ),
                   ],
                 ),
@@ -580,7 +588,7 @@ class _OffersScreenState extends State<OffersScreen> {
         const SizedBox(height: 8),
         Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 11, color: AppTheme.textGrey)),
+        Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11.5, color: AppTheme.textGrey)),
       ],
     );
   }
@@ -614,6 +622,40 @@ class _OffersScreenState extends State<OffersScreen> {
     );
   }
 }
+
+/// The admin's active, unexpired coupons as rows for the Promo Codes tab:
+/// {code, desc, type (label), service (as the booking screens name it)}.
+/// Codes without text and ones past their `expiry` are left out.
+List<Map<String, String>> activeCoupons(dynamic raw, {DateTime? now}) {
+  if (raw is! List) return const [];
+  final at = now ?? DateTime.now();
+  final out = <Map<String, String>>[];
+  for (final c in raw) {
+    if (c is! Map || c['isActive'] == false) continue;
+    final code = (c['code'] ?? '').toString().trim();
+    if (code.isEmpty) continue;
+    final exp = DateTime.tryParse((c['expiry'] ?? '').toString());
+    if (exp != null && exp.isBefore(at)) continue;
+    final svc = (c['service'] ?? '').toString();
+    final norm = PendingCoupon.normalizeService(svc);
+    out.add({
+      'code': code.toUpperCase(),
+      'desc': (c['desc'] ?? '').toString(),
+      'type': _serviceLabel(norm),
+      'service': norm,
+    });
+  }
+  return out;
+}
+
+String _serviceLabel(String service) => switch (service) {
+      'taxi' => 'Ride',
+      'delivery' => 'Parcel',
+      'rental' => 'Rental',
+      'outstation' => 'Outstation',
+      'hire_driver' => 'Hire driver',
+      _ => 'All rides',
+    };
 
 /// An offer's colour from admin data: "0xFF0A3CC8", "#0A3CC8", "0A3CC8" or an
 /// int. Anything else — a typo, null, a name — falls back to the brand blue

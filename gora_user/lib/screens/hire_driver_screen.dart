@@ -4,6 +4,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../utils/net_errors.dart';
 import '../utils/ride_booking.dart';
 import '../widgets/payment_coupon_bar.dart';
 import '../widgets/ride_ui/ride_ui.dart';
@@ -31,10 +32,18 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
   List<Map<String, dynamic>> _vehicles = [];
   bool _loading = false;
   String? _error;
+  bool _errorOffline = false; // the fare load never reached the server
+  bool _errorRetry = false;   // the error is a failed load (show Retry), not "not offered here"
+  int _faresSeq = 0;
 
-  // Autocomplete
+  // Autocomplete: one Places session per search, _searchSeq drops stale answers.
   List<Map<String, dynamic>> _pickSug = [], _dropSug = [];
   Timer? _debounce;
+  final PlacesSession _places = PlacesSession();
+  int _searchSeq = 0;
+  bool _searching = false, _searchingPickup = true;
+  String? _searchProblem;
+  String _searched = '';
   // Map picker
   bool _showMap = false, _pickingPickup = true;
   LatLng _center = const LatLng(23.0225, 72.5714);
@@ -71,37 +80,96 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
 
   void _search(String q, {required bool pickup}) {
     _debounce?.cancel();
-    if (q.trim().length < 2) { setState(() { if (pickup) _pickSug = []; else _dropSug = []; }); return; }
-    _debounce = Timer(const Duration(milliseconds: 350), () async {
-      final r = await ApiService.placesAutocomplete(q);
-      if (mounted) setState(() { if (pickup) _pickSug = r; else _dropSug = r; });
+    final seq = ++_searchSeq;
+    if (q.trim().length < 2) {
+      setState(() { if (pickup) { _pickSug = []; } else { _dropSug = []; } _searching = false; _searchProblem = null; _searched = ''; });
+      return;
+    }
+    setState(() {
+      _searching = true; _searchingPickup = pickup; _searchProblem = null;
+      if (pickup) { _dropSug = []; } else { _pickSug = []; }
     });
+    _debounce = Timer(const Duration(milliseconds: 350), () async {
+      // Biased towards the pickup (the GPS fix until one is chosen).
+      final r = await ApiService.placesSearch(q, lat: _pickupLat, lng: _pickupLng, sessionToken: _places.token);
+      if (!mounted || seq != _searchSeq) return;
+      setState(() {
+        if (pickup) { _pickSug = r.predictions; } else { _dropSug = r.predictions; }
+        _searching = false; _searchProblem = r.problem; _searched = q.trim();
+      });
+    });
+  }
+
+  /// Under the fields while the active list is empty: searching / problem / none found.
+  Widget _searchStatus() {
+    if ((_searchingPickup ? _pickSug : _dropSug).isNotEmpty) return const SizedBox.shrink();
+    if (_searching) return const SearchStatusLine(searching: true);
+    if (_searchProblem != null) return SearchStatusLine(message: _searchProblem);
+    final text = (_searchingPickup ? _pickupCtrl : _dropCtrl).text.trim();
+    if (_searched.isNotEmpty && text.length >= 2) return SearchStatusLine(message: 'No places found for "$_searched"');
+    return const SizedBox.shrink();
   }
 
   Future<void> _pickSuggestion(Map<String, dynamic> s, {required bool pickup}) async {
-    final d = await ApiService.placeDetails(s['placeId'] as String? ?? '');
+    final d = await ApiService.placeDetails(s['placeId'] as String? ?? '', sessionToken: _places.token);
+    _places.renew(); // the pick ends this search session
     if (d == null || !mounted) return;
+    // placeDetails returns numeric lat/lng or null, never an error map.
+    final lat = ApiService.toDoubleOrNull(d['lat']), lng = ApiService.toDoubleOrNull(d['lng']);
+    if (lat == null || lng == null) return;
     setState(() {
-      // placeDetails returns numeric lat/lng or null, never an error map.
-      final lat = ApiService.toDoubleOrNull(d['lat']), lng = ApiService.toDoubleOrNull(d['lng']);
-      if (lat == null || lng == null) return;
       if (pickup) { _pickupLat = lat; _pickupLng = lng; _pickupCtrl.text = '${d['address'] ?? ''}'; _pickSug = []; }
       else { _dropLat = lat; _dropLng = lng; _dropCtrl.text = '${d['address'] ?? ''}'; _dropSug = []; }
+      _searched = ''; _searchProblem = null;
     });
+    // Hire pricing is per zone: a new pickup can change it.
+    if (pickup && _totalHours > 0) _loadFares();
   }
 
+  /// Hire prices for the pickup and hours. [_faresSeq] keeps an older,
+  /// slower answer (the rider changed the time or trip type meanwhile) from
+  /// replacing a newer one; every setState checks mounted.
   Future<void> _loadFares() async {
-    if (_pickupLat == null || _totalHours <= 0) { setState(() => _vehicles = []); return; }
-    setState(() { _loading = true; _error = null; });
+    if (!mounted) return;
+    final seq = ++_faresSeq;
+    if (_pickupLat == null || _totalHours <= 0) {
+      setState(() { _vehicles = []; _loading = false; _error = null; _errorOffline = false; });
+      return;
+    }
+    setState(() { _loading = true; _error = null; _errorOffline = false; });
     try {
       final res = await ApiService.post('/fare/estimate', _estimateBody());
-      if (res['available'] != true) { setState(() { _loading = false; _error = (res['message'] ?? 'Not available').toString(); }); return; }
+      if (!mounted || seq != _faresSeq) return;
+      if (res['available'] != true) {
+        // An error answer (offline page, 5xx) is not "not available here".
+        final failed = res['error'] != null && res['available'] == null;
+        final f = classifyResponse(res);
+        setState(() {
+          _loading = false;
+          _vehicles = [];
+          _errorOffline = failed && f == LoadFailure.offline;
+          _errorRetry = failed;
+          _error = failed ? loadFailureMessage(f, what: 'hire prices') : (res['message'] ?? 'Not available').toString();
+        });
+        return;
+      }
       setState(() {
         _vehicles = ((res['vehicles'] as List?) ?? []).map((v) => Map<String, dynamic>.from(v as Map)).toList();
         _loading = false;
+        _errorRetry = false;
         _error = _vehicles.isEmpty ? 'No hire pricing configured for this zone' : null;
       });
-    } catch (_) { setState(() { _loading = false; _error = 'Failed to load'; }); }
+    } catch (e) {
+      if (!mounted || seq != _faresSeq) return;
+      final f = classifyFailure(e);
+      setState(() {
+        _loading = false;
+        _vehicles = [];
+        _errorOffline = f == LoadFailure.offline;
+        _errorRetry = true;
+        _error = loadFailureMessage(f, what: 'hire prices');
+      });
+    }
   }
 
   /// What /fare/estimate is asked. The quote is signed over its hours and
@@ -153,7 +221,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
     final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(base));
     if (t == null) return;
     final dt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
-    setState(() { if (isStart) _startAt = dt; else _endAt = dt; });
+    setState(() { if (isStart) { _startAt = dt; } else { _endAt = dt; } });
     if (_totalHours > 0) _loadFares();
   }
 
@@ -180,6 +248,7 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
           ]),
           ..._pickSug.map((s) => _sugTile(s, pickup: true)),
           ..._dropSug.map((s) => _sugTile(s, pickup: false)),
+          _searchStatus(),
 
           const ServiceSection('When do you need the driver?', subtitle: 'The driver is paid from pickup time to drop time'),
           PickerPill(
@@ -228,6 +297,11 @@ class _HireDriverScreenState extends State<HireDriverScreen> {
 
           const ServiceSection('Select vehicle type'),
           if (_loading) const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()))
+          else if (_error != null && _errorRetry)
+            NoticeRow(_error!,
+                tone: NoticeTone.warning,
+                icon: _errorOffline ? Icons.wifi_off_rounded : Icons.error_outline,
+                onRetry: _loadFares)
           else if (_error != null) _info(_error!)
           else if (_vehicles.isEmpty) _info('Set pickup + times to see hire prices')
           else ..._vehicles.map(_vehicleCard),

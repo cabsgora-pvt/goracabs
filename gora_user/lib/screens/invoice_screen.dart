@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import '../services/api_service.dart';
+import '../utils/receipt.dart';
 import '../widgets/ride_ui/ride_ui.dart';
 import 'home_screen.dart';
 
@@ -130,17 +131,17 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
     return svcFinal > 0 ? svcFinal : _n(_num('fare', 'baseFare'));
   }
 
-  int get _waiting => _n(_f['waitingChargeTotal']);
+  /// The receipt over the history row and the full record (record wins).
+  /// Same rules as the trip detail screen (utils/receipt.dart): coupon off,
+  /// tolls added, a cancelled trip owes its cancellation fee.
+  TripReceipt get _receipt => TripReceipt.from({..._s, ..._f});
+
+  int get _waiting => _n(_f['waitingChargeTotal'] ?? _s['waitingChargeTotal']);
   int get _tip => _n(_num('tip', 'tip'));
   int get _tolls => _service == 'outstation' ? _n(_num('tollCharge', 'tollCharge')) : 0;
 
-  int get _total {
-    final recorded = _n(_num('totalFare', 'total'));
-    final t = recorded > 0 ? recorded : _billable + _waiting + _tip;
-    // Tolls are paid to the driver outside the fare — the trip detail screen
-    // adds them to "Total Paid" the same way.
-    return t + _tolls;
-  }
+  int get _total => _receipt.totalValue;
+  String get _totalLabel => _receipt.totalLabel(unknown: 'Total Amount');
 
   String get _rideId => _pick('_id', 'id');
 
@@ -164,7 +165,10 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
     return p.isEmpty ? 'CASH' : p.toUpperCase();
   }
 
-  String get _status => _str(_f['status']).isNotEmpty ? _str(_f['status']) : _str(_s['status']).toLowerCase();
+  /// "CASH", or "CASH · Paid" / "WALLET · Pending" when the record says.
+  String get _paymentLine => TripReceipt.paymentLine(_paymentMode, _receipt.paymentStatus);
+
+  String get _status =>_str(_f['status']).isNotEmpty ? _str(_f['status']) : _str(_s['status']).toLowerCase();
 
   String _receiptText() {
     final lines = <String>[
@@ -178,9 +182,13 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
       if (_vehicleType.isNotEmpty) 'Vehicle: $_vehicleType${_vehicleLine.isNotEmpty ? ' ($_vehicleLine)' : ''}',
       if (_driverName.isNotEmpty) 'Driver: $_driverName',
       if (_distanceKm > 0) 'Distance: ${_distanceKm.toStringAsFixed(1)} km',
+      for (final (i, s) in _receipt.stops.indexed) 'Stop ${i + 1}: $s',
+      if (_receipt.isCancelled) _receipt.cancellationLine,
       '',
-      'Total: ₹$_total',
-      'Payment: $_paymentMode',
+      if (_waiting > 0) 'Waiting charge: ₹$_waiting',
+      if (_receipt.couponOff > 0) 'Coupon: -₹${_receipt.couponOff}',
+      '$_totalLabel: ₹$_total',
+      'Payment: $_paymentLine',
     ];
     return lines.join('\n');
   }
@@ -216,13 +224,20 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
                       const SizedBox(height: 10),
                     ],
                     TripRouteSummary(pickup: _pick('pickupAddress', 'from'), drop: drop.isEmpty ? null : drop, maxLines: 3, fontSize: 13.5),
+                    for (final (i, s) in _receipt.stops.indexed)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text('Stop ${i + 1}: $s', maxLines: 2, overflow: TextOverflow.ellipsis, style: small),
+                      ),
                     const RideDivider(vertical: 12),
                     if (_rideId.isNotEmpty) Text('Ride ID: $_rideId', style: small),
                     if (_tripDate.isNotEmpty) Text('Date: $_tripDate', style: small),
-                    Text('Payment: $_paymentMode', style: small),
+                    Text('Payment: $_paymentLine', style: small),
                     if (_status.isNotEmpty && _status != 'completed')
                       Text('Status: ${_status[0].toUpperCase()}${_status.substring(1)}',
                           style: small.copyWith(color: const Color(0xFFB45309), fontWeight: FontWeight.w700)),
+                    if (_receipt.isCancelled && _receipt.cancellationLine.isNotEmpty)
+                      Text(_receipt.cancellationLine, style: small),
                     if (_driverName.isNotEmpty || _vehicleLine.isNotEmpty) ...[
                       const RideDivider(vertical: 12),
                       Row(children: [
@@ -250,9 +265,18 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
                 if (_waiting > 0) SummaryRow('Waiting charge', '₹$_waiting'),
                 if (_tip > 0) SummaryRow('Tip', '₹$_tip'),
                 if (_tolls > 0) SummaryRow('Tolls (paid to driver)', '₹$_tolls'),
+                if (_receipt.couponOff > 0)
+                  SummaryRow('Coupon${_receipt.couponCode.isEmpty ? '' : ' (${_receipt.couponCode})'}',
+                      '-₹${_receipt.couponOff}', valueColor: const Color(0xFF15803D))
+                else if (_receipt.couponDiscount > 0)
+                  // A rental's fare already has the coupon off.
+                  SummaryRow('incl. coupon${_receipt.couponCode.isEmpty ? '' : ' (${_receipt.couponCode})'}',
+                      '₹${_receipt.couponDiscount}', valueColor: RideUi.muted(context)),
+                if (_receipt.isCancelled && _receipt.cancellationFee > 0)
+                  SummaryRow('Cancellation fee', '₹${_receipt.cancellationFee}'),
                 const RideDivider(vertical: 8),
                 Row(children: [
-                  Expanded(child: Text('Total Amount', style: RideUi.body(context, size: 17, weight: FontWeight.w800))),
+                  Expanded(child: Text(_totalLabel, style: RideUi.body(context, size: 17, weight: FontWeight.w800))),
                   Text('₹$_total', style: RideUi.body(context, size: 20, weight: FontWeight.w900)),
                 ]),
 

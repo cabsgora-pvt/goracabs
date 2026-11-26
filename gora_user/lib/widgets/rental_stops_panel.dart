@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import 'ride_ui/ride_tokens.dart';
+import 'ride_ui/service_form.dart' show SearchStatusLine;
 
 /// Destinations a rider adds while a rental is under way.
 ///
@@ -61,7 +62,12 @@ class _RentalStopsPanelState extends State<RentalStopsPanel> {
       // cardColor, not white: in dark mode the search text was white on white.
       backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => _PlaceSearchSheet(onPicked: _add),
+      // Biased towards the rental's pickup: the next stop is usually nearby.
+      builder: (_) => _PlaceSearchSheet(
+        onPicked: _add,
+        biasLat: ApiService.toDoubleOrNull(widget.ride['pickupLat']),
+        biasLng: ApiService.toDoubleOrNull(widget.ride['pickupLng']),
+      ),
     );
   }
 
@@ -126,7 +132,8 @@ class _RentalStopsPanelState extends State<RentalStopsPanel> {
 /// Place search: type, pick a suggestion, resolve it to coordinates.
 class _PlaceSearchSheet extends StatefulWidget {
   final Future<void> Function(String address, double lat, double lng) onPicked;
-  const _PlaceSearchSheet({required this.onPicked});
+  final double? biasLat, biasLng;
+  const _PlaceSearchSheet({required this.onPicked, this.biasLat, this.biasLng});
 
   @override
   State<_PlaceSearchSheet> createState() => _PlaceSearchSheetState();
@@ -139,6 +146,11 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
   // The query a result belongs to, so a slow answer for "Ahm" cannot replace
   // the suggestions already showing for "Ahmedabad airport".
   String _latestQuery = '';
+  // One Places session for this sheet's search (ends with the pick).
+  final PlacesSession _places = PlacesSession();
+  bool _searching = false;
+  String? _problem;
+  String _searched = '';
 
   @override
   void dispose() {
@@ -152,18 +164,23 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
   void _onChanged(String q) {
     _debounce?.cancel();
     _latestQuery = q;
+    if (q.trim().length < 2) {
+      setState(() { _suggestions = const []; _searching = false; _problem = null; _searched = ''; });
+      return;
+    }
+    setState(() { _searching = true; _problem = null; });
     _debounce = Timer(const Duration(milliseconds: 350), () async {
-      if (q.trim().length < 2) {
-        if (mounted) setState(() => _suggestions = const []);
-        return;
+      final r = await ApiService.placesSearch(q,
+          lat: widget.biasLat, lng: widget.biasLng, sessionToken: _places.token);
+      if (mounted && q == _latestQuery) {
+        setState(() { _suggestions = r.predictions; _searching = false; _problem = r.problem; _searched = q.trim(); });
       }
-      final r = await ApiService.placesAutocomplete(q);
-      if (mounted && q == _latestQuery) setState(() => _suggestions = r);
     });
   }
 
   Future<void> _pick(Map<String, dynamic> s) async {
-    final details = await ApiService.placeDetails((s['placeId'] ?? '').toString());
+    final details = await ApiService.placeDetails((s['placeId'] ?? '').toString(), sessionToken: _places.token);
+    _places.renew();
     if (!mounted) return;
     if (details == null || details['lat'] == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -199,6 +216,10 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
         onChanged: _onChanged,
       ),
       const SizedBox(height: 8),
+      if (_suggestions.isEmpty && _searching)
+        const SearchStatusLine(searching: true)
+      else if (_suggestions.isEmpty && (_problem != null || _searched.isNotEmpty))
+        SearchStatusLine(message: _problem ?? 'No places found for "$_searched"'),
       for (final s in _suggestions.take(6))
         ListTile(
           contentPadding: EdgeInsets.zero,

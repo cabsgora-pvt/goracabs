@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/phone.dart';
+import '../utils/phone_input_formatter.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:animated_text_kit/animated_text_kit.dart';
@@ -112,6 +113,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           TextField(
                             controller: _phoneController,
                             keyboardType: TextInputType.phone,
+                            // Digits only; a pasted "+91 98765 43210" becomes
+                            // "9876543210" rather than being cut off at 10 chars.
+                            inputFormatters: const [IndianPhoneInputFormatter()],
+                            autofillHints: const [AutofillHints.telephoneNumberNational],
                             maxLength: 10,
                             decoration: InputDecoration(
                               hintText: 'Enter your phone number',

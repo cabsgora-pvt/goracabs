@@ -5,7 +5,8 @@ import '../theme/app_theme.dart';
 import 'trip_detail_screen.dart';
 import '../services/api_service.dart';
 import '../utils/map_markers.dart';
-import '../utils/polyline_utils.dart';
+import '../utils/receipt.dart';
+import '../utils/trip_map.dart';
 import '../widgets/ride_ui/ride_ui.dart';
 import 'invoice_screen.dart';
 import 'hire_driver_booking_details_screen.dart';
@@ -105,7 +106,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
           final status = (r['status'] ?? '').toString();
           final dr = r['driver'] is Map ? Map<String, dynamic>.from(r['driver'] as Map) : null;
           final driverPic = (dr?['profilePicUrl'] ?? '').toString();
-          return {
+          final row = <String, dynamic>{
             'id': r['_id']?.toString() ?? '',
             'date': r['createdAt'] != null
                 ? _formatDate(r['createdAt'].toString())
@@ -130,10 +131,25 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
             'rating': _numOf(r['driverRating'])?.toDouble() ?? 0,
             'createdAt': (r['createdAt'] ?? '').toString(),
             'vehicle': (r['vehicleType'] ?? '').toString(),
-            'pickupLat': _numOf(r['pickupLat'])?.toDouble() ?? 0,
-            'pickupLng': _numOf(r['pickupLng'])?.toDouble() ?? 0,
-            'dropLat': _numOf(r['dropLat'])?.toDouble() ?? 0,
-            'dropLng': _numOf(r['dropLng'])?.toDouble() ?? 0,
+            // null when the record has no point (a hire with no drop, an old
+            // record): the maps leave it out instead of pinning 0,0 off Africa.
+            'pickupLat': _coord(r['pickupLat']),
+            'pickupLng': _coord(r['pickupLng']),
+            'dropLat': _coord(r['dropLat']),
+            'dropLng': _coord(r['dropLng']),
+            // Receipt fields (utils/receipt.dart reads them).
+            'rawStatus': status,
+            'paymentStatus': (r['paymentStatus'] ?? '').toString(),
+            'couponCode': (r['couponCode'] ?? '').toString(),
+            'couponDiscount': _numOf(r['couponDiscount'])?.toInt() ?? 0,
+            'waitingChargeTotal': _numOf(r['waitingChargeTotal'])?.toInt() ?? 0,
+            'cancellationFee': _numOf(r['cancellationFee'])?.toInt() ?? 0,
+            'cancellationReason': (r['cancellationReason'] ?? '').toString(),
+            'cancelledBy': (r['cancelledBy'] ?? '').toString(),
+            'stops': TripReceipt.stopsOf(r),
+            'amountDue': _numOf(r['amountDue']),
+            'hireFinalFare': _numOf(r['hireFinalFare'])?.toInt() ?? 0,
+            'deliveryFinalFare': _numOf(r['deliveryFinalFare'])?.toInt() ?? 0,
             'routePolyline': _strOf(r['routePolyline']) ?? '',
             'service': svc,
             'tripType': _strOf(r['tripType']) ?? 'one_way',
@@ -173,6 +189,15 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
             'parcelPhotos': (r['parcelPhotos'] is List ? r['parcelPhotos'] as List : null) ?? [],
             'deliveryProofPhoto': (r['deliveryProofPhoto'] ?? '').toString(),
           };
+          // The row's amount: after the coupon (and tolls); a cancelled trip
+          // keeps its struck-through fare, or shows its fee when it had one.
+          final receipt = TripReceipt.from(row);
+          if (!receipt.isCancelled) {
+            row['fare'] = '₹${receipt.total}';
+          } else if (receipt.cancellationFee > 0) {
+            row['fare'] = '₹${receipt.cancellationFee}';
+          }
+          return row;
           } catch (e) {
             debugPrint('ride history: skipped a ride that did not parse: $e');
             return null;
@@ -181,6 +206,12 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
   }
 
   static num? _numOf(dynamic v) => v is num ? v : num.tryParse('${v ?? ''}');
+
+  /// A real coordinate, or null (missing, non-finite, or the 0 placeholder).
+  static double? _coord(dynamic v) {
+    final d = _numOf(v)?.toDouble();
+    return d == null || !d.isFinite || d == 0 ? null : d;
+  }
   static String? _strOf(dynamic v) => v == null ? null : v.toString();
 
   String _formatDate(String iso) {
@@ -194,10 +225,14 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
 
   // Open a bottom sheet with a static map showing the saved trip polyline
   void _showRouteReplay(Map<String, dynamic> ride) {
-    final encoded = (ride['routePolyline'] as String?) ?? '';
-    final pickup = LatLng((ride['pickupLat'] as double?) ?? 0, (ride['pickupLng'] as double?) ?? 0);
-    final drop = LatLng((ride['dropLat'] as double?) ?? 0, (ride['dropLng'] as double?) ?? 0);
-    final pts = encoded.isNotEmpty ? decodePolyline(encoded) : <LatLng>[pickup, drop];
+    final m = TripMapPoints.of(ride);
+    final center = m.center;
+    if (center == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No route was recorded for this trip')));
+      return;
+    }
+    final pickup = m.pickup, drop = m.drop, pts = m.route;
 
     showModalBottomSheet(
       context: context,
@@ -229,9 +264,9 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
               ),
               Expanded(
                 child: PlaceGlyphs(builder: (context, glyphs) => GoogleMap(
-                  initialCameraPosition: CameraPosition(target: pickup, zoom: 13),
+                  initialCameraPosition: CameraPosition(target: center, zoom: 13),
                   onMapCreated: (c) {
-                    final b = boundsFromPoints(pts);
+                    final b = m.bounds;
                     if (b != null) {
                       // Slight delay so the map is laid out before camera animates
                       Future.delayed(const Duration(milliseconds: 300), () {
@@ -243,11 +278,14 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                   myLocationButtonEnabled: false,
                   zoomControlsEnabled: true,
                   markers: {
-                    Marker(markerId: const MarkerId('pickup'), position: pickup, anchor: glyphs.pickupAnchor, icon: glyphs.pickup, infoWindow: InfoWindow(title: 'Pickup', snippet: ride['from']?.toString())),
-                    Marker(markerId: const MarkerId('drop'),   position: drop, anchor: glyphs.dropAnchor, icon: glyphs.drop,   infoWindow: InfoWindow(title: 'Drop',   snippet: ride['to']?.toString())),
+                    if (pickup != null)
+                      Marker(markerId: const MarkerId('pickup'), position: pickup, anchor: glyphs.pickupAnchor, icon: glyphs.pickup, infoWindow: InfoWindow(title: 'Pickup', snippet: ride['from']?.toString())),
+                    if (drop != null)
+                      Marker(markerId: const MarkerId('drop'),   position: drop, anchor: glyphs.dropAnchor, icon: glyphs.drop,   infoWindow: InfoWindow(title: 'Drop',   snippet: ride['to']?.toString())),
                   },
                   polylines: {
-                    Polyline(polylineId: const PolylineId('route'), points: pts, color: AppTheme.primaryBlue, width: 5),
+                    if (pts.length >= 2)
+                      Polyline(polylineId: const PolylineId('route'), points: pts, color: AppTheme.primaryBlue, width: 5),
                   },
                 )),
               ),
@@ -536,7 +574,9 @@ class _RideHistoryScreenState extends State<RideHistoryScreen> {
                 const SizedBox(width: 8),
                 Text((ride['fare'] ?? '').toString(),
                     style: RideUi.body(context, size: 15, weight: FontWeight.w800)
-                        .copyWith(decoration: isCancelled ? TextDecoration.lineThrough : null)),
+                        // Struck through when nothing was owed; a fee shows plainly.
+                        .copyWith(decoration: isCancelled && ((ride['cancellationFee'] as int?) ?? 0) <= 0
+                            ? TextDecoration.lineThrough : null)),
               ]),
               const SizedBox(height: 3),
               Text(_when(ride), maxLines: 1, overflow: TextOverflow.ellipsis, style: RideUi.caption(context, size: 12.5)),

@@ -51,9 +51,20 @@ class ActiveRideScreen extends StatefulWidget {
 class _ActiveRideScreenState extends State<ActiveRideScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   Map<String, dynamic>? _ride;
-  LatLng? _driverLatLng;
-  double _driverHeading = 0;
+  // Where the vehicle is drawn right now (it glides between fixes).
+  LatLng? get _driverLatLng => _vehicle.position;
+  double get _driverHeading => _vehicle.bearing;
   int? _etaMin;
+  // Ride polls in a row that got no answer. From 2 on, a "Reconnecting…"
+  // bar shows; the next good answer hides it.
+  int _failedPolls = 0;
+  static const int kReconnectAfter = 2;
+  // Driver messages the rider has not opened yet (badge on the chat button).
+  int _unreadChat = 0;
+  // How many driver messages there were when the rider last opened the chat;
+  // null until the first count, so old messages are not counted as new.
+  int? _chatSeen;
+  int _chatPollTick = 0;
   Timer? _statusPoll, _locPoll, _etaPoll;
   // Glides the vehicle between 5s fixes instead of teleporting it.
   late final SmoothVehicleMarker _vehicle;
@@ -195,16 +206,10 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       final e = _sheet.size;
       if ((e - _sheetExtent).abs() > 0.01 && mounted) setState(() => _sheetExtent = e);
     });
-    _vehicle = SmoothVehicleMarker(
-      vsync: this,
-      onUpdate: () {
-        if (!mounted) return;
-        setState(() {
-          _driverLatLng = _vehicle.position;
-          _driverHeading = _vehicle.bearing;
-        });
-      },
-    );
+    // The glide between fixes redraws only the GoogleMap (a
+    // ValueListenableBuilder on _vehicle.revision). It used to setState this
+    // whole screen — sheet, driver card, buttons — on every animation frame.
+    _vehicle = SmoothVehicleMarker(vsync: this);
     WidgetsBinding.instance.addObserver(this);
     _poll();
     _loadTypeImages();
@@ -278,8 +283,16 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       final r = await ApiService.getRide(widget.rideId, lite: _fullLoaded);
       if (!mounted || _finishing || _closing || _noDriver) return;
       // Not this rider's ride any more, or signed out: nothing to show.
-      if (r['error'] != null && r['status'] == null) return;
+      if (r['error'] != null && r['status'] == null) {
+        // No answer at all (dropped link, a 5xx / gateway page) is a failed
+        // poll; a 4xx is the server answering.
+        final hs = r['httpStatus'];
+        if (hs == null || (hs is int && hs >= 500)) _pollFailed();
+        return;
+      }
+      _pollSucceeded();
       _fullLoaded = true;
+      _maybeCountChat(Map<String, dynamic>.from(r));
       final status = (r['status'] ?? '').toString();
       if (status == 'completed' && !_awaitingOnlinePayment(r)) {
         await _finish(Map<String, dynamic>.from(r));
@@ -639,6 +652,75 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
     ]),
   );
 
+  /// A ride poll got no answer (offline, timeout, 5xx). From [kReconnectAfter]
+  /// in a row the sheet shows "Reconnecting…" instead of a stale phase silently.
+  void _pollFailed() {
+    if (!mounted) return;
+    _failedPolls++;
+    if (_failedPolls == kReconnectAfter) setState(() {});
+  }
+
+  /// The server answered: hide "Reconnecting…".
+  void _pollSucceeded() {
+    if (_failedPolls >= kReconnectAfter) {
+      if (mounted) setState(() => _failedPolls = 0);
+    } else {
+      _failedPolls = 0;
+    }
+  }
+
+  bool get _reconnecting => _failedPolls >= kReconnectAfter;
+
+  /// Counts the driver's messages for the chat badge. Lite polls carry no
+  /// messages, so the chat endpoint is read on every 3rd poll (~15 s) — the
+  /// first read only sets the baseline, so old messages are never "new".
+  Future<void> _maybeCountChat(Map<String, dynamic> r) async {
+    final status = (r['status'] ?? '').toString();
+    if (!const {'accepted', 'arrived', 'ongoing'}.contains(status)) return;
+    if (_chatPollTick++ % 3 != 0) return;
+    try {
+      final res = await ApiService.getRideMessages(widget.rideId);
+      final list = res['messages'];
+      if (list is! List || !mounted) return;
+      final fromDriver = list.where((m) => m is Map && m['sender'] == 'driver').length;
+      final seen = _chatSeen;
+      if (seen == null) { _chatSeen = fromDriver; return; }
+      final unread = (fromDriver - seen).clamp(0, 99);
+      if (unread != _unreadChat) setState(() => _unreadChat = unread);
+    } catch (_) {/* badge only */}
+  }
+
+  /// Opening the chat marks everything read.
+  void _markChatRead() {
+    _chatSeen = (_chatSeen ?? 0) + _unreadChat;
+    if (_unreadChat != 0) setState(() => _unreadChat = 0);
+  }
+
+  /// The chat icon with the unread count on it.
+  Widget _withChatBadge(Widget child) => Badge(
+        isLabelVisible: _unreadChat > 0,
+        label: Text('$_unreadChat', key: const ValueKey('chat-unread')),
+        child: child,
+      );
+
+  /// "Reconnecting…" — the last polls got no answer; what is shown may be old.
+  Widget _reconnectBanner() => Container(
+    key: const ValueKey('reconnecting'),
+    margin: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+    decoration: BoxDecoration(
+      color: Colors.orange.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: Colors.orange.withValues(alpha: 0.35)),
+    ),
+    child: Row(children: [
+      const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.orange)),
+      const SizedBox(width: 10),
+      Expanded(child: Text('Reconnecting… check your internet',
+          style: RideUi.body(context, size: 13.5, weight: FontWeight.w800))),
+    ]),
+  );
+
   /// Tells the rider about each toll the driver adds, with a way to report it —
   /// the in-app half of the push the server sends.
   void _announceNewTolls(Map<String, dynamic> r) {
@@ -807,6 +889,9 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       if (la == null || ln == null || !mounted) return;
       final firstFix = _driverLatLng == null;
       _vehicle.moveTo(LatLng(la, ln), heading: (d['heading'] as num?)?.toDouble());
+      // Once per fix (not per frame): the sheet's "arriving now" and the
+      // like read the driver's position too.
+      setState(() {});
       // Resolve the sprite for the vehicle actually assigned to this ride.
       if (_vehicleIcon == null) {
         final vt = ((_ride?['driver'] as Map<String, dynamic>?)?['vehicleTypeName'] ??
@@ -1462,6 +1547,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
                 ...(() {
                   final kids = _sheetChildren(r, dr, pic, otp, status);
                   if (r['needsReview'] == true && kids.isNotEmpty) kids.insert(1, _reviewBanner());
+                  if (_reconnecting && kids.isNotEmpty) kids.insert(1, _reconnectBanner());
                   // Prepaid more than the booking needed: the server put the
                   // difference back in the wallet (ride.prepaidExcessRefunded).
                   final excess = excessRefundMessage(r['prepaidExcessRefunded']);
@@ -1795,9 +1881,12 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
     // Chat was not reachable from this screen at all — RideChatScreen was
     // linked from five booking screens but not from the one a rider actually
     // sits on during the ride, so "I'm at gate 2" had nowhere to go.
-    void chat() => Navigator.push(context, MaterialPageRoute(
-          builder: (_) => RideChatScreen(rideId: widget.rideId, otherName: name),
-        ));
+    void chat() {
+      _markChatRead();
+      Navigator.push(context, MaterialPageRoute(
+        builder: (_) => RideChatScreen(rideId: widget.rideId, otherName: name),
+      ));
+    }
     // This used to show the number in a snackbar, leaving the rider to read it
     // and dial by hand. It now opens the dialer, and falls back to copying the
     // number when a dialer is not available. The live Driver record first; the
@@ -1815,7 +1904,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
         vehicleModel: [model, plate].where((s) => s.isNotEmpty).join(' · '),
         stats: hire ? 'Drives your car' : null,
         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-          _roundAction(icon: Icons.chat_bubble_outline, color: AppTheme.primaryBlue, tooltip: 'Message driver', onTap: chat),
+          _withChatBadge(_roundAction(icon: Icons.chat_bubble_outline, color: AppTheme.primaryBlue, tooltip: 'Message driver', onTap: chat)),
           const SizedBox(width: 8),
           _roundAction(icon: Icons.call, color: Colors.green, tooltip: 'Call driver', onTap: call),
         ]),
@@ -1837,8 +1926,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen>
       Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
         RoundActionButton(icon: Icons.call_rounded, label: 'Call', color: const Color(0xFF16A34A),
             tooltip: 'Call driver', onTap: call),
-        RoundActionButton(icon: Icons.chat_bubble_rounded, label: 'Message',
-            tooltip: 'Message driver', onTap: chat),
+        _withChatBadge(RoundActionButton(icon: Icons.chat_bubble_rounded, label: 'Message',
+            tooltip: 'Message driver', onTap: chat)),
         // The floating bar above carries the "Share trip" / "Emergency SOS"
         // tooltips; these are the same actions within thumb reach.
         RoundActionButton(icon: Icons.ios_share_rounded, label: 'Share', onTap: () => _shareTrip(r)),

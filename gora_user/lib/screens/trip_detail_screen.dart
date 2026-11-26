@@ -3,9 +3,13 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 import '../config/app_config.dart';
 import '../theme/app_theme.dart';
-import '../utils/polyline_utils.dart';
+import '../utils/receipt.dart';
+import '../utils/trip_map.dart';
 import '../widgets/ride_service_panels.dart';
 import '../utils/map_markers.dart';
+import 'invoice_screen.dart';
+import 'rating_screen.dart';
+import 'support_screen.dart';
 
 // Unified trip detail page — works for taxi, bike, cab, rental, outstation.
 // Shows route map, driver card, car image, full fare breakdown + service-specific extras.
@@ -21,10 +25,10 @@ class TripDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final from = ride['from']?.toString() ?? '';
     final to = ride['to']?.toString() ?? '';
-    final pickup = LatLng(_d(ride['pickupLat']), _d(ride['pickupLng']));
-    final drop = LatLng(_d(ride['dropLat']), _d(ride['dropLng']));
-    final encoded = (ride['routePolyline'] as String?) ?? '';
-    final pts = encoded.isNotEmpty ? decodePolyline(encoded) : [pickup, drop];
+    // A missing point is left off the map (no 0,0 pin); no point at all, no map.
+    final m = TripMapPoints.of(ride);
+    final pickup = m.pickup, drop = m.drop, pts = m.route, center = m.center;
+    final receipt = TripReceipt.from(ride);
     final driverPic = (ride['driverPic'] as String?) ?? '';
     final carImg = (ride['vehicleImageUrl'] as String?) ?? '';
     final carImgUrl = carImg.isEmpty ? '' : AppConfig.imageUrl(carImg);
@@ -43,22 +47,28 @@ class TripDetailScreen extends StatelessWidget {
       ),
       body: ListView(children: [
         // Map
-        SizedBox(
-          height: 200,
-          child: PlaceGlyphs(builder: (context, glyphs) => GoogleMap(
-            initialCameraPosition: CameraPosition(target: pickup, zoom: 12),
-            onMapCreated: (c) {
-              final b = boundsFromPoints(pts);
-              if (b != null) Future.delayed(const Duration(milliseconds: 300), () => c.animateCamera(CameraUpdate.newLatLngBounds(b, 50)));
-            },
-            markers: {
-              Marker(markerId: const MarkerId('p'), position: pickup, anchor: glyphs.pickupAnchor, icon: glyphs.pickup),
-              Marker(markerId: const MarkerId('d'), position: drop, anchor: glyphs.dropAnchor, icon: glyphs.drop),
-            },
-            polylines: {Polyline(polylineId: const PolylineId('r'), points: pts, color: AppTheme.primaryBlue, width: 5)},
-            zoomControlsEnabled: false, myLocationButtonEnabled: false,
-          )),
-        ),
+        if (center != null)
+          SizedBox(
+            height: 200,
+            child: PlaceGlyphs(builder: (context, glyphs) => GoogleMap(
+              initialCameraPosition: CameraPosition(target: center, zoom: 12),
+              onMapCreated: (c) {
+                final b = m.bounds;
+                if (b != null) Future.delayed(const Duration(milliseconds: 300), () => c.animateCamera(CameraUpdate.newLatLngBounds(b, 50)));
+              },
+              markers: {
+                if (pickup != null)
+                  Marker(markerId: const MarkerId('p'), position: pickup, anchor: glyphs.pickupAnchor, icon: glyphs.pickup),
+                if (drop != null)
+                  Marker(markerId: const MarkerId('d'), position: drop, anchor: glyphs.dropAnchor, icon: glyphs.drop),
+              },
+              polylines: {
+                if (pts.length >= 2)
+                  Polyline(polylineId: const PolylineId('r'), points: pts, color: AppTheme.primaryBlue, width: 5),
+              },
+              zoomControlsEnabled: false, myLocationButtonEnabled: false,
+            )),
+          ),
 
         // Service badge + status + date
         // The date takes what the badge leaves and wraps, rather than overflow
@@ -72,10 +82,26 @@ class TripDetailScreen extends StatelessWidget {
 
         // Route
         _card(context, Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _locRow(Icons.radio_button_checked, Colors.green, 'PICKUP', from),
-          const Padding(padding: EdgeInsets.only(left: 9), child: SizedBox(height: 18, child: VerticalDivider(width: 2, thickness: 2))),
-          _locRow(Icons.location_on, Colors.red, 'DROP', to),
+          _locRow(context, Icons.radio_button_checked, Colors.green, 'PICKUP', from),
+          for (final (i, s) in receipt.stops.indexed) ...[
+            const Padding(padding: EdgeInsets.only(left: 9), child: SizedBox(height: 14, child: VerticalDivider(width: 2, thickness: 2))),
+            _locRow(context, Icons.more_vert, Colors.orange, 'STOP ${i + 1}', s),
+          ],
+          if (to.isNotEmpty) ...[
+            const Padding(padding: EdgeInsets.only(left: 9), child: SizedBox(height: 18, child: VerticalDivider(width: 2, thickness: 2))),
+            _locRow(context, Icons.location_on, Colors.red, 'DROP', to),
+          ],
         ])),
+
+        // Cancelled: who and why
+        if (receipt.isCancelled)
+          _card(context, Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Icon(Icons.cancel_outlined, color: Color(0xFFB91C1C), size: 20),
+            const SizedBox(width: 10),
+            Expanded(child: Text(receipt.cancellationLine,
+                key: const ValueKey('trip-cancel-line'),
+                style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600))),
+          ])),
 
         // Driver + car
         if (ride['driver'] != null && ride['driver'] != '—')
@@ -103,7 +129,24 @@ class TripDetailScreen extends StatelessWidget {
         _card(context, Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Fare Breakdown', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          ..._fareRows(context),
+          ..._fareRows(context, receipt),
+        ])),
+
+        // Same actions as the trip's row in "Your trips"
+        _card(context, Wrap(spacing: 8, runSpacing: 8, children: [
+          _action(context, const ValueKey('trip-help'), Icons.support_agent, 'Help with this trip', () =>
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const SupportScreen()))),
+          if (!receipt.isCancelled)
+            _action(context, const ValueKey('trip-invoice'), Icons.receipt_long_outlined, 'Invoice', () =>
+                Navigator.push(context, MaterialPageRoute(builder: (_) => InvoiceScreen(ride: ride)))),
+          if (_canRate)
+            _action(context, const ValueKey('trip-rate'), Icons.star_border_rounded, 'Rate', () =>
+                Navigator.push(context, MaterialPageRoute(builder: (_) => RatingScreen(
+                  driverName: (ride['driver'] ?? 'Driver').toString(),
+                  vehicleName: (ride['vehicle'] ?? '').toString(),
+                  selectedTip: 0,
+                  rideId: (ride['id'] ?? '').toString().isEmpty ? null : ride['id'].toString(),
+                )))),
         ])),
 
         const SizedBox(height: 20),
@@ -112,7 +155,36 @@ class TripDetailScreen extends StatelessWidget {
   }
 
   // Service-specific fare rows
-  List<Widget> _fareRows(BuildContext context) {
+  /// Completed and not rated yet (the history row's rule).
+  bool get _canRate {
+    final st = (ride['status'] ?? '').toString().toLowerCase();
+    final rated = (ride['rating'] as num?)?.toDouble() ?? 0;
+    return st == 'completed' && rated <= 0 && (ride['id'] ?? '').toString().isNotEmpty;
+  }
+
+  Widget _action(BuildContext context, Key key, IconData icon, String label, VoidCallback onTap) => Material(
+    key: key,
+    color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+    borderRadius: BorderRadius.circular(18),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 44),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 17, color: Theme.of(context).colorScheme.onSurface),
+            const SizedBox(width: 6),
+            Flexible(child: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurface))),
+          ]),
+        ),
+      ),
+    ),
+  );
+
+  List<Widget> _fareRows(BuildContext context, TripReceipt receipt) {
     final rows = <Widget>[];
     final base = _n(ride['baseFare'] ?? ride['fare']);
     rows.add(_fareRow(context, 'Base fare', '₹$base'));
@@ -159,13 +231,24 @@ class TripDetailScreen extends StatelessWidget {
       rows.add(_fareRow(context, 'Distance', '${_d(ride['distance']).toStringAsFixed(1)} km'));
     }
 
+    if (receipt.waiting > 0) rows.add(_fareRow(context, 'Waiting charge', '₹${receipt.waiting}'));
     if (_n(ride['tip']) > 0) rows.add(_fareRow(context, 'Tip', '₹${_n(ride['tip'])}', color: Colors.green));
+    if (receipt.couponDiscount > 0) {
+      final code = receipt.couponCode.isEmpty ? '' : ' (${receipt.couponCode})';
+      // A rental's fare already has the coupon off: shown, not subtracted again.
+      rows.add(receipt.couponOff > 0
+          ? _fareRow(context, 'Coupon$code', '-₹${receipt.couponOff}', color: Colors.green)
+          : _fareRow(context, 'Coupon$code (included)', '₹${receipt.couponDiscount}', color: Colors.green));
+    }
+    if (receipt.isCancelled && receipt.cancellationFee > 0) {
+      rows.add(_fareRow(context, 'Cancellation fee', '₹${receipt.cancellationFee}', color: Colors.orange));
+    }
     rows.add(const Divider(height: 20));
-    final total = (_n(ride['finalFare']) > 0 ? _n(ride['finalFare']) : _n(ride['total']))
-        + (_service == 'outstation' ? _n(ride['tollCharge']) : 0);
-    rows.add(_fareRow(context, 'Total Paid', '₹$total', bold: true, color: AppTheme.primaryBlue));
+    rows.add(_fareRow(context, receipt.totalLabel(), '₹${receipt.totalValue}', bold: true,
+        color: receipt.isCancelled ? const Color(0xFFB91C1C) : AppTheme.primaryBlue));
     rows.add(const SizedBox(height: 4));
-    rows.add(Text('Payment: ${(ride['paymentMode'] ?? 'Cash').toString().toUpperCase()}', style: TextStyle(fontSize: 11, color: Colors.grey[500])));
+    rows.add(Text('Payment: ${TripReceipt.paymentLine((ride['paymentMode'] ?? 'Cash').toString(), receipt.paymentStatus)}',
+        style: TextStyle(fontSize: 12, color: Colors.grey[600])));
     return rows;
   }
 
@@ -195,19 +278,22 @@ class TripDetailScreen extends StatelessWidget {
     final from = ride['from']?.toString() ?? '';
     final to = ride['to']?.toString() ?? '';
     final driver = ride['driver']?.toString();
-    final total = (_n(ride['finalFare']) > 0 ? _n(ride['finalFare']) : _n(ride['total']))
-        + (_service == 'outstation' ? _n(ride['tollCharge']) : 0);
+    final receipt = TripReceipt.from(ride);
     final id = (ride['id'] ?? '').toString();
     final lines = <String>[
       'Gora Cabs — ${_serviceLabel()}',
       if ((ride['date'] ?? '').toString().isNotEmpty) (ride['date']).toString(),
       '',
       'From: $from',
-      'To: $to',
+      for (final (i, s) in receipt.stops.indexed) 'Stop ${i + 1}: $s',
+      if (to.isNotEmpty) 'To: $to',
       if (driver != null && driver.isNotEmpty && driver != '—') 'Driver: $driver',
+      if (receipt.isCancelled) receipt.cancellationLine,
       '',
-      'Total paid: ₹$total',
-      'Payment: ${(ride['paymentMode'] ?? 'Cash').toString().toUpperCase()}',
+      if (receipt.waiting > 0) 'Waiting charge: ₹${receipt.waiting}',
+      if (receipt.couponOff > 0) 'Coupon: -₹${receipt.couponOff}',
+      '${receipt.totalLabel()}: ₹${receipt.totalValue}',
+      'Payment: ${TripReceipt.paymentLine((ride['paymentMode'] ?? 'Cash').toString(), receipt.paymentStatus)}',
       if (id.isNotEmpty) 'Ride ID: $id',
     ];
     return lines.join('\n');
@@ -223,10 +309,10 @@ class TripDetailScreen extends StatelessWidget {
     decoration: BoxDecoration(color: c.withOpacity(0.12), borderRadius: BorderRadius.circular(8)),
     child: Text(t, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: c, letterSpacing: 0.3)),
   );
-  Widget _locRow(IconData i, Color c, String label, String addr) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  Widget _locRow(BuildContext context, IconData i, Color c, String label, String addr) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Icon(i, color: c, size: 18), const SizedBox(width: 10),
     Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(label, style: TextStyle(fontSize: 10, color: Colors.grey[500], fontWeight: FontWeight.w600)),
+      Text(label, style: TextStyle(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6), fontWeight: FontWeight.w600)),
       Text(addr, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
     ])),
   ]);

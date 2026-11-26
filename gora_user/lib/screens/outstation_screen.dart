@@ -11,6 +11,7 @@ import '../services/payment_service.dart';
 import '../utils/polyline_utils.dart';
 import '../utils/fare_lines.dart';
 import '../utils/ride_booking.dart';
+import '../utils/service_fleet.dart';
 import '../widgets/ride_preferences.dart';
 import '../widgets/account_hold.dart';
 import '../providers/user_provider.dart';
@@ -23,7 +24,14 @@ class OutstationScreen extends StatefulWidget {
   State<OutstationScreen> createState() => _OutstationScreenState();
 }
 
-class _OutstationScreenState extends State<OutstationScreen> {
+class _OutstationScreenState extends State<OutstationScreen>
+    with TickerProviderStateMixin, ServiceFleetMixin {
+  // The pickup map shows outstation vehicles only.
+  @override
+  String get fleetService => 'outstation';
+  @override
+  LatLng? serviceFleetCenter() => _showMapPicker ? _pickerCenter : null;
+
   String? _selectedVehicle;
   final _fromController = TextEditingController();
   final _toController = TextEditingController();
@@ -43,6 +51,16 @@ class _OutstationScreenState extends State<OutstationScreen> {
   List<Map<String, dynamic>> _fromSuggestions = [];
   List<Map<String, dynamic>> _toSuggestions = [];
   Timer? _searchDebounce;
+  // Search state for the From/To fields: one Places session per search (the
+  // token is renewed once a place is picked), a sequence number so an older,
+  // slower answer never overwrites a newer one, and what to show while the
+  // list is empty (searching, rate-limited, offline, nothing found).
+  final PlacesSession _places = PlacesSession();
+  int _searchSeq = 0;
+  bool _searching = false;
+  String? _searchProblem;
+  String _searchedQuery = '';
+  double? _gpsLat, _gpsLng;
   bool _loadingFares = false;
   // Google Maps state
   GoogleMapController? _mapController;
@@ -84,6 +102,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
   void initState() {
     super.initState();
     _fromController.text = '';
+    startServiceFleet();
     _toController.text = '';
     _initCurrentLocation();
     _loadPaymentConfig();
@@ -106,6 +125,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
     final pos = await LocationService.getCurrentLocation();
     if (pos == null || !mounted) return;
     _fromLat = pos.latitude; _fromLng = pos.longitude;
+    _gpsLat = pos.latitude; _gpsLng = pos.longitude;
     final addr = await ApiService.reverseGeocode(pos.latitude, pos.longitude);
     if (!mounted) return;
     setState(() {
@@ -117,6 +137,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    disposeServiceFleet();
     super.dispose();
   }
 
@@ -145,22 +166,42 @@ class _OutstationScreenState extends State<OutstationScreen> {
     });
   }
 
+  /// Where to bias a search: the From point when known, else the GPS fix.
+  (double?, double?) _searchBias() =>
+      _fromLat != null && _fromLng != null ? (_fromLat, _fromLng) : (_gpsLat, _gpsLng);
+
   // Debounced places autocomplete for From/To city inputs
   void _searchPlaces(String q, {required bool isFrom}) {
     _searchDebounce?.cancel();
+    final seq = ++_searchSeq;
     if (q.trim().length < 2) {
       setState(() {
-        if (isFrom) _fromSuggestions = [];
-        else _toSuggestions = [];
+        if (isFrom) {
+          _fromSuggestions = [];
+        } else {
+          _toSuggestions = [];
+        }
+        _searching = false;
+        _searchProblem = null;
+        _searchedQuery = '';
       });
       return;
     }
+    setState(() { _searching = true; _searchProblem = null; });
     _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
-      final results = await ApiService.placesAutocomplete(q);
-      if (!mounted) return;
+      final (lat, lng) = _searchBias();
+      final r = await ApiService.placesSearch(q, lat: lat, lng: lng, sessionToken: _places.token);
+      // A newer keystroke (or a cleared field) owns the list now.
+      if (!mounted || seq != _searchSeq) return;
       setState(() {
-        if (isFrom) _fromSuggestions = results;
-        else _toSuggestions = results;
+        if (isFrom) {
+          _fromSuggestions = r.predictions;
+        } else {
+          _toSuggestions = r.predictions;
+        }
+        _searching = false;
+        _searchProblem = r.problem;
+        _searchedQuery = q.trim();
       });
     });
   }
@@ -332,6 +373,15 @@ class _OutstationScreenState extends State<OutstationScreen> {
     final ctrl = TextEditingController();
     List<Map<String, dynamic>> sugg = [];
     Timer? deb;
+    // The sheet's own search: answers that land after the sheet closed are
+    // dropped (setSheet on a disposed StatefulBuilder threw), and a slower,
+    // older answer never replaces a newer one.
+    var closed = false;
+    var seq = 0;
+    var searching = false;
+    String? problem;
+    var searched = '';
+    final session = PlacesSession();
     await showModalBottomSheet(
       context: context, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -352,20 +402,37 @@ class _OutstationScreenState extends State<OutstationScreen> {
                 style: RideUi.body(ctx, size: 14.5, weight: FontWeight.w600),
                 onChanged: (q) {
                   deb?.cancel();
-                  if (q.trim().length < 2) { setSheet(() => sugg = []); return; }
+                  final mine = ++seq;
+                  if (q.trim().length < 2) {
+                    setSheet(() { sugg = []; searching = false; problem = null; searched = ''; });
+                    return;
+                  }
+                  setSheet(() { searching = true; problem = null; });
                   deb = Timer(const Duration(milliseconds: 350), () async {
-                    final r = await ApiService.placesAutocomplete(q);
-                    setSheet(() => sugg = r);
+                    final (lat, lng) = _searchBias();
+                    final r = await ApiService.placesSearch(q, lat: lat, lng: lng, sessionToken: session.token);
+                    if (closed || mine != seq || !ctx.mounted) return;
+                    setSheet(() {
+                      sugg = r.predictions;
+                      searching = false;
+                      problem = r.problem;
+                      searched = q.trim();
+                    });
                   });
                 })),
             ]),
           ),
           const SizedBox(height: 8),
+          if (searching && sugg.isEmpty)
+            const SearchStatusLine(searching: true)
+          else if (sugg.isEmpty && (problem != null || searched.isNotEmpty))
+            SearchStatusLine(message: problem ?? 'No places found for "$searched"'),
           ...sugg.take(5).map((s) => PlaceSuggestionTile(
             title: s['mainText']?.toString() ?? s['description']?.toString() ?? '',
             subtitle: s['mainText'] != null ? s['secondaryText']?.toString() : null,
             onTap: () async {
-              final d = await ApiService.placeDetails(s['placeId'] as String? ?? '');
+              final d = await ApiService.placeDetails(s['placeId'] as String? ?? '', sessionToken: session.token);
+              session.renew();
               if (d == null) return;
               // placeDetails returns numeric lat/lng or null, never an error map.
               final lat = ApiService.toDoubleOrNull(d['lat']), lng = ApiService.toDoubleOrNull(d['lng']);
@@ -377,12 +444,15 @@ class _OutstationScreenState extends State<OutstationScreen> {
         ]),
       )),
     );
+    closed = true;
+    deb?.cancel();
     if (mounted) { setState(() {}); _loadOutstationFares(); }
   }
 
   Future<void> _selectSuggestion(Map<String, dynamic> s, {required bool isFrom}) async {
     final desc = s['description'] as String? ?? '';
-    final details = await ApiService.placeDetails(s['placeId'] as String? ?? '');
+    final details = await ApiService.placeDetails(s['placeId'] as String? ?? '', sessionToken: _places.token);
+    _places.renew(); // the pick ends this search session
     if (details == null || !mounted) return;
     final lat = ApiService.toDoubleOrNull(details['lat']), lng = ApiService.toDoubleOrNull(details['lng']);
     if (lat == null || lng == null) return;
@@ -886,7 +956,12 @@ class _OutstationScreenState extends State<OutstationScreen> {
                   onTap: _initCurrentLocation,
                 ),
               if (activeIsFrom) const RideDivider(indent: 56),
-              if (suggestions.isNotEmpty) ...[
+              if (suggestions.isEmpty && _searching)
+                const SearchStatusLine(searching: true)
+              else if (suggestions.isEmpty && (_searchProblem != null || _searchedQuery.isNotEmpty) &&
+                  (activeIsFrom ? _fromController : _toController).text.trim().length >= 2)
+                SearchStatusLine(message: _searchProblem ?? 'No places found for "$_searchedQuery"')
+              else if (suggestions.isNotEmpty) ...[
                 ...suggestions.map((s) => PlaceSuggestionTile(
                   title: s['mainText']?.toString() ?? '',
                   subtitle: s['secondaryText']?.toString(),
@@ -939,11 +1014,16 @@ class _OutstationScreenState extends State<OutstationScreen> {
         final ll = LatLng(pos.latitude, pos.longitude);
         _pickerMapController?.animateCamera(CameraUpdate.newLatLngZoom(ll, 14));
       },
-      map: GoogleMap(
+      map: ValueListenableBuilder<Set<Marker>>(
+        // Only the map rebuilds as the vehicles glide.
+        valueListenable: serviceFleetListenable,
+        builder: (_, fleet, _) => GoogleMap(
         initialCameraPosition: CameraPosition(target: _pickerCenter, zoom: 13),
         onMapCreated: (c) => _pickerMapController = c,
         onCameraMove: (pos) => _pickerCenter = pos.target,
+        markers: fleet,
         onCameraIdle: () async {
+          unawaited(refreshServiceFleet());
           final addr = await ApiService.reverseGeocode(_pickerCenter.latitude, _pickerCenter.longitude);
           if (!mounted) return;
           setState(() => _pickerAddress = addr);
@@ -952,7 +1032,7 @@ class _OutstationScreenState extends State<OutstationScreen> {
         myLocationButtonEnabled: false,
         zoomControlsEnabled: false,
         mapToolbarEnabled: false,
-      ),
+      )),
       onConfirm: _pickerAddress.isEmpty ? null : () {
         if (!mounted) return;
         setState(() {

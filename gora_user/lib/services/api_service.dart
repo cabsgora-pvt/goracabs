@@ -1,3 +1,5 @@
+import 'dart:math';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -68,14 +70,52 @@ class ApiService {
   }
 
   // Google Places autocomplete (via backend proxy)
-  static Future<List<Map<String, dynamic>>> placesAutocomplete(String query) async {
-    if (query.trim().length < 2) return [];
+  //
+  // [lat]/[lng] bias the results towards the rider (the server passes a 50 km
+  // location bias to Google, not strict bounds) and [sessionToken] groups the
+  // keystrokes of one search with the place-details call that ends it (see
+  // PlacesSession). Both are optional; the plain list form stays for callers
+  // that do not care why a search came back empty.
+  static Future<List<Map<String, dynamic>>> placesAutocomplete(String query,
+      {double? lat, double? lng, String? sessionToken}) async {
+    final r = await placesSearch(query, lat: lat, lng: lng, sessionToken: sessionToken);
+    return r.predictions;
+  }
+
+  /// Autocomplete with the outcome: [PlacesResult.rateLimited] on a 429 (the
+  /// per-IP cap), [PlacesResult.failed] when the request itself failed, so a
+  /// screen can say "Too many searches" or "Couldn't search" instead of
+  /// "No places found".
+  static Future<PlacesResult> placesSearch(String query,
+      {double? lat, double? lng, String? sessionToken}) async {
+    if (query.trim().length < 2) return const PlacesResult([]);
     try {
-      final res = await http.get(Uri.parse('$baseUrl/places/autocomplete?q=${Uri.encodeQueryComponent(query)}')).timeout(requestTimeout);
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      final list = (data['predictions'] as List?) ?? [];
-      return list.map((p) => Map<String, dynamic>.from(p as Map)).toList();
-    } catch (_) { return []; }
+      final res = await http.get(Uri.parse(placesAutocompleteUrl(query,
+              lat: lat, lng: lng, sessionToken: sessionToken)))
+          .timeout(requestTimeout);
+      if (res.statusCode == 429) return const PlacesResult([], rateLimited: true);
+      final data = jsonDecode(res.body);
+      if (data is! Map) return const PlacesResult([], failed: true);
+      if (res.statusCode >= 400) return const PlacesResult([], failed: true);
+      final list = (data['predictions'] as List?) ?? const [];
+      return PlacesResult(list.whereType<Map>().map((p) => Map<String, dynamic>.from(p)).toList());
+    } catch (_) {
+      return const PlacesResult([], failed: true);
+    }
+  }
+
+  /// The autocomplete request URL. Coordinates are sent only when they are a
+  /// real fix (finite, not 0,0).
+  @visibleForTesting
+  static String placesAutocompleteUrl(String query, {double? lat, double? lng, String? sessionToken}) {
+    final b = StringBuffer('$baseUrl/places/autocomplete?q=${Uri.encodeQueryComponent(query)}');
+    if (lat != null && lng != null && lat.isFinite && lng.isFinite && !(lat == 0 && lng == 0)) {
+      b.write('&lat=${lat.toStringAsFixed(6)}&lng=${lng.toStringAsFixed(6)}');
+    }
+    if (sessionToken != null && sessionToken.isNotEmpty) {
+      b.write('&sessiontoken=${Uri.encodeQueryComponent(sessionToken)}');
+    }
+    return b.toString();
   }
 
   // Reverse geocode: lat/lng → address string. Strips Plus Codes defensively
@@ -100,9 +140,12 @@ class ApiService {
   /// Always returns `lat` and `lng` as doubles and `address` as a String when
   /// it returns at all. The booking screens read them with `as num`, and an
   /// error answer ({error: ...}) or a coordinate sent as a string crashed them.
-  static Future<Map<String, dynamic>?> placeDetails(String placeId) async {
+  /// [sessionToken]: the autocomplete session this pick ends (PlacesSession).
+  static Future<Map<String, dynamic>?> placeDetails(String placeId, {String? sessionToken}) async {
     try {
-      final res = await http.get(Uri.parse('$baseUrl/places/details?placeId=${Uri.encodeQueryComponent(placeId)}')).timeout(requestTimeout);
+      final st = (sessionToken != null && sessionToken.isNotEmpty)
+          ? '&sessiontoken=${Uri.encodeQueryComponent(sessionToken)}' : '';
+      final res = await http.get(Uri.parse('$baseUrl/places/details?placeId=${Uri.encodeQueryComponent(placeId)}$st')).timeout(requestTimeout);
       final raw = jsonDecode(res.body);
       if (raw is! Map) return null;
       final data = Map<String, dynamic>.from(raw);
@@ -258,12 +301,14 @@ class ApiService {
   // ── Nearby drivers (live vehicles on map) ────────────────
   // Returns a list of {id, lat, lng, heading, vehicleType} — no PII.
   static Future<List<Map<String, dynamic>>> getNearbyDrivers(
-      double lat, double lng, {double radiusKm = 5, String? vehicleType}) async {
+      double lat, double lng, {double radiusKm = 5, String? vehicleType, String? service}) async {
     try {
       final vt = (vehicleType != null && vehicleType.isNotEmpty)
           ? '&vehicleType=${Uri.encodeQueryComponent(vehicleType)}'
           : '';
-      final res = await get('/rides/nearby-drivers?lat=$lat&lng=$lng&radius=$radiusKm$vt');
+      // service: only drivers who could take it (its vehicle types + opt-in).
+      final sv = (service != null && service.isNotEmpty) ? '&service=${Uri.encodeQueryComponent(service)}' : '';
+      final res = await get('/rides/nearby-drivers?lat=$lat&lng=$lng&radius=$radiusKm$vt$sv');
       final list = (res['drivers'] as List?) ?? const [];
       return list.map((e) => (e as Map).cast<String, dynamic>()).toList();
     } catch (_) {
@@ -474,6 +519,15 @@ class ApiService {
   static Future<Map<String, dynamic>> sendSosAlert(Map<String, dynamic> body) =>
       post('/support/sos-alert', body, auth: true);
 
+  // ── Rider's emergency contacts (kept on the server) ───────
+  // GET → {contacts: [{id, name, phone, relation}], max}
+  static Future<Map<String, dynamic>> getSosContacts() => get('/user/sos-contacts');
+  // → 201 {contact} | 200 {contact, duplicate: true} | 400 {code: INVALID_PHONE | LIMIT_REACHED}
+  static Future<Map<String, dynamic>> addSosContact(String name, String phone, {String relation = ''}) =>
+      post('/user/sos-contacts', {'name': name, 'phone': phone, if (relation.isNotEmpty) 'relation': relation}, auth: true);
+  static Future<Map<String, dynamic>> deleteSosContact(String id) =>
+      delete('/user/sos-contacts/${Uri.encodeComponent(id)}');
+
   // ── In-ride chat (rider ↔ driver) ─────────────────────────
   static Future<Map<String, dynamic>> getRideMessages(String rideId) =>
       get('/rides/$rideId/messages');
@@ -547,5 +601,39 @@ class ApiService {
     } finally {
       client.close();
     }
+  }
+}
+
+/// One autocomplete answer: the predictions, and why there are none when the
+/// list is empty for a reason other than "no such place".
+class PlacesResult {
+  final List<Map<String, dynamic>> predictions;
+  final bool rateLimited;
+  final bool failed;
+  const PlacesResult(this.predictions, {this.rateLimited = false, this.failed = false});
+
+  /// What a search screen should say for an empty list, or null when the
+  /// empty list just means "nothing matched".
+  String? get problem => rateLimited
+      ? 'Too many searches, try again in a moment'
+      : failed
+          ? "Couldn't search right now. Check your connection."
+          : null;
+}
+
+/// One Google Places autocomplete session: a random token reused for every
+/// keystroke of one search and for the place-details call that ends it, then
+/// renewed. Google bills such a session as one lookup.
+class PlacesSession {
+  static final Random _rng = Random.secure();
+  String _token = _newToken();
+  String get token => _token;
+
+  /// Call after the rider picks a place (the details call used [token]).
+  void renew() => _token = _newToken();
+
+  static String _newToken() {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    return List.generate(32, (_) => chars[_rng.nextInt(chars.length)]).join();
   }
 }

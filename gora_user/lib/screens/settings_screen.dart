@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../theme/app_theme.dart';
 import '../providers/theme_provider.dart';
 import '../utils/emergency_contacts_store.dart';
+import '../utils/phone_input_formatter.dart';
 import 'delete_account_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -136,19 +137,43 @@ class EmergencyContactsScreen extends StatefulWidget {
   State<EmergencyContactsScreen> createState() => _EmergencyContactsScreenState();
 }
 
+/// The rider's emergency contacts, kept on the server (and cached on the
+/// phone for SOS when offline) — see EmergencyContactsStore.
 class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
   List<Map<String, String>> _contacts = [];
+  bool _loading = true;
+  bool _busy = false;
 
   @override
   void initState() {
     super.initState();
+    // The cached list at once, then the server's.
     EmergencyContactsStore.load().then((c) {
-      if (mounted) setState(() => _contacts = c);
+      if (mounted && _loading) setState(() => _contacts = c);
     });
+    _sync();
+  }
+
+  Future<void> _sync() async {
+    final c = await EmergencyContactsStore.sync();
+    if (mounted) setState(() { _contacts = c; _loading = false; });
+  }
+
+  void _say(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+
+  Future<void> _remove(Map<String, String> contact) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final err = await EmergencyContactsStore.remove(contact);
+    final list = await EmergencyContactsStore.load();
+    if (!mounted) return;
+    setState(() { _busy = false; _contacts = list; });
+    if (err != null) _say(err);
   }
 
   @override
   Widget build(BuildContext context) {
+    final full = _contacts.length >= EmergencyContactsStore.maxContacts;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Emergency Contacts'),
@@ -156,12 +181,15 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
-            onPressed: () => _showAddContactDialog(),
+            tooltip: 'Add contact',
+            onPressed: full || _busy ? null : _showAddContactDialog,
             icon: const Icon(Icons.add),
           ),
         ],
       ),
-      body: _contacts.isEmpty
+      body: _loading && _contacts.isEmpty
+          ? const Center(child: CircularProgressIndicator())
+          : _contacts.isEmpty
           ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -171,7 +199,7 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
                   Text('No emergency contacts added', style: TextStyle(fontSize: 16, color: Colors.grey[600])),
                   const SizedBox(height: 20),
                   ElevatedButton.icon(
-                    onPressed: () => _showAddContactDialog(),
+                    onPressed: _showAddContactDialog,
                     icon: const Icon(Icons.add),
                     label: const Text('Add Contact'),
                     style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue),
@@ -181,16 +209,25 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
             )
           : ListView.separated(
               padding: const EdgeInsets.all(16),
-              itemCount: _contacts.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 12),
+              itemCount: _contacts.length + 1,
+              separatorBuilder: (_, _) => const SizedBox(height: 12),
               itemBuilder: (_, i) {
+                if (i == _contacts.length) {
+                  return Text(
+                    full
+                        ? 'You can keep up to ${EmergencyContactsStore.maxContacts} contacts.'
+                        : 'Saved to your Gora account, so they move with you to a new phone.',
+                    style: const TextStyle(fontSize: 12, color: AppTheme.textGrey),
+                  );
+                }
                 final contact = _contacts[i];
+                final synced = (contact['id'] ?? '').isNotEmpty;
                 return Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: Theme.of(context).cardColor,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey[300]!),
+                    border: Border.all(color: Theme.of(context).dividerColor),
                   ),
                   child: Row(
                     children: [
@@ -204,19 +241,25 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(contact['name']!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            Text(contact['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                             const SizedBox(height: 4),
-                            Text(contact['phone']!, style: const TextStyle(fontSize: 13, color: AppTheme.textGrey)),
-                            const SizedBox(height: 2),
-                            Text(contact['relation']!, style: const TextStyle(fontSize: 12, color: AppTheme.textGrey)),
+                            Text(contact['phone'] ?? '', style: const TextStyle(fontSize: 13, color: AppTheme.textGrey)),
+                            if ((contact['relation'] ?? '').isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(contact['relation']!, style: const TextStyle(fontSize: 12, color: AppTheme.textGrey)),
+                            ],
+                            if (!synced)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 2),
+                                child: Text('Saved on this phone — syncs when online',
+                                    style: TextStyle(fontSize: 11.5, color: AppTheme.textGrey)),
+                              ),
                           ],
                         ),
                       ),
                       IconButton(
-                        onPressed: () {
-                          setState(() => _contacts.removeAt(i));
-                          EmergencyContactsStore.save(_contacts);
-                        },
+                        tooltip: 'Remove',
+                        onPressed: _busy ? null : () => _remove(contact),
                         icon: const Icon(Icons.delete_outline, color: Colors.red),
                       ),
                     ],
@@ -231,61 +274,75 @@ class _EmergencyContactsScreenState extends State<EmergencyContactsScreen> {
     final nameController = TextEditingController();
     final phoneController = TextEditingController();
     final relationController = TextEditingController();
+    String? error;
+    bool saving = false;
 
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dctx) => StatefulBuilder(builder: (dctx, setD) => AlertDialog(
         title: const Text('Add Emergency Contact'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: InputDecoration(
-                labelText: 'Name',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nameController,
+                textCapitalization: TextCapitalization.words,
+                decoration: InputDecoration(
+                  labelText: 'Name',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: phoneController,
-              keyboardType: TextInputType.phone,
-              decoration: InputDecoration(
-                labelText: 'Phone Number',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              const SizedBox(height: 12),
+              TextField(
+                key: const ValueKey('sos-contact-phone'),
+                controller: phoneController,
+                keyboardType: TextInputType.phone,
+                inputFormatters: const [IndianPhoneInputFormatter()],
+                decoration: InputDecoration(
+                  labelText: 'Mobile number',
+                  prefixText: '+91 ',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: relationController,
-              decoration: InputDecoration(
-                labelText: 'Relation',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: relationController,
+                decoration: InputDecoration(
+                  labelText: 'Relation',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
               ),
-            ),
-          ],
+              if (error != null) ...[
+                const SizedBox(height: 10),
+                Text(error!, style: const TextStyle(color: Colors.red, fontSize: 12.5)),
+              ],
+            ],
+          ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () {
-              if (nameController.text.isNotEmpty && phoneController.text.isNotEmpty) {
-                setState(() {
-                  _contacts.add({
-                    'name': nameController.text,
-                    'phone': phoneController.text,
-                    'relation': relationController.text.isEmpty ? 'Other' : relationController.text,
-                  });
-                });
-                EmergencyContactsStore.save(_contacts);
-                Navigator.pop(context);
+            key: const ValueKey('sos-contact-add'),
+            onPressed: saving ? null : () async {
+              setD(() { saving = true; error = null; });
+              final err = await EmergencyContactsStore.add(
+                nameController.text, phoneController.text,
+                relation: relationController.text.trim().isEmpty ? 'Other' : relationController.text.trim(),
+              );
+              if (err != null) {
+                if (dctx.mounted) setD(() { saving = false; error = err; });
+                return;
               }
+              if (dctx.mounted) Navigator.pop(dctx);
+              final list = await EmergencyContactsStore.load();
+              if (mounted) setState(() => _contacts = list);
             },
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryBlue),
             child: const Text('Add', style: TextStyle(color: Colors.white)),
           ),
         ],
-      ),
+      )),
     );
   }
 }

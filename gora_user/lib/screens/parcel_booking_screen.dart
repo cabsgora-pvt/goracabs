@@ -6,8 +6,11 @@ import 'package:provider/provider.dart';
 import '../config/app_config.dart';
 import '../providers/user_provider.dart';
 import '../services/api_service.dart';
+import '../utils/net_errors.dart';
+import '../utils/phone.dart';
 import '../utils/vehicle_marker.dart';
 import '../utils/map_markers.dart';
+import '../utils/service_fleet.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/ride_booking.dart';
@@ -23,7 +26,14 @@ class ParcelBookingScreen extends StatefulWidget {
   State<ParcelBookingScreen> createState() => _ParcelBookingScreenState();
 }
 
-class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
+class _ParcelBookingScreenState extends State<ParcelBookingScreen>
+    with TickerProviderStateMixin, ServiceFleetMixin {
+  // The pickup map shows parcel vehicles only.
+  @override
+  String get fleetService => 'delivery';
+  @override
+  LatLng? serviceFleetCenter() => _showMap ? _center : null;
+
   final _pickupCtrl = TextEditingController(), _dropCtrl = TextEditingController();
   final _senderName = TextEditingController(), _senderPhone = TextEditingController();
   final _receiverName = TextEditingController(), _receiverPhone = TextEditingController();
@@ -52,6 +62,14 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   List<Map<String, dynamic>> _vehicles = [];
   bool _loading = false;
   String? _error;
+  bool _errorOffline = false;
+  int _faresSeq = 0;
+  // Search: one Places session per search, _searchSeq drops stale answers.
+  final PlacesSession _places = PlacesSession();
+  int _searchSeq = 0;
+  bool _searching = false, _searchingPickup = true;
+  String? _searchProblem;
+  String _searched = '';
 
   final _itemTypes = ['Documents', 'Electronics', 'Clothing', 'Food', 'Fragile', 'Other'];
   static const _itemIcons = <String, IconData>{
@@ -79,6 +97,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   void initState() {
     super.initState();
     _initLocation();
+    startServiceFleet();
   }
 
   /// The sender is almost always the rider: prefill from their profile (and
@@ -93,7 +112,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   }
 
   @override
-  void dispose() { _debounce?.cancel();
+  void dispose() { _debounce?.cancel(); disposeServiceFleet();
     for (final c in [_pickupCtrl, _dropCtrl, _senderName, _senderPhone, _receiverName, _receiverPhone, _itemValue, _codAmount, _itemDetails]) { c.dispose(); }
     super.dispose(); }
 
@@ -109,22 +128,47 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
 
   void _search(String q, {required bool pickup}) {
     _debounce?.cancel();
-    if (q.trim().length < 2) { setState(() { if (pickup) _pickSug = []; else _dropSug = []; }); return; }
+    final seq = ++_searchSeq;
+    if (q.trim().length < 2) {
+      setState(() { if (pickup) { _pickSug = []; } else { _dropSug = []; } _searching = false; _searchProblem = null; _searched = ''; });
+      return;
+    }
+    setState(() {
+      _searching = true; _searchingPickup = pickup; _searchProblem = null;
+      if (pickup) { _dropSug = []; } else { _pickSug = []; }
+    });
     _debounce = Timer(const Duration(milliseconds: 350), () async {
-      final r = await ApiService.placesAutocomplete(q);
-      if (mounted) setState(() { if (pickup) _pickSug = r; else _dropSug = r; });
+      // Biased towards the pickup (the GPS fix until one is chosen).
+      final r = await ApiService.placesSearch(q, lat: _pLat, lng: _pLng, sessionToken: _places.token);
+      if (!mounted || seq != _searchSeq) return;
+      setState(() {
+        if (pickup) { _pickSug = r.predictions; } else { _dropSug = r.predictions; }
+        _searching = false; _searchProblem = r.problem; _searched = q.trim();
+      });
     });
   }
 
+  /// Under the fields while the active list is empty: searching / problem / none found.
+  Widget _searchStatus() {
+    if ((_searchingPickup ? _pickSug : _dropSug).isNotEmpty) return const SizedBox.shrink();
+    if (_searching) return const SearchStatusLine(searching: true);
+    if (_searchProblem != null) return SearchStatusLine(message: _searchProblem);
+    final text = (_searchingPickup ? _pickupCtrl : _dropCtrl).text.trim();
+    if (_searched.isNotEmpty && text.length >= 2) return SearchStatusLine(message: 'No places found for "$_searched"');
+    return const SizedBox.shrink();
+  }
+
   Future<void> _pick(Map<String, dynamic> s, {required bool pickup}) async {
-    final d = await ApiService.placeDetails(s['placeId'] as String? ?? '');
+    final d = await ApiService.placeDetails(s['placeId'] as String? ?? '', sessionToken: _places.token);
+    _places.renew(); // the pick ends this search session
     if (d == null || !mounted) return;
+    // placeDetails returns numeric lat/lng or null, never an error map.
+    final lat = ApiService.toDoubleOrNull(d['lat']), lng = ApiService.toDoubleOrNull(d['lng']);
+    if (lat == null || lng == null) return;
     setState(() {
-      // placeDetails returns numeric lat/lng or null, never an error map.
-      final lat = ApiService.toDoubleOrNull(d['lat']), lng = ApiService.toDoubleOrNull(d['lng']);
-      if (lat == null || lng == null) return;
       if (pickup) { _pLat = lat; _pLng = lng; _pickupCtrl.text = '${d['address'] ?? ''}'; _pickSug = []; }
       else { _dLat = lat; _dLng = lng; _dropCtrl.text = '${d['address'] ?? ''}'; _dropSug = []; }
+      _searched = ''; _searchProblem = null;
     });
     _loadFares();
   }
@@ -133,17 +177,33 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
     // Reached after awaits (location, geocode, place details): the rider may
     // already have left the screen, and setState on it then throws.
     if (_pLat == null || !mounted) return;
-    setState(() { _loading = true; _error = null; });
+    final seq = ++_faresSeq;
+    setState(() { _loading = true; _error = null; _errorOffline = false; });
     try {
       final res = await ApiService.post('/fare/estimate', _estimateBody());
-      if (!mounted) return;
-      if (res['available'] != true || res['vehicles'] is! List) { setState(() { _loading = false; _error = (res['message'] ?? 'Delivery not available here').toString(); }); return; }
+      // A newer pickup / drop's estimate owns the list now.
+      if (!mounted || seq != _faresSeq) return;
+      if (res['available'] != true || res['vehicles'] is! List) {
+        // An error answer (offline page, 5xx) is not "not available here".
+        final failed = res['error'] != null && res['available'] == null;
+        final f = classifyResponse(res);
+        setState(() {
+          _loading = false;
+          _errorOffline = failed && f == LoadFailure.offline;
+          _error = failed ? loadFailureMessage(f, what: 'delivery prices') : (res['message'] ?? 'Delivery not available here').toString();
+        });
+        return;
+      }
       setState(() {
         _vehicles = (res['vehicles'] as List).map((v) => Map<String, dynamic>.from(v as Map)).toList();
         _loading = false;
         _error = _vehicles.isEmpty ? 'No delivery pricing configured for this zone' : null;
       });
-    } catch (_) { if (mounted) setState(() { _loading = false; _error = 'Failed to load'; }); }
+    } catch (e) {
+      if (!mounted || seq != _faresSeq) return;
+      final f = classifyFailure(e);
+      setState(() { _loading = false; _errorOffline = f == LoadFailure.offline; _error = loadFailureMessage(f, what: 'delivery prices'); });
+    }
   }
 
   /// Ola / Rapido style: no weight selection and no per-kg charge — the parcel
@@ -176,8 +236,12 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         // The quoted fare in full; the server applies the coupon.
         'service': 'delivery', 'vehicleType': _selectedVehicle, 'fare': fare,
         'quoteToken': v['quoteToken'],
-        'senderName': _senderName.text, 'senderPhone': _senderPhone.text,
-        'receiverName': _receiverName.text, 'receiverPhone': _receiverPhone.text,
+        'senderName': _senderName.text,
+        'senderPhone': indianMobile(_senderPhone.text) ?? _senderPhone.text.trim(),
+        // Checked by _formValid; sent as the 10 digits the server matches on
+        // (the receiver sees the parcel under "incoming" by this number).
+        'receiverName': _receiverName.text,
+        'receiverPhone': indianMobile(_receiverPhone.text) ?? _receiverPhone.text.trim(),
         'itemType': _itemLabel, 'weightKg': _weightKg,
         'packageSize': _packageSize, 'isFragile': _isFragile,
         'itemValue': double.tryParse(_itemValue.text) ?? 0,
@@ -228,7 +292,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
 
   bool get _formValid => _pLat != null && _dLat != null && _selectedVehicle != null && _itemType != null
       && _senderName.text.isNotEmpty && _senderPhone.text.isNotEmpty
-      && _receiverName.text.isNotEmpty && _receiverPhone.text.isNotEmpty;
+      && _receiverName.text.isNotEmpty && indianMobile(_receiverPhone.text) != null;
 
   @override
   Widget build(BuildContext context) {
@@ -327,7 +391,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
                 borderRadius: BorderRadius.circular(6)),
               child: Text(
                 returned ? 'RETURNED' : (delivered ? 'DELIVERED' : (phase.isNotEmpty ? phase.toUpperCase() : status.toUpperCase())),
-                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800,
+                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800,
                   color: returned ? Colors.orange[800] : (delivered ? Colors.green : AppTheme.primaryBlue)))),
             const Spacer(),
             // A receiver is not sent the fare (the sender's business), only any
@@ -468,6 +532,8 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
       cta = 'Add sender details';
     } else if (_receiverName.text.isEmpty || _receiverPhone.text.isEmpty) {
       cta = 'Add receiver details';
+    } else if (indianMobile(_receiverPhone.text) == null) {
+      cta = 'Enter a valid receiver mobile number';
     } else if (_itemType == null) {
       cta = "Select what you're sending";
     } else if (_selectedVehicle == null || selFare == null) {
@@ -492,6 +558,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           ]),
           ..._pickSug.map((s) => _sugTile(s, pickup: true)),
           ..._dropSug.map((s) => _sugTile(s, pickup: false)),
+          _searchStatus(),
           // Who hands it over and who receives it — one compact row per stop.
           if (_pLat != null) ...[const SizedBox(height: 10), _contactRow(sender: true)],
           if (_dLat != null) ...[const SizedBox(height: 8), _contactRow(sender: false)],
@@ -588,7 +655,8 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           else ...[
             const ServiceSection('Choose vehicle'),
             if (_loading) const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()))
-            else if (_error != null) NoticeRow(_error!, tone: NoticeTone.warning, onRetry: _loadFares)
+            else if (_error != null) NoticeRow(_error!, tone: NoticeTone.warning,
+                icon: _errorOffline ? Icons.wifi_off_rounded : Icons.info_outline, onRetry: _loadFares)
             else if (_vehicles.isEmpty) _info('No delivery vehicles available here')
             else ..._vehicles.map(_vehicleCard),
           ],
@@ -626,7 +694,8 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
   Widget _contactRow({required bool sender}) {
     final name = (sender ? _senderName : _receiverName).text.trim();
     final phone = (sender ? _senderPhone : _receiverPhone).text.trim();
-    final complete = name.isNotEmpty && phone.isNotEmpty;
+    final badPhone = !sender && phone.isNotEmpty && indianMobile(phone) == null;
+    final complete = name.isNotEmpty && phone.isNotEmpty && !badPhone;
     final shown = [name, phone].where((s) => s.isNotEmpty).join(' · ');
     return RideTile(
       onTap: () => _editContact(sender: sender),
@@ -635,7 +704,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         Icon(sender ? Icons.person_outline : Icons.person_pin_circle_outlined, size: 20, color: RideUi.ink(context)),
         const SizedBox(width: 12),
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          Text(sender ? 'Sender' : (complete ? 'Receiver' : 'Receiver · required'),
+          Text(sender ? 'Sender' : (badPhone ? 'Receiver · check the mobile number' : complete ? 'Receiver' : 'Receiver · required'),
             maxLines: 1, overflow: TextOverflow.ellipsis, style: RideUi.caption(context, size: 12)),
           Text(shown.isNotEmpty ? shown : (sender ? 'Add sender contact' : 'Add receiver contact'),
             maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -721,9 +790,14 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
         if (pos == null) return;
         _mapCtrl?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 15));
       },
-      map: GoogleMap(initialCameraPosition: CameraPosition(target: _center, zoom: 14),
+      map: ValueListenableBuilder<Set<Marker>>(
+        // Only the map rebuilds as the vehicles glide.
+        valueListenable: serviceFleetListenable,
+        builder: (_, fleet, _) => GoogleMap(initialCameraPosition: CameraPosition(target: _center, zoom: 14),
+        markers: fleet,
         onMapCreated: (c) => _mapCtrl = c, onCameraMove: (p) => _center = p.target,
         onCameraIdle: () async {
+          unawaited(refreshServiceFleet());
           // A failed lookup used to leave "Locating address…" up for good, with
           // Confirm disabled. The pin itself is still a valid place to send.
           final at = _center;
@@ -732,7 +806,7 @@ class _ParcelBookingScreenState extends State<ParcelBookingScreen> {
           if (a.isEmpty) a = 'Pinned location (${at.latitude.toStringAsFixed(5)}, ${at.longitude.toStringAsFixed(5)})';
           if (mounted) setState(() => _mapAddr = a);
         },
-        myLocationEnabled: true, myLocationButtonEnabled: false, zoomControlsEnabled: false),
+        myLocationEnabled: true, myLocationButtonEnabled: false, zoomControlsEnabled: false)),
       onConfirm: _mapAddr.isEmpty ? null : () {
         setState(() {
           if (_pickingPickup) { _pLat = _center.latitude; _pLng = _center.longitude; _pickupCtrl.text = _mapAddr; }
@@ -853,7 +927,16 @@ class _ParcelContactSheetState extends State<ParcelContactSheet> {
             autofocus: widget.name.text.isNotEmpty && widget.phone.text.isEmpty,
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => Navigator.pop(context),
-            onChanged: (_) => widget.onChanged()),
+            onChanged: (_) { setState(() {}); widget.onChanged(); }),
+          // The receiver's number is how the parcel reaches them (OTP, the
+          // "incoming parcels" list): it must be a real Indian mobile.
+          if (!sender && widget.phone.text.trim().isNotEmpty && indianMobile(widget.phone.text) == null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Text('Enter a valid 10-digit mobile number',
+                  key: const ValueKey('receiver-phone-error'),
+                  style: RideUi.caption(context, size: 12.5).copyWith(color: Theme.of(context).colorScheme.error)),
+            ),
           const SizedBox(height: 16),
           PrimaryRideButton(label: 'Done', onPressed: () => Navigator.pop(context)),
         ]),

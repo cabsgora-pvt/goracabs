@@ -10,6 +10,7 @@ import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 import '../providers/user_provider.dart';
 import '../services/api_service.dart';
+import '../services/route_observer.dart';
 import '../utils/active_ride.dart';
 import '../utils/vehicle_marker.dart';
 import '../widgets/ride_ui/ride_ui.dart';
@@ -39,8 +40,76 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
+/// Why the home screen has no GPS fix, for the banner that says so.
+enum HomeLocationIssue { none, gpsOff, denied, deniedForever }
+
+/// A saved place (Home / Work / Others): the address and, when it was saved
+/// by this build, its coordinates. Favourites saved by an older build were the
+/// address alone; those are looked up the first time they are tapped.
+class FavouritePlace {
+  final String address;
+  final double? lat;
+  final double? lng;
+  const FavouritePlace(this.address, {this.lat, this.lng});
+
+  bool get hasCoords => lat != null && lng != null;
+
+  Map<String, dynamic> toJson() => {'address': address, 'lat': lat, 'lng': lng};
+
+  /// Reads both shapes: {address, lat, lng} and a legacy plain string.
+  static FavouritePlace? fromJson(dynamic v) {
+    if (v is String) return v.trim().isEmpty ? null : FavouritePlace(v.trim());
+    if (v is Map) {
+      final a = (v['address'] ?? '').toString().trim();
+      if (a.isEmpty) return null;
+      final lat = ApiService.toDoubleOrNull(v['lat']), lng = ApiService.toDoubleOrNull(v['lng']);
+      final ok = lat != null && lng != null && !(lat == 0 && lng == 0);
+      return FavouritePlace(a, lat: ok ? lat : null, lng: ok ? lng : null);
+    }
+    return null;
+  }
+
+  /// The stored favourites map (label → place); unreadable entries are skipped.
+  static Map<String, FavouritePlace> decodeAll(String? raw) {
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final m = jsonDecode(raw);
+      if (m is! Map) return {};
+      final out = <String, FavouritePlace>{};
+      m.forEach((k, v) {
+        final p = fromJson(v);
+        if (p != null) out[k.toString()] = p;
+      });
+      return out;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static String encodeAll(Map<String, FavouritePlace> m) =>
+      jsonEncode(m.map((k, v) => MapEntry(k, v.toJson())));
+}
+
+/// Coordinates for a legacy (address-only) favourite: the address's top Places
+/// match, biased to [near]; null when nothing is found.
+Future<FavouritePlace?> resolveFavouriteCoords(FavouritePlace p, {LatLng? near}) async {
+  try {
+    final session = PlacesSession();
+    final r = await ApiService.placesSearch(p.address,
+        lat: near?.latitude, lng: near?.longitude, sessionToken: session.token);
+    if (r.predictions.isEmpty) return null;
+    final id = (r.predictions.first['placeId'] ?? '').toString();
+    if (id.isEmpty) return null;
+    final d = await ApiService.placeDetails(id, sessionToken: session.token);
+    if (d == null) return null;
+    return FavouritePlace(p.address, lat: d['lat'] as double, lng: d['lng'] as double);
+  } catch (_) {
+    return null;
+  }
+}
+
 class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver, RouteAware {
   int _currentIndex = 0;
   late PageController _promoController;
   Timer? _promoTimer;
@@ -70,9 +139,13 @@ class _HomeScreenState extends State<HomeScreen>
   // id so persisting vehicles drift to their new fix instead of jumping every
   // 4s poll — rather than 40 separate animation controllers.
   late final AmbientVehicleFleet _fleet;
-  Set<Marker> get _vehicleMarkers => _fleet.markers;
   Timer? _vehiclesTimer;
-  Map<String, String> _favourites = {}; // label ('Home'/'Work'/custom) → address
+  Map<String, FavouritePlace> _favourites = {}; // label ('Home'/'Work'/'Others') → place
+  // No GPS fix and why (banner with "Open settings").
+  HomeLocationIssue _locIssue = HomeLocationIssue.none;
+  // Another page covers home (RouteAware) / the app is in the background.
+  bool _covered = false;
+  bool _backgrounded = false;
   Timer? _homeGeoDebounce;
   // Admin-managed app config (banners / places / whyChooseUs)
   Map<String, dynamic>? _cfg;
@@ -117,10 +190,11 @@ class _HomeScreenState extends State<HomeScreen>
     _fetchCurrentLocation();
     // Live vehicles on the map — first load shortly after location is known,
     // then refresh every few seconds so they appear to move.
+    // Markers reach the map through _fleet.listenable (ValueListenableBuilder
+    // around the GoogleMap only) — no whole-screen setState every frame.
     _fleet = AmbientVehicleFleet(
       vsync: this,
       duration: const Duration(seconds: 4),
-      onUpdate: () { if (mounted) setState(() {}); },
     );
     _loadNearbyVehicles();
     _startVehiclesTimer();
@@ -158,21 +232,97 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  void _setLocIssue(HomeLocationIssue i) {
+    if (mounted && _locIssue != i) setState(() => _locIssue = i);
+  }
+
   Future<void> _fetchCurrentLocation() async {
     try {
       LocationPermission perm = await Geolocator.checkPermission();
       if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
-      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return;
+      if (perm == LocationPermission.deniedForever) return _setLocIssue(HomeLocationIssue.deniedForever);
+      if (perm == LocationPermission.denied) return _setLocIssue(HomeLocationIssue.denied);
+      if (!await Geolocator.isLocationServiceEnabled()) return _setLocIssue(HomeLocationIssue.gpsOff);
       final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high, timeLimit: const Duration(seconds: 10));
       if (!mounted) return;
-      setState(() => _currentLatLng = LatLng(pos.latitude, pos.longitude));
+      setState(() {
+        _currentLatLng = LatLng(pos.latitude, pos.longitude);
+        _locIssue = HomeLocationIssue.none;
+      });
       _homeMapCtrl?.animateCamera(CameraUpdate.newLatLng(_currentLatLng!));
       _loadNearbyVehicles(); // refresh live vehicles for the new location
 
       // Reverse-geocode for the chip label
       final addr = await ApiService.reverseGeocode(pos.latitude, pos.longitude);
       if (mounted && addr.isNotEmpty) setState(() => _currentAddress = addr);
+    } on LocationServiceDisabledException {
+      _setLocIssue(HomeLocationIssue.gpsOff);
     } catch (_) {}
+  }
+
+  /// "Open settings" on the location banner: the phone's location switch when
+  /// GPS is off, the app's permission page otherwise (a permanent "deny" can
+  /// only be undone there). A plain denial asks again first.
+  Future<void> _openLocationFix() async {
+    try {
+      switch (_locIssue) {
+        case HomeLocationIssue.gpsOff:
+          await Geolocator.openLocationSettings();
+        case HomeLocationIssue.denied:
+          final p = await Geolocator.requestPermission();
+          if (p == LocationPermission.denied || p == LocationPermission.deniedForever) {
+            await Geolocator.openAppSettings();
+          } else {
+            await _fetchCurrentLocation();
+          }
+        case HomeLocationIssue.deniedForever:
+          await Geolocator.openAppSettings();
+        case HomeLocationIssue.none:
+          break;
+      }
+    } catch (_) {}
+  }
+
+  Widget _buildLocationBanner() {
+    final gpsOff = _locIssue == HomeLocationIssue.gpsOff;
+    return Container(
+      key: const ValueKey('home-location-banner'),
+      padding: const EdgeInsets.fromLTRB(14, 12, 10, 8),
+      decoration: BoxDecoration(
+        color: AppTheme.orangeSoft.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.15 : 1),
+        borderRadius: BorderRadius.circular(RideUi.radius),
+        border: Border.all(color: AppTheme.ctaOrange.withValues(alpha: 0.4)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Icon(Icons.location_off_rounded, color: AppTheme.ctaOrange, size: 22),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(gpsOff ? 'Location (GPS) is off' : 'Location permission is off',
+                style: RideUi.body(context, size: 14, weight: FontWeight.w800)),
+            const SizedBox(height: 2),
+            Text(
+              gpsOff
+                  ? 'Turn on location to find vehicles near you — or just type your pickup address.'
+                  : 'Allow location to set your pickup automatically — or just type your pickup address.',
+              style: RideUi.caption(context, size: 12.5),
+            ),
+          ])),
+        ]),
+        Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+          TextButton(
+            key: const ValueKey('home-location-type'),
+            onPressed: _openSearch,
+            child: const Text('Type pickup'),
+          ),
+          TextButton(
+            key: const ValueKey('home-location-settings'),
+            onPressed: _openLocationFix,
+            child: const Text('Open settings', style: TextStyle(fontWeight: FontWeight.w800)),
+          ),
+        ]),
+      ]),
+    );
   }
 
   // ── Live nearby vehicles on the home map ───────────────────
@@ -214,24 +364,72 @@ class _HomeScreenState extends State<HomeScreen>
 
   // Nothing on this screen is worth polling for while the app is in the
   // background; both polls stop there and catch up the moment it returns.
+  //
+  // The same goes for when another page is pushed over home (RouteAware): the
+  // nearby-vehicle (4 s), active-ride (8 s) and promo (3 s) timers used to keep
+  // running under the booking and ride screens.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
-      _activeTimer?.cancel();
-      _vehiclesTimer?.cancel();
-      _activeTimer = null;
-      _vehiclesTimer = null;
+      _backgrounded = true;
+      _pausePolls();
     } else if (state == AppLifecycleState.resumed && mounted) {
-      if (_activeTimer == null) {
-        _checkActiveRide();
-        _startActiveTimer();
-      }
-      if (_vehiclesTimer == null) {
-        _loadNearbyVehicles();
-        _startVehiclesTimer();
-      }
+      _backgrounded = false;
+      _resumePolls();
+      // Back from the settings page the banner sent the rider to.
+      if (_locIssue != HomeLocationIssue.none) _fetchCurrentLocation();
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      appRouteObserver.unsubscribe(this);
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPushNext() {
+    _covered = true;
+    _pausePolls();
+  }
+
+  @override
+  void didPopNext() {
+    _covered = false;
+    _resumePolls();
+  }
+
+  /// True while the home polls are stopped.
+  @visibleForTesting
+  bool get pollsPaused => _activeTimer == null && _vehiclesTimer == null && _promoTimer == null;
+
+  void _pausePolls() {
+    _activeTimer?.cancel();
+    _vehiclesTimer?.cancel();
+    _promoTimer?.cancel();
+    _activeTimer = null;
+    _vehiclesTimer = null;
+    _promoTimer = null;
+  }
+
+  /// Restarts whatever is stopped — only once home is both visible and in
+  /// the foreground — and catches up at once.
+  void _resumePolls() {
+    if (!mounted || _covered || _backgrounded) return;
+    if (_activeTimer == null) {
+      _checkActiveRide();
+      _startActiveTimer();
+    }
+    if (_vehiclesTimer == null) {
+      _loadNearbyVehicles();
+      _startVehiclesTimer();
+    }
+    if (_promoTimer == null) _startPromoTimer();
   }
 
   // Finds any in-progress ride (pending/accepted/arrived/ongoing) for the user
@@ -315,6 +513,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _startPromoTimer() {
+    _promoTimer?.cancel();
     _promoTimer = Timer.periodic(const Duration(seconds: 3), (Timer timer) {
       if (_currentPromoPage < _banners().length - 1) {
         _currentPromoPage++;
@@ -354,6 +553,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    appRouteObserver.unsubscribe(this);
     _userProv?.removeListener(_onUserChanged);
     _promoTimer?.cancel();
     _activeTimer?.cancel();
@@ -481,7 +681,10 @@ class _HomeScreenState extends State<HomeScreen>
           // ── Live map (movable, centre pin) ──
           Positioned(
             top: 0, left: 0, right: 0, height: mapH,
-            child: GoogleMap(
+            // Only the map rebuilds while the nearby vehicles glide.
+            child: ValueListenableBuilder<Set<Marker>>(
+              valueListenable: _fleet.listenable,
+              builder: (context, vehicleMarkers, _) => GoogleMap(
               // A STABLE key. It used to be keyed on _currentLatLng, which
               // onCameraMove rewrites: every rebuild after the camera moved (the
               // vehicle layer rebuilds every few seconds) threw the map away and
@@ -506,10 +709,10 @@ class _HomeScreenState extends State<HomeScreen>
               // Centre the camera target in the part of the map the sheet does
               // not cover, which is where the pin is drawn.
               padding: const EdgeInsets.only(bottom: overlap),
-              markers: _vehicleMarkers,
+              markers: vehicleMarkers,
               onCameraMove: (pos) => _currentLatLng = pos.target,
               onCameraIdle: _onHomeMapIdle,
-            ),
+            )),
           ),
           // Live centre pin. Its TIP sits on the camera target: the map's
           // bottom padding puts the target at the centre of the uncovered band
@@ -553,6 +756,7 @@ class _HomeScreenState extends State<HomeScreen>
                   // Live ride / Book Again lead the sheet when present.
                   if (_activeRide != null) ...[_buildActiveRideBanner(), const SizedBox(height: 14)],
                   if (_lastRide != null && _activeRide == null) ...[_buildBookAgainCard(), const SizedBox(height: 14)],
+                  if (_locIssue != HomeLocationIssue.none) ...[_buildLocationBanner(), const SizedBox(height: 14)],
                   _homeSearchBar(),
                   if (_favourites.isNotEmpty) ...[
                     const SizedBox(height: 12),
@@ -651,18 +855,53 @@ class _HomeScreenState extends State<HomeScreen>
         ),
       );
 
-  Widget _favChip(String label, String address) {
+  Widget _favChip(String label, FavouritePlace place) {
     final icon = label == 'Home' ? Icons.home_rounded : label == 'Work' ? Icons.work_rounded : Icons.favorite_rounded;
     return RidePillChip(
+      key: ValueKey('fav-$label'),
       icon: icon,
       label: label,
       showChevron: false,
-      onTap: () {
-        if (!_canBook()) return;
-        Navigator.push(context, MaterialPageRoute(
-            builder: (_) => TaxiBookingScreen(fromLocation: 'Current Location', hideLocationInputs: false)));
-      },
+      onTap: () => _openFavourite(label, place),
     );
+  }
+
+  bool _favLookup = false;
+
+  /// A favourite opens booking with its drop filled in (address + pin), the
+  /// way "Book again" does. One saved by an older build has only the address:
+  /// it is looked up once (Places), and the coordinates are saved with it;
+  /// when the lookup fails the rider is asked to save it again.
+  Future<void> _openFavourite(String label, FavouritePlace place) async {
+    if (!_canBook() || _favLookup) return;
+    var p = place;
+    if (!p.hasCoords) {
+      _favLookup = true;
+      FavouritePlace? found;
+      try {
+        found = await resolveFavouriteCoords(p, near: _currentLatLng);
+      } finally {
+        _favLookup = false;
+      }
+      if (!mounted) return;
+      if (found == null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("Couldn't find the saved $label address. Move the map to it and save it again."),
+          action: SnackBarAction(label: 'Save again', onPressed: _openSaveFavourite),
+        ));
+        return;
+      }
+      p = found;
+      _favourites[label] = found;
+      unawaited(_persistFavourites());
+    }
+    Navigator.push(context, MaterialPageRoute(builder: (_) => TaxiBookingScreen(
+          fromLocation: 'Current Location',
+          toLocation: p.address,
+          initialDropLat: p.lat,
+          initialDropLng: p.lng,
+          hideLocationInputs: false,
+        )));
   }
 
   // Reverse-geocode the map centre (debounced) → update the pickup address.
@@ -678,20 +917,29 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _loadFavourites() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString('fav_locations');
-      if (raw != null && raw.isNotEmpty) {
-        final map = jsonDecode(raw) as Map<String, dynamic>;
-        if (mounted) setState(() => _favourites = map.map((k, v) => MapEntry(k, v.toString())));
-      }
+      final favs = FavouritePlace.decodeAll(prefs.getString('fav_locations'));
+      if (mounted && favs.isNotEmpty) setState(() => _favourites = favs);
     } catch (_) {}
   }
 
-  Future<void> _saveFavourite(String label) async {
-    setState(() => _favourites[label] = _currentAddress);
+  Future<void> _persistFavourites() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('fav_locations', jsonEncode(_favourites));
+      await prefs.setString('fav_locations', FavouritePlace.encodeAll(_favourites));
     } catch (_) {}
+  }
+
+  // Saves the map centre — where the pin is — with the address shown for it.
+  Future<void> _saveFavourite(String label) async {
+    final at = _currentLatLng;
+    final addr = _currentAddress.trim();
+    if (addr.isEmpty || addr == 'Locating…') {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Wait for the address to load, then save it.')));
+      return;
+    }
+    setState(() => _favourites[label] = FavouritePlace(addr, lat: at?.latitude, lng: at?.longitude));
+    await _persistFavourites();
   }
 
   // Heart icon → "Save as favourite" sheet (Home / Work / Others).

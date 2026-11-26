@@ -5,6 +5,7 @@ import 'providers/user_provider.dart';
 import 'providers/theme_provider.dart';
 import 'screens/splash_screen.dart';
 import 'services/app_foreground.dart';
+import 'services/route_observer.dart';
 import 'services/session_guard.dart';
 import 'services/update_gate.dart';
 import 'theme/app_theme.dart';
@@ -57,6 +58,8 @@ class _GoraCabsAppState extends State<GoraCabsApp> with WidgetsBindingObserver {
     return MaterialApp(
       // Lets a rejected token (401) sign the rider out from wherever they are.
       navigatorKey: SessionGuard.navigatorKey,
+      // Polling screens pause while another screen covers them (RouteAware).
+      navigatorObservers: [appRouteObserver],
       title: 'Gora Cabs',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,

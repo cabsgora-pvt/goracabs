@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../config/app_config.dart';
 import '../utils/duration_format.dart';
 import '../services/api_service.dart';
+import '../services/route_observer.dart';
 import '../utils/vehicle_marker.dart';
 import '../utils/map_markers.dart';
 import '../services/location_service.dart';
@@ -42,8 +44,28 @@ class TaxiBookingScreen extends StatefulWidget {
 class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     // The nearby fleet's animation. The booked ride is tracked, and paid, on
     // ActiveRideScreen — this screen only books it.
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver, RouteAware {
   String? _selectedVehicle;
+
+  // Polls (nearby vehicles 5 s, fare refresh 20 s) stop while another page
+  // covers this one or the app is in the background.
+  bool _covered = false;
+  bool _backgrounded = false;
+  bool _fareRefreshWanted = false;
+  bool _nearbyBusy = false;
+
+  // The selected vehicle's fare changed on a refresh: flagged on its row for
+  // a few seconds (and announced) instead of changing silently.
+  String? _priceUpdatedFor;
+  Timer? _priceFlashTimer;
+
+  // One Places session per search (keystrokes + the details call that ends
+  // it), and whether _myLocation is a real fix to bias the search with.
+  final PlacesSession _places = PlacesSession();
+  bool _hasFix = false;
+  // Why the last search came back empty (rate limit / offline), if not "no match".
+  String? _dropProblem;
+  String? _pickupProblem;
 
   // Real available vehicles around the pickup, of the selected type. These were
   // hard-coded Delhi coordinates, so in any other city the "nearby" vehicles a
@@ -144,11 +166,15 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       });
     }
     _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
-      List<Map<String, dynamic>> results = const [];
+      PlacesResult r = const PlacesResult([], failed: true);
       try {
-        results = await ApiService.placesAutocomplete(q);
-      } catch (_) {/* shown as "no places found" */}
+        r = await ApiService.placesSearch(q,
+            lat: _hasFix ? _myLocation.latitude : null,
+            lng: _hasFix ? _myLocation.longitude : null,
+            sessionToken: _places.token);
+      } catch (_) {/* shown as a failed search */}
       if (!mounted || seq != _searchSeq) return;
+      final results = r.predictions;
       setState(() {
         if (forMapPicker) {
           _mapPickerSuggestions = results;
@@ -156,10 +182,12 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
           _pickupSuggestions = results;
           _searchingPickup = false;
           _pickupSearchEmpty = results.isEmpty;
+          _pickupProblem = r.problem;
         } else {
           _dropSuggestions = results;
           _searchingDrop = false;
           _dropSearchEmpty = results.isEmpty;
+          _dropProblem = r.problem;
         }
       });
     });
@@ -183,7 +211,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     _searchSeq++;
     final placeId = s['placeId'] as String? ?? '';
     final desc = s['description'] as String? ?? '';
-    final details = await ApiService.placeDetails(placeId);
+    final details = await ApiService.placeDetails(placeId, sessionToken: _places.token);
+    _places.renew(); // the pick ends this search session
     if (!mounted) return false;
     if (details == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -194,6 +223,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     final ll = LatLng((details['lat'] as num).toDouble(), (details['lng'] as num).toDouble());
     setState(() {
       _myLocation = ll;
+      _hasFix = true;
       _pickupController.text = details['address'] as String? ?? desc;
       _pickupEdited = false;
       _pickupChosen = true;
@@ -219,6 +249,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     final ll = LatLng(pos.latitude, pos.longitude);
     setState(() {
       _myLocation = ll;
+      _hasFix = true;
       _pickupEdited = false;
       _pickupChosen = true;
       _clearPickupSearch();
@@ -242,7 +273,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     }
     final placeId = s['placeId'] as String? ?? '';
     final desc = s['description'] as String? ?? '';
-    final details = await ApiService.placeDetails(placeId);
+    final details = await ApiService.placeDetails(placeId, sessionToken: _places.token);
+    _places.renew(); // the pick ends this search session
     if (!mounted) return;
     if (details == null) return;
     final lat = (details['lat'] as num).toDouble();
@@ -312,12 +344,14 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   @override
   void initState() {
     super.initState();
+    // Markers reach the map through _fleet.listenable (a ValueListenableBuilder
+    // around the GoogleMap) - not a whole-screen setState every frame.
     _fleet = AmbientVehicleFleet(
       vsync: this,
       duration: const Duration(seconds: 4),
-      onUpdate: () { if (mounted) setState(() {}); },
     );
-    _nearbyTimer = Timer.periodic(const Duration(seconds: 5), (_) => _loadNearby());
+    WidgetsBinding.instance.addObserver(this);
+    _startNearbyTimer();
     loadRidePreferences('taxi').then((p) {
       if (mounted) setState(() => _ridePrefs = p);
     });
@@ -353,6 +387,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     if (pos != null && mounted) {
       setState(() {
         _myLocation = LatLng(pos.latitude, pos.longitude);
+        _hasFix = true;
         // Only set selected = pickup if no drop has been picked yet
         if (_dropController.text.trim().isEmpty) _selectedMapLocation = _myLocation;
       });
@@ -376,6 +411,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      appRouteObserver.unsubscribe(this);
+      appRouteObserver.subscribe(this, route);
+    }
     final dpr = MediaQuery.devicePixelRatioOf(context);
     if (dpr == _glyphDpr) return;
     _glyphDpr = dpr;
@@ -386,11 +426,12 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   /// Available vehicles of the selected type near the pickup, while the rider
   /// is choosing.
   Future<void> _loadNearby() async {
-    if (!mounted) return;
+    if (!mounted || _nearbyBusy) return;
+    _nearbyBusy = true;
     try {
       final drivers = await ApiService.getNearbyDrivers(
         _myLocation.latitude, _myLocation.longitude,
-        radiusKm: 4, vehicleType: _selectedVehicle,
+        radiusKm: 4, vehicleType: _selectedVehicle, service: 'taxi',
       );
       if (!mounted) return;
       if (drivers.isEmpty) {
@@ -398,11 +439,66 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       } else {
         await _fleet.update(drivers);
       }
-    } catch (_) {/* decoration only — never let it break booking */}
+    } catch (_) {/* decoration only — never let it break booking */} finally {
+      _nearbyBusy = false;
+    }
+  }
+
+  void _startNearbyTimer() {
+    _nearbyTimer?.cancel();
+    _nearbyTimer = Timer.periodic(const Duration(seconds: 5), (_) => _loadNearby());
+  }
+
+  @override
+  void didPushNext() {
+    _covered = true;
+    _pausePolls();
+  }
+
+  @override
+  void didPopNext() {
+    _covered = false;
+    _resumePolls();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _backgrounded = true;
+      _pausePolls();
+    } else if (state == AppLifecycleState.resumed) {
+      _backgrounded = false;
+      _resumePolls();
+    }
+  }
+
+  /// True while both polls are stopped.
+  @visibleForTesting
+  bool get pollsPaused => _nearbyTimer == null && _fareRefreshTimer == null;
+
+  void _pausePolls() {
+    _nearbyTimer?.cancel();
+    _nearbyTimer = null;
+    _fareRefreshTimer?.cancel();
+    _fareRefreshTimer = null;
+  }
+
+  void _resumePolls() {
+    if (!mounted || _covered || _backgrounded) return;
+    if (_nearbyTimer == null) {
+      _loadNearby();
+      _startNearbyTimer();
+    }
+    // Fares go stale while the rider is away: refresh now, then every 20 s.
+    if (_fareRefreshWanted && _fareRefreshTimer == null) _loadRealFares();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    appRouteObserver.unsubscribe(this);
+    _priceFlashTimer?.cancel();
     _nearbyTimer?.cancel();
     _fleet.dispose();
     _fareRefreshTimer?.cancel();
@@ -456,8 +552,11 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
         _showOutOfZoneDialog(zoneName);
         return;
       }
+      if (!mounted) return;
       if (res['available'] == true && res['vehicles'] is List) {
         final apiVehicles = res['vehicles'] as List;
+        final sel = _selectedVehicle;
+        final oldPrice = sel == null ? null : _priceOf(sel);
         setState(() {
           _rideDistance = (res['distance'] as num?)?.toDouble() ?? 0;
           _rideDuration = (res['duration'] as num?)?.toInt() ?? 0;
@@ -490,6 +589,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
             }
           }
         });
+        final newPrice = sel == null || _selectedVehicle != sel ? null : _priceOf(sel);
+        if (sel != null && fareChanged(oldPrice, newPrice)) _flashPriceUpdated(sel, newPrice!);
       }
       // Once we have a drop, also fetch real road directions for polyline + road distance
       if (hasDrop) await _loadDirections();
@@ -500,10 +601,29 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
 
   // Refresh fare estimate every 20s so driver ETA stays current. Stops once a ride is booked.
   void _startFareRefresh() {
+    _fareRefreshWanted = true;
+    if (_covered || _backgrounded) return; // resumes on didPopNext / resume
     if (_fareRefreshTimer != null && _fareRefreshTimer!.isActive) return;
     _fareRefreshTimer = Timer.periodic(const Duration(seconds: 20), (t) {
       if (!mounted) { t.cancel(); _fareRefreshTimer = null; return; }
       _loadRealFares();
+    });
+  }
+
+  String? _priceOf(String name) {
+    for (final v in _vehicles) {
+      if (v['name'] == name) return v['price'] as String?;
+    }
+    return null;
+  }
+
+  void _flashPriceUpdated(String name, String price) {
+    _priceFlashTimer?.cancel();
+    setState(() => _priceUpdatedFor = name);
+    // For screen readers too: the number under their finger just changed.
+    SemanticsService.announce('Price updated: $name is now $price', TextDirection.ltr);
+    _priceFlashTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _priceUpdatedFor = null);
     });
   }
 
@@ -606,7 +726,8 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       if (txt.isEmpty) continue;
       LatLng? ll = i < _stopLatLng.length ? _stopLatLng[i] : null;
       if (ll == null) {
-        final results = await ApiService.placesAutocomplete(txt);
+        final results = await ApiService.placesAutocomplete(txt,
+            lat: _hasFix ? _myLocation.latitude : null, lng: _hasFix ? _myLocation.longitude : null);
         if (results.isNotEmpty) {
           final d = await ApiService.placeDetails(results.first['placeId'] as String? ?? '');
           if (d != null && d['lat'] != null) ll = LatLng((d['lat'] as num).toDouble(), (d['lng'] as num).toDouble());
@@ -747,7 +868,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
   }
 
   // Build Google Maps marker set
-  Set<Marker> _buildMapMarkers() {
+  Set<Marker> _buildMapMarkers(Set<Marker> fleet) {
     final markers = <Marker>{};
 
     // Pickup (your location) — draggable so rider can fine-tune.
@@ -791,7 +912,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     }
 
     // Real nearby vehicles of the selected type.
-    markers.addAll(_fleet.markers);
+    markers.addAll(fleet);
 
     return markers;
   }
@@ -829,7 +950,10 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
           Expanded(
             child: LayoutBuilder(builder: (context, box) => Stack(
               children: [
-                GoogleMap(
+                // Only the map rebuilds while the nearby vehicles glide.
+                ValueListenableBuilder<Set<Marker>>(
+                  valueListenable: _fleet.listenable,
+                  builder: (context, fleet, _) => GoogleMap(
                   initialCameraPosition: CameraPosition(target: _myLocation, zoom: 15),
                   onMapCreated: (c) {
                     _mapController = c;
@@ -844,9 +968,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                     top: MediaQuery.of(context).padding.top + 56,
                     bottom: box.maxHeight * sheetInit,
                   ),
-                  markers: _buildMapMarkers(),
+                  markers: _buildMapMarkers(fleet),
                   polylines: _buildMapPolylines(),
-                ),
+                )),
                 // Back — same as the system back button.
                 Positioned(
                     top: 0, left: 0,
@@ -1095,7 +1219,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 24),
                       child: Center(
-                        child: Text(_searchingPickup ? 'Searching…' : 'No places found — try another name',
+                        child: Text(_searchingPickup ? 'Searching…' : (_pickupProblem ?? 'No places found — try another name'),
                             style: RideUi.caption(context, size: 13)),
                       ),
                     ),
@@ -1108,7 +1232,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 24),
                     child: Center(
-                      child: Text(_searchingDrop ? 'Searching…' : 'No places found — try another name',
+                      child: Text(_searchingDrop ? 'Searching…' : (_dropProblem ?? 'No places found — try another name'),
                           style: RideUi.caption(context, size: 13)),
                     ),
                   ),
@@ -1142,7 +1266,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                 if (_pickupSuggestions.isNotEmpty) {
                   picked = await _selectPickupSuggestion(_pickupSuggestions.first);
                 } else if (typed.length >= 2) {
-                  final results = await ApiService.placesAutocomplete(typed);
+                  final results = await ApiService.placesAutocomplete(typed,
+                      lat: _hasFix ? _myLocation.latitude : null, lng: _hasFix ? _myLocation.longitude : null,
+                      sessionToken: _places.token);
                   if (results.isNotEmpty) picked = await _selectPickupSuggestion(results.first);
                 }
                 if (!mounted) return;
@@ -1169,7 +1295,9 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
                   await _selectSuggestion(_dropSuggestions.first, forMapPicker: false);
                 } else {
                   // Otherwise try to autocomplete + take first hit
-                  final results = await ApiService.placesAutocomplete(dropText);
+                  final results = await ApiService.placesAutocomplete(dropText,
+                      lat: _hasFix ? _myLocation.latitude : null, lng: _hasFix ? _myLocation.longitude : null,
+                      sessionToken: _places.token);
                   if (results.isNotEmpty) {
                     await _selectSuggestion(results.first, forMapPicker: false);
                   } else {
@@ -1646,6 +1774,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
       subtitle: subtitle,
       tagline: v['type'] as String?,
       price: v['price'] as String?,
+      priceCaption: _priceUpdatedFor == v['name'] ? 'Price updated' : null,
       onTap: () {
         setState(() => _selectedVehicle = v['name']);
         // Show the chosen type's vehicles now, not at the next poll.
@@ -1834,4 +1963,12 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     );
   }
 
+}
+
+/// True when a refresh changed a real fare ("₹120" -> "₹135"); a placeholder
+/// ("—") on either side is not a change worth flagging.
+@visibleForTesting
+bool fareChanged(String? before, String? after) {
+  bool real(String? p) => p != null && RegExp(r'\d').hasMatch(p);
+  return real(before) && real(after) && before != after;
 }

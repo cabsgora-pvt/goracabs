@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../utils/pending_coupon.dart';
 
 /// How long the trip (fare, tip, pickup) must stay unchanged before an
 /// applied code is checked again.
@@ -91,6 +92,9 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
   Timer? _recheck;
   // Answers to an older check are dropped.
   int _seq = 0;
+  // The code came from the Offers screen's "Apply" (PendingCoupon): cleared
+  // once the server has accepted or refused it on a trip.
+  bool _fromPending = false;
 
   @override
   void initState() {
@@ -101,7 +105,23 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
     _loadPaymentConfig();
     _loadWalletBalance();
     // A code the booking already holds: check it against this trip.
-    if (_couponCode.isNotEmpty) _scheduleRecheck();
+    if (_couponCode.isNotEmpty) {
+      _scheduleRecheck();
+    } else {
+      _loadPendingCoupon();
+    }
+  }
+
+  /// A code the rider applied on the Offers screen: take it up here and let
+  /// the server check it against this trip, like a typed one.
+  Future<void> _loadPendingCoupon() async {
+    final p = await PendingCoupon.load();
+    if (p == null || !mounted || _couponCode.isNotEmpty || !p.appliesTo(widget.service)) return;
+    setState(() {
+      _couponCode = p.code;
+      _fromPending = true;
+    });
+    _scheduleRecheck();
   }
 
   @override
@@ -153,12 +173,23 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
   /// Keeps the server's verdict. A code it refused is dropped (with its
   /// reason shown); one it could not check is kept, to be checked at booking.
   void _applyCheck(String code, CouponCheck c) {
+    final fromPending = _fromPending && code == _couponCode;
     setState(() {
       _check = c;
       _couponCode = c.valid == false ? '' : code;
       _couponDiscount = c.discount;
     });
     _notify();
+    // The Offers screen's code has been used up here (applied or refused);
+    // one that could not be checked stays for the booking to check.
+    if (fromPending && c.valid != null) {
+      _fromPending = false;
+      PendingCoupon.clear();
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(
+            c.valid == true ? c.message() : '$code: ${c.message()}')));
+      }
+    }
   }
 
   Future<void> _loadPaymentConfig() async {
@@ -222,6 +253,7 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
         TextButton(onPressed: () {
           _recheck?.cancel();
           _seq++;
+          if (_fromPending) { _fromPending = false; PendingCoupon.clear(); }
           setState(() { _couponCode = ''; _couponDiscount = 0; _check = CouponCheck.unchecked; });
           _notify();
           Navigator.pop(dctx);
@@ -233,6 +265,8 @@ class _PaymentCouponBarState extends State<PaymentCouponBar> {
             final code = ctrl.text.trim().toUpperCase();
             if (code.isEmpty) return;
             _recheck?.cancel();
+            // A typed code replaces the Offers screen's one (and says its own result).
+            if (_fromPending) { _fromPending = false; PendingCoupon.clear(); }
             final c = await _preview(code);
             if (dctx.mounted) Navigator.pop(dctx);
             if (c == null || !mounted) return;

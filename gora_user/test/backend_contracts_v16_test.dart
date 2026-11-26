@@ -194,7 +194,7 @@ void main() {
       final pubspec = File('pubspec.yaml').readAsStringSync();
       final m = RegExp(r'^version:\s*([0-9.]+)\+(\d+)\s*$', multiLine: true).firstMatch(pubspec)!;
       expect(kAppVersion, m.group(1));
-      expect(kAppVersion, '1.6.0');
+      expect(kAppVersion, '1.6.1');
     });
   });
 

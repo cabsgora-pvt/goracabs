@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../config/app_config.dart';
 import '../services/api_service.dart';
+import '../utils/net_errors.dart';
 import '../services/location_service.dart';
 import '../utils/ride_booking.dart';
+import '../utils/service_fleet.dart';
 import '../widgets/payment_coupon_bar.dart';
 import '../widgets/ride_preferences.dart';
 import '../widgets/ride_ui/ride_ui.dart';
@@ -16,7 +18,14 @@ class RentalScreen extends StatefulWidget {
   State<RentalScreen> createState() => _RentalScreenState();
 }
 
-class _RentalScreenState extends State<RentalScreen> {
+class _RentalScreenState extends State<RentalScreen>
+    with TickerProviderStateMixin, ServiceFleetMixin {
+  // The pickup map shows rental vehicles only.
+  @override
+  String get fleetService => 'rental';
+  @override
+  LatLng? serviceFleetCenter() => _showMapPicker ? _pickerCenter : null;
+
   int _selectedHours = 4;
   String? _selectedVehicle;
   final _pickupController = TextEditingController();
@@ -33,6 +42,16 @@ class _RentalScreenState extends State<RentalScreen> {
   List<Map<String, dynamic>> _pickupSuggestions = [];
   List<Map<String, dynamic>> _dropSuggestions = [];
   Timer? _searchDebounce;
+  // One Places session per search (renewed after a pick); _searchSeq drops an
+  // older, slower answer; the rest is what the empty list says.
+  final PlacesSession _places = PlacesSession();
+  int _searchSeq = 0;
+  bool _searching = false;
+  bool _searchingPickup = true;
+  String? _searchProblem;
+  String _searchedQuery = '';
+  int _packagesSeq = 0;
+  bool _packagesOffline = false;
   // Map picker
   bool _showMapPicker = false;
   bool _pickingPickup = true;
@@ -57,6 +76,7 @@ class _RentalScreenState extends State<RentalScreen> {
   void initState() {
     super.initState();
     _initLocationAndPackages();
+    startServiceFleet();
     loadRidePreferences('rental').then((p) {
       if (mounted) setState(() => _ridePrefs = p);
     });
@@ -65,6 +85,7 @@ class _RentalScreenState extends State<RentalScreen> {
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    disposeServiceFleet();
     _pickupController.dispose();
     _dropController.dispose();
     super.dispose();
@@ -82,15 +103,26 @@ class _RentalScreenState extends State<RentalScreen> {
 
   Future<void> _loadPackages() async {
     if (!mounted) return;
+    final seq = ++_packagesSeq;
     if (_pickupLat == null || _pickupLng == null) {
-      setState(() { _loadingPackages = false; _packagesError = 'Location needed to load packages'; });
+      setState(() { _loadingPackages = false; _packagesOffline = false; _packagesError = 'Location needed to load packages'; });
       return;
     }
     // A reload (Retry, or a new pickup) shows the spinner again.
-    setState(() { _loadingPackages = true; _packagesError = null; });
+    setState(() { _loadingPackages = true; _packagesError = null; _packagesOffline = false; });
     try {
       final res = await ApiService.getRentalPackages(pickupLat: _pickupLat!, pickupLng: _pickupLng!);
-      if (!mounted) return;
+      // A newer pickup's request owns the list now.
+      if (!mounted || seq != _packagesSeq) return;
+      if (res['error'] != null && res['available'] == null) {
+        final f = classifyResponse(res);
+        setState(() {
+          _loadingPackages = false;
+          _packagesOffline = f == LoadFailure.offline;
+          _packagesError = loadFailureMessage(f, what: 'rental packages');
+        });
+        return;
+      }
       if (res['available'] != true) {
         setState(() { _loadingPackages = false; _packagesError = (res['message'] ?? 'No packages available').toString(); });
         return;
@@ -108,27 +140,61 @@ class _RentalScreenState extends State<RentalScreen> {
         _packagesError = grouped.isEmpty ? 'No rental packages configured' : null;
       });
     } catch (e) {
-      if (!mounted) return;
-      setState(() { _loadingPackages = false; _packagesError = 'Failed to load packages'; });
+      if (!mounted || seq != _packagesSeq) return;
+      final f = classifyFailure(e);
+      setState(() {
+        _loadingPackages = false;
+        _packagesOffline = f == LoadFailure.offline;
+        _packagesError = loadFailureMessage(f, what: 'rental packages');
+      });
     }
   }
 
   // Debounced places autocomplete
   void _searchPlaces(String q, {required bool isPickup}) {
     _searchDebounce?.cancel();
+    final seq = ++_searchSeq;
     if (q.trim().length < 2) {
-      setState(() { if (isPickup) _pickupSuggestions = []; else _dropSuggestions = []; });
+      setState(() {
+        if (isPickup) { _pickupSuggestions = []; } else { _dropSuggestions = []; }
+        _searching = false; _searchProblem = null; _searchedQuery = '';
+      });
       return;
     }
+    setState(() {
+      _searching = true; _searchingPickup = isPickup; _searchProblem = null;
+      // Only one field's list shows at a time: typing in the other clears it.
+      if (isPickup) { _dropSuggestions = []; } else { _pickupSuggestions = []; }
+    });
     _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
-      final results = await ApiService.placesAutocomplete(q);
-      if (!mounted) return;
-      setState(() { if (isPickup) _pickupSuggestions = results; else _dropSuggestions = results; });
+      // Bias towards the pickup (or the GPS fix it started from).
+      final r = await ApiService.placesSearch(q, lat: _pickupLat, lng: _pickupLng, sessionToken: _places.token);
+      if (!mounted || seq != _searchSeq) return;
+      setState(() {
+        if (isPickup) { _pickupSuggestions = r.predictions; } else { _dropSuggestions = r.predictions; }
+        _searching = false;
+        _searchProblem = r.problem;
+        _searchedQuery = q.trim();
+      });
     });
   }
 
+  /// The status line under the address fields while the active list is empty.
+  Widget _searchStatus() {
+    final list = _searchingPickup ? _pickupSuggestions : _dropSuggestions;
+    if (list.isNotEmpty) return const SizedBox.shrink();
+    if (_searching) return const SearchStatusLine(searching: true);
+    if (_searchProblem != null) return SearchStatusLine(message: _searchProblem);
+    final text = (_searchingPickup ? _pickupController : _dropController).text.trim();
+    if (_searchedQuery.isNotEmpty && text.length >= 2) {
+      return SearchStatusLine(message: 'No places found for "$_searchedQuery"');
+    }
+    return const SizedBox.shrink();
+  }
+
   Future<void> _selectSuggestion(Map<String, dynamic> s, {required bool isPickup}) async {
-    final details = await ApiService.placeDetails(s['placeId'] as String? ?? '');
+    final details = await ApiService.placeDetails(s['placeId'] as String? ?? '', sessionToken: _places.token);
+    _places.renew(); // the pick ends this search session
     if (details == null || !mounted) return;
     // placeDetails returns numeric lat/lng or null, never an error map.
     final lat = ApiService.toDoubleOrNull(details['lat']), lng = ApiService.toDoubleOrNull(details['lng']);
@@ -141,6 +207,7 @@ class _RentalScreenState extends State<RentalScreen> {
       } else {
         _dropLat = lat; _dropLng = lng; _dropController.text = addr; _dropSuggestions = [];
       }
+      _searchedQuery = ''; _searchProblem = null;
     });
     if (isPickup) _loadPackages(); // pickup changed → refresh packages for new zone
   }
@@ -293,6 +360,7 @@ class _RentalScreenState extends State<RentalScreen> {
                 ]),
                 ..._pickupSuggestions.map((s) => _suggestionTile(s, isPickup: true)),
                 ..._dropSuggestions.map((s) => _suggestionTile(s, isPickup: false)),
+                _searchStatus(),
 
                 const ServiceSection('Pickup date & time'),
                 LayoutBuilder(builder: (context, box) {
@@ -367,7 +435,10 @@ class _RentalScreenState extends State<RentalScreen> {
                 if (_loadingPackages)
                   const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()))
                 else if (_packagesError != null)
-                  NoticeRow(_packagesError!, tone: NoticeTone.warning, onRetry: _loadPackages)
+                  NoticeRow(_packagesError!,
+                      tone: NoticeTone.warning,
+                      icon: _packagesOffline ? Icons.wifi_off_rounded : Icons.info_outline,
+                      onRetry: _loadPackages)
                 else
                   // Rows straight from the backend package vehicle names (no hardcoded list)
                   ..._packagesByVehicle.keys.map(_buildVehicleCard),
@@ -438,17 +509,22 @@ class _RentalScreenState extends State<RentalScreen> {
         if (pos == null) return;
         _pickerMapController?.animateCamera(CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 15));
       },
-      map: GoogleMap(
+      map: ValueListenableBuilder<Set<Marker>>(
+        // Only the map rebuilds as the vehicles glide.
+        valueListenable: serviceFleetListenable,
+        builder: (_, fleet, _) => GoogleMap(
         initialCameraPosition: CameraPosition(target: _pickerCenter, zoom: 14),
         onMapCreated: (c) => _pickerMapController = c,
         onCameraMove: (pos) => _pickerCenter = pos.target,
+        markers: fleet,
         onCameraIdle: () async {
+          unawaited(refreshServiceFleet());
           final addr = await ApiService.reverseGeocode(_pickerCenter.latitude, _pickerCenter.longitude);
           if (!mounted) return;
           setState(() => _pickerAddress = addr);
         },
         myLocationEnabled: true, myLocationButtonEnabled: false, zoomControlsEnabled: false, mapToolbarEnabled: false,
-      ),
+      )),
       onConfirm: _pickerAddress.isEmpty ? null : () {
         setState(() {
           if (_pickingPickup) {

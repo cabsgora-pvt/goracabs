@@ -7,12 +7,18 @@ import 'package:provider/provider.dart';
 import 'package:record/record.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../providers/user_provider.dart';
 import '../services/api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/call_util.dart';
 import '../utils/emergency_contacts_store.dart';
+import 'active_ride_screen.dart' show trackingLinkFor;
 import 'settings_screen.dart' show EmergencyContactsScreen;
+
+/// How long the rider has to cancel an SOS opened by mistake before the
+/// safety team is alerted.
+const kSosCountdown = Duration(seconds: 5);
 
 // SOS / Emergency Actions screen (Ola-style). Call Police, Siren, Record Audio,
 // Call Safety Team + the same emergency contacts Settings manages, with an
@@ -39,31 +45,96 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
   // What happened to the alert to the safety team: null while it is being
   // sent, then the line shown at the top of the screen.
   SosAlertStatus? _alert;
+  // Seconds left before the alert goes out; null once it is sent / sending.
+  int? _countdown = kSosCountdown.inSeconds;
+  bool _cancelled = false;
+  Timer? _countdownTimer;
+  // Looked up while the countdown runs, so the alert carries it at once.
+  late final Future<({double? lat, double? lng, String address})> _where;
+  // The live ride to share: this screen's ride, or the rider's active one.
+  String? _shareRideId;
 
   @override
   void initState() {
     super.initState();
+    _shareRideId = widget.rideId;
+    _where = _locate();
     _load();
-    _raiseAlert();
+    _startCountdown();
+    if (_shareRideId == null) _findActiveRide();
   }
 
   @override
   void dispose() {
+    _countdownTimer?.cancel();
     _recordTimer?.cancel();
     _recorder.dispose();
     super.dispose();
   }
 
-  // Notify admin + safety team the moment SOS is opened (with ride + location).
-  Future<void> _raiseAlert() async {
-    final user = context.read<UserProvider>();
-    double? lat, lng;
-    String address = '';
+  void _startCountdown() {
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      final left = (_countdown ?? 0) - 1;
+      if (left <= 0) {
+        t.cancel();
+        _sendNow();
+      } else {
+        setState(() => _countdown = left);
+      }
+    });
+  }
+
+  /// The countdown ended or the rider tapped "Send now".
+  void _sendNow() {
+    _countdownTimer?.cancel();
+    if (!mounted) return;
+    setState(() {
+      _countdown = null;
+      _cancelled = false;
+      _alert = null;
+    });
+    _raiseAlert();
+    // Auto-call waits for the countdown too, so a mistaken tap rings no one.
+    if (_autoCall && _contacts.isNotEmpty) dialPhone(_contacts.first['phone'] ?? '');
+  }
+
+  void _cancelCountdown() {
+    _countdownTimer?.cancel();
+    setState(() {
+      _countdown = null;
+      _cancelled = true;
+    });
+  }
+
+  Future<void> _findActiveRide() async {
+    try {
+      final res = await ApiService.getActiveRide();
+      final ride = res['ride'];
+      if (ride is Map && mounted) {
+        final id = (ride['_id'] ?? ride['id'] ?? '').toString();
+        if (id.isNotEmpty) setState(() => _shareRideId = id);
+      }
+    } catch (_) {}
+  }
+
+  Future<({double? lat, double? lng, String address})> _locate() async {
     try {
       final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high, timeLimit: const Duration(seconds: 8));
-      lat = pos.latitude; lng = pos.longitude;
-      address = await ApiService.reverseGeocode(lat, lng);
-    } catch (_) {}
+      final address = await ApiService.reverseGeocode(pos.latitude, pos.longitude);
+      return (lat: pos.latitude, lng: pos.longitude, address: address);
+    } catch (_) {
+      return (lat: null, lng: null, address: '');
+    }
+  }
+
+  // Notify admin + safety team (with ride + location) once the countdown ends.
+  Future<void> _raiseAlert() async {
+    final user = context.read<UserProvider>();
+    final w = await _where;
     Map<String, dynamic> res;
     try {
       res = await ApiService.sendSosAlert({
@@ -71,9 +142,9 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
         'triggeredBy': 'user',
         'name': user.name,
         'phone': user.phone,
-        if (lat != null) 'lat': lat,
-        if (lng != null) 'lng': lng,
-        'address': address,
+        if (w.lat != null) 'lat': w.lat,
+        if (w.lng != null) 'lng': w.lng,
+        'address': w.address,
       });
     } catch (_) {
       res = const {'error': 'no connection'};
@@ -81,24 +152,28 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
     if (mounted) setState(() => _alert = sosAlertStatusOf(res));
   }
 
-  // Loads the same contacts list Settings manages — previously this screen
-  // read a separate single "default contact" pref that Settings never wrote
-  // to, so adding a contact there did nothing for what SOS would call.
+  // Loads the same contacts list Settings manages: the cached copy at once
+  // (it works offline), then the server's.
   Future<void> _load() async {
     final contacts = await EmergencyContactsStore.load();
-    final prefs = await SharedPreferences.getInstance();
-    final autoCall = prefs.getBool('sos_auto_call') ?? false;
+    bool autoCall = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      autoCall = prefs.getBool('sos_auto_call') ?? false;
+    } catch (_) {}
     if (!mounted) return;
     setState(() {
       _contacts = contacts;
       _autoCall = autoCall;
     });
-    if (autoCall && contacts.isNotEmpty) dialPhone(contacts.first['phone'] ?? '');
+    final synced = await EmergencyContactsStore.sync();
+    if (mounted) setState(() => _contacts = synced);
   }
 
   Future<void> _manageContacts() async {
     await Navigator.push(context, MaterialPageRoute(builder: (_) => const EmergencyContactsScreen()));
-    _load(); // pick up any add/remove made there
+    final c = await EmergencyContactsStore.load(); // pick up any add/remove made there
+    if (mounted) setState(() => _contacts = c);
   }
 
   Future<void> _toggleAutoCall(bool v) async {
@@ -115,6 +190,60 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
   void _callSafety() => dialPhone(_safetyTeamNumber);
 
   void _siren() => Navigator.push(context, MaterialPageRoute(builder: (_) => const _SirenScreen()));
+
+  /// "Share live trip with contacts": the public tracking page (share-token
+  /// link) by SMS to the saved contacts, WhatsApp, or the system share sheet.
+  Future<void> _shareTrip() async {
+    final id = _shareRideId;
+    if (id == null) return;
+    final link = await trackingLinkFor(id);
+    if (!mounted) return;
+    final text = sosShareMessage(link);
+    final phones = _contacts.map((c) => c['phone'] ?? '').where((p) => p.isNotEmpty).toList();
+    final how = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Theme.of(context).cardColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Padding(
+            padding: EdgeInsets.all(14),
+            child: Text('Share live trip', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.sms_outlined, color: AppTheme.primaryBlue),
+            title: Text(phones.isEmpty ? 'Text message' : 'Text my emergency contacts (${phones.length})'),
+            onTap: () => Navigator.pop(ctx, 'sms'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.chat_outlined, color: Color(0xFF25D366)),
+            title: const Text('WhatsApp'),
+            onTap: () => Navigator.pop(ctx, 'wa'),
+          ),
+          ListTile(
+            leading: const Icon(Icons.share_outlined, color: AppTheme.primaryBlue),
+            title: const Text('More options'),
+            onTap: () => Navigator.pop(ctx, 'share'),
+          ),
+        ]),
+      ),
+    );
+    if (how == null || !mounted) return;
+    var opened = false;
+    try {
+      if (how == 'sms') {
+        opened = await launchUrl(sosSmsUri(phones, text));
+      } else if (how == 'wa') {
+        opened = await launchUrl(Uri.parse('https://wa.me/?text=${Uri.encodeComponent(text)}'),
+            mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {
+      opened = false;
+    }
+    if (how == 'share' || !opened) {
+      await Share.share(text, subject: 'My live Gora trip');
+    }
+  }
 
   // Starts/stops a local audio recording — evidence the rider can keep or
   // share afterwards. Saved on the phone only; there is no upload yet.
@@ -157,24 +286,60 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
     return '$m:$s';
   }
 
+  // A text action with a full 48 dp tap target (it used to be a bare 12 pt
+  // line about 16 dp tall).
+  Widget _linkButton(String label, VoidCallback onTap, {Key? key, IconData? icon}) => Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          key: key,
+          onPressed: onTap,
+          style: TextButton.styleFrom(
+            minimumSize: const Size(48, 48),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            foregroundColor: Theme.of(context).colorScheme.primary,
+          ),
+          icon: Icon(icon ?? Icons.chevron_right_rounded, size: 18),
+          label: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final card = theme.cardColor;
+    final muted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
     return Scaffold(
-      backgroundColor: const Color(0xFFF4F5F8),
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white, elevation: 0.5,
-        foregroundColor: Colors.black,
+        backgroundColor: card, elevation: 0.5,
+        foregroundColor: theme.colorScheme.onSurface,
         title: const Text('Emergency Actions', style: TextStyle(fontWeight: FontWeight.w700)),
       ),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        Text('emergency', style: TextStyle(color: Colors.grey[500], fontSize: 14)),
+        Text('Emergency', style: TextStyle(color: muted, fontSize: 14)),
         const SizedBox(height: 12),
         _alertBanner(),
+        if (_shareRideId != null) ...[
+          const SizedBox(height: 12),
+          Material(
+            color: card,
+            borderRadius: BorderRadius.circular(12),
+            child: ListTile(
+              key: const ValueKey('sos-share-trip'),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              leading: Icon(Icons.share_location_rounded, color: theme.colorScheme.primary),
+              title: const Text('Share live trip with contacts', style: TextStyle(fontWeight: FontWeight.w700)),
+              subtitle: const Text('SMS or WhatsApp a link that tracks this ride live'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: _shareTrip,
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
         // Emergency contacts — same list Settings manages.
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+          decoration: BoxDecoration(color: card, borderRadius: BorderRadius.circular(12)),
           child: Row(children: [
             const Expanded(child: Text('Auto-call my first contact', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
             Switch(value: _autoCall, onChanged: _toggleAutoCall, activeColor: AppTheme.primaryBlue),
@@ -185,20 +350,19 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
               padding: const EdgeInsets.only(bottom: 8),
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                decoration: BoxDecoration(color: card, borderRadius: BorderRadius.circular(12)),
                 child: Row(children: [
-                  Expanded(child: Text('${c['name']} (${c['relation']})', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14))),
-                  IconButton(icon: const Icon(Icons.call, color: Colors.green), onPressed: () => dialPhone(c['phone'] ?? '')),
+                  Expanded(child: Text(
+                      (c['relation'] ?? '').isNotEmpty ? '${c['name']} (${c['relation']})' : '${c['name']}',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14))),
+                  IconButton(tooltip: 'Call ${c['name']}', icon: const Icon(Icons.call, color: Colors.green),
+                      onPressed: () => dialPhone(c['phone'] ?? '')),
                 ]),
               ),
             )),
-        GestureDetector(
-          onTap: _manageContacts,
-          child: Padding(padding: const EdgeInsets.only(left: 4, bottom: 4),
-            child: Text(_contacts.isEmpty ? 'Add an emergency contact' : 'Manage emergency contacts',
-              style: const TextStyle(fontSize: 12, color: AppTheme.primaryBlue, fontWeight: FontWeight.w600))),
-        ),
-        const SizedBox(height: 16),
+        _linkButton(_contacts.isEmpty ? 'Add an emergency contact' : 'Manage emergency contacts', _manageContacts,
+            key: const ValueKey('sos-manage-contacts'), icon: Icons.person_add_alt_1_outlined),
+        const SizedBox(height: 8),
         // Action grid
         GridView.count(
           crossAxisCount: 2, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
@@ -221,12 +385,10 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
         const SizedBox(height: 12),
         _moreCard(Icons.mic, 'Record Audio', _toggleRecording),
         if (_lastRecordingPath != null) ...[
-          const SizedBox(height: 8),
-          GestureDetector(
-            onTap: () => Share.shareXFiles([XFile(_lastRecordingPath!)], text: 'SOS audio recording'),
-            child: const Padding(padding: EdgeInsets.only(left: 4),
-              child: Text('Share last recording', style: TextStyle(fontSize: 12, color: AppTheme.primaryBlue, fontWeight: FontWeight.w600))),
-          ),
+          const SizedBox(height: 4),
+          _linkButton('Share last recording',
+              () => Share.shareXFiles([XFile(_lastRecordingPath!)], text: 'SOS audio recording'),
+              icon: Icons.ios_share_rounded),
         ],
         const SizedBox(height: 20),
         SizedBox(
@@ -241,12 +403,71 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
     );
   }
 
-  /// Whether the safety team has the alert. A repeat SOS within a minute is
-  /// the same alert (deduped) — it was sent; 429 means one already went.
+  /// The countdown (with Cancel / Send now), then whether the safety team has
+  /// the alert. A repeat SOS within a minute is the same alert (deduped) — it
+  /// was sent; 429 means one already went.
   Widget _alertBanner() {
+    final left = _countdown;
+    if (left != null) {
+      return Container(
+        key: const ValueKey('sos-countdown'),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.red.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red.withValues(alpha: 0.45)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Alerting our safety team in $left s…',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.red)),
+          const SizedBox(height: 4),
+          const Text('Opened SOS by mistake? Cancel now.', style: TextStyle(fontSize: 13)),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(child: OutlinedButton(
+              key: const ValueKey('sos-cancel'),
+              onPressed: _cancelCountdown,
+              style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
+              child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w800)),
+            )),
+            const SizedBox(width: 10),
+            Expanded(child: ElevatedButton(
+              key: const ValueKey('sos-send-now'),
+              onPressed: _sendNow,
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red, minimumSize: const Size(0, 48)),
+              child: const Text('Send now', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+            )),
+          ]),
+        ]),
+      );
+    }
+    if (_cancelled) {
+      final grey = Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7);
+      return Container(
+        key: const ValueKey('sos-alert-status'),
+        padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+        decoration: BoxDecoration(
+          color: grey.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: grey.withValues(alpha: 0.35)),
+        ),
+        child: Row(children: [
+          Icon(Icons.cancel_outlined, color: grey, size: 20),
+          const SizedBox(width: 10),
+          Expanded(child: Text('SOS alert cancelled — nothing was sent.',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: grey))),
+          TextButton(
+            key: const ValueKey('sos-send-anyway'),
+            style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+            onPressed: _sendNow,
+            child: const Text('Send alert'),
+          ),
+        ]),
+      );
+    }
     final a = _alert;
     final sent = a?.sent;
-    final color = sent == false ? Colors.red : (sent == true ? Colors.green[700]! : Colors.grey[700]!);
+    final color = sent == false ? Colors.red : (sent == true ? Colors.green[700]! : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7));
     final text = a == null ? 'Alerting our safety team…' : a.message;
     return Container(
       key: const ValueKey('sos-alert-status'),
@@ -261,40 +482,70 @@ class _EmergencyActionsScreenState extends State<EmergencyActionsScreen> {
             color: color, size: 20),
         const SizedBox(width: 10),
         Expanded(child: Text(text, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: color))),
-        if (sent == false) TextButton(onPressed: () { setState(() => _alert = null); _raiseAlert(); }, child: const Text('Retry')),
+        if (sent == false)
+          TextButton(
+            style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
+            onPressed: () { setState(() => _alert = null); _raiseAlert(); },
+            child: const Text('Retry'),
+          ),
       ]),
     );
   }
 
-  Widget _actionCard(IconData icon, String label, VoidCallback onTap, {bool active = false}) => GestureDetector(
+  Widget _actionCard(IconData icon, String label, VoidCallback onTap, {bool active = false}) {
+    final theme = Theme.of(context);
+    final ink = theme.colorScheme.onSurface;
+    return Material(
+      color: active ? Colors.red.withValues(alpha: 0.1) : theme.cardColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: active ? Colors.red : theme.dividerColor),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
         onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            color: active ? Colors.red.withOpacity(0.1) : Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: active ? Colors.red : Colors.grey.shade200),
-          ),
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(icon, size: 26, color: active ? Colors.red : Colors.black87),
-            const SizedBox(height: 8),
-            Text(label, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-          ]),
-        ),
-      );
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, size: 26, color: active ? Colors.red : ink),
+          const SizedBox(height: 8),
+          Text(label, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+        ]),
+      ),
+    );
+  }
 
-  Widget _moreCard(IconData icon, String title, VoidCallback onTap) => GestureDetector(
+  Widget _moreCard(IconData icon, String title, VoidCallback onTap) {
+    final theme = Theme.of(context);
+    return Material(
+      color: theme.cardColor,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
         onTap: onTap,
-        child: Container(
+        child: Padding(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [Icon(icon, size: 20, color: Colors.black87), const SizedBox(width: 10),
+            Row(children: [Icon(icon, size: 20, color: theme.colorScheme.onSurface), const SizedBox(width: 10),
               Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15))]),
             const SizedBox(height: 8),
-            Text('Call Police, Record Audio, Siren, Call Safety Team', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+            Text('Call Police, Record Audio, Siren, Call Safety Team',
+                style: TextStyle(fontSize: 13, color: theme.colorScheme.onSurface.withValues(alpha: 0.6))),
           ]),
         ),
-      );
+      ),
+    );
+  }
+}
+
+/// The text sent to contacts with the live-tracking link.
+String sosShareMessage(String link) =>
+    'I need help. Follow my Gora ride live here: $link';
+
+/// An `sms:` link to [phones] (comma-separated; none opens the composer
+/// without a recipient) with [body]. The body is percent-encoded by hand:
+/// Uri.queryParameters writes spaces as "+", which SMS apps show literally.
+Uri sosSmsUri(List<String> phones, String body) {
+  final to = phones.map((p) => p.replaceAll(RegExp(r'[^0-9+]'), '')).where((p) => p.isNotEmpty).join(',');
+  return Uri.parse('sms:$to?body=${Uri.encodeComponent(body)}');
 }
 
 // Full-screen flashing siren (visual + system alert sound + strong haptics).

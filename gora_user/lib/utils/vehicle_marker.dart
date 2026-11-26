@@ -25,10 +25,18 @@ class VehicleMarkers {
   /// Maps a vehicle type name to its top-down sprite.
   /// Matching is loose on purpose — admin names the types freely
   /// ("Cab Economy", "Prime Sedan", "Auto", "Bike Lite"…).
+  ///   Bike / Moto      → a bike with a Gora captain riding it
+  ///   Mini Truck / Tempo / Loader / Cargo → a cargo tempo (parcels)
+  ///   Auto / Rickshaw  → an auto rickshaw (EV auto when named so)
+  ///   Cab / Sedan / SUV / Prime → the matching car
   static String assetFor(String vehicleType) {
     final t = vehicleType.toLowerCase();
+    if (t.contains('truck') || t.contains('tempo') || t.contains('loader') || t.contains('cargo') ||
+        t.contains('goods') || t.contains('pickup') || RegExp(r'\bace\b').hasMatch(t)) {
+      return 'assets/images/topview/tempo-top.png';
+    }
     if (t.contains('scooter') || t.contains('scooty')) return 'assets/images/topview/scooter-top.png';
-    if (t.contains('bike') || t.contains('moto') || t.contains('two')) return 'assets/images/topview/bike-top.png';
+    if (t.contains('bike') || t.contains('moto') || t.contains('two')) return 'assets/images/topview/bike-captain-top.png';
     if (t.contains('ev') && (t.contains('auto') || t.contains('rick'))) return 'assets/images/topview/ev-auto-top.png';
     if (t.contains('auto') || t.contains('rick')) return 'assets/images/topview/auto-top.png';
     if (t.contains('suv') || t.contains('xl') || t.contains('7')) return 'assets/images/topview/suv-top.png';
@@ -123,8 +131,13 @@ double _lerpBearing(double from, double to, double t) {
 /// The driver's position arrives every ~5 s. Snapping the marker to each fix
 /// makes the vehicle teleport; interpolating over the gap makes it drive. Also
 /// eases the bearing so the icon banks into turns instead of snapping around.
+///
+/// Every animation frame bumps [revision]. Listen to it with a
+/// ValueListenableBuilder around just the GoogleMap: calling the screen's
+/// setState from [onUpdate] rebuilt the whole ride screen 60 times a second
+/// while the car moved. [onUpdate] stays for callers that need a hook.
 class SmoothVehicleMarker {
-  SmoothVehicleMarker({required TickerProvider vsync, required this.onUpdate})
+  SmoothVehicleMarker({required TickerProvider vsync, this.onUpdate})
       : _ctrl = AnimationController(
           vsync: vsync,
           duration: const Duration(milliseconds: 1400),
@@ -133,7 +146,10 @@ class SmoothVehicleMarker {
   }
 
   final AnimationController _ctrl;
-  final VoidCallback onUpdate;
+  final VoidCallback? onUpdate;
+
+  /// Bumped on every position / bearing change (each animation frame).
+  final ValueNotifier<int> revision = ValueNotifier<int>(0);
 
   LatLng? _from;
   LatLng? _to;
@@ -154,7 +170,12 @@ class SmoothVehicleMarker {
       a.longitude + (b.longitude - a.longitude) * t,
     );
     bearing = _lerpBearing(_fromBearing, _toBearing, t);
-    onUpdate();
+    _changed();
+  }
+
+  void _changed() {
+    revision.value++;
+    onUpdate?.call();
   }
 
   /// Feeds a new server fix. [heading] is used when supplied and non-zero,
@@ -164,7 +185,7 @@ class SmoothVehicleMarker {
     if (current == null) {
       position = target;
       bearing = heading ?? 0;
-      onUpdate();
+      _changed();
       return;
     }
     // Ignore jitter — re-animating over a metre of GPS noise looks like a twitch.
@@ -189,11 +210,13 @@ class SmoothVehicleMarker {
     _to = null;
     position = null;
     bearing = 0;
+    revision.value++;
   }
 
   void dispose() {
     _ctrl.removeListener(_tick);
     _ctrl.dispose();
+    revision.dispose();
   }
 }
 
@@ -228,18 +251,33 @@ class _AmbientVeh {
 /// controller and diffs the set by driver id, so a vehicle that persists
 /// between polls glides from where it currently appears to its new fix, one
 /// that is new snaps in, and one that dropped out disappears.
+///
+/// The current markers are published on [listenable] every frame; wrap only
+/// the GoogleMap in a ValueListenableBuilder on it. [onUpdate] (optional) is
+/// still called for callers that want a hook, but must not setState the whole
+/// screen - that rebuilt it every frame for four seconds after each poll.
 class AmbientVehicleFleet {
   AmbientVehicleFleet({
     required TickerProvider vsync,
-    required this.onUpdate,
+    this.onUpdate,
     Duration duration = const Duration(seconds: 4),
   }) : _ctrl = AnimationController(vsync: vsync, duration: duration) {
-    _ctrl.addListener(onUpdate);
+    _ctrl.addListener(_publish);
   }
 
   final AnimationController _ctrl;
-  final VoidCallback onUpdate;
+  final VoidCallback? onUpdate;
   final Map<String, _AmbientVeh> _fleet = {};
+
+  /// The markers as of the last frame.
+  final ValueNotifier<Set<Marker>> listenable = ValueNotifier<Set<Marker>>(const <Marker>{});
+
+  void _publish() {
+    // An empty fleet that is already published empty: nothing to redraw.
+    if (_fleet.isEmpty && listenable.value.isEmpty) return;
+    listenable.value = markers;
+    onUpdate?.call();
+  }
 
   bool get isEmpty => _fleet.isEmpty;
 
@@ -284,13 +322,13 @@ class AmbientVehicleFleet {
     _ctrl
       ..reset()
       ..forward();
-    onUpdate();
+    _publish();
   }
 
   void clear() {
     if (_fleet.isEmpty) return;
     _fleet.clear();
-    onUpdate();
+    _publish();
   }
 
   Set<Marker> get markers {
@@ -309,7 +347,8 @@ class AmbientVehicleFleet {
   }
 
   void dispose() {
-    _ctrl.removeListener(onUpdate);
+    _ctrl.removeListener(_publish);
     _ctrl.dispose();
+    listenable.dispose();
   }
 }

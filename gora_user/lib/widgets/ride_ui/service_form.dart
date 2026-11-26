@@ -219,6 +219,31 @@ class PlaceSuggestionTile extends StatelessWidget {
       );
 }
 
+/// The line under a place search while its list is empty: a spinner while
+/// the search runs, else [message] ("No places found", "Too many searches,
+/// try again in a moment", offline).
+class SearchStatusLine extends StatelessWidget {
+  final bool searching;
+  final String? message;
+  const SearchStatusLine({super.key, this.searching = false, this.message});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
+        child: Row(children: [
+          if (searching)
+            const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+          else
+            Icon(Icons.search_off_rounded, size: 20, color: RideUi.muted(context)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(searching ? 'Searching…' : (message ?? ''),
+                style: RideUi.caption(context, size: 13)),
+          ),
+        ]),
+      );
+}
+
 /// One option of a [ChoiceSegment].
 class ChoiceOption<T> {
   final T value;

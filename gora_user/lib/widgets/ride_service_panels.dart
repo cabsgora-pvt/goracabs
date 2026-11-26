@@ -176,7 +176,7 @@ class OutstationTripPanel extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppTheme.primaryBlue, borderRadius: BorderRadius.circular(6)),
           child: Text(roundTrip ? 'ROUND TRIP' : 'ONE WAY',
-            style: const TextStyle(fontSize: 9.5, color: Colors.white, fontWeight: FontWeight.w900)),
+            style: const TextStyle(fontSize: 11.5, color: Colors.white, fontWeight: FontWeight.w900)),
         ),
       ]),
       if (leg != null) ...[

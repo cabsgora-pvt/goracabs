@@ -12,7 +12,7 @@ class RideChatScreen extends StatefulWidget {
   State<RideChatScreen> createState() => _RideChatScreenState();
 }
 
-class _RideChatScreenState extends State<RideChatScreen> {
+class _RideChatScreenState extends State<RideChatScreen> with WidgetsBindingObserver {
   static const _brand = Color(0xFF0A3CC8);
   static const _quickReplies = [
     "I'm at the pickup point",
@@ -28,16 +28,42 @@ class _RideChatScreenState extends State<RideChatScreen> {
   List<Map<String, dynamic>> _messages = [];
   Timer? _poll;
   bool _sending = false;
+  // One read at a time: on a slow link the 3 s timer used to stack requests.
+  bool _loading = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+    _startPoll();
+  }
+
+  void _startPoll() {
+    _poll?.cancel();
     _poll = Timer.periodic(const Duration(seconds: 3), (_) => _load());
+  }
+
+  /// True while the 3 s poll is stopped (app in the background).
+  @visibleForTesting
+  bool get pollPaused => _poll == null;
+
+  // Nobody reads a chat in the background: stop, and catch up on return.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      _poll?.cancel();
+      _poll = null;
+    } else if (state == AppLifecycleState.resumed && mounted && _poll == null) {
+      _load();
+      _startPoll();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
     _controller.dispose();
     _scroll.dispose();
@@ -45,6 +71,8 @@ class _RideChatScreenState extends State<RideChatScreen> {
   }
 
   Future<void> _load() async {
+    if (_loading) return;
+    _loading = true;
     try {
       final res = await ApiService.getRideMessages(widget.rideId);
       final list = ((res['messages'] as List?) ?? []).map((e) => Map<String, dynamic>.from(e as Map)).toList();
@@ -52,7 +80,10 @@ class _RideChatScreenState extends State<RideChatScreen> {
       final grew = list.length != _messages.length;
       setState(() => _messages = list);
       if (grew) _scrollToEnd();
-    } catch (_) {}
+    } catch (_) {
+    } finally {
+      _loading = false;
+    }
   }
 
   void _scrollToEnd() {
