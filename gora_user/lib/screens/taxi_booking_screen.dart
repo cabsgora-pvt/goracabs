@@ -389,7 +389,10 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
     return m.isNotEmpty ? m : _vehicles;
   }
 
-  String _typeFor(String name) {
+  String _typeFor(String name, [Object? fromAdmin]) {
+    // The admin's own tagline for this tier (Vehicle Types page) wins.
+    final own = fromAdmin is String ? fromAdmin.trim() : '';
+    if (own.isNotEmpty) return own;
     final n = name.toLowerCase();
     if (n.contains('bike')) return 'Quick Rides';
     if (n.contains('auto')) return 'Affordable';
@@ -642,7 +645,7 @@ class _TaxiBookingScreenState extends State<TaxiBookingScreen>
               final raw = (a['imageUrl'] as String?) ?? '';
               return {
                 'name': name,
-                'type': _typeFor(name),
+                'type': _typeFor(name, a['tagline']),
                 'price': a['fare'] != null ? '₹${a['fare']}' : '—',
                 'eta': eta is num ? '$eta min' : 'No driver',
                 'capacity': '${a['capacity'] ?? 4}',

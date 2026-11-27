@@ -524,6 +524,9 @@ class _OutstationScreenState extends State<OutstationScreen>
           return {
             'name': name,
             'type': cap >= 6 ? 'Spacious' : (cap >= 4 ? 'Comfortable' : 'Quick'),
+            // Admin-set tier tagline + allowed models (empty → the defaults below).
+            'tagline': ow['tagline'],
+            'models': ow['models'],
             'oneWayFare':    ow['fare'] ?? 0,
             'oneWayPrice':   '₹${ow['fare'] ?? 0}',
             'roundTripFare': rt?['fare'] ?? (ow['fare'] ?? 0),
@@ -1069,7 +1072,7 @@ class _OutstationScreenState extends State<OutstationScreen>
     final num perKm = (bk['perKm'] as num?) ?? 0;
 
     final img = (v['networkImage'] as String?) ?? '';
-    final tagline = vehicleTagline(v['name'] as String? ?? '');
+    final tagline = vehicleTagline(v['name'] as String? ?? '', v['tagline'] as String?);
     // Round trip → show the per-km rate; one-way → show the total fare (Ola behaviour)
     final priceLabel = _tripType == 'Round Trip' ? '₹${perKm.toStringAsFixed(0)}/km' : currentPrice.toString();
 
@@ -1110,7 +1113,10 @@ class _OutstationScreenState extends State<OutstationScreen>
     final currentPrice = _tripType == 'One Way' ? v['oneWayPrice'] : v['roundTripPrice'];
     final img = (v['networkImage'] as String?) ?? '';
     final cap = int.tryParse('${v['capacity']}') ?? 4;
-    final fleet = cap >= 6 ? 'Ertiga, Innova, Marazzo or similar' : (cap >= 4 ? 'Swift Dzire, Etios, Aura or similar' : 'WagonR, Celerio or similar');
+    final models = (v['models'] is List) ? (v['models'] as List).map((e) => '$e').where((e) => e.trim().isNotEmpty).toList() : const <String>[];
+    final fleet = models.isNotEmpty
+        ? '${models.join(', ')} or similar'
+        : cap >= 6 ? 'Ertiga, Innova, Marazzo or similar' : (cap >= 4 ? 'Swift Dzire, Etios, Aura or similar' : 'WagonR, Celerio or similar');
     showModalBottomSheet(
       context: context, isScrollControlled: true, backgroundColor: Theme.of(context).cardColor,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -1538,7 +1544,10 @@ class _OutstationScreenState extends State<OutstationScreen>
 /// The one-line description under a vehicle's name, from the vehicle type
 /// itself — the same wording as the taxi list. It used to come from seat count
 /// alone, so every 4-seater (Cab, Prime Sedan) read "Top sedans".
-String vehicleTagline(String name) {
+String vehicleTagline(String name, [String? fromAdmin]) {
+  // The admin's own tagline for this tier (Vehicle Types page) wins.
+  final own = fromAdmin?.trim() ?? '';
+  if (own.isNotEmpty) return own;
   final n = name.toLowerCase();
   if (n.contains('bike')) return 'Quick rides';
   if (n.contains('auto')) return 'Affordable';

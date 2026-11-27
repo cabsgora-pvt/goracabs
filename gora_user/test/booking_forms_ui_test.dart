@@ -34,7 +34,9 @@ Map<String, dynamic> _v(String name, int cap, int fare) => {
   'breakdown': {'base': 300, 'perKm': 14, 'nightHalt': 0, 'emptyReturn': 0},
 };
 
-final _api = MockClient((req) async {
+final _api = MockClient(_handle);
+
+Future<http.Response> _handle(http.Request req) async {
   final p = req.url.path;
   if (p.endsWith('/places/reverse')) return _json({'address': _rajkot});
   if (p.endsWith('/places/autocomplete')) {
@@ -52,7 +54,7 @@ final _api = MockClient((req) async {
     return _json({'polyline': '_p~iF~ps|U_ulLnnqC_mqNvxq`@', 'durationMin': 241, 'distanceKm': 220});
   }
   return _json({});
-});
+}
 
 Widget _app(Widget home) => MultiProvider(
   providers: [
@@ -228,6 +230,34 @@ void main() {
       expect(vehicleTagline('Cab'), 'Comfortable');
       expect(vehicleTagline('Prime Sedan'), 'Luxury sedan');
       expect(vehicleTagline('Prime SUV'), 'Spacious');
+    });
+
+    test("the admin's tier tagline wins; blank falls back", () {
+      expect(vehicleTagline('Prime SUV', 'Innova & Ertiga, 6 seats'), 'Innova & Ertiga, 6 seats');
+      expect(vehicleTagline('Prime SUV', '   '), 'Spacious');
+      expect(vehicleTagline('Prime SUV', null), 'Spacious');
+    });
+
+    testWidgets("the admin's tagline from the API is shown on the card", (tester) async {
+      final withTagline = MockClient((req) async {
+        if (req.url.path.endsWith('/fare/estimate')) {
+          return _json({'available': true, 'oneWayKm': 220, 'oneWayMin': 241, 'vehicles': [
+            _v('Cab', 4, 3431),
+            {..._v('Prime SUV', 6, 4983), 'tagline': 'Innova & Ertiga, 6 seats', 'category': 'cab', 'rank': 3, 'models': ['Innova', 'Ertiga']},
+          ]});
+        }
+        return _handle(req);
+      });
+      await http.runWithClient(() async {
+        await openList(tester);
+        await openVehicles(tester);
+        await tester.scrollUntilVisible(find.text('Prime SUV'), 150, scrollable: sheetList());
+        await wait(tester, 300);
+      }, () => withTagline);
+      expect(find.text('Innova & Ertiga, 6 seats'), findsOneWidget);
+      expect(find.text('Spacious'), findsNothing);
+      expect(find.text('Comfortable'), findsOneWidget);   // Cab: no admin tagline → default
+      await _teardown(tester);
     });
   });
 }
