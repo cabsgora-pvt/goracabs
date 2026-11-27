@@ -354,6 +354,7 @@ class _RentalProgressPageState extends State<RentalProgressPage> {
     return RideShell(
       rideId: r.id,
       vehicleType: r.rideType,
+      rideVehicleType: r.vehicleTypeName,
       // Rental has no fixed drop, so the leg follows whatever destination the
       // rider most recently added (falls back to pickup).
       leg: _stops.isNotEmpty

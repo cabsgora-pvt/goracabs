@@ -643,27 +643,43 @@ void main() {
   });
 
 
-  // ── G. Vehicle type page: one full-width card per type ───────────────────
-  // (Was a 2-column grid of image + name only; redesigned into full-width
-  // cards with the real photo, seats and service chips.)
-  testWidgets('G vehicle types show as full-width cards with photo, seats and services', (tester) async {
+  // ── G. Vehicle type page: categories, then the tiers of one ──────────────
+  // (A 2-column grid of image + name, then full-width cards per type; v1.5.2
+  // groups the types by category first — Cab → Cab / Prime Sedan / Prime SUV.)
+  testWidgets('G vehicle categories in a grid; a category with tiers lists them with photo, seats and services',
+      (tester) async {
     _setSize(tester, const Size(360, 1400));
     await http.runWithClient(() async {
       await tester.pumpWidget(_app(const VehicleSelectionPage()));
       await _pumpFor(tester, const Duration(milliseconds: 400));
-      for (final n in ['Bike', 'Auto', 'Cab', 'Prime Sedan', 'Prime SUV', 'Mini Truck']) {
-        expect(find.text(n), findsOneWidget);
+      // This server sends no category: it is inferred from the names.
+      for (final n in ['Bike', 'Auto', 'Cab', 'Truck']) {
+        expect(find.text(n), findsOneWidget, reason: n);
       }
-      // One per row, in server order: Auto sits below Bike, Cab below Auto.
-      expect(tester.getCenter(find.text('Auto')).dy, greaterThan(tester.getCenter(find.text('Bike')).dy));
-      expect(tester.getCenter(find.text('Cab')).dy, greaterThan(tester.getCenter(find.text('Auto')).dy));
-      expect(tester.getTopLeft(find.text('Bike')).dx, tester.getTopLeft(find.text('Auto')).dx);
-      // Seats from capacity, chips from services, a real photo on every card.
-      expect(find.text('4 seats'), findsNWidgets(6));
-      expect(find.text('Taxi'), findsNWidgets(6));
-      expect(find.text('Parcel'), findsNWidgets(6));
-      expect(find.byKey(const ValueKey('vehicle_asset')), findsNWidgets(6));
+      expect(find.text('Prime Sedan'), findsNothing, reason: 'tiers are one level down');
+      expect(find.text('3 options'), findsOneWidget);
+      // Two per row, in server order: Auto beside Bike, Cab below Bike.
+      expect(tester.getCenter(find.text('Auto')).dy, closeTo(tester.getCenter(find.text('Bike')).dy, 1));
+      expect(tester.getCenter(find.text('Auto')).dx, greaterThan(tester.getCenter(find.text('Bike')).dx));
+      expect(tester.getCenter(find.text('Cab')).dy, greaterThan(tester.getCenter(find.text('Bike')).dy));
+      expect(tester.getTopLeft(find.text('Bike')).dx, tester.getTopLeft(find.text('Cab')).dx);
+      expect(find.byKey(const ValueKey('vehicle_asset')), findsNWidgets(4));
       expect(find.byIcon(Icons.check_rounded), findsNothing);
+
+      await tester.tap(find.text('Cab'));
+      await _pumpFor(tester, const Duration(milliseconds: 400));
+      expect(find.text('Which Cab?'), findsOneWidget);
+      for (final n in ['Cab', 'Prime Sedan', 'Prime SUV']) {
+        expect(find.text(n), findsOneWidget, reason: n);
+      }
+      // One per row, basic tier first.
+      expect(tester.getCenter(find.text('Prime Sedan')).dy, greaterThan(tester.getCenter(find.text('Cab')).dy));
+      expect(tester.getCenter(find.text('Prime SUV')).dy, greaterThan(tester.getCenter(find.text('Prime Sedan')).dy));
+      // Seats from capacity, chips from services, a real photo on every card.
+      expect(find.text('4 seats'), findsNWidgets(3));
+      expect(find.text('Taxi'), findsNWidgets(3));
+      expect(find.text('Parcel'), findsNWidgets(3));
+      expect(find.byKey(const ValueKey('vehicle_asset')), findsNWidgets(3));
       await tester.tap(find.text('Prime SUV'));
       await tester.pump();
       expect(find.byIcon(Icons.check_rounded), findsOneWidget, reason: 'selected tile shows the check badge');

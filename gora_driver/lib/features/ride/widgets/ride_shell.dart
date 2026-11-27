@@ -10,6 +10,7 @@ import '../../../utils/call_util.dart';
 import '../../../models/models.dart';
 import '../pages/emergency_actions_page.dart';
 import '../pages/ride_chat_page.dart';
+import 'lower_tier_chip.dart';
 import 'nav_engine.dart';
 import 'nav_map.dart';
 
@@ -78,6 +79,10 @@ class RideShell extends StatefulWidget {
 
   final String rideId;
   final String vehicleType;
+  /// The vehicle type the rider booked, as sent ('' if unknown). When it is
+  /// not the driver's own (a Prime SUV driver on a Cab ride) the sheet says
+  /// "Cab ride · lower tier": the fare is that tier's.
+  final String rideVehicleType;
   final NavLeg leg;
   final String? fallbackPolyline;
   final VoidCallback? onArrived;
@@ -120,6 +125,7 @@ class RideShell extends StatefulWidget {
     required this.contact,
     required this.chatWith,
     this.vehicleType = '',
+    this.rideVehicleType = '',
     this.fallbackPolyline,
     this.onArrived,
     this.onTollRoad,
@@ -348,6 +354,13 @@ class _RideShellState extends State<RideShell> with WidgetsBindingObserver {
           padding: const EdgeInsets.only(top: 12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             _contactRow(),
+            if (lowerTierRideLabel(widget.rideVehicleType, ownVehicleTypeOf(context)) case final tier?) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: LowerTierChip(tier, key: const Key('trip-lower-tier')),
+              ),
+            ],
             if (_detailsOpen && widget.details.isNotEmpty) ...[
               const SizedBox(height: 12),
               ...widget.details,

@@ -5,10 +5,20 @@ import 'widgets/reg_step_scaffold.dart';
 import 'widgets/reg_ui.dart';
 import 'widgets/vehicle_visuals.dart';
 import '../../services/driver_api_service.dart';
+import 'vehicle_categories.dart';
 import 'vehicle_details_page.dart';
 
 export 'widgets/vehicle_visuals.dart' show VehicleTypeImage, vehicleAssetFor;
 
+/// Registration step 3, in two levels:
+///   1. a grid of vehicle CATEGORIES (Bike, Auto, Cab, Truck …) — the
+///      category's basic-tier photo, its name and how many options it has.
+///      A category with one type selects it on tap;
+///   2. a category with several tiers (Cab → Cab / Prime Sedan / Prime SUV)
+///      opens their list, basic first: photo, name, seats, tagline and what a
+///      vehicle needs to qualify ("Needs: 2019 or newer · Dzire, Aura").
+/// Back (the hero arrow, the system back, or "All vehicle types") returns
+/// from 2 to 1. Continue opens the vehicle details with the chosen type.
 class VehicleSelectionPage extends StatefulWidget {
   static const route = '/registration/vehicle-selection';
   const VehicleSelectionPage({super.key});
@@ -17,9 +27,18 @@ class VehicleSelectionPage extends StatefulWidget {
 }
 
 class _VehicleSelectionPageState extends State<VehicleSelectionPage> {
-  List<Map<String, dynamic>> _vehicleTypes = [];
+  List<VehicleCategory> _categories = [];
   bool _loading = true;
   Map<String, dynamic>? _selected;
+  /// The category whose tiers are listed (level 2), or null for the grid.
+  String? _openKey;
+
+  VehicleCategory? get _open {
+    for (final c in _categories) {
+      if (c.key == _openKey) return c;
+    }
+    return null;
+  }
 
   @override
   void initState() {
@@ -36,16 +55,30 @@ class _VehicleSelectionPageState extends State<VehicleSelectionPage> {
       // isActive defaults to true on the server model, so a missing flag counts
       // as active.
       final active = types.where((t) => t['isActive'] != false).toList();
-      if (mounted) setState(() { _vehicleTypes = active; _loading = false; });
+      if (mounted) setState(() { _categories = groupVehicleTypes(active); _loading = false; });
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  void _tapCategory(VehicleCategory c) {
+    if (c.isSingle) {
+      setState(() => _selected = c.types.single);
+      return;
+    }
+    setState(() {
+      // A type picked in another category does not carry into this list.
+      if (!c.contains(_selected)) _selected = null;
+      _openKey = c.key;
+    });
+  }
+
+  void _backToCategories() => setState(() => _openKey = null);
+
   void _next() {
     if (_selected == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a vehicle type')),
+        SnackBar(content: Text(_open == null ? 'Please select a vehicle type' : 'Please pick one ${_open!.label} type')),
       );
       return;
     }
@@ -58,52 +91,254 @@ class _VehicleSelectionPageState extends State<VehicleSelectionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return RegStepScaffold(
-      step: CapRegSteps.vehicle,
-      stepLabel: 'Vehicle',
-      title: 'Which vehicle will you drive?',
-      subtitle: 'Pick the type that matches your RC book. It decides which trips you get.',
-      // Grey until a type is picked, but still tappable: it then says what
-      // is missing.
-      bottom: RegCta(label: 'Continue', dimmed: _selected == null, onPressed: _next),
-      children: [
-        if (_loading)
-          // Static placeholders in the shape of the cards (no spinner).
-          for (var i = 0; i < 3; i++)
-            Container(
-              height: 104,
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(color: Cap.tile, borderRadius: BorderRadius.circular(20)),
-            )
-        else if (_vehicleTypes.isEmpty)
-          const CapEmpty(icon: Icons.directions_car_rounded, title: 'No vehicle types available',
-              message: 'Please try again in a little while.')
-        else
-          // One full-width card per type, arriving one after another.
-          for (final vt in _vehicleTypes)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: VehicleTypeTile(
-                vt: vt,
-                selected: _isSelected(vt),
-                onTap: () => setState(() => _selected = vt),
-              ),
-            ),
-      ],
+    final open = _open;
+    return PopScope(
+      canPop: open == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _openKey != null) _backToCategories();
+      },
+      child: RegStepScaffold(
+        step: CapRegSteps.vehicle,
+        stepLabel: 'Vehicle',
+        title: open == null ? 'Which vehicle will you drive?' : 'Which ${open.label}?',
+        subtitle: open == null
+            ? 'Pick the type that matches your RC book. It decides which trips you get.'
+            : 'Premium types earn more per trip and need a vehicle that qualifies.',
+        onBack: open == null ? null : _backToCategories,
+        // Grey until a type is picked, but still tappable: it then says what
+        // is missing.
+        bottom: RegCta(label: 'Continue', dimmed: _selected == null, onPressed: _next),
+        children: open == null ? _categoryGrid() : _typeList(open),
+      ),
     );
   }
 
-  bool _isSelected(Map<String, dynamic> vt) {
-    final vtId = (vt['_id'] ?? vt['id'] ?? '').toString();
-    final selId = (_selected?['_id'] ?? _selected?['id'] ?? '').toString();
-    return vtId.isNotEmpty && vtId == selId;
+  /// Level 1: two categories per row (one on a very narrow screen).
+  List<Widget> _categoryGrid() {
+    if (_loading) {
+      // Static placeholders in the shape of the cards (no spinner).
+      return [
+        for (var i = 0; i < 2; i++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(children: [
+              for (var j = 0; j < 2; j++) ...[
+                if (j == 1) const SizedBox(width: 12),
+                Expanded(
+                  child: Container(
+                    height: 156,
+                    decoration: BoxDecoration(color: Cap.tile, borderRadius: BorderRadius.circular(20)),
+                  ),
+                ),
+              ],
+            ]),
+          ),
+      ];
+    }
+    if (_categories.isEmpty) {
+      return const [
+        CapEmpty(icon: Icons.directions_car_rounded, title: 'No vehicle types available',
+            message: 'Please try again in a little while.'),
+      ];
+    }
+    return [
+      LayoutBuilder(builder: (context, box) {
+        final perRow = box.maxWidth < 280 ? 1 : 2;
+        final rows = <Widget>[];
+        for (var i = 0; i < _categories.length; i += perRow) {
+          final row = _categories.skip(i).take(perRow).toList();
+          rows.add(Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              for (var j = 0; j < perRow; j++) ...[
+                if (j > 0) const SizedBox(width: 12),
+                Expanded(
+                  child: j < row.length
+                      ? VehicleCategoryCard(
+                          key: ValueKey('vehicle_category_${row[j].key}'),
+                          category: row[j],
+                          selectedType: row[j].contains(_selected) ? _selected : null,
+                          onTap: () => _tapCategory(row[j]),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ]),
+          ));
+        }
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: rows);
+      }),
+    ];
   }
+
+  /// Level 2: the category's tiers, basic first.
+  List<Widget> _typeList(VehicleCategory c) => [
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: TextButton.icon(
+              key: const ValueKey('vehicle_back_to_categories'),
+              onPressed: _backToCategories,
+              style: TextButton.styleFrom(
+                foregroundColor: Cap.accent,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                minimumSize: const Size(44, 40),
+              ),
+              icon: const Icon(Icons.arrow_back_rounded, size: 18),
+              label: Text('All vehicle types', style: Cap.body(size: 13.5, weight: FontWeight.w800, color: Cap.accent)),
+            ),
+          ),
+        ),
+        for (final vt in c.types)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: VehicleTypeTile(
+              key: ValueKey('vehicle_type_${vehicleTypeIdOf(vt)}'),
+              vt: vt,
+              selected: sameVehicleType(vt, _selected),
+              onTap: () => setState(() => _selected = vt),
+            ),
+          ),
+      ];
+}
+
+/// One category on the first level: its basic-tier photo on a soft tinted
+/// backdrop, the category name and "3 options" (or, for a single type with
+/// its own name, that name — "Mini Truck"). Selected — the type picked is in
+/// this category — brand border, tinted card and a check on the photo.
+class VehicleCategoryCard extends StatelessWidget {
+  final VehicleCategory category;
+  /// The type picked in this category, or null.
+  final Map<String, dynamic>? selectedType;
+  final VoidCallback onTap;
+  const VehicleCategoryCard({super.key, required this.category, required this.onTap, this.selectedType});
+
+  bool get selected => selectedType != null;
+
+  String get subtitle {
+    final c = category;
+    final sel = (selectedType?['name'] ?? '').toString().trim();
+    if (!c.isSingle) return sel.isNotEmpty ? sel : c.countText;
+    final name = (c.representative['name'] ?? '').toString().trim();
+    return name.isNotEmpty && name.toLowerCase() != c.label.toLowerCase() ? name : c.countText;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(20);
+    final dur = regDuration(context, const Duration(milliseconds: 260));
+    return Semantics(
+      selected: selected,
+      button: true,
+      label: '${category.label}, ${category.countText}',
+      child: RegPressScale(
+        pressed: 0.97,
+        child: AnimatedContainer(
+          duration: dur,
+          curve: Curves.easeOut,
+          decoration: BoxDecoration(
+            color: selected ? Cap.accent.withValues(alpha: 0.06) : Cap.surface,
+            borderRadius: radius,
+            border: Border.all(color: selected ? Cap.accent : RegPalette.hairline, width: selected ? 2 : 1.2),
+            boxShadow: [
+              BoxShadow(
+                color: selected ? Cap.accent.withValues(alpha: 0.20) : Colors.black.withValues(alpha: 0.04),
+                blurRadius: selected ? 18 : 10,
+                offset: Offset(0, selected ? 6 : 3),
+              ),
+            ],
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              borderRadius: radius,
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
+                  _photo(dur),
+                  const SizedBox(height: 10),
+                  Text(category.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Cap.body(size: 16, weight: FontWeight.w800, color: selected ? Cap.accent : null)),
+                  const SizedBox(height: 2),
+                  Row(children: [
+                    Expanded(
+                      child: Text(subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Cap.caption(size: 12.5, color: selected && !category.isSingle ? Cap.accent : null)),
+                    ),
+                    // More than one tier: this opens a list.
+                    if (!category.isSingle) Icon(Icons.chevron_right_rounded, size: 18, color: Cap.muted),
+                  ]),
+                ]),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _photo(Duration dur) => Container(
+        height: 92,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: selected
+                ? [Cap.accent.withValues(alpha: 0.16), Cap.accent.withValues(alpha: 0.05)]
+                : [RegPalette.field, Cap.tile],
+          ),
+        ),
+        child: Stack(alignment: Alignment.center, children: [
+          Positioned(
+            bottom: 11,
+            left: 24,
+            right: 24,
+            child: Container(
+              height: 8,
+              decoration: BoxDecoration(
+                borderRadius: const BorderRadius.all(Radius.elliptical(60, 4)),
+                color: Colors.black.withValues(alpha: 0.08),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: AnimatedScale(
+              scale: selected ? 1.08 : 1,
+              duration: dur,
+              curve: Curves.easeOutBack,
+              child: VehicleTypeImage(vt: category.representative, width: double.infinity, height: 76),
+            ),
+          ),
+          if (selected)
+            Positioned(
+              top: 6,
+              right: 6,
+              child: RegPopIn(
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(color: Cap.accent, shape: BoxShape.circle),
+                  child: const Icon(Icons.check_rounded, size: 16, color: Colors.white),
+                ),
+              ),
+            ),
+        ]),
+      );
 }
 
 /// One selectable vehicle type: the real vehicle photo large on a soft tinted
-/// backdrop, the name in bold, "4 seats" from `capacity`, service chips from
-/// `services`, and a radio on the right. Selected: brand border, tinted card,
-/// the photo slides forward and grows a little, the check pops in.
+/// backdrop, the name in bold, "4 seats" from `capacity`, the tier's tagline,
+/// what a vehicle needs for it ("Needs: 2019 or newer · Dzire, Aura"), service
+/// chips from `services`, and a radio on the right. Selected: brand border,
+/// tinted card, the photo slides forward and grows a little, the check pops in.
 class VehicleTypeTile extends StatelessWidget {
   final Map<String, dynamic> vt;
   final bool selected;
@@ -135,6 +370,8 @@ class VehicleTypeTile extends StatelessWidget {
     final dur = regDuration(context, const Duration(milliseconds: 260));
     final seats = _seats;
     final services = _services;
+    final tagline = vehicleTaglineOf(vt);
+    final needs = vehicleRequirementsText(vt);
     return Semantics(
       selected: selected,
       button: true,
@@ -163,7 +400,7 @@ class VehicleTypeTile extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.all(10),
                 child: LayoutBuilder(builder: (context, box) {
-                  final photoW = (box.maxWidth * 0.36).clamp(88.0, 138.0);
+                  final photoW = (box.maxWidth * 0.38).clamp(92.0, 150.0);
                   return Row(children: [
                     _photo(photoW, dur),
                     const SizedBox(width: 12),
@@ -182,6 +419,30 @@ class VehicleTypeTile extends StatelessWidget {
                             Flexible(
                               child: Text(seats == 1 ? '1 seat' : '$seats seats',
                                   maxLines: 1, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12.5)),
+                            ),
+                          ]),
+                        ],
+                        if (tagline.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text(tagline,
+                              maxLines: 2, overflow: TextOverflow.ellipsis, style: Cap.caption(size: 12.5)),
+                        ],
+                        if (needs.isNotEmpty) ...[
+                          const SizedBox(height: 5),
+                          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            const Padding(
+                              padding: EdgeInsets.only(top: 1),
+                              child: Icon(Icons.verified_outlined, size: 14, color: RegPalette.orange),
+                            ),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text('Needs: $needs',
+                                  key: ValueKey('vehicle_needs_${vehicleTypeIdOf(vt)}'),
+                                  // The whole rule list: a driver must see every rule to pick right.
+                                  maxLines: 5,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Cap.body(size: 12, weight: FontWeight.w700, color: RegPalette.orange)
+                                      .copyWith(height: 1.25)),
                             ),
                           ]),
                         ],
@@ -208,7 +469,7 @@ class VehicleTypeTile extends StatelessWidget {
   /// The photo on a soft tinted backdrop with a ground shadow under it.
   Widget _photo(double w, Duration dur) => Container(
         width: w,
-        height: 84,
+        height: 92,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           gradient: LinearGradient(
@@ -239,7 +500,7 @@ class VehicleTypeTile extends StatelessWidget {
               scale: selected ? 1.1 : 1,
               duration: dur,
               curve: Curves.easeOutBack,
-              child: VehicleTypeImage(vt: vt, width: w - 14, height: 70),
+              child: VehicleTypeImage(vt: vt, width: w - 14, height: 76),
             ),
           ),
         ]),

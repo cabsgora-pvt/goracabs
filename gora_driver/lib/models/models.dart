@@ -111,6 +111,11 @@ class RideRequestModel {
   final String passengerName;
   /// The passenger's phone (only from /rides/driver/active, only for 'other').
   final String passengerPhone;
+  /// The vehicle type the rider booked, exactly as sent ('' when the server
+  /// sent none — unlike [rideType], which then falls back to 'taxi'). A
+  /// higher-tier driver who takes lower-tier rides gets ones booked for a
+  /// type other than their own (see lowerTierRideLabel).
+  final String vehicleTypeName;
 
   /// The rider booked this trip for someone else and named them.
   bool get isForOther => bookingFor == 'other' && passengerName.trim().isNotEmpty;
@@ -167,6 +172,7 @@ class RideRequestModel {
     this.bookingFor = 'self',
     this.passengerName = '',
     this.passengerPhone = '',
+    this.vehicleTypeName = '',
   });
 
   // Build a request model from a pending-request JSON row (backend /rides/driver/pending)
@@ -238,6 +244,7 @@ class RideRequestModel {
       bookingFor: r['bookingFor'] == 'other' ? 'other' : 'self',
       passengerName: r['bookingFor'] == 'other' ? (r['passengerName'] ?? '').toString() : '',
       passengerPhone: r['bookingFor'] == 'other' ? (r['passengerPhone'] ?? '').toString() : '',
+      vehicleTypeName: (r['vehicleType'] ?? '').toString().trim(),
     );
   }
 

@@ -168,12 +168,14 @@ void main() {
       expect(find.byIcon(Icons.electric_rickshaw), findsOneWidget);
     });
 
-    testWidgets('selection page: full-width cards with photo, seats and chips; details page reuses the photo',
+    testWidgets('selection page: a grid of categories with their photos; details page reuses the photo',
         (tester) async {
       _size(tester, const Size(411, 1400));
       await http.runWithClient(() async {
         await tester.pumpWidget(_app(const VehicleSelectionPage()));
         await _pumpFor(tester);
+        // v1.5.2: one card per category (no `category` from this server: it is
+        // inferred from the name), with the basic type's photo.
         final assets = tester.widgetList<Image>(find.byKey(const ValueKey('vehicle_asset'))).map(_assetOf).toList();
         expect(assets, [
           'assets/images/vehicles/bike.webp', // network URL still loading → bundled photo
@@ -181,15 +183,17 @@ void main() {
           'assets/images/vehicles/mini-truck.webp',
         ]);
         expect(find.byKey(const ValueKey('vehicle_network')), findsOneWidget, reason: 'Bike has an imageUrl');
-        expect(find.text('1 seat'), findsOneWidget);
-        expect(find.text('4 seats'), findsOneWidget);
-        expect(find.textContaining('seat'), findsNWidgets(2), reason: 'no seats line without a capacity');
-        for (final s in ['Taxi', 'Rental', 'Outstation', 'Parcel', 'Hire driver']) {
-          expect(find.text(s), findsWidgets, reason: s);
+        for (final l in ['Bike', 'Cab', 'Truck']) {
+          expect(find.text(l), findsOneWidget, reason: l);
         }
-        // Full width: each card spans (almost) the sheet.
-        final card = tester.getSize(find.byType(VehicleTypeTile).first);
-        expect(card.width, greaterThan(411 - 40));
+        expect(find.text('Mini Truck'), findsOneWidget, reason: 'a lone type with its own name shows it');
+        expect(find.text('1 option'), findsNWidgets(2));
+        // Two per row: Cab beside Bike, Truck below them.
+        expect(tester.getCenter(find.text('Cab')).dy, closeTo(tester.getCenter(find.text('Bike')).dy, 1));
+        expect(tester.getCenter(find.text('Cab')).dx, greaterThan(tester.getCenter(find.text('Bike')).dx));
+        expect(tester.getCenter(find.text('Truck')).dy, greaterThan(tester.getCenter(find.text('Bike')).dy));
+        final card = tester.getSize(find.byType(VehicleCategoryCard).first);
+        expect(card.width, lessThan(411 / 2));
         await _teardown(tester);
 
         await tester.pumpWidget(_app(const VehicleDetailsPage(), args: {'vehicle': {'_id': 'v6', 'name': 'Mini Truck'}}));

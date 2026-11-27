@@ -257,6 +257,7 @@ class _OnRideViewState extends State<_OnRideView> {
             return RideShell(
               rideId: r.id,
               vehicleType: r.rideType,
+              rideVehicleType: r.vehicleTypeName,
               driving: started,
               leg: leg,
               // The booked route runs pickup → drop. As a stand-in for the leg

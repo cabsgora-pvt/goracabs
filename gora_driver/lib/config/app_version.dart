@@ -3,7 +3,7 @@
 ///
 /// Must match `version:` in pubspec.yaml (without the +build) — a test fails
 /// when they differ, so a release cannot ship with the wrong number.
-const appVersion = '1.5.1';
+const appVersion = '1.5.2';
 
 /// Where "Update" goes when the admin has not set a store link.
 const defaultStoreUrl = 'https://play.google.com/store/apps/details?id=com.gora.gora_driver';

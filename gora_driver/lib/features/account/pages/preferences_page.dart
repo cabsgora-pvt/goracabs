@@ -7,7 +7,9 @@ import '../service_prefs.dart';
 
 /// Trip preferences, full page: a two-per-row grid of services (big image,
 /// name, a blue check on the ones this driver takes), the admin-defined ride
-/// preferences, and a sticky Save. Saved with POST /auth/driver/preferences.
+/// preferences, for a higher tier (Prime SUV) a switch to also take its
+/// category's lower-tier rides (Cab, Prime Sedan), and a sticky Save. Saved
+/// with POST /auth/driver/preferences.
 class PreferencesPage extends StatefulWidget {
   static const route = '/preferences';
   const PreferencesPage({super.key});
@@ -24,11 +26,18 @@ class _PreferencesPageState extends State<PreferencesPage> {
   // Admin-defined ride preferences and the ones this driver offers
   List<RidePrefDef> _prefDefs = const [];
   Set<String> _ridePrefs = {};
+  // A higher tier (Prime SUV) may also take rides booked for the lower tiers
+  // of its category (profile lowerTiers: ["Cab", "Prime Sedan"]). The switch
+  // shows only when there are some.
+  List<String> _lowerTiers = const [];
+  bool _acceptLowerTiers = false;
   // What the server last confirmed, to tell "saved" from "unsaved changes".
   String _savedSig = '';
 
-  String get _sig =>
-      [_rental, _outstation, _hireDriver, _delivery, (_ridePrefs.toList()..sort()).join(',')].join('|');
+  String get _sig => [
+        _rental, _outstation, _hireDriver, _delivery, (_ridePrefs.toList()..sort()).join(','),
+        _lowerTiers.isNotEmpty && _acceptLowerTiers,
+      ].join('|');
   bool get _dirty => !_loading && _sig != _savedSig;
 
   @override
@@ -55,6 +64,8 @@ class _PreferencesPageState extends State<PreferencesPage> {
           _allowOutstation = d['allowOutstation'] != false;
           _allowHireDriver = d['allowHireDriver'] != false;
           _allowDelivery = d['allowDelivery'] != false;
+          _lowerTiers = lowerTierNames(d['lowerTiers']);
+          _acceptLowerTiers = d['acceptLowerTiers'] == true;
         });
       }
     } catch (_) {}
@@ -79,6 +90,8 @@ class _PreferencesPageState extends State<PreferencesPage> {
         'acceptsDelivery': _delivery,
         // Only sent once the list loaded, so a failed load never clears them.
         if (_prefDefs.isNotEmpty) 'ridePreferences': _ridePrefs.toList(),
+        // Only when the switch is on screen.
+        if (_lowerTiers.isNotEmpty) 'acceptLowerTiers': _acceptLowerTiers,
       });
       if (!mounted) return;
       if (res['error'] != null) {
@@ -92,6 +105,8 @@ class _PreferencesPageState extends State<PreferencesPage> {
         _hireDriver = (prefs?['acceptsHireDriver'] as bool?) ?? _hireDriver;
         _delivery = (prefs?['acceptsDelivery'] as bool?) ?? _delivery;
         if (prefs?['ridePreferences'] is List) _ridePrefs = ridePrefKeysOf(prefs?['ridePreferences']);
+        if (prefs?['lowerTiers'] is List) _lowerTiers = lowerTierNames(prefs?['lowerTiers']);
+        _acceptLowerTiers = (prefs?['acceptLowerTiers'] as bool?) ?? _acceptLowerTiers;
         _savedSig = _sig;
       });
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Preferences saved'), backgroundColor: AppColors.green));
@@ -170,6 +185,17 @@ class _PreferencesPageState extends State<PreferencesPage> {
                   ]),
                 ),
               ),
+              if (_lowerTiers.isNotEmpty)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
+                  sliver: SliverToBoxAdapter(
+                    child: LowerTiersCard(
+                      tiers: _lowerTiers,
+                      value: _acceptLowerTiers,
+                      onChanged: _saving ? null : (v) => setState(() => _acceptLowerTiers = v),
+                    ),
+                  ),
+                ),
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 18, 16, 24),
                 sliver: SliverToBoxAdapter(
@@ -213,6 +239,63 @@ class _PreferencesPageState extends State<PreferencesPage> {
                 ]),
               ),
             ),
+    );
+  }
+}
+
+/// The lower tiers from the profile / preferences reply (["Cab", "Prime
+/// Sedan"]), blanks dropped.
+List<String> lowerTierNames(Object? raw) => raw is List
+    ? raw.map((e) => '$e'.trim()).where((e) => e.isNotEmpty).toList()
+    : const [];
+
+/// "Also take Cab, Prime Sedan rides".
+String lowerTiersTitle(List<String> tiers) => 'Also take ${tiers.join(', ')} rides';
+
+const lowerTiersSubtitle = "More trips when it's busy. You earn the fare of the ride the rider booked.";
+
+/// A higher-tier driver's opt-in to rides booked for the lower tiers of the
+/// same category: a card with a blue switch.
+class LowerTiersCard extends StatelessWidget {
+  final List<String> tiers;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
+  const LowerTiersCard({super.key, required this.tiers, required this.value, this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const ValueKey('prefs_lower_tiers'),
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+      decoration: BoxDecoration(
+        color: Cap.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: value ? AppColors.primary : Cap.divider, width: value ? 2 : 1),
+        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Row(children: [
+        Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.10), shape: BoxShape.circle),
+          child: const Icon(Icons.layers_rounded, color: AppColors.primary, size: 22),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(lowerTiersTitle(tiers), style: Cap.body(size: 15, weight: FontWeight.w900)),
+            const SizedBox(height: 3),
+            Text(lowerTiersSubtitle, style: Cap.caption(size: 12.5)),
+          ]),
+        ),
+        const SizedBox(width: 6),
+        Switch(
+          key: const ValueKey('prefs_lower_tiers_switch'),
+          value: value,
+          onChanged: onChanged,
+          activeTrackColor: AppColors.primary,
+        ),
+      ]),
     );
   }
 }

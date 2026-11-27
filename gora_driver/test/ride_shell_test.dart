@@ -52,6 +52,7 @@ RideRequestModel ride({
   int? waitingSec,
   RideProgress progress = const RideProgress(),
   double cod = 0,
+  String vehicleTypeName = '',
 }) => RideRequestModel(
   id: id,
   userName: 'Chandrashekhar Balasubramanian',
@@ -82,6 +83,7 @@ RideRequestModel ride({
   codAmount: cod,
   distanceKm: 18.4, durationMin: 42, totalFareValue: 124999, baseFare: 124999,
   progress: progress,
+  vehicleTypeName: vehicleTypeName,
 );
 
 class ApiCall {
@@ -114,6 +116,7 @@ Future<List<String>> openScreen(
   List<ApiCall>? log,
   Future<http.Response?> Function(http.Request)? override,
   bool scroll = false,
+  Map<String, dynamic>? driver,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
@@ -139,7 +142,7 @@ Future<List<String>> openScreen(
     await act(() async {
       await tester.pumpWidget(MultiProvider(
         providers: [
-          ChangeNotifierProvider(create: (_) => DriverProvider()),
+          ChangeNotifierProvider(create: (_) => driver == null ? DriverProvider() : (DriverProvider()..setData(driver))),
           ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ],
         child: BlocProvider(
@@ -273,6 +276,24 @@ void main() {
       });
     });
   }
+
+  // ── v1.5.2 tiers: a Prime SUV driver on a Cab ride is told the tier ──
+  group('lower-tier ride chip on the trip screen', () {
+    testWidgets('Prime SUV driver on a Cab ride: "Cab ride · lower tier"', (tester) async {
+      await openScreen(tester, onRide: ride(vehicleTypeName: 'Cab'), driver: {'selectedVehicleTypeName': 'Prime SUV'});
+      expect(find.byKey(const Key('trip-lower-tier')), findsOneWidget);
+      expect(find.text('Cab ride · lower tier'), findsOneWidget);
+      await teardown(tester);
+    });
+    testWidgets('own type (or unknown): no chip', (tester) async {
+      await openScreen(tester, onRide: ride(vehicleTypeName: 'Prime SUV'), driver: {'selectedVehicleTypeName': 'Prime SUV'});
+      expect(find.byKey(const Key('trip-lower-tier')), findsNothing);
+      await teardown(tester);
+      await openScreen(tester, onRide: ride(vehicleTypeName: 'Cab'));
+      expect(find.byKey(const Key('trip-lower-tier')), findsNothing, reason: 'own type not known yet');
+      await teardown(tester);
+    });
+  });
 
   // ── One layout: SOS, call and chat on every service ──
   group('every service can reach help and the customer', () {

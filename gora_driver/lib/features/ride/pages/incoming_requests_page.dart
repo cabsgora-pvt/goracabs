@@ -13,6 +13,7 @@ import '../../home/logic/feed_status.dart';
 import '../logic/accept_outcome.dart';
 import '../logic/dismissed_requests.dart';
 import '../logic/request_announcement.dart';
+import '../widgets/lower_tier_chip.dart';
 import '../widgets/voice_guide.dart';
 import '../widgets/swipe_to_confirm.dart';
 import '../../../widgets/captain_ui/captain_ui.dart';
@@ -698,6 +699,16 @@ class _RequestCardState extends State<_RequestCard> with SingleTickerProviderSta
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: _paymentLine(r),
           ),
+          // Booked for a lower tier than this driver's own (a Prime SUV driver
+          // taking a Cab ride): the fare above is that tier's.
+          if (lowerTierRideLabel(r.vehicleTypeName, ownVehicleTypeOf(context)) case final tier?)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: LowerTierChip(tier, key: ValueKey('lower_tier_${r.id}')),
+              ),
+            ),
           // Booked for someone else: who to look for at pickup, and who booked.
           if (bookedForLabel(r) != null)
             Padding(

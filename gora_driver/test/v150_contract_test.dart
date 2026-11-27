@@ -167,12 +167,12 @@ void main() {
   tearDown(unmockSecureStorage);
 
   // ── 0. Version ────────────────────────────────────────────────────────────
-  test('appVersion matches pubspec.yaml, which is 1.5.1 with a newer build', () {
+  test('appVersion matches pubspec.yaml, which is 1.5.2 with a newer build', () {
     final pub = File('pubspec.yaml').readAsStringSync();
     final m = RegExp(r'^version:\s*([0-9.]+)\+(\d+)\s*$', multiLine: true).firstMatch(pub)!;
     expect(m.group(1), appVersion);
-    expect(appVersion, '1.5.1');
-    expect(int.parse(m.group(2)!), greaterThan(10), reason: 'v1.5.0 was build 10');
+    expect(appVersion, '1.5.2');
+    expect(int.parse(m.group(2)!), greaterThan(11), reason: 'v1.5.1 was build 11');
   });
 
   // ── 1. Sessions ───────────────────────────────────────────────────────────

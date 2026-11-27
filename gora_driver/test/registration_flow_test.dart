@@ -449,8 +449,10 @@ void main() {
     await _teardown(tester);
   });
 
-  testWidgets('vehicle details still sends the same body and validates the same', (tester) async {
+  testWidgets('vehicle details sends the same body plus the model year, and validates the same', (tester) async {
     _size(tester);
+    // Last year: always the second entry of the picker (next year comes first).
+    final year = DateTime.now().year - 1;
     await http.runWithClient(() async {
       await tester.pumpWidget(_app(const VehicleDetailsPage(), args: {'vehicle': {'_id': 'v2', 'name': 'Cab'}}));
       await _pumpFor(tester, 800);
@@ -458,14 +460,20 @@ void main() {
       await _pumpFor(tester, 300);
       expect(find.text('Vehicle model is required'), findsOneWidget);
       expect(find.text('Registration number is required'), findsOneWidget);
+      expect(find.text('Model year is required'), findsOneWidget, reason: 'v1.5.2: the year is asked for too');
       await tester.enterText(find.byType(TextFormField).at(0), 'Maruti Swift Dzire');
       await tester.enterText(find.byType(TextFormField).at(1), 'gj03ab1234');
+      await tester.tap(find.byType(DropdownButtonFormField<int>));
+      await _pumpFor(tester, 500);
+      await tester.tap(find.text('$year').last);
+      await _pumpFor(tester, 500);
       await tester.tap(find.text('Continue'));
       await _pumpFor(tester, 800);
     }, () => _client);
     expect(_bodyOf(_sent('POST', '/register/vehicle').single), {
       'selectedVehicleTypeId': 'v2', 'selectedVehicleTypeName': 'Cab',
       'vehicleRegistrationNumber': 'GJ03AB1234', 'vehicleModel': 'Maruti Swift Dzire',
+      'vehicleYear': year,
     });
     await _teardown(tester);
   });

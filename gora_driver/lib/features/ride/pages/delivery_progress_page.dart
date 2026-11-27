@@ -350,6 +350,7 @@ class _DeliveryProgressPageState extends State<DeliveryProgressPage> {
     return RideShell(
       rideId: r.id,
       vehicleType: r.rideType,
+      rideVehicleType: r.vehicleTypeName,
       // On the way to the receiver the map leads; at the sender, and when
       // finishing, the details do.
       driving: _collected && !finishing,
