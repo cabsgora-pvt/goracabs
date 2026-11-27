@@ -106,6 +106,72 @@ function LedgerCard({ id, refreshKey }: { id: string; refreshKey: number }) {
 import Link from 'next/link'
 import { EditAccountButton, HoldCard, ZoneCard } from '@/components/account-admin'
 import { DriverDocModal } from '@/components/account-admin-extra'
+import { lowerTierNames } from '@/lib/vehicle-tiers-client'
+
+/**
+ * Does the vehicle meet its type's rules (server: lib/vehicle-check), and the
+ * "also takes lower-tier rides" switch — shown only when the type has lower
+ * tiers (same category, lower level) in the vehicle types list.
+ */
+function VehicleCheckCard({ driver, check, types, onSaved, onToast }: {
+  driver: any
+  check: { type: string | null; problems: string[]; rules: string } | null
+  types: any[]
+  onSaved: (d: any) => void
+  onToast: (t: { msg: string; type: 'success' | 'error' }) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const typeName = driver.selectedVehicleTypeName || driver.vehicleType || ''
+  const lower = lowerTierNames(types, driver.selectedVehicleTypeName || driver.vehicleType)
+  const setLowerTiers = async (on: boolean) => {
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/drivers/${driver._id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ acceptLowerTiers: on }) })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) onToast({ msg: d.error || 'Could not save', type: 'error' })
+      else { onSaved(d); onToast({ msg: on ? 'Lower-tier rides on' : 'Lower-tier rides off', type: 'success' }) }
+    } catch { onToast({ msg: 'Could not save', type: 'error' }) }
+    setBusy(false)
+  }
+  const problems = check?.problems || []
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+      <p className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-2">
+        {problems.length ? <ShieldAlert className="w-4 h-4 text-red-600" /> : <ShieldCheck className="w-4 h-4" />} Vehicle check
+      </p>
+      {!typeName ? (
+        <p className="text-sm text-gray-400">No vehicle type chosen yet.</p>
+      ) : !check?.type ? (
+        <p className="text-sm text-amber-700">Vehicle type &ldquo;{typeName}&rdquo; is not in the vehicle types list — rules can&apos;t be checked.</p>
+      ) : (
+        <>
+          <p className="text-xs text-gray-500 mb-2">
+            {driver.vehicleModel || 'Model not given'} · {driver.vehicleYear ? `${driver.vehicleYear} model` : 'model year not given'}
+            {' · '}{check.rules ? `${check.type} rules: ${check.rules}` : `${check.type} has no vehicle rules`}
+          </p>
+          {problems.length ? (
+            <ul className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 list-disc pl-8 space-y-0.5">
+              {problems.map((p, i) => <li key={i}>{p}</li>)}
+            </ul>
+          ) : (
+            <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">✓ Meets {check.type} rules</p>
+          )}
+        </>
+      )}
+      {lower.length > 0 && (
+        <label className="flex items-center justify-between gap-2 mt-3 text-sm text-gray-700">
+          <span>
+            Also takes lower-tier rides ({lower.join(', ')})
+            <span className="block text-xs text-gray-400">The rider pays the fare of the tier they booked; the driver earns from that fare.</span>
+          </span>
+          <input type="checkbox" checked={driver.acceptLowerTiers === true} disabled={busy}
+            aria-label="Also takes lower-tier rides"
+            onChange={e => setLowerTiers(e.target.checked)} />
+        </label>
+      )}
+    </div>
+  )
+}
 
 export default function DriverDetailPage() {
   const { id } = useParams()
@@ -120,8 +186,11 @@ export default function DriverDetailPage() {
   // Document being edited (an existing one), or { add: true, type? } to add one.
   const [docEdit, setDocEdit] = useState<any | null>(null)
   const [prefNames, setPrefNames] = useState<Record<string, string>>({})
+  const [vehicleTypes, setVehicleTypes] = useState<any[]>([])
+  const [vehicleCheck, setVehicleCheck] = useState<{ type: string | null; problems: string[]; rules: string } | null>(null)
   useEffect(() => {
     fetch('/api/vehicles/types').then(r => r.json()).then(d => {
+      setVehicleTypes(d.types || [])
       setVehicleTypeOptions((d.types || []).map((v: any) => ({ value: v.name, label: v.name })))
     }).catch(() => {})
     fetch('/api/document-types?all=1').then(r => r.json()).then(d => setDocTypes(d.documents || [])).catch(() => {})
@@ -152,7 +221,7 @@ export default function DriverDetailPage() {
   const fetchDriver = () => {
     fetch(`/api/drivers/${id}`)
       .then(r => r.json())
-      .then(d => { setDriver(d.driver); setRecentRides(d.recentRides || []); setSubs(d.subscriptions || []); setWithdrawals(d.withdrawals || []); setLoading(false) })
+      .then(d => { setDriver(d.driver); setRecentRides(d.recentRides || []); setSubs(d.subscriptions || []); setWithdrawals(d.withdrawals || []); setVehicleCheck(d.vehicleCheck || null); setLoading(false) })
       .catch(() => setLoading(false))
     fetch(`/api/drivers/${id}/face-verifications`)
       .then(r => r.json())
@@ -453,7 +522,7 @@ export default function DriverDetailPage() {
                 <Car className="w-4 h-4 text-gray-400" />
                 <div>
                   <p className="text-gray-700 font-mono">{driver.vehicleRegistrationNumber || driver.vehicleNumber || '—'}</p>
-                  <p className="text-gray-500 text-xs">{driver.selectedVehicleTypeName || driver.vehicleType || '—'} • {driver.vehicleModel || '—'}</p>
+                  <p className="text-gray-500 text-xs">{driver.selectedVehicleTypeName || driver.vehicleType || '—'} • {driver.vehicleModel || '—'} • {driver.vehicleYear ? `${driver.vehicleYear} model` : 'year —'}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3 text-sm">
@@ -468,7 +537,7 @@ export default function DriverDetailPage() {
                 title="Edit driver"
                 url={`/api/drivers/${id}`}
                 value={driver}
-                onSaved={(d: any) => setDriver((old: any) => ({ ...old, ...d }))}
+                onSaved={(d: any) => { setDriver((old: any) => ({ ...old, ...d })); fetchDriver() /* re-run the vehicle check */ }}
                 onToast={setToast}
                 fields={[
                   { key: '_personal', label: 'Personal', type: 'section' },
@@ -486,7 +555,8 @@ export default function DriverDetailPage() {
                   { key: '_vehicle', label: 'Vehicle', type: 'section' },
                   { key: 'selectedVehicleTypeName', label: 'Vehicle type', type: 'select', half: true, options: vehicleTypeOptions },
                   { key: 'vehicleModel', label: 'Vehicle model', half: true },
-                  { key: 'vehicleNumber', label: 'Vehicle number' },
+                  { key: 'vehicleYear', label: 'Model year (e.g. 2021)', half: true },
+                  { key: 'vehicleNumber', label: 'Vehicle number', half: true },
                   { key: '_bank', label: 'Bank details', type: 'section' },
                   { key: 'bankDetails.accountHolderName', label: 'Account holder name' },
                   { key: 'bankDetails.bankName', label: 'Bank name', half: true },
@@ -530,6 +600,8 @@ export default function DriverDetailPage() {
                 onChanged={(h: any) => setDriver((d: any) => ({ ...d, accountHold: h, ...(h && !h.active ? { faceVerificationRequired: false } : {}) }))} />
               <ZoneCard driver={driver} onToast={setToast} onSaved={(d: any) => setDriver((old: any) => ({ ...old, ...d }))} />
             </div>
+            <VehicleCheckCard driver={driver} check={vehicleCheck} types={vehicleTypes} onToast={setToast}
+              onSaved={(d: any) => setDriver((old: any) => ({ ...old, ...d }))} />
             {(driver.ridePreferences || []).length > 0 && (
               <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
                 <p className="text-sm font-semibold text-gray-800 mb-2">Ride preferences offered</p>

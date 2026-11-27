@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { connectDB } from '@/lib/mongodb'
 import VehicleType from '@/models/VehicleType'
+import { cleanTierFields, warmVehicleTiers, tierView } from '@/lib/vehicle-tiers'
 import { guardAdmin } from '@/lib/admin-guard'
 import { requireAdminPassword } from '@/lib/admin-password'
 import { auditAdminBody } from '@/lib/admin-audit'
@@ -12,9 +13,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd
     await auditAdminBody(req, requireAdmin(req), 'vehicle_type.update', String(params.id))
     await connectDB()
-    const body = await req.json()
+    const body = cleanTierFields(await req.json())
     const type = await VehicleType.findByIdAndUpdate(params.id, body, { new: true }).lean()
     if (!type) return NextResponse.json({ error: 'Vehicle type not found' }, { status: 404 })
+    await warmVehicleTiers(true)
     return NextResponse.json(type)
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 400 })

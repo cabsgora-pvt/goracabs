@@ -5,6 +5,7 @@ import Driver from '@/models/Driver'
 import { requireDriverAuth } from '@/lib/auth'
 import RidePreference from '@/models/RidePreference'
 import { withCors, corsOptions } from '@/lib/cors'
+import { warmVehicleTiers, lowerTiersOf } from '@/lib/vehicle-tiers'
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -24,6 +25,11 @@ async function handle(req: NextRequest) {
     if (typeof body.acceptsRental === 'boolean') driver.acceptsRental = body.acceptsRental && driver.allowRental !== false
     if (typeof body.acceptsHireDriver === 'boolean') driver.acceptsHireDriver = body.acceptsHireDriver && driver.allowHireDriver !== false
     if (typeof body.acceptsDelivery === 'boolean') driver.acceptsDelivery = body.acceptsDelivery && driver.allowDelivery !== false
+    // A higher tier (Prime SUV) may also take lower-tier rides of its category
+    // (Cab, Prime Sedan). Only meaningful when such tiers exist.
+    await warmVehicleTiers()
+    const lower = lowerTiersOf(driver.selectedVehicleTypeName)
+    if (typeof body.acceptLowerTiers === 'boolean') driver.acceptLowerTiers = body.acceptLowerTiers && lower.length > 0
     // Admin-defined ride preferences (pet friendly …): only active keys stick.
     if (Array.isArray(body.ridePreferences)) {
       const keys = body.ridePreferences.map((k: any) => String(k)).slice(0, 20)
@@ -38,6 +44,8 @@ async function handle(req: NextRequest) {
       acceptsHireDriver: driver.acceptsHireDriver ?? false,
       acceptsDelivery: driver.acceptsDelivery ?? false,
       ridePreferences: driver.ridePreferences || [],
+      acceptLowerTiers: driver.acceptLowerTiers === true,
+      lowerTiers: lower,
     } })
   } catch (e: any) {
     return withCors({ error: e.message || 'Server error' }, 500)

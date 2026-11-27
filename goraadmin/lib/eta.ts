@@ -33,6 +33,7 @@
 import { distanceKm, type LatLng } from './geo'
 import EtaProfile from '@/models/EtaProfile'
 import Ride from '@/models/Ride'
+import { warmVehicleTiers, lowerTiersOf } from '@/lib/vehicle-tiers'
 
 export const ETA_CONFIG = {
   // ── The prediction ──
@@ -571,8 +572,9 @@ export async function etaByVehicleType(
   const [factor, drivers] = await Promise.all([
     getEtaFactor(pickup, when),
     DriverModel.find(availableDriverFilter(extraFilter, ETA_CONFIG.LOCATION_FRESH_QUOTE_MS))
-      .select('selectedVehicleTypeName currentLat currentLng')
+      .select('selectedVehicleTypeName acceptLowerTiers currentLat currentLng')
       .lean() as Promise<any[]>,
+    warmVehicleTiers(),
   ])
   // Scope the busy lookup to the drivers we actually care about.
   const busy = await driverBusyRides(drivers.map((d: any) => String(d._id)))
@@ -593,5 +595,22 @@ export async function etaByVehicleType(
     }
     ranked = await refineCandidatesWithTraffic(ranked, pickup, bounds, only)
   }
-  return bestEtaByVehicleType(ranked, factor)
+  return bestEtaByVehicleType(withUpgradeCandidates(ranked, drivers), factor)
+}
+
+/**
+ * A driver of a higher tier who opted in to lower-tier rides (Prime SUV taking
+ * Cab rides, lib/vehicle-tiers) is dispatched for those rides too, so they count
+ * towards that tier's ETA and "drivers available". Keeps the ranked order.
+ */
+export function withUpgradeCandidates(ranked: DriverCandidate[], drivers: any[]): DriverCandidate[] {
+  const optedIn = new Set(drivers.filter((d: any) => d.acceptLowerTiers === true).map((d: any) => String(d._id)))
+  if (!optedIn.size) return ranked
+  const out: DriverCandidate[] = []
+  for (const c of ranked) {
+    out.push(c)
+    if (!optedIn.has(c.id)) continue
+    for (const lower of lowerTiersOf(c.vehicleTypeName)) out.push({ ...c, vehicleTypeName: lower })
+  }
+  return out
 }

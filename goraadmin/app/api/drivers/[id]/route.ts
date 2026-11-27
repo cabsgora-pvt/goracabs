@@ -13,6 +13,8 @@ import { auditAdmin } from '@/lib/admin-audit'
 import { approvalBlocker } from '@/lib/driver-approval'
 import Zone from '@/models/Zone'
 import mongoose from 'mongoose'
+import { loadVehicleTypeLookup, vehicleCheckOf } from '@/lib/vehicle-check'
+import { warmVehicleTiers, lowerTiersOf } from '@/lib/vehicle-tiers'
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -23,7 +25,9 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     const recentRides = await Ride.find({ driverId: params.id }).sort({ createdAt: -1 }).limit(10).lean()
     const subscriptions = await DriverSubscription.find({ driverId: params.id }).sort({ createdAt: -1 }).limit(10).lean()
     const withdrawals = await Withdrawal.find({ driverId: params.id }).sort({ createdAt: -1 }).limit(10).lean()
-    return NextResponse.json({ driver, recentRides, subscriptions, withdrawals })
+    // Does the vehicle meet its type's rules (model year, models, rating)? Advisory.
+    const vehicleCheck = vehicleCheckOf(await loadVehicleTypeLookup(), driver)
+    return NextResponse.json({ driver, recentRides, subscriptions, withdrawals, vehicleCheck })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
@@ -38,14 +42,37 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (body.status && !['pending', 'approved', 'blocked', 'rejected'].includes(body.status)) return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
     const bad = validateAccountEdit(body)
     if (bad) return NextResponse.json({ error: bad }, { status: 400 })
+    // Vehicle model year (tier rules): a whole year 1990..next year; empty clears it.
+    if ('vehicleYear' in body) {
+      const v = body.vehicleYear
+      if (v === null || v === '') body.vehicleYear = null
+      else {
+        const maxYear = new Date().getFullYear() + 1
+        const y = typeof v === 'number' ? v : typeof v === 'string' && /^\d{4}$/.test(v.trim()) ? Number(v) : NaN
+        if (!Number.isInteger(y) || y < 1990 || y > maxYear) return NextResponse.json({ error: `Model year must be between 1990 and ${maxYear}` }, { status: 400 })
+        body.vehicleYear = y
+      }
+    }
+    if ('acceptLowerTiers' in body && typeof body.acceptLowerTiers !== 'boolean') {
+      return NextResponse.json({ error: 'acceptLowerTiers must be true or false' }, { status: 400 })
+    }
     // Bank details are where payouts go: changing them needs the password.
     const bankKeys = Object.keys(body).filter(k => k.startsWith('bankDetails.'))
     if (bankKeys.length) { const noPwd = await requireAdminPassword(req); if (noPwd) return noPwd }
     const prev: any = mongoose.isValidObjectId(params.id)
-      ? await Driver.findById(params.id).select('status registrationStep documents selectedVehicleTypeName vehicleType name').lean() : null
+      ? await Driver.findById(params.id).select('status registrationStep documents selectedVehicleTypeName vehicleType name acceptLowerTiers').lean() : null
     if (!prev) return NextResponse.json({ error: 'Driver not found' }, { status: 404 })
     // A deleted account stays deleted: no status (e.g. 'approved') or other edit.
     if (prev.status === 'deleted') return NextResponse.json({ error: 'This driver account was deleted', code: 'DRIVER_DELETED' }, { status: 409 })
+    // "Also takes lower-tier rides" only exists for a type that has lower tiers
+    // in its category (Prime SUV → Cab, Prime Sedan); same rule as the driver app.
+    if (body.acceptLowerTiers === true) {
+      const typeName = typeof body.selectedVehicleTypeName === 'string' ? body.selectedVehicleTypeName : prev.selectedVehicleTypeName
+      await warmVehicleTiers(true)   // fresh list: an admin action, not the dispatch hot path
+      if (!lowerTiersOf(typeName).length) {
+        return NextResponse.json({ error: `${typeName || 'This vehicle type'} has no lower tiers to take`, code: 'NO_LOWER_TIERS' }, { status: 400 })
+      }
+    }
     // Approving from pending/rejected goes through the same checks as /approve;
     // blocked -> approved (unblock) is allowed as before.
     if (body.status === 'approved' && prev.status !== 'approved' && prev.status !== 'blocked') {
@@ -90,10 +117,16 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (!driver) return NextResponse.json({ error: 'Driver not found' }, { status: 404 })
     // Blocking ends the driver's open sessions (tokenVersion).
     if (body.status === 'blocked' && prev.status !== 'blocked') await bumpTokenVersion('driver', params.id)
-    if (bankKeys.length || (body.status && body.status !== prev.status)) {
-      await auditAdmin(req, requireAdmin(req), bankKeys.length ? 'driver.bank.update' : 'driver.status', {
+    // Lower-tier rides switched on/off changes which rides the driver is offered.
+    const tiersChanged = 'acceptLowerTiers' in body && body.acceptLowerTiers !== (prev.acceptLowerTiers === true)
+    if (bankKeys.length || (body.status && body.status !== prev.status) || tiersChanged) {
+      await auditAdmin(req, requireAdmin(req), bankKeys.length ? 'driver.bank.update' : body.status && body.status !== prev.status ? 'driver.status' : 'driver.lower_tiers', {
         target: `driver:${params.id}`,
-        summary: [body.status && body.status !== prev.status ? `status ${prev.status} -> ${body.status}` : '', bankKeys.length ? `bank fields: ${bankKeys.map(k => k.slice(12)).join(', ')}` : ''].filter(Boolean).join('; '),
+        summary: [
+          body.status && body.status !== prev.status ? `status ${prev.status} -> ${body.status}` : '',
+          bankKeys.length ? `bank fields: ${bankKeys.map(k => k.slice(12)).join(', ')}` : '',
+          tiersChanged ? `lower-tier rides ${body.acceptLowerTiers ? 'on' : 'off'}` : '',
+        ].filter(Boolean).join('; '),
       })
     }
     return NextResponse.json(driver)

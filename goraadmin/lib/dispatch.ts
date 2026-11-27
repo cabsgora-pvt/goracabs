@@ -14,6 +14,7 @@
 // to the open pool, which is exactly the old behaviour. Rides created before
 // this shipped (offerRound 0, offeredTo null) are treated as open-pool too.
 // ─────────────────────────────────────────────────────────────────────────────
+import { takersFilter, driverMayTakeType, warmVehicleTiers } from '@/lib/vehicle-tiers'
 import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
 import SupportTicket from '@/models/SupportTicket'
@@ -229,7 +230,10 @@ export function serviceOptInFilter(service: any): Record<string, any> {
 }
 
 export function driverFilterFor(ride: any): Record<string, any> {
-  const filter: Record<string, any> = { selectedVehicleTypeName: ride.vehicleType, ...serviceOptInFilter(ride.service) }
+  // Vehicle: the booked type, or a higher tier of the same category whose
+  // driver opted in to lower-tier rides (lib/vehicle-tiers). Under $and so a
+  // caller's own $or can never overwrite it. Call warmVehicleTiers() first.
+  const filter: Record<string, any> = { $and: [takersFilter(ride.vehicleType)], ...serviceOptInFilter(ride.service) }
   if (ride.zoneId) filter.zoneId = String(ride.zoneId)
   if (ride.paymentMode === 'cash') filter.walletBalance = { $gte: 0 }
   return filter
@@ -280,6 +284,7 @@ export async function femalePoolExists(ride: any): Promise<boolean> {
   const hit = femalePoolCache.get(key)
   if (hit && nowMs - hit.at < FEMALE_POOL_CACHE_MS) return hit.value
   const value = await (async () => {
+    await warmVehicleTiers()
     const drivers: any[] = await Driver.find(availableDriverFilter({ ...driverFilterFor(ride), gender: 'female' }))
       .select('currentLat currentLng').limit(50).lean()
     const rejected = new Set((ride.rejectedBy || []).map(String))
@@ -335,7 +340,8 @@ export async function driverEligibleFor(
     return { status: 403, code: 'WALLET_BLOCKED', error: `Low wallet balance (₹${Math.round(driver.walletBalance || 0)}). Please recharge to accept rides.`, walletBlocked: true }
   }
 
-  if (ride.vehicleType !== driver.selectedVehicleTypeName) {
+  await warmVehicleTiers()
+  if (!driverMayTakeType(driver, ride.vehicleType)) {
     return { status: 403, code: 'VEHICLE_MISMATCH', error: 'This ride is for a different vehicle type' }
   }
   const o = OPT_IN[ride.service]
@@ -473,6 +479,7 @@ export async function candidatesFor(ride: any): Promise<DriverCandidate[]> {
   // Same gate as driverEligibleFor (accept + the pending feed), so a ride is
   // never offered to a driver who could then not take it — plus the reject
   // cool-down, which only stops OFFERS.
+  await warmVehicleTiers()
   const filter = { ...driverFilterFor(ride), offerCooldownUntil: { $not: { $gt: now } } }
 
   // Instant rides: the same pickup-ETA cap accept applies (driverEligibleFor).
@@ -482,7 +489,7 @@ export async function candidatesFor(ride: any): Promise<DriverCandidate[]> {
     const [factor, drivers] = await Promise.all([
       getEtaFactor(pickup),
       Driver.find(availableDriverFilter(f))
-        .select('selectedVehicleTypeName currentLat currentLng fcmToken')
+        .select('selectedVehicleTypeName acceptLowerTiers currentLat currentLng fcmToken')
         .lean() as Promise<any[]>,
     ])
 

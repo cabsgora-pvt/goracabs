@@ -10,7 +10,7 @@ import { refreshAlerts } from '@/components/admin-alerts'
 import Link from 'next/link'
 import {
   Clock, CheckCircle, XCircle, ChevronDown, ChevronRight,
-  FileText, MapPin, Car, CreditCard, User, ExternalLink,
+  FileText, MapPin, Car, CreditCard, User, ExternalLink, ShieldCheck, ShieldAlert,
 } from 'lucide-react'
 
 const LIMIT = 50
@@ -153,6 +153,12 @@ export default function PendingDriversPage() {
                         {d.name || 'Unnamed'} <ExternalLink className="w-3 h-3 text-gray-400" />
                       </Link>
                       <p className="text-xs text-gray-500">{d.phone}</p>
+                      {d.vehicleCheckType && !(d.vehicleCheck || []).length && (
+                        <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-50 text-green-700 border border-green-200"
+                          title={d.vehicleRules ? `${d.vehicleCheckType} rules: ${d.vehicleRules}` : `${d.vehicleCheckType} has no vehicle rules`}>
+                          <ShieldCheck className="w-3 h-3" /> Vehicle OK
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="hidden md:flex items-center gap-1 text-sm text-gray-500">
@@ -183,6 +189,18 @@ export default function PendingDriversPage() {
                     </button>
                   </div>
                 </div>
+
+                {!!(d.vehicleCheck || []).length && (
+                  <div className="mx-4 mb-3 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700 flex gap-2">
+                    <ShieldAlert className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold">Vehicle doesn&apos;t meet {d.vehicleCheckType} rules: {(d.vehicleCheck || []).join('; ')}</p>
+                      <p className="text-xs text-red-600 mt-0.5">
+                        {d.vehicleRules ? `Rules: ${d.vehicleRules}. ` : ''}You can still approve — or change the vehicle type / details on the driver page first.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {actionError && actionError.id === d._id && (
                   <div className="mx-4 mb-3 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700" role="alert">
@@ -221,6 +239,7 @@ export default function PendingDriversPage() {
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between"><span className="text-gray-500">Type</span><span className="font-medium">{d.selectedVehicleTypeName || d.vehicleType || '—'}</span></div>
                           <div className="flex justify-between"><span className="text-gray-500">Model</span><span className="font-medium">{d.vehicleModel || '—'}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-500">Model year</span><span className="font-medium">{d.vehicleYear || '—'}</span></div>
                           <div className="flex justify-between"><span className="text-gray-500">Reg. No.</span><span className="font-mono font-medium text-xs">{d.vehicleRegistrationNumber || d.vehicleNumber || '—'}</span></div>
                         </div>
                       </div>
@@ -291,6 +310,11 @@ export default function PendingDriversPage() {
             <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
             <p className="text-gray-700">Approve driver <strong>{driverToConfirm.name}</strong>?</p>
             <p className="text-gray-500 text-sm mt-1">This will allow them to start accepting rides.</p>
+            {!!(driverToConfirm.vehicleCheck || []).length && (
+              <p className="mt-3 text-left text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-2">
+                Vehicle doesn&apos;t meet {driverToConfirm.vehicleCheckType} rules: {(driverToConfirm.vehicleCheck || []).join('; ')}
+              </p>
+            )}
             <div className="flex gap-3 mt-5">
               <button type="button" onClick={() => setConfirmId(null)}
                 className="flex-1 border border-gray-300 text-gray-700 rounded-lg py-2 text-sm font-medium hover:bg-gray-50">Cancel</button>

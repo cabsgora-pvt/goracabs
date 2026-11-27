@@ -5,6 +5,7 @@ import Driver from '@/models/Driver'
 import { requireDriverAuth, refreshAfterOf } from '@/lib/auth'
 import { withCors, corsOptions } from '@/lib/cors'
 import { holdOf, holdMessage } from '@/lib/account-hold'
+import { warmVehicleTiers, lowerTiersOf } from '@/lib/vehicle-tiers'
 
 export async function OPTIONS() {
   return corsOptions()
@@ -33,6 +34,10 @@ export async function GET(req: NextRequest) {
 
     const hold = holdOf(driver)
     driver.hold = hold.held ? { kind: hold.kind, reason: hold.reason, message: holdMessage(hold) } : null
+    // The lower tiers this driver could also take (Prime SUV → Cab, Prime
+    // Sedan); the app shows the "also take …" switch only when there are some.
+    await warmVehicleTiers()
+    driver.lowerTiers = lowerTiersOf(driver.selectedVehicleTypeName)
     // refreshAfter: when the app should call POST /api/auth/refresh.
     return withCors({ driver, refreshAfter: refreshAfterOf(payload) })
   } catch (error: any) {

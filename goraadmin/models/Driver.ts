@@ -93,6 +93,11 @@ const DriverSchema = new Schema({
   allowDelivery: { type: Boolean, default: true },
   vehicleNumber: String,
   vehicleModel: String,
+  // Model year of the vehicle (tier rules: "2019 or newer").
+  vehicleYear: { type: Number, default: null },
+  // A higher-tier driver (Prime SUV) who also takes lower-tier rides of the
+  // same category (Cab). Off by default; see lib/vehicle-tiers.
+  acceptLowerTiers: { type: Boolean, default: false },
   vehicleType: String,
   rating: { type: Number, default: 0 },
   totalRides: { type: Number, default: 0 },

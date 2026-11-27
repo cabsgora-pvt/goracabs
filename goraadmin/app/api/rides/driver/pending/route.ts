@@ -8,6 +8,7 @@ import { requireDriverAuth } from '@/lib/auth'
 import { getEtaFactor, crowKm, predictEtaMin, displayRoadKm } from '@/lib/eta'
 import { driverIsBusy, driverEligibleFor, cachedGlobalSettings, kickDispatchSweeps, rideDueAt, rideIsOpenForDispatch, isAdvanceService, NO_DRIVER } from '@/lib/dispatch'
 import { holdOf } from '@/lib/account-hold'
+import { warmVehicleTiers, rideTypesFor } from '@/lib/vehicle-tiers'
 import { withCors, corsOptions } from '@/lib/cors'
 import { sweepDueNotifications } from '@/lib/notifications'
 import { commissionPercentFor } from '@/lib/commission'
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
     await connectDB()
     sweepDueNotifications()   // scheduled admin notifications that are due
     const driver: any = await Driver.findById(payload.id)
-      .select('status isOnline accountHold faceVerificationRequired faceVerificationReason walletBalance selectedVehicleTypeName zoneId gender currentLat currentLng allowTaxi allowRental allowOutstation allowHireDriver allowDelivery acceptsRental acceptsOutstation acceptsHireDriver acceptsDelivery offerCooldownUntil subscriptionActive subscriptionExpiresAt subscriptionStartedAt subscriptionCommissionPercent')
+      .select('status isOnline accountHold faceVerificationRequired faceVerificationReason walletBalance selectedVehicleTypeName acceptLowerTiers zoneId gender currentLat currentLng allowTaxi allowRental allowOutstation allowHireDriver allowDelivery acceptsRental acceptsOutstation acceptsHireDriver acceptsDelivery offerCooldownUntil subscriptionActive subscriptionExpiresAt subscriptionStartedAt subscriptionCommissionPercent')
       .lean()
     if (!driver) return withCors({ error: 'Driver not found' }, 404)
 
@@ -76,7 +77,11 @@ export async function GET(req: NextRequest) {
     // Candidate query (cheap, indexed): this vehicle type, the services this
     // driver may take, this zone (or zone-less). driverEligibleFor below is the
     // exact rule accept applies.
-    const baseFilter: any = { vehicleType: driver.selectedVehicleTypeName }
+    // Its own type, plus lower tiers of its category when the driver opted in
+    // (a Prime SUV driver may also see Cab rides — lib/vehicle-tiers).
+    await warmVehicleTiers()
+    const types = rideTypesFor(driver)
+    const baseFilter: any = { vehicleType: types.length > 1 ? { $in: types } : driver.selectedVehicleTypeName }
     const zoneOr = driver.zoneId ? { zoneId: { $in: [driver.zoneId, null] } } : {}
     const branches: any[] = []
     if (driver.allowTaxi !== false) branches.push({ ...baseFilter, ...zoneOr, service: { $nin: ['outstation', 'rental', 'hire_driver', 'delivery'] } })

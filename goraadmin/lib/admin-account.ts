@@ -37,6 +37,7 @@ export const USER_EDITABLE = ['name', 'email', 'phone', 'city', 'gender', 'idNum
 export const DRIVER_EDITABLE = [
   'name', 'email', 'phone', 'gender', 'state', 'status', 'rejectionReason', 'registrationStep',
   'vehicleModel', 'vehicleNumber', 'vehicleRegistrationNumber', 'selectedVehicleTypeName', 'vehicleType',
+  'vehicleYear', 'acceptLowerTiers',
   'allowTaxi', 'allowRental', 'allowOutstation', 'allowHireDriver', 'allowDelivery',
   'zoneAuto', 'ridePreferences', 'profilePicUrl', 'faceVerificationRequired', 'faceVerificationReason',
   'bankDetails.accountHolderName', 'bankDetails.bankName', 'bankDetails.branch',

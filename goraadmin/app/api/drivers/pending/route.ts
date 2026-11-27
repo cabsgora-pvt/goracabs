@@ -4,6 +4,7 @@ import Driver from '@/models/Driver'
 import { guardAdmin } from '@/lib/admin-guard'
 import { parsePaging, escapeRegex } from '@/lib/list-params'
 import { maskBank } from '@/lib/bank-mask'
+import { loadVehicleTypeLookup, vehicleCheckOf } from '@/lib/vehicle-check'
 
 
 // GET ?zoneId=&vehicle=&q=&page&limit — the approval queue, OLDEST first (first
@@ -22,11 +23,17 @@ export async function GET(req: NextRequest) {
     if (vehicle) q.$and = [{ $or: [{ selectedVehicleTypeName: { $regex: `^${vehicle}$`, $options: 'i' } }, { vehicleType: { $regex: `^${vehicle}$`, $options: 'i' } }] }]
     const search = escapeRegex((sp.get('q') || '').trim())
     if (search) (q.$and ||= []).push({ $or: [{ name: { $regex: search, $options: 'i' } }, { phone: { $regex: search } }, { vehicleRegistrationNumber: { $regex: search, $options: 'i' } }] })
-    const [rows, total] = await Promise.all([
+    const [rows, total, findType] = await Promise.all([
       Driver.find(q).select('-faceSignature -bankAccounts -walletRechargeRefs').sort({ createdAt: 1, _id: 1 }).skip(skip).limit(limit).lean(),
       Driver.countDocuments(q),
+      loadVehicleTypeLookup(),   // vehicle types loaded once for the whole page
     ])
-    const drivers = rows.map((d: any) => ({ ...d, bankDetails: maskBank(d.bankDetails) }))
+    // vehicleCheck: why the vehicle does not meet its type's rules (empty = OK).
+    // A warning for the admin only — approval is not blocked by it.
+    const drivers = rows.map((d: any) => {
+      const chk = vehicleCheckOf(findType, d)
+      return { ...d, bankDetails: maskBank(d.bankDetails), vehicleCheck: chk.problems, vehicleCheckType: chk.type, vehicleRules: chk.rules }
+    })
     return NextResponse.json({ drivers, total, page, limit })
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 })

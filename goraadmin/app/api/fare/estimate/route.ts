@@ -6,10 +6,18 @@ import Driver from '@/models/Driver'
 import VehicleType from '@/models/VehicleType'
 import { pointInPolygon, distanceKm } from '@/lib/geo'
 import { etaByVehicleType, getEtaFactor, displayRoadKm } from '@/lib/eta'
+import { tierView } from '@/lib/vehicle-tiers'
 import { withCors, corsOptions } from '@/lib/cors'
 import { getSettingsAsync } from '@/lib/settings'
 import { signQuote, quoteCell, stopsKey, weightKey, hireHours } from '@/lib/quote'
 import { rateLimit } from '@/lib/rate-limit'
+
+// Category / tier / admin tagline per vehicle, for the rider's vehicle list.
+function tierBits(vt: any) {
+  const t = tierView(vt)
+  // models: the admin's allowed models for this tier ("Dzire, Aura or similar").
+  return { category: t.category, rank: t.rank, tagline: t.tagline, models: (t.requirements.allowedModels || []).slice(0, 4) }
+}
 
 export async function OPTIONS() { return corsOptions() }
 
@@ -217,6 +225,7 @@ export async function POST(req: NextRequest) {
           name: v.name,
           imageUrl: v.imageUrl || '',
           capacity: v.capacity,
+          ...tierBits(v),
           fare,
           baseFare: base, perKm, perHour,
           commissionPercent: commission,
@@ -324,7 +333,7 @@ export async function POST(req: NextRequest) {
     )
 
     // Vehicle images by type name (for delivery/taxi vehicle cards)
-    const vtsAll: any[] = await VehicleType.find({ isActive: true }).select('name imageUrl capacity').lean()
+    const vtsAll: any[] = await VehicleType.find({ isActive: true }).select('name imageUrl capacity category rank tagline requirements').lean()
     const vtImg = new Map<string, any>(vtsAll.map(v => [v.name, v]))
 
     // Calculate fare + attach ETA per active vehicle for this service
@@ -344,6 +353,7 @@ export async function POST(req: NextRequest) {
           vehicleTypeId: p.vehicleTypeId,
           name: p.vehicleTypeName,
           imageUrl: vt?.imageUrl || '', capacity: vt?.capacity || 4,
+          ...tierBits(vt || { name: p.vehicleTypeName }),
           fare,
           baseFare: p.baseFare,
           perKm: p.perKm,

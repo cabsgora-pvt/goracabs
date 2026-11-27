@@ -5,6 +5,7 @@ import Ride from '@/models/Ride'
 import Driver from '@/models/Driver'
 import { requireActiveDriver } from '@/lib/auth'
 import { crowKm, getEtaFactor, predictEtaMin, ETA_CONFIG } from '@/lib/eta'
+import { rideTypesFor } from '@/lib/vehicle-tiers'
 import { withCors, corsOptions } from '@/lib/cors'
 import { pushToUserAsync } from '@/lib/push'
 import { driverIsBusy, driverEligibleFor, cachedGlobalSettings, acquireAcceptLease, releaseAcceptLease, recordDriverEvent } from '@/lib/dispatch'
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       const now = new Date()
       ride = await Ride.findOneAndUpdate(
         {
-          _id: params.id, status: 'pending', vehicleType: driver.selectedVehicleTypeName,
+          _id: params.id, status: 'pending', vehicleType: { $in: rideTypesFor(driver) },
           rejectedBy: { $ne: String(driver._id) },
           $or: [{ offeredTo: null }, { offeredTo: driver._id }, { offerExpiresAt: null }, { offerExpiresAt: { $lte: now } }],
         },
